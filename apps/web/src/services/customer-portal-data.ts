@@ -2342,6 +2342,10 @@ export async function replaceDealPackageOptions(input: {
       .where(eq(quotations.dealRecordId, input.dealRecordId))
       .limit(1);
     const previousSlug = existingQ?.selectedPackageSlug ?? null;
+    // Plan 5b (Entscheidung 8): Paketoptionen von Hand (Composer, Wizard, MCP,
+    // Paketberater) lösen bei Firmen mit Schalter den Bezug zur Kalkulationsversion.
+    const { plan5Schalter } = await import("./plan5-schalter");
+    const vonHand = (await plan5Schalter(input.workspaceId, input.dealRecordId, tx)).angebotAusKalkulation;
 
     await tx
       .delete(quotationPackageOptions)
@@ -2405,6 +2409,7 @@ export async function replaceDealPackageOptions(input: {
             selectedPackageSlug: chosen.catalogueSlug,
             fixedPrice: priceEur,
             isVariable: false,
+            ...(vonHand ? { calculationVersionId: null } : {}),
             updatedAt: new Date(),
           })
           .where(eq(quotations.id, existingQ.id));
@@ -2418,6 +2423,11 @@ export async function replaceDealPackageOptions(input: {
           showStandardInclusions: true,
         });
       }
+    }
+
+    // Ohne neue Option (alle entfernt) löst das Setzen von Hand den Bezug ebenso.
+    if (vonHand && existingQ && !chosen) {
+      await tx.update(quotations).set({ calculationVersionId: null, updatedAt: new Date() }).where(eq(quotations.id, existingQ.id));
     }
 
     return validated.length;

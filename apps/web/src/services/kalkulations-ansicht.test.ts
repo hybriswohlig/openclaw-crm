@@ -94,6 +94,8 @@ function deps(felder: Partial<AnsichtOptionen> = {}, versionen: VersionsZeile[] 
     ladePaketNamen: vi.fn(async () => ({})),
     istKottke: vi.fn(async () => true),
     ladeKvJob: vi.fn(async () => null),
+    ladeSchalter: vi.fn(async () => ({ angebotAusKalkulation: false, tagespreise: false })),
+    ladePaketOptionen: vi.fn(async () => []),
     jetzt: () => WEBER_JETZT,
     ...felder,
   };

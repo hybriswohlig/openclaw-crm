@@ -11,6 +11,10 @@ import { annahmenZusammenfuehren } from "@/lib/kunden-annahmen";
 import { leistungFuerAngebot } from "@/lib/angebot-leistung";
 import { eq, sql } from "drizzle-orm";
 import { pruefeNichtAngenommen } from "./kva-annahme";
+import { angebotPasstZuVersion, type StundenAngebot } from "@/lib/angebot-wahl";
+import { versionsPreiseAusZeile } from "@/lib/kalkulation-versionen";
+import { dealCalculationVersions } from "@/db/schema/deal-calculation-versions";
+import type { KvPosten } from "./rechner/kv-posten";
 import type { UebernahmeErgebnis } from "./rechner/uebernahme";
 
 export { QuotationInputError } from "@/lib/angebots-rabatt";
@@ -100,6 +104,39 @@ function angebotGeaendert(
     gespeichert.isVariable !== neu.isVariable ||
     postenSchluessel(gespeichert.lineItems) !== postenSchluessel(neu.lineItems)
   );
+}
+
+/**
+ * Plan 5b (Entscheidung 8): Ist der neue Stand genau eine Wahl der verknüpften
+ * Version (Paket oder Tag mit Preis und Posten aus der gesperrten Version)? Dann ist
+ * er nicht von Hand geändert und die Verknüpfung bleibt. Nur für Versionen mit
+ * Paket- oder Tagespreisen; sonst bleibt die Regel von vorher (jede Abweichung löst).
+ */
+async function istWahlDerVersion(
+  tx: DbExecutor,
+  versionId: string | null,
+  neu: { fixedPrice: string | null; isVariable: boolean; lineItems: readonly VergleichsPosten[] }
+): Promise<boolean> {
+  if (!versionId || neu.isVariable) return false;
+  const cent = alsCent(neu.fixedPrice);
+  if (typeof cent !== "number") return false;
+  const [v] = await tx
+    .select({
+      pricingMode: dealCalculationVersions.pricingMode,
+      priceCents: dealCalculationVersions.priceCents,
+      kvItems: dealCalculationVersions.kvItems,
+      packagePrices: dealCalculationVersions.packagePrices,
+      dayPrices: dealCalculationVersions.dayPrices,
+      status: dealCalculationVersions.status,
+    })
+    .from(dealCalculationVersions)
+    .where(eq(dealCalculationVersions.id, versionId))
+    .limit(1);
+  if (!v || v.status !== "gesperrt") return false;
+  const preise = versionsPreiseAusZeile(v as Parameters<typeof versionsPreiseAusZeile>[0]);
+  if (preise.packagePrices.length === 0 && preise.dayPrices.length === 0) return false;
+  const posten = neu.lineItems.map((li) => ({ description: li.description ?? "", quantity: li.quantity, unitRate: Number(li.unitRate) }));
+  return angebotPasstZuVersion({ fixedPriceCents: cent, posten }, preise);
 }
 
 export async function upsertQuotation(
@@ -209,11 +246,13 @@ export async function upsertQuotation(
     if (existing) {
       // Handänderung an Preis oder Posten löst die Verknüpfung zur Kalkulationsversion;
       // reine Kundenfelder (Notizen, Beschreibung, Gültigkeit, Anzahlung) lassen sie stehen.
-      const preisGeaendert = angebotGeaendert(existing, {
+      const neuerStand = {
         fixedPrice: input.fixedPrice ?? null,
         isVariable: input.isVariable,
         lineItems: next ?? existing.lineItems,
-      });
+      };
+      const preisGeaendert =
+        angebotGeaendert(existing, neuerStand) && !(await istWahlDerVersion(tx, existing.calculationVersionId, neuerStand));
       const [updated] = await tx
         .update(quotations)
         .set({
@@ -355,20 +394,57 @@ export async function getProfitSummary(dealRecordId: string) {
  * Prüft die Kundenannahme nicht selbst: das tut `sperrenUndAngebot` in derselben
  * Transaktion, nachdem es `angebotSperren` genommen hat.
  */
-export async function angebotAusVersionSchreiben(
-  tx: DbExecutor,
-  dealRecordId: string,
-  eingabe: AngebotsEingabe,
-  calculationVersionId: string
-): Promise<void> {
-  const posten = eingabe.lineItems.map((li, i) => {
+/**
+ * Plan 5b: was die Quotation aus der gesperrten Version bekommt. `fest`: Preis und
+ * Posten der Wahl (Summe = Preis auf den Cent). `stunden`: Stunden-KV mit Posten
+ * `helper`, `transporter` und Zusatzposten `other`, `documentDetails.stunden`.
+ */
+export type AngebotAusVersion =
+  | { fest: { priceCents: number; kvItems: KvPosten[] }; stunden?: undefined }
+  | { stunden: { posten: Array<KvPosten & { type: "helper" | "transporter" | "other" }>; angebot: StundenAngebot }; fest?: undefined };
+
+type Zeile = { type: "helper" | "transporter" | "other"; description: string; quantity: number; unitRate: string; sortOrder: number; cent: number };
+
+function postenAus(liste: ReadonlyArray<{ type?: string; description: string; quantity: number | string; unitRate: number | string; sortOrder?: number }>): Zeile[] {
+  return liste.map((li, i) => {
     const quantity = Number(li.quantity);
     const rate = Number(li.unitRate);
     if (!Number.isInteger(quantity)) throw new Error(`Posten ${i + 1}: Menge muss ganzzahlig sein.`);
     if (!Number.isFinite(rate)) throw new Error(`Posten ${i + 1}: Einzelpreis ist keine Zahl.`);
-    return { description: li.description, quantity, unitRate: rate.toFixed(2), sortOrder: li.sortOrder ?? i, cent: Math.round(rate * 100) };
+    const type = li.type === "helper" || li.type === "transporter" ? li.type : "other";
+    return { type, description: li.description, quantity, unitRate: rate.toFixed(2), sortOrder: li.sortOrder ?? i, cent: Math.round(rate * 100) };
   });
-  const fixedPrice = (posten.reduce((s, p) => s + p.cent * p.quantity, 0) / 100).toFixed(2);
+}
+
+/** Stunden-Angaben fallen bei einem Festpreis weg (sonst läse der VPS einen Stunden-KV). */
+function ohneStunden(d: QuotationDocumentDetails): QuotationDocumentDetails {
+  if (!("stunden" in d)) return d;
+  const { stunden: _weg, ...rest } = d;
+  return rest;
+}
+
+export async function angebotAusVersionSchreiben(
+  tx: DbExecutor,
+  dealRecordId: string,
+  eingabe: AngebotsEingabe,
+  calculationVersionId: string,
+  plan5?: AngebotAusVersion
+): Promise<void> {
+  const stunden = plan5?.stunden ?? null;
+  const posten = stunden
+    ? postenAus(stunden.posten)
+    : plan5?.fest
+      ? postenAus(plan5.fest.kvItems.map((p) => ({ ...p, type: "other" })))
+      : postenAus(eingabe.lineItems);
+  const summeCent = posten.reduce((s, p) => s + p.cent * p.quantity, 0);
+  if (plan5?.fest && summeCent !== plan5.fest.priceCents) {
+    throw new Error(`Posten ergeben ${summeCent} Cent statt ${plan5.fest.priceCents} Cent.`);
+  }
+  // Festpreis = Summe der Posten auf den Cent; Stunden-KV ohne Festpreis (abgerechnet nach Aufwand).
+  const fixedPrice = stunden ? null : (summeCent / 100).toFixed(2);
+  const isVariable = stunden !== null;
+  const details = (basis: QuotationDocumentDetails): QuotationDocumentDetails =>
+    stunden ? { ...basis, stunden: stunden.angebot } : ohneStunden(basis);
 
   const [existing] = await tx.select().from(quotations).where(eq(quotations.dealRecordId, dealRecordId)).limit(1);
   let quotationId: string;
@@ -377,10 +453,10 @@ export async function angebotAusVersionSchreiben(
       .update(quotations)
       .set({
         fixedPrice,
-        isVariable: false,
+        isVariable,
         validUntil: eingabe.validUntil,
         calculationAssumptions: annahmenZusammenfuehren(existing.calculationAssumptions, eingabe.calculationAssumptions),
-        documentDetails: { ...((existing.documentDetails ?? {}) as QuotationDocumentDetails), ...eingabe.documentDetails },
+        documentDetails: details({ ...((existing.documentDetails ?? {}) as QuotationDocumentDetails), ...eingabe.documentDetails }),
         calculationVersionId,
         updatedAt: new Date(),
       })
@@ -398,11 +474,11 @@ export async function angebotAusVersionSchreiben(
       .values({
         dealRecordId,
         fixedPrice,
-        isVariable: false,
+        isVariable,
         notes: eingabe.notes ?? null,
         validUntil: eingabe.validUntil,
         calculationAssumptions: eingabe.calculationAssumptions,
-        documentDetails: mitLeistung(eingabe.documentDetails, leistung),
+        documentDetails: mitLeistung(details(eingabe.documentDetails), leistung),
         ...(leistung ? { serviceType: leistung.serviceType } : {}),
         calculationVersionId,
       })
@@ -415,7 +491,7 @@ export async function angebotAusVersionSchreiben(
     await tx.insert(quotationLineItems).values(
       posten.map((p) => ({
         quotationId,
-        type: "other" as const,
+        type: p.type,
         description: p.description,
         quantity: p.quantity,
         unitRate: p.unitRate,

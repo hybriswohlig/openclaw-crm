@@ -36,6 +36,8 @@ vi.mock("@/lib/api-utils", async (importOriginal) => ({
   getAuthContext: mocks.getAuthContext,
 }));
 vi.mock("@/services/rechner/pakete", () => ({ hatPaketoptionen: mocks.hatPaketoptionen }));
+// Plan 5b: Firma ohne Schalter (die alte Karte bleibt wie sie ist).
+vi.mock("@/services/plan5-schalter", () => ({ plan5Schalter: async () => ({ angebotAusKalkulation: false, tagespreise: false }) }));
 vi.mock("@/services/rechner/lead-daten", () => ({ ladeLeadDaten: mocks.ladeLeadDaten }));
 vi.mock("@/services/rechner/client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/services/rechner/client")>()),
@@ -229,7 +231,8 @@ describe("POST /calculation/apply über Versionen", () => {
   it("ohne Entwurf, letzte gesperrte Version mit Zeilen-Übersteuerung: 400 mit deren Nummer, kein neuer Entwurf", async () => {
     await entwurfHolenOderAnlegen("ws_1", "deal_1", { userId: "usr_1", quelle: "mensch" });
     await uebersteuern("ws_1", "deal_1", 1, { art: "zeile", key: "personal.arbeit", wert: 150, grund: "eingespieltes Team" }, { userId: "usr_1", quelle: "mensch" });
-    await sperren("ws_1", "deal_1", 1, { userId: "usr_1", quelle: "mensch" }, {});
+    // Vorbedingung: v1 gesperrt. Das Angebot ist ein Stunden-KV; seit Plan 5b bestätigt ein Mensch den Wechsel.
+    await sperren("ws_1", "deal_1", 1, { userId: "usr_1", quelle: "mensch" }, { modusWechselBestaetigt: true });
     vi.mocked(mocks.speicher.sperrenUndAngebot).mockClear();
 
     const res = await APPLY(req({}), { params });

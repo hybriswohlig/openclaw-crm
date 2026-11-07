@@ -123,6 +123,39 @@ export function rechnerAnfrageAus(lead: LeadDaten, opts: { heute?: string } = {}
   return a;
 }
 
+/** Was eine Plan-5b-Anfrage zusätzlich trägt (Entscheidung 4). */
+export interface Plan5Anfrage {
+  /** Firmen-Schalter „Angebot aus Kalkulation“ und „Tagespreise“. */
+  schalter: { angebotAusKalkulation: boolean; tagespreise: boolean };
+  /** Preismodus der Version (Anpassung `preismodus`). */
+  stunden: boolean;
+  /** Angebotene bzw. im Raster gewünschte Tage; leer = keine Tagespreise. */
+  tage: readonly string[];
+}
+
+/**
+ * Schalter der Plan-5b-Anfrage (Rechner additiv). Mit „Angebot aus Kalkulation“
+ * gelten Personal-, Gemeinkosten- und Versicherungs-Anpassungen auch in Paketen
+ * (`paket_uebersteuerungen`), Fahrzeug-Anpassungen an jeder Station
+ * (`zeilen_stabil`) und, im Stundenmodus, `stunden_modus`. `tage` nur mit dem
+ * Tagespreis-Schalter, nur wenn Tage gewünscht sind und nie im Stundenmodus (F15).
+ * Ohne Schalter bleibt die Anfrage Zeichen für Zeichen wie vorher.
+ */
+export function mitPlan5Feldern(a: RechnerAnfrage, p: Plan5Anfrage | null | undefined): RechnerAnfrage {
+  if (!p) return a;
+  const aus: RechnerAnfrage = { ...a };
+  if (p.schalter.angebotAusKalkulation) {
+    aus.paket_uebersteuerungen = "1";
+    aus.zeilen_stabil = "1";
+    if (p.stunden) aus.stunden_modus = "1";
+  }
+  const stunden = p.schalter.angebotAusKalkulation && p.stunden;
+  if (p.schalter.tagespreise && !stunden && p.tage.length > 0) {
+    aus.tage = JSON.stringify([...new Set(p.tage)].sort());
+  }
+  return aus;
+}
+
 function stabil(wert: unknown): unknown {
   if (Array.isArray(wert)) return wert.map(stabil);
   if (wert && typeof wert === "object") {

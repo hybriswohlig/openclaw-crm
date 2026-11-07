@@ -64,7 +64,7 @@ describe("ansichtAus: Kopf und Versionen", () => {
     const a = ansichtAus(weberVersion(), rest());
     expect(a.version).toEqual({
       nummer: 2, status: "entwurf", bearbeitbar: true, gesperrtText: null, veraltet: false, veraltetGrund: null, fehler: null,
-      tarif: "Tarif v1", kvDokument: null, kvErstellbar: false, kvErzeugung: { art: "keins" }, sperrbar: true, sperrGrund: null, preisModus: "fest", renderer: "vps",
+      tarif: "Tarif v1", kvDokument: null, kvErstellbar: false, kvErzeugung: { art: "keins" }, sperrbar: true, sperrGrund: null, preisModus: "fest", modusWechsel: false, renderer: "vps",
     });
     expect(ansichtAus(weberVersion(), rest({ renderer: "crm" })).version.renderer).toBe("crm");
   });
@@ -375,12 +375,17 @@ describe("ansichtAus: Sperrbarkeit", () => {
     ["veraltet", rest({ veraltet: true }), {}, "Die Kalkulation ist nicht mehr aktuell. Bitte zuerst neu rechnen."],
     ["Fehler", rest(), { error: "Rechner nicht erreichbar." }, "Der Rechner hat einen Fehler gemeldet. Bitte neu rechnen."],
     ["Pakete", rest({ hatPakete: true }), {}, "Sperren mit Paketpreisen kommt später. Bis dahin den Preis über die Paketpreise pflegen."],
-    ["Stunden-Version", rest(), { pricingMode: "stunden" as const }, "Sperren mit Stunden-KV kommt später. Bis dahin das Angebot über das Angebotsformular pflegen."],
-    ["Stunden-KV im Angebot", rest({ angebot: { notes: null, isVariable: true, validUntil: null } }), {}, "Sperren mit Stunden-KV kommt später. Bis dahin das Angebot über das Angebotsformular pflegen."],
+    // Plan 5b: Text aus der einen Sperr-Regel des Dienstes (`sperrBefund`), nicht mehr ein eigener.
+    ["Stunden-Version", rest(), { pricingMode: "stunden" as const }, "Das Angebot ist ein Stunden-KV: bitte weiter über das Angebotsformular bearbeiten."],
   ])("%s → nicht sperrbar mit Grund", (_name, r, felder, grund) => {
     const a = ansichtAus(weberVersion(felder), r);
     expect(a.version.sperrbar).toBe(false);
     expect(a.version.sperrGrund).toBe(grund);
+  });
+
+  it("Stunden-KV im Angebot: sperrbar mit Rückfrage (modusWechsel), wie der Dienst mit modusWechselBestaetigt (Plan 5b)", () => {
+    const a = ansichtAus(weberVersion(), rest({ angebot: { notes: null, isVariable: true, validUntil: null } }));
+    expect(a.version).toMatchObject({ sperrbar: true, sperrGrund: null, modusWechsel: true });
   });
 
   it("veraltet und Fehler stehen in der Version; Stunden setzt preisModus", () => {

@@ -3,15 +3,34 @@
  * und der Lader für die Paket-Hebel der Firma. Jede Abfrage ist auf Workspace
  * und Deal begrenzt; nur Entwürfe werden geändert.
  */
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { kvaConfirmations, offerPackages } from "@/db/schema/customer-portal";
+import { activityEvents } from "@/db/schema/activity";
+import {
+  customerDateSelections,
+  kvaConfirmations,
+  offerPackages,
+  quotationDateOffers,
+  quotationPackageOptions,
+} from "@/db/schema/customer-portal";
 import { dealCalculationVersions } from "@/db/schema/deal-calculation-versions";
+import { quotations } from "@/db/schema/quotations";
+import { sperrWahl } from "@/lib/kalkulation-versionen";
 import { resolveDealOperatingCompany } from "./financial";
 import { AngebotAngenommenError, aktivBedingung } from "./kva-annahme";
-import { angebotAusVersionSchreiben, angebotSperren } from "./quotations";
+import { angebotAusVersionSchreiben, angebotSperren, type AngebotAusVersion } from "./quotations";
 import type { HebelArt } from "./rechner/kv-posten";
-import { centSumme, EntwurfExistiertError, VersionsFehler, type VersionsSpeicher, type VersionsZeile } from "./kalkulation-versionen";
+import {
+  centSumme,
+  EntwurfExistiertError,
+  VersionsFehler,
+  type PaketOption,
+  type Plan5Sperre,
+  type VersionsSpeicher,
+  type VersionsZeile,
+} from "./kalkulation-versionen";
+
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 /** Unique-Verletzungen, die "es gibt schon einen Entwurf" bedeuten (paralleles Anlegen). */
 const ENTWURF_CONSTRAINTS = new Set(["deal_calculation_versions_ein_entwurf", "deal_calculation_versions_deal_version_unique"]);
@@ -130,7 +149,15 @@ export const dbVersionsSpeicher: VersionsSpeicher = {
           ...(stand?.schnappschuss ? { ...stand.schnappschuss, error: null } : {}),
           status: "gesperrt",
           kvItems,
-          priceCents: centSumme(kvItems),
+          priceCents: stand?.plan5 ? stand.plan5.preise.priceCents : centSumme(kvItems),
+          // Plan 5b: alle Kundenpreise samt Posten je Wahl, wie sie das Sperren gebildet hat.
+          ...(stand?.plan5
+            ? {
+                pricingMode: stand.plan5.preise.pricingMode,
+                packagePrices: stand.plan5.preise.packagePrices,
+                dayPrices: stand.plan5.preise.dayPrices,
+              }
+            : {}),
           lockedAt: jetzt,
           lockedBy: von,
           updatedAt: jetzt,
@@ -153,7 +180,17 @@ export const dbVersionsSpeicher: VersionsSpeicher = {
         }
         throw new VersionsFehler("UNGUELTIG", "Version ist bereits gesperrt.");
       }
-      await angebotAusVersionSchreiben(tx, deal, angebot, id);
+      if (stand?.plan5) {
+        const wahl = await plan5Schreiben(tx, ws, deal, id, von, stand.plan5);
+        await angebotAusVersionSchreiben(tx, deal, angebot, id, wahl);
+        // Task T: eine erhaltene Kundenwahl (Paket, Tag) bekommt ihren Preis aus der neuen Version.
+        if (!stand.plan5.stunden) {
+          const { kundenwahlAnwenden } = await import("./kundenwahl");
+          await kundenwahlAnwenden(tx, deal);
+        }
+      } else {
+        await angebotAusVersionSchreiben(tx, deal, angebot, id);
+      }
       return { version: alsZeile(z) };
     });
   },
@@ -172,4 +209,139 @@ export async function ladePaketHebel(ws: string, deal: string): Promise<Record<s
     .orderBy(asc(offerPackages.sortOrder));
   if (pakete.length === 0) return null;
   return Object.fromEntries(pakete.map((p) => [p.slug, p.hebel ?? []]));
+}
+
+const inCent = (eur: number) => Math.round(eur * 100);
+
+/**
+ * Plan 5b, in der Sperr-Transaktion nach `angebotSperren` (nur über `tx`):
+ * Paketoptionen je `catalogue_slug` aktualisieren (IDs und Kundenwahl bleiben),
+ * Terminangebote je Datum anlegen oder aktualisieren, nicht mehr angebotene Tage
+ * löschen. Liefert, was die Quotation bekommt: Preis und Posten der Kundenwahl,
+ * solange sie angeboten ist, sonst der Standardwahl; im Stundenmodus die Stunden.
+ */
+async function plan5Schreiben(
+  tx: Tx,
+  ws: string,
+  deal: string,
+  versionId: string,
+  von: string | null,
+  p: Plan5Sperre
+): Promise<AngebotAusVersion> {
+  const optionen = await tx
+    .select({ id: quotationPackageOptions.id, slug: quotationPackageOptions.catalogueSlug })
+    .from(quotationPackageOptions)
+    .where(and(eq(quotationPackageOptions.workspaceId, ws), eq(quotationPackageOptions.dealRecordId, deal)));
+  for (const o of optionen) {
+    const paket = o.slug ? p.preise.packagePrices.find((x) => x.slug === o.slug) : undefined;
+    if (!paket || paket.festpreis === null) continue;
+    await tx
+      .update(quotationPackageOptions)
+      .set({ priceCents: inCent(paket.festpreis), calculationVersionId: versionId })
+      .where(eq(quotationPackageOptions.id, o.id));
+  }
+
+  const vorhanden = await tx
+    .select({ version: quotationDateOffers.calculationVersionId })
+    .from(quotationDateOffers)
+    .where(and(eq(quotationDateOffers.workspaceId, ws), eq(quotationDateOffers.dealRecordId, deal)));
+  const tage = p.preise.dayPrices;
+  // Ohne Tage in der Version bleiben Terminangebote ohne Preis (Altbestand) unberührt;
+  // Tage einer früheren Version, die jetzt keine mehr anbietet, fallen weg.
+  if (tage.length > 0 || vorhanden.some((o) => o.version !== null)) {
+    const { terminangeboteSchreiben } = await import("./customer-portal-data");
+    await terminangeboteSchreiben(tx, {
+      workspaceId: ws,
+      dealRecordId: deal,
+      createdBy: von,
+      calculationVersionId: versionId,
+      offers: tage.map((t) => {
+        const paketPreise: Record<string, number> = {};
+        for (const pp of t.paketpreise ?? []) if (pp.festpreis !== null) paketPreise[pp.slug] = inCent(pp.festpreis);
+        // Preis am Tag = Preis der Standardwahl an diesem Tag (empfohlenes Paket, sonst Tagespreis).
+        const standard = p.standard.paketSlug !== null ? paketPreise[p.standard.paketSlug] ?? null : null;
+        return {
+          date: t.datum,
+          slots: t.slots,
+          note: t.note,
+          isRecommended: t.empfohlen,
+          priceCents: standard ?? (t.festpreis === null ? null : inCent(t.festpreis)),
+          packagePrices: Object.keys(paketPreise).length > 0 ? paketPreise : null,
+        };
+      }),
+    });
+  }
+
+  if (p.stunden) return { stunden: p.stunden };
+
+  const [q] = await tx
+    .select({ option: quotations.selectedPackageOptionId })
+    .from(quotations)
+    .where(eq(quotations.dealRecordId, deal))
+    .limit(1);
+  const [auswahl] = await tx
+    .select({ datum: customerDateSelections.selectedDate })
+    .from(customerDateSelections)
+    .where(and(eq(customerDateSelections.workspaceId, ws), eq(customerDateSelections.dealRecordId, deal)))
+    .limit(1);
+  const paketSlug = optionen.find((o) => o.id === q?.option)?.slug ?? null;
+  const gewaehlt = sperrWahl(p.preise, p.standard, { paketSlug, datum: auswahl?.datum ?? null });
+  if (!gewaehlt) throw new VersionsFehler("UNGUELTIG", "Für die gewählte Kombination gibt es keinen Preis. Bitte neu rechnen.");
+  return { fest: gewaehlt.preis };
+}
+
+/** Paketoptionen des Deals (Reihenfolge wie im Portal). */
+export async function ladePaketOptionen(deal: string): Promise<PaketOption[]> {
+  return db
+    .select({
+      id: quotationPackageOptions.id,
+      catalogueSlug: quotationPackageOptions.catalogueSlug,
+      isRecommended: quotationPackageOptions.isRecommended,
+    })
+    .from(quotationPackageOptions)
+    .where(eq(quotationPackageOptions.dealRecordId, deal))
+    .orderBy(asc(quotationPackageOptions.sortOrder));
+}
+
+/**
+ * Aufträge (Umzug, Entrümpelung, Küche; keine Besichtigung) je Tag im Fenster,
+ * aus dem Plan-Dienst (nur lesen). Mehrtägige Aufträge zählen an jedem ihrer Tage.
+ */
+export async function ladeAuftraegeJeTag(ws: string, von: string, bis: string): Promise<{ datum: string; dealId: string; name: string }[]> {
+  const { ladePlanEintraege } = await import("./plan");
+  const { eintraege } = await ladePlanEintraege(ws, { von, bis, firmaId: null, mitarbeiterId: null, leads: null });
+  const aus: { datum: string; dealId: string; name: string }[] = [];
+  for (const e of eintraege) {
+    if (e.art !== "umzug") continue;
+    for (let t = e.tag < von ? von : e.tag; t <= e.bisTag && t <= bis; t = naechsterTag(t)) {
+      aus.push({ datum: t, dealId: e.dealId, name: e.titel });
+    }
+  }
+  return aus;
+}
+
+function naechsterTag(t: string): string {
+  const [j, m, d] = t.split("-").map(Number);
+  return new Date(Date.UTC(j, m - 1, d + 1)).toISOString().slice(0, 10);
+}
+
+const WUNSCH_EREIGNISSE = ["customer.reschedule_requested", "customer.question", "customer.damage_reported"];
+
+/** Wunschtermine aus der neuesten Kundenanfrage im Portal (`preferredDates`), sonst leer. */
+export async function ladeWunschtermine(ws: string, deal: string): Promise<string[]> {
+  const zeilen = await db
+    .select({ payload: activityEvents.payload })
+    .from(activityEvents)
+    .where(
+      and(eq(activityEvents.workspaceId, ws), eq(activityEvents.recordId, deal), inArray(activityEvents.eventType, WUNSCH_EREIGNISSE))
+    )
+    .orderBy(desc(activityEvents.createdAt))
+    .limit(10);
+  for (const z of zeilen) {
+    const daten = (z.payload as { preferredDates?: unknown } | null)?.preferredDates;
+    if (Array.isArray(daten) && daten.length > 0) {
+      return daten.filter((x): x is string => typeof x === "string" && /^\d{4}-\d{2}-\d{2}$/.test(x));
+    }
+  }
+  return [];
 }

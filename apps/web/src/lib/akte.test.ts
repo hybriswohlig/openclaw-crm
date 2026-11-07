@@ -462,4 +462,13 @@ describe("kalkulationLinks", () => {
   it("Stunden-KV: KV bleibt auf dem alten Angebots-Tab", () => {
     expect(kalkulationLinks("d1", alt, { hatPaketoptionen: false, istStunden: true }).kvLink).toBe("/objects/deals/d1?tab=quotation");
   });
+  it("Plan 5b, Firma mit „Angebot aus Kalkulation“: Pakete und Stunden-KV gehen auf die Kalkulationsseite", () => {
+    for (const kv of [
+      { hatPaketoptionen: true, istStunden: false },
+      { hatPaketoptionen: false, istStunden: true },
+    ]) {
+      expect(kalkulationLinks("d1", alt, { ...kv, angebotAusKalkulation: true }).kvLink).toBe("/app/leads/d1/kalkulation");
+      expect(kalkulationLinks("d1", alt, { ...kv, angebotAusKalkulation: false }).kvLink).toBe("/objects/deals/d1?tab=quotation");
+    }
+  });
 });

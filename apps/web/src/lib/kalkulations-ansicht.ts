@@ -5,23 +5,40 @@
  * importiert diese Datei.
  */
 import {
+  anzahlungPasst,
+  kernBefund,
   PLAN5_FEHLER_TEXT,
+  preisHash,
   verwaisteZeilenUebersteuerungen,
+  wahlPreis,
   type KernBefund,
   type KvErzeugung,
+  type NeueUebersteuerungsArt,
   type Plan5Schalter,
   type TagesSlot,
   type VerwaisteUebersteuerung,
+  type VersionsPreise,
 } from "@/lib/angebot-wahl";
 import type { VersionsZeile } from "@/services/kalkulation-versionen";
 import type { RechnerErgebnis } from "@/services/rechner/client";
 import type { RechnerAnfrage } from "@/services/rechner/eingabe";
 import { kvBausteine, strasseAus, aufzaehlen, type HebelArt } from "@/services/rechner/kv-posten";
-import { MARGE_MAX_PROZENT, MARGE_MIN_PROZENT } from "@/services/rechner/marge";
+import { MARGE_MAX_PROZENT, MARGE_MIN_PROZENT, preisBeiMarge } from "@/services/rechner/marge";
 import { angebotsUebernahme } from "@/services/rechner/uebernahme";
+import { postenJeWahl } from "@/services/rechner/wahl-posten";
 import { datumKurz, euroText, tagKurz, uhrzeitKurz, volumenText } from "./anzeige";
 import {
+  hauptPostenAus,
+  kundenPreiseAus,
+  kundenPreiseOhnePosten,
+  kvDarstellungAus,
+  PAKETE_TEXT,
+  PLAN5_ARTEN,
+  sperrBefund,
+  STUNDEN_TEXT,
+  versionsPreiseAusZeile,
   wirksameUebersteuerungen,
+  type SperrRegel,
   type GrundlageKey,
   type Herkunft,
   type Uebersteuerung,
@@ -122,7 +139,8 @@ export interface KvAnsicht {
 
 export interface AnpassungAnsicht {
   id: string;
-  art: UebersteuerungsArt;
+  /** Paket- und Tagespreis, Darstellung und Preismodus zeigt die Seite an Paket, Tag und KV (Plan 5b), nicht hier. */
+  art: Exclude<UebersteuerungsArt, NeueUebersteuerungsArt>;
   key: string;
   /** "{Bezeichnung}: {Wert}" */
   text: string;
@@ -164,6 +182,8 @@ export interface KalkulationsAnsicht {
     sperrGrund: string | null;
     /** "fest" | "stunden" */
     preisModus: "fest" | "stunden";
+    /** Plan 5b: Sperren macht aus dem Stunden-KV der Quotation einen Festpreis; die Seite fragt nach (`modusWechselBestaetigt`). */
+    modusWechsel?: boolean;
     renderer: "crm" | "vps";
   };
   grundlage: GrundlageAnsicht;
@@ -288,7 +308,7 @@ export interface AnsichtRest {
   inventar: InventarZeile[];
   fotos: InboxAnhangZeile[];
   vorlagen: ZeitpostenVorlage[];
-  angebot: { notes: string | null; isVariable: boolean; validUntil: string | null } | null;
+  angebot: { notes: string | null; isVariable: boolean; validUntil: string | null; depositRequiredCents?: number | null } | null;
   /** aus `entwurfVeraltet` (Server); bei gesperrten Versionen ignoriert */
   veraltet: boolean;
   kvDokument: { id: string; fileName: string } | null;
@@ -301,6 +321,10 @@ export interface AnsichtRest {
   kvErzeugung?: KvErzeugung;
   /** Plan 5b: Firmen-Schalter des Deals; fehlt → beide aus. */
   schalter?: Plan5Schalter;
+  /** Plan 5b: Paketoptionen des Deals (Slug, Empfehlung), Reihenfolge wie im Portal. */
+  paketOptionen?: { catalogueSlug: string | null; isRecommended: boolean }[];
+  /** Plan 5b: Hebel je Paket-Slug aus dem Katalog der Firma. */
+  paketHebel?: Record<string, HebelArt[]>;
 }
 
 // ─── Anzeige ──────────────────────────────────────────────────────────────────
@@ -970,7 +994,12 @@ export function verwaistMitNamen(liste: readonly VerwaisteUebersteuerung[], v: V
   });
 }
 
-function anpassungText(u: Uebersteuerung, v: VersionsZeile): string {
+type AlteUebersteuerung = Uebersteuerung & { art: AnpassungAnsicht["art"] };
+function istAlteArt(u: Uebersteuerung): u is AlteUebersteuerung {
+  return !PLAN5_ARTEN.has(u.art);
+}
+
+function anpassungText(u: AlteUebersteuerung, v: VersionsZeile): string {
   switch (u.art) {
     case "eingabe": {
       const key = u.key as GrundlageKey;
@@ -1005,11 +1034,215 @@ function anpassungText(u: Uebersteuerung, v: VersionsZeile): string {
   }
 }
 
+// ─── Plan 5b: Pakete, Tage, Stunden, Kern, Preis-Hash (Task K) ──────────────
+
+function herkunftText(beschreibung: string): string {
+  const art = hebelAusText(beschreibung);
+  return art ? HEBEL_TEXT[art] : "Weitere Leistung";
+}
+
+const centOderNull = (eur: number | null | undefined) => (typeof eur === "number" && Number.isFinite(eur) ? cent(eur) : null);
+
+interface Plan5Teil {
+  pakete: PaketAnsicht[];
+  tage: TagAnsicht[];
+  stunden: StundenAnsicht | null;
+  kern: KernBefund | null;
+  preisHash: string | null;
+  /** undefined = KV-Ansicht von vorher; sonst ersetzt (Standardwahl, Stunden ohne Posten-Tabelle). */
+  kv?: KvAnsicht | null;
+  regelPreise: SperrRegel["preise"] | null;
+  /** Posten ergeben nicht den Preis oder ein Tag hat keinen Preis (wie im Dienst). */
+  sperrGrund: string | null;
+}
+
+/**
+ * Plan-5b-Teile der Ansicht. Rechnet keinen Preis: Paket-, Tages- und Stundenpreise
+ * kommen aus der Version, die Posten je Wahl aus derselben Verteilung wie beim
+ * Sperren (`postenJeWahl`); fällt sie aus, fehlen nur Kern und Posten-Vorschau.
+ */
+function plan5Ansicht(
+  v: VersionsZeile,
+  rest: AnsichtRest,
+  schalter: Plan5Schalter,
+  kv: KvAnsicht | null
+): Plan5Teil {
+  const leer: Plan5Teil = { pakete: [], tage: [], stunden: null, kern: null, preisHash: null, regelPreise: null, sperrGrund: null };
+  if (!schalter.angebotAusKalkulation && !schalter.tagespreise) return leer;
+  const gesperrt = v.status === "gesperrt";
+  const e = v.rechnerResult;
+  const modus: "fest" | "stunden" = schalter.angebotAusKalkulation && v.pricingMode === "stunden" ? "stunden" : "fest";
+  const optionen = rest.paketOptionen ?? [];
+  const empf = (optionen.find((o) => o.isRecommended) ?? optionen[0])?.catalogueSlug ?? null;
+  const rundung = e?.preis?.rundungEur ?? 1;
+  const einPosten = schalter.angebotAusKalkulation && kvDarstellungAus(v.overrides ?? []) === "ein_posten";
+
+  const s = e?.stunden ?? null;
+  const stunden: StundenAnsicht | null =
+    modus === "stunden" && s
+      ? {
+          helfer: s.helfer,
+          transporter: s.transporter,
+          stundenGeschaetzt: s.stundenGeschaetzt,
+          mindestStunden: s.mindestStunden,
+          satzHelferEur: s.satzHelferEur,
+          satzTransporterEur: s.satzTransporterEur,
+          summeGeschaetztCent: cent(s.summeGeschaetztEur),
+          mindestbetragCent: cent(s.mindestbetragEur),
+          zusatzposten: s.zusatzposten.map((z) => ({ bezeichnung: z.bezeichnung, betragCent: cent(z.betrag) })),
+        }
+      : null;
+
+  const packagePrices = schalter.angebotAusKalkulation && modus === "fest" ? v.packagePrices ?? [] : [];
+  const dayPrices = schalter.tagespreise && modus === "fest" ? v.dayPrices ?? [] : [];
+
+  // Kundenpreise: gesperrt wie gespeichert, im Entwurf wie das Sperren sie bilden würde.
+  const hauptCent = gesperrt ? v.priceCents : kv?.summeCent ?? null;
+  const ohnePosten = gesperrt
+    ? versionsPreiseAusZeile(v)
+    : kundenPreiseOhnePosten({
+        schalter,
+        pricingMode: modus,
+        hauptCent,
+        packagePrices,
+        dayPrices,
+        stundenCent: s ? cent(s.summeGeschaetztEur) : null,
+        empfohlenesPaket: empf,
+      });
+
+  // Posten je Wahl: gesperrt aus der Version, im Entwurf aus derselben Verteilung wie beim Sperren.
+  let mitPosten: VersionsPreise | null = gesperrt ? versionsPreiseAusZeile(v) : null;
+  if (!gesperrt && modus === "fest" && e && v.rechnerRequest && hauptCent !== null) {
+    try {
+      const hauptPosten = schalter.angebotAusKalkulation ? hauptPostenAus(e, v.rechnerRequest, hauptCent / 100, einPosten) : kv?.posten.map((p) => ({ description: p.text, quantity: 1, unitRate: p.betragCent / 100 })) ?? [];
+      const paketHebel: Record<string, HebelArt[]> = {};
+      for (const p of packagePrices) paketHebel[p.slug] = rest.paketHebel?.[p.slug] ?? [];
+      const gefuellt =
+        packagePrices.length > 0 || dayPrices.length > 0
+          ? postenJeWahl({
+              ergebnis: e,
+              anfrage: v.rechnerRequest,
+              version: { pricingMode: "fest", priceCents: hauptCent, kvItems: hauptPosten, packagePrices, dayPrices },
+              paketHebel,
+              einPosten,
+            })
+          : { pricingMode: "fest" as const, priceCents: hauptCent, kvItems: hauptPosten, packagePrices, dayPrices };
+      mitPosten = kundenPreiseAus(
+        {
+          pricingMode: "fest",
+          hauptCent: gefuellt.priceCents,
+          hauptPosten: gefuellt.kvItems,
+          packagePrices: gefuellt.packagePrices,
+          dayPrices: gefuellt.dayPrices,
+        },
+        empf
+      );
+    } catch (err) {
+      console.error("[kalkulations-ansicht] Posten je Wahl", err);
+      mitPosten = null;
+    }
+  }
+
+  const pakete: PaketAnsicht[] = (mitPosten?.packagePrices.length ? mitPosten.packagePrices : packagePrices).map((p) => {
+    const rundungP = p.rundungEur ?? rundung;
+    return {
+      slug: p.slug,
+      name: rest.paketNamen?.[p.slug] ?? p.slug,
+      preisCent: centOderNull(p.festpreis),
+      hinweis: typeof p.festpreis === "number" ? p.hinweis ?? null : p.hinweis ?? "Nicht kalkulierbar.",
+      rechnerPreisCent: centOderNull(p.rechnerFestpreis !== undefined ? p.rechnerFestpreis : p.festpreis),
+      uebersteuert: p.uebersteuert ? { betragCent: cent(p.uebersteuert.betrag), grund: p.uebersteuert.grund } : null,
+      untergrenzeCent: p.selbstkosten > 0 ? cent(preisBeiMarge(p.selbstkosten, MARGE_MIN_PROZENT, rundungP)) : null,
+      hebel: rest.paketHebel?.[p.slug] ?? [],
+      kern: p.kvItems && p.kvItems.length > 0 ? kernBefund(p.kvItems) : null,
+    };
+  });
+
+  const tage: TagAnsicht[] = (mitPosten?.dayPrices.length ? mitPosten.dayPrices : dayPrices).map((t) => ({
+    datum: t.datum,
+    text: tagKurz(t.datum),
+    feiertag: t.feiertag,
+    empfohlen: t.empfohlen,
+    preisCent: centOderNull(t.festpreis),
+    rechnerPreisCent: centOderNull(t.rechnerFestpreis),
+    uebersteuert: t.uebersteuert ? { betragCent: cent(t.uebersteuert.betrag), grund: t.uebersteuert.grund } : null,
+    gruende: t.gruende,
+    paketPreiseCent: t.paketpreise ? Object.fromEntries(t.paketpreise.map((p) => [p.slug, centOderNull(p.festpreis)])) : null,
+    slots: t.slots,
+    note: t.note,
+  }));
+
+  // Kern-Regel über die Wahlen (wie beim Sperren); Anzeige: Kern der Standardwahl.
+  const kerne: KernBefund[] = [];
+  let sperrGrund: string | null = null;
+  if (mitPosten && modus === "fest") {
+    const slugs: (string | null)[] = mitPosten.packagePrices.length > 0 ? mitPosten.packagePrices.map((p) => p.slug) : [null];
+    const wahlen = mitPosten.dayPrices.length > 0 ? mitPosten.dayPrices.flatMap((t) => slugs.map((paketSlug) => ({ paketSlug, datum: t.datum }))) : slugs.map((paketSlug) => ({ paketSlug, datum: null }));
+    for (const w of wahlen) {
+      const r = wahlPreis(mitPosten, w);
+      if (!r) {
+        if (w.datum && w.paketSlug === null && !sperrGrund) sperrGrund = `Für den ${w.datum} liefert der Rechner keinen Preis. Bitte den Tag entfernen oder den Preis mit Grund setzen.`;
+        continue;
+      }
+      kerne.push(kernBefund(r.kvItems));
+    }
+  }
+  const kern = mitPosten && modus === "fest" && mitPosten.kvItems.length > 0 ? kernBefund(mitPosten.kvItems) : null;
+
+  // Vorschau des KV: Posten der Standardwahl (im Entwurf), im Stundenmodus keine Posten-Tabelle.
+  let kvNeu: KvAnsicht | null | undefined = undefined;
+  if (modus === "stunden") kvNeu = null;
+  else if (!gesperrt && mitPosten && mitPosten.kvItems.length > 0 && kv) {
+    const liste = mitPosten.kvItems.map((it, i) => ({
+      text: it.description,
+      betragCent: Math.round(it.unitRate * 100) * it.quantity,
+      herkunft: i === 0 ? (mitPosten!.kvItems.length > 1 ? "Rest nach den Hebeln" : "Gesamtpreis") : herkunftText(it.description),
+    }));
+    kvNeu = { ...kv, posten: liste, summeCent: liste.reduce((x, p) => x + p.betragCent, 0) };
+  }
+
+  const regelPreise: SperrRegel["preise"] | null =
+    gesperrt || !e
+      ? null
+      : {
+          pakete: schalter.angebotAusKalkulation
+            ? optionen.map((o) => {
+                const p = o.catalogueSlug ? packagePrices.find((x) => x.slug === o.catalogueSlug) ?? null : null;
+                return {
+                  slug: o.catalogueSlug,
+                  preis: p?.festpreis ?? null,
+                  hebel: o.catalogueSlug ? rest.paketHebel?.[o.catalogueSlug] ?? null : null,
+                  uebersteuert: !!p?.uebersteuert,
+                };
+              })
+            : [],
+          stunden:
+            modus === "stunden"
+              ? { kalkulierbar: !!s, hinweis: (e as { stundenHinweis?: string | null }).stundenHinweis ?? null, zusatzposten: s?.zusatzposten.length ?? 0 }
+              : null,
+          istKottke: rest.renderer === "vps",
+          kerne,
+          anzahlungPasst: anzahlungPasst(rest.angebot?.depositRequiredCents ?? null, ohnePosten),
+        };
+
+  return {
+    pakete,
+    tage,
+    stunden,
+    kern,
+    preisHash: preisHash(ohnePosten),
+    ...(kvNeu !== undefined ? { kv: kvNeu } : {}),
+    regelPreise,
+    sperrGrund: gesperrt ? null : sperrGrund,
+  };
+}
+
 // ─── Ansicht ──────────────────────────────────────────────────────────────────
 
 export const SPERRGRUND = {
-  pakete: "Sperren mit Paketpreisen kommt später. Bis dahin den Preis über die Paketpreise pflegen.",
-  stunden: "Sperren mit Stunden-KV kommt später. Bis dahin das Angebot über das Angebotsformular pflegen.",
+  // Pakete und Stunden: dieselben Texte wie der Dienst (`sperrBefund`).
+  pakete: PAKETE_TEXT,
+  stunden: STUNDEN_TEXT,
   fehler: "Der Rechner hat einen Fehler gemeldet. Bitte neu rechnen.",
   ohneErgebnis: "Noch keine Kalkulation vorhanden. Bitte neu rechnen.",
   veraltet: "Die Kalkulation ist nicht mehr aktuell. Bitte zuerst neu rechnen.",
@@ -1036,30 +1269,48 @@ export function ansichtAus(v: VersionsZeile, rest: AnsichtRest): KalkulationsAns
     : v.rechnerResult && v.rechnerResult.montageJePosition !== true
       ? "rechner"
       : "eingabe";
-  const stunden = v.pricingMode === "stunden" || rest.angebot?.isVariable === true;
+  const schalter = rest.schalter ?? { angebotAusKalkulation: false, tagespreise: false };
+  const modus: "fest" | "stunden" = v.pricingMode === "stunden" ? "stunden" : "fest";
+  // Ohne Schalter wie vorher: ein Stunden-KV der Quotation zeigt die Seite als Stunden.
+  const stunden = schalter.angebotAusKalkulation ? modus === "stunden" : modus === "stunden" || rest.angebot?.isVariable === true;
+  const p5 = plan5Ansicht(v, rest, schalter, kv);
   const verwaist = verwaisteZeilenUebersteuerungen(v.overrides ?? [], v.rechnerResult?.kosten?.posten ?? []);
   const neuesteGesperrt = rest.alle
     .filter((x) => x.status === "gesperrt")
     .reduce<number | null>((m, x) => (m === null || x.version > m ? x.version : m), null);
   const kvErstellbar = gesperrt && rest.kvDokument === null && neuesteGesperrt === v.version;
 
+  // Eine Regel mit dem Dienst (`sperrBefund`). Die Seite ist ein Mensch; den Wechsel vom
+  // Stunden-KV zum Festpreis bestätigt sie im Dialog (`modusWechsel`), er sperrt hier nicht.
+  const regel: SperrRegel = {
+    schalter,
+    autor: "mensch",
+    hatPakete: schalter.angebotAusKalkulation ? (rest.paketOptionen ?? []).length > 0 : rest.hatPakete === true,
+    angebotIstStunden: rest.angebot?.isVariable === true,
+    pricingMode: schalter.angebotAusKalkulation ? modus : v.pricingMode === "stunden" ? "stunden" : "fest",
+    modusWechselBestaetigt: true,
+    tage: schalter.tagespreise ? (v.dayPrices ?? []).length : 0,
+  };
+  const vorab = sperrBefund(regel);
+  const spaet = vorab ? null : sperrBefund({ ...regel, ...(p5.regelPreise ? { preise: p5.regelPreise } : {}) });
+
   const sperrGrund = gesperrt
     ? `v${v.version} ist gesperrt. Änderungen landen in einem neuen Entwurf.`
-    : rest.hatPakete
-      ? SPERRGRUND.pakete
-      : stunden
-        ? SPERRGRUND.stunden
-        : v.error !== null
-          ? SPERRGRUND.fehler
-          : !v.rechnerResult
-            ? SPERRGRUND.ohneErgebnis
-            : veraltet
-              ? veraltetGrund === "rechner"
-                ? SPERRGRUND.rechner
-                : SPERRGRUND.veraltet
-              : verwaist.length > 0
-                ? PLAN5_FEHLER_TEXT.UEBERSTEUERUNG_VERWAIST
-                : kvFehler;
+    : vorab
+      ? vorab.text
+      : v.error !== null
+        ? SPERRGRUND.fehler
+        : !v.rechnerResult
+          ? SPERRGRUND.ohneErgebnis
+          : veraltet
+            ? veraltetGrund === "rechner"
+              ? SPERRGRUND.rechner
+              : SPERRGRUND.veraltet
+            : verwaist.length > 0
+              ? PLAN5_FEHLER_TEXT.UEBERSTEUERUNG_VERWAIST
+              : spaet
+                ? spaet.text
+                : p5.sperrGrund ?? kvFehler;
 
   const zeitpunkt = (d: Date | string) => {
     const iso = typeof d === "string" ? d : d.toISOString();
@@ -1106,34 +1357,36 @@ export function ansichtAus(v: VersionsZeile, rest: AnsichtRest): KalkulationsAns
       sperrbar: sperrGrund === null,
       sperrGrund,
       preisModus: stunden ? "stunden" : "fest",
+      modusWechsel: !gesperrt && regel.pricingMode === "fest" && rest.angebot?.isVariable === true,
       renderer: rest.renderer ?? "crm",
     },
     grundlage,
     selbstkosten,
     marge,
     preis,
-    kv,
+    kv: p5.kv === undefined ? kv : p5.kv,
     kvFehler,
-    pakete: (v.packagePrices ?? []).map((p) => ({
-      slug: p.slug,
-      name: rest.paketNamen?.[p.slug] ?? p.slug,
-      preisCent: typeof p.festpreis === "number" ? cent(p.festpreis) : null,
-      hinweis: typeof p.festpreis === "number" ? null : "Nicht kalkulierbar.",
-    })),
-    // Plan 5b Task K füllt tage, stunden, kern, preisHash, schalter und kvDarstellung.
-    tage: [],
-    stunden: null,
-    kern: null,
-    preisHash: null,
-    schalter: rest.schalter ?? { angebotAusKalkulation: false, tagespreise: false },
-    kvDarstellung: "posten",
+    pakete: schalter.angebotAusKalkulation
+      ? p5.pakete
+      : (v.packagePrices ?? []).map((p) => ({
+          slug: p.slug,
+          name: rest.paketNamen?.[p.slug] ?? p.slug,
+          preisCent: typeof p.festpreis === "number" ? cent(p.festpreis) : null,
+          hinweis: typeof p.festpreis === "number" ? null : "Nicht kalkulierbar.",
+        })),
+    tage: p5.tage,
+    stunden: p5.stunden,
+    kern: p5.kern,
+    preisHash: p5.preisHash,
+    schalter,
+    kvDarstellung: schalter.angebotAusKalkulation ? kvDarstellungAus(v.overrides ?? []) : "posten",
     angebotsformularLink: `/objects/deals/${v.dealRecordId}?tab=quotation`,
-    anpassungen: wirksameUebersteuerungen(v.overrides ?? []).map((u) => ({
+    anpassungen: wirksameUebersteuerungen(v.overrides ?? []).flatMap((u) => (istAlteArt(u) ? [u] : [])).map((u) => ({
       id: u.id,
       art: u.art,
       key: u.key,
       text: anpassungText(u, v),
-      wert: u.wert,
+      wert: u.wert as AnpassungAnsicht["wert"],
       von: autorName(u.autor, rest.namen),
       am: zeitpunktText(u.zeit),
       grund: u.grund,

@@ -27,6 +27,8 @@ const m = {
   istKottke: vi.fn(),
   hatPakete: vi.fn(),
   speichereKv: vi.fn(),
+  ladeSchalter: vi.fn(),
+  ladeAngebot: vi.fn(),
 };
 const opt = m as unknown as KvAusVersionOptionen;
 const eingabe = { workspaceId: "ws_1", dealRecordId: "deal_1", version: 2, updatedBy: "usr_1" };
@@ -38,6 +40,8 @@ beforeEach(() => {
   m.ladeAngebotsVersionId.mockResolvedValue("ver_2");
   m.istKottke.mockResolvedValue(false);
   m.hatPakete.mockResolvedValue(false);
+  m.ladeSchalter.mockResolvedValue({ angebotAusKalkulation: false, tagespreise: false });
+  m.ladeAngebot.mockResolvedValue(null);
   m.speichereKv.mockResolvedValue({ document: DOKUMENT, fileName: DOKUMENT.fileName, templateVersion: "t", rechnungFaelligAm: null });
 });
 

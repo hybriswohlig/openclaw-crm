@@ -11,29 +11,63 @@
  * Alle Abhängigkeiten sind über `VersionsOptionen` austauschbar; die
  * Vorgaben laden DB-Lader erst beim Aufruf (Tests berühren `@/db` nie).
  */
-import type { PaketpreisVersion, Tagespreis } from "@/lib/angebot-wahl";
+import {
+  anzahlungPasst,
+  kernBefund,
+  PLAN5_FEHLER_TEXT,
+  preisHash,
+  standardWahl,
+  verwaisteZeilenUebersteuerungen,
+  wahlPreis,
+  type AngebotsWahl,
+  type KernBefund,
+  type PaketpreisVersion,
+  type Plan5FehlerCode,
+  type Plan5Schalter,
+  type PreisModus,
+  type StundenAngebot,
+  type TageAnbieten,
+  type Tagespreis,
+  type TagesRaster,
+  type TagesSlot,
+  type VersionsPreise,
+} from "@/lib/angebot-wahl";
 import { after } from "next/server";
 import type { DealCalculationVersionRow } from "@/db/schema/deal-calculation-versions";
 import {
   anfrageMitUebersteuerungen,
   grundlageAus,
+  hauptPostenAus,
   kostenzeilenAus,
+  kundenPreiseAus,
+  kundenPreiseOhnePosten,
+  kvDarstellungAus,
+  paketpreiseAus,
+  PLAN5_ARTEN,
+  preisModusAus,
   pruefeUebersteuerung,
   rechnerwertFuer,
+  sperrBefund,
+  tagespreiseAus,
   UebersteuerungFehler,
   wirksameUebersteuerungen,
   type GrundlageZeile,
   type Kostenzeile,
+  type SperrRegel,
+  type TagKonfig,
   type Uebersteuerung,
 } from "@/lib/kalkulation-versionen";
-import { PLAN5_FEHLER_TEXT, verwaisteZeilenUebersteuerungen } from "@/lib/angebot-wahl";
 import type { AngebotsEingabe, Quotation } from "@/services/quotations";
 import { meldeKorrektur, rufeRechner, type RechnerAntwort, type RechnerErgebnis } from "@/services/rechner/client";
-import { eingabeHash, rechnerAnfrageAus, type LeadDaten, type RechnerAnfrage } from "@/services/rechner/eingabe";
+import { eingabeHash, mitPlan5Feldern, rechnerAnfrageAus, type LeadDaten, type RechnerAnfrage } from "@/services/rechner/eingabe";
 import { ergebnisVeraltet, type KalkulationsZeile } from "@/services/rechner/kalkulation";
-import type { HebelArt, KvPosten } from "@/services/rechner/kv-posten";
+import { kvGueltigBis, type HebelArt, type KvPosten } from "@/services/rechner/kv-posten";
+import { MARGE_MIN_PROZENT, preisBeiMarge } from "@/services/rechner/marge";
 import { heuteBerlin } from "@/services/rechner/quelle";
 import { angebotsUebernahme } from "@/services/rechner/uebernahme";
+import { postenJeWahl, stundenPosten } from "@/services/rechner/wahl-posten";
+
+export { PAKETE_TEXT, STUNDEN_TEXT } from "@/lib/kalkulation-versionen";
 
 export interface VersionsMarge {
   vorschlagProzent: number | null;
@@ -93,7 +127,7 @@ export type VersionsFehlerCode =
   | "UNGUELTIG"
   | "SPANNE"
   | "PREIS_GEAENDERT"
-  | "UEBERSTEUERUNG_VERWAIST";
+  | Plan5FehlerCode;
 
 const FEHLER_STATUS: Record<VersionsFehlerCode, number> = {
   NICHT_GEFUNDEN: 404,
@@ -104,10 +138,15 @@ const FEHLER_STATUS: Record<VersionsFehlerCode, number> = {
   SPANNE: 409,
   PREIS_GEAENDERT: 409,
   UEBERSTEUERUNG_VERWAIST: 409,
+  KERN_NEGATIV: 409,
+  PAKET_OHNE_PREIS: 409,
+  PAKET_OHNE_HEBEL: 409,
+  ANZAHLUNG_UEBER_PREIS: 409,
+  STUNDEN_NUR_MENSCH: 409,
+  STUNDEN_ZUSATZ_VPS: 409,
+  MODUSWECHSEL: 409,
+  TAGESPREIS_NUR_MENSCH: 409,
 };
-
-/** Ablehnung beim Sperren mit Paketoptionen (Sperren und KV aus der Version). */
-export const PAKETE_TEXT = "Sperren mit Paketpreisen kommt später. Bis dahin den Preis über die Paketpreise pflegen.";
 export const PREIS_GEAENDERT_TEXT = "Der Preis hat sich beim Neurechnen geändert. Bitte prüfen und erneut sperren.";
 
 /** Fachlicher Fehler des Versionen-Dienstes; Routen antworten mit `status` und `code`. */
@@ -158,8 +197,28 @@ export interface VersionsSpeicher {
     angebot: AngebotsEingabe,
     kvItems: KvPosten[],
     von: string | null,
-    stand?: { uebersteuerungen: number; schnappschuss?: Schnappschuss }
+    stand?: { uebersteuerungen: number; schnappschuss?: Schnappschuss; plan5?: Plan5Sperre }
   ): Promise<{ version: VersionsZeile }>;
+}
+
+/**
+ * Was das Sperren mit Firmen-Schalter zusätzlich festschreibt (Entscheidung 5):
+ * alle Kundenpreise samt Posten je Wahl. In derselben Transaktion schreibt der
+ * Speicher Paketoptionen (je `catalogue_slug`, IDs bleiben), Terminangebote (je
+ * Datum) und die Quotation aus der Kundenwahl, sonst aus der Standardwahl.
+ */
+export interface Plan5Sperre {
+  /** `priceCents` und `kvItems` = Standardwahl; im Stundenmodus die Schätzung und die Stunden-Posten. */
+  preise: VersionsPreise;
+  standard: AngebotsWahl;
+  stunden: { posten: Array<KvPosten & { type: "helper" | "transporter" | "other" }>; angebot: StundenAngebot } | null;
+}
+
+/** Paketoption des Deals, wie Sperren und Ansicht sie brauchen. */
+export interface PaketOption {
+  id: string;
+  catalogueSlug: string | null;
+  isRecommended: boolean;
 }
 
 export interface VersionsOptionen {
@@ -178,6 +237,16 @@ export interface VersionsOptionen {
   ladeCache?: (deal: string) => Promise<KalkulationsZeile | null>;
   /** Schritte nach dem Sperren wie beim Speichern des Angebots (Status-Link, Umfang, Aufgaben, Phase). */
   nachSperren?: (ws: string, deal: string, autor: Autor) => Promise<void>;
+  /** Plan 5b: Firmen-Schalter des Deals. */
+  ladeSchalter?: (ws: string, deal: string) => Promise<Plan5Schalter>;
+  /** Plan 5b: Paketoptionen des Deals (nach Reihenfolge). */
+  ladePaketOptionen?: (deal: string) => Promise<PaketOption[]>;
+  /** Plan 5b: Betriebsfirma Kottke (VPS-Renderer, F12). */
+  istKottke?: (ws: string, deal: string) => Promise<boolean>;
+  /** Plan 5b: Aufträge je Tag im Fenster (aus dem Plan, nur lesen). */
+  ladeAuftraege?: (ws: string, von: string, bis: string) => Promise<{ datum: string; dealId: string; name: string }[]>;
+  /** Plan 5b: Wunschtermine aus dem Portal (neueste Anfrage). */
+  ladeWunschtermine?: (ws: string, deal: string) => Promise<string[]>;
 }
 
 type Abh = Required<VersionsOptionen>;
@@ -196,6 +265,11 @@ async function abhaengigkeiten(o: VersionsOptionen = {}): Promise<Abh> {
     ladeAngebot: o.ladeAngebot ?? (await import("./quotations")).getQuotation,
     ladeCache: o.ladeCache ?? (await import("./rechner/speicher")).dbSpeicher.lesen,
     nachSperren: o.nachSperren ?? nachSperrenStandard,
+    ladeSchalter: o.ladeSchalter ?? (async (ws, deal) => (await import("./plan5-schalter")).plan5Schalter(ws, deal)),
+    ladePaketOptionen: o.ladePaketOptionen ?? (async (deal) => (await import("./kalkulation-versionen-speicher")).ladePaketOptionen(deal)),
+    istKottke: o.istKottke ?? (async (ws, deal) => (await import("@/lib/kottke-crm-renderer-deal")).dealBlocksInRepoCrmRenderer(ws, deal)),
+    ladeAuftraege: o.ladeAuftraege ?? (async (ws, von, bis) => (await import("./kalkulation-versionen-speicher")).ladeAuftraegeJeTag(ws, von, bis)),
+    ladeWunschtermine: o.ladeWunschtermine ?? (async (ws, deal) => (await import("./kalkulation-versionen-speicher")).ladeWunschtermine(ws, deal)),
   };
 }
 
@@ -226,15 +300,80 @@ function margeAus(ergebnis: RechnerErgebnis, liste: Uebersteuerung[]): VersionsM
   return { vorschlagProzent: vorschlag?.prozent ?? null, gruende: vorschlag?.gruende ?? [], gewaehltProzent: gewaehlt };
 }
 
-async function paketHebelFuer(ws: string, deal: string, d: Abh): Promise<Record<string, HebelArt[]> | undefined> {
-  if (!(await d.hatPakete(deal))) return undefined;
-  return (await d.ladePaketHebel(ws, deal)) ?? undefined;
+/**
+ * Womit eine Version gerechnet wird: Firmen-Schalter, Paket-Hebel und Paketoptionen.
+ * Ohne Schalter wie vor 5b (Hebel aller aktiven Katalogpakete, sobald der Deal
+ * Paketoptionen hat). Mit „Angebot aus Kalkulation“ nur die Hebel der Pakete,
+ * die der Deal als Option anbietet: genau diese Preise sieht der Kunde.
+ */
+export interface RechenKontext {
+  schalter: Plan5Schalter;
+  hatPakete: boolean;
+  /** An den Rechner (`paket_hebel`); undefined ohne Pakete. */
+  paketHebel: Record<string, HebelArt[]> | undefined;
+  /** Nur mit Schalter: Paketoptionen und Katalog-Hebel aller aktiven Pakete. */
+  optionen: PaketOption[];
+  katalogHebel: Record<string, HebelArt[]>;
+}
+
+/** Hebel an den Rechner: ohne Schalter alle Katalogpakete, mit Schalter nur die angebotenen. */
+export function rechenHebel(
+  schalter: Plan5Schalter,
+  hatPakete: boolean,
+  optionen: readonly PaketOption[],
+  katalog: Record<string, HebelArt[]> | null
+): Record<string, HebelArt[]> | undefined {
+  if (!hatPakete || !katalog) return undefined;
+  if (!schalter.angebotAusKalkulation) return katalog;
+  const angeboten = new Set(optionen.map((o) => o.catalogueSlug).filter((x): x is string => !!x));
+  const nur = Object.fromEntries(Object.entries(katalog).filter(([slug]) => angeboten.has(slug)));
+  return Object.keys(nur).length > 0 ? nur : undefined;
+}
+
+/** Empfohlene Paketoption (sonst die erste); null ohne Optionen oder bei frei angelegter. */
+export function empfohlenesPaket(optionen: readonly PaketOption[]): string | null {
+  return (optionen.find((o) => o.isRecommended) ?? optionen[0])?.catalogueSlug ?? null;
+}
+
+async function kontextLaden(ws: string, deal: string, d: Abh): Promise<RechenKontext> {
+  const schalter = await d.ladeSchalter(ws, deal);
+  if (!schalter.angebotAusKalkulation) {
+    const hatPakete = await d.hatPakete(deal);
+    const katalog = hatPakete ? await d.ladePaketHebel(ws, deal) : null;
+    return { schalter, hatPakete, paketHebel: rechenHebel(schalter, hatPakete, [], katalog), optionen: [], katalogHebel: katalog ?? {} };
+  }
+  const optionen = await d.ladePaketOptionen(deal);
+  const hatPakete = optionen.length > 0;
+  const katalog = hatPakete ? await d.ladePaketHebel(ws, deal) : null;
+  return { schalter, hatPakete, paketHebel: rechenHebel(schalter, hatPakete, optionen, katalog), optionen, katalogHebel: katalog ?? {} };
+}
+
+/** Angebotene Tage eines Entwurfs als „Tage anbieten“-Eingabe (ohne Preise). */
+function tageKonfigAus(tage: readonly Tagespreis[] | null | undefined): TagKonfig[] {
+  return (tage ?? []).map((t) => ({ datum: t.datum, slots: t.slots ?? [], note: t.note ?? null, empfohlen: t.empfohlen === true }));
+}
+
+/** Anfrage an den Rechner: Lead, Übersteuerungen, Paket-Hebel und Plan-5b-Schalter (ohne Schalter wie vorher). */
+function anfrageFuer(
+  basis: RechnerAnfrage,
+  liste: Uebersteuerung[],
+  referenceDate: string,
+  k: Pick<RechenKontext, "schalter" | "paketHebel">,
+  tage: readonly string[]
+): RechnerAnfrage {
+  return mitPlan5Feldern(anfrageMitUebersteuerungen(basis, liste, { referenceDate, paketHebel: k.paketHebel }), {
+    schalter: k.schalter,
+    stunden: preisModusAus(liste) === "stunden",
+    tage,
+  });
 }
 
 /**
  * Rechnet die Version neu und liefert die zu speichernden Felder. Rechnerfehler:
  * nur `error`, Anfrage, Ergebnis und Bezugsdatum der Version bleiben (Paar bleibt
  * stimmig; Sperren rechnet dann erneut). `cache` = Live-Kalkulation zur selben Anfrage.
+ * Mit `wiederverwenden`: gleiche Anfrage und gleiches Bezugsdatum wie dort, dann ohne
+ * Rechner (Anpassungen, die nicht an den Rechner gehen: Paket- und Tagespreis, Darstellung).
  */
 async function neuBerechnen(
   ws: string,
@@ -242,13 +381,35 @@ async function neuBerechnen(
   lead: LeadDaten,
   liste: Uebersteuerung[],
   d: Abh,
-  opts: { cacheErlaubt?: boolean; paketHebel?: Record<string, HebelArt[]>; referenceDate?: string } = {}
+  opts: {
+    cacheErlaubt?: boolean;
+    kontext: Pick<RechenKontext, "schalter" | "paketHebel">;
+    tage?: TagKonfig[];
+    referenceDate?: string;
+    wiederverwenden?: VersionsZeile;
+    /** Schon gerechnet (Termin-Dialog): Anfrage und Ergebnis übernehmen. */
+    gerechnet?: { anfrage: RechnerAnfrage; ergebnis: RechnerErgebnis };
+  }
 ): Promise<Partial<VersionsZeile>> {
   const referenceDate = opts.referenceDate ?? heuteBerlin(d.jetzt());
-  const anfrage = anfrageMitUebersteuerungen(rechnerAnfrageAus(lead), liste, { referenceDate, paketHebel: opts.paketHebel });
+  const k = opts.kontext;
+  const tage = opts.tage ?? [];
+  const anfrage = opts.gerechnet?.anfrage ?? anfrageFuer(rechnerAnfrageAus(lead), liste, referenceDate, k, tage.map((t) => t.datum));
 
-  let ergebnis: RechnerErgebnis | null = null;
-  if (opts.cacheErlaubt && liste.length === 0) {
+  let ergebnis: RechnerErgebnis | null = opts.gerechnet?.ergebnis ?? null;
+  const w = opts.wiederverwenden;
+  if (
+    !ergebnis &&
+    w &&
+    w.error === null &&
+    w.rechnerResult &&
+    w.rechnerRequest &&
+    w.referenceDate === referenceDate &&
+    eingabeHash(w.rechnerRequest) === eingabeHash(anfrage)
+  ) {
+    ergebnis = w.rechnerResult;
+  }
+  if (!ergebnis && opts.cacheErlaubt && liste.length === 0) {
     const c = await d.ladeCache(deal);
     if (
       c &&
@@ -268,7 +429,7 @@ async function neuBerechnen(
   }
 
   const festpreis = ergebnis.preis?.festpreis;
-  return {
+  const felder: Partial<VersionsZeile> = {
     referenceDate,
     rechnerRequest: anfrage,
     rechnerResult: ergebnis,
@@ -280,6 +441,18 @@ async function neuBerechnen(
     packagePrices: ergebnis.paketpreise ?? [],
     tariff: ergebnis.tarif ?? null,
   };
+  // Plan 5b, nur mit Schalter (sonst Zeichen für Zeichen wie vorher).
+  if (k.schalter.angebotAusKalkulation) {
+    const modus = preisModusAus(liste);
+    felder.pricingMode = modus;
+    felder.packagePrices = paketpreiseAus(ergebnis.paketpreise, liste);
+    if (modus === "stunden") {
+      const s = ergebnis.stunden;
+      felder.priceCents = s ? Math.round(s.summeGeschaetztEur * 100) : null;
+    }
+  }
+  if (k.schalter.tagespreise) felder.dayPrices = tagespreiseAus(ergebnis.tagespreise, tage, liste);
+  return felder;
 }
 
 /** Anfrage aus Lead und Übersteuerungen weicht ab, oder das Bezugsdatum ist nicht heute. */
@@ -287,31 +460,36 @@ function anfrageVeraltet(
   v: VersionsZeile,
   basis: RechnerAnfrage,
   heute: string,
-  paketHebel: Record<string, HebelArt[]> | null
+  paketHebel: Record<string, HebelArt[]> | null,
+  schalter: Plan5Schalter
 ): boolean {
   return (
     !v.rechnerRequest ||
-    eingabeHash(anfrageMitUebersteuerungen(basis, v.overrides, { referenceDate: heute, paketHebel: paketHebel ?? undefined })) !==
-      eingabeHash(v.rechnerRequest) ||
+    eingabeHash(
+      anfrageFuer(basis, v.overrides, heute, { schalter, paketHebel: paketHebel ?? undefined }, (v.dayPrices ?? []).map((t) => t.datum))
+    ) !== eingabeHash(v.rechnerRequest) ||
     v.referenceDate !== heute
   );
 }
 
+const AUS: Plan5Schalter = { angebotAusKalkulation: false, tagespreise: false };
+
 /**
  * Ist der Entwurf nicht mehr aktuell? Die aus Lead und Übersteuerungen neu gebaute
- * Anfrage (mit den Paket-Hebeln, mit denen der Entwurf gerechnet wird) weicht ab, das
- * Bezugsdatum ist nicht heute, oder dem Ergebnis fehlt das Echo `montageJePosition`
- * (Rechner vor Plan 4). Gesperrte Versionen sind nie veraltet. Ein Rechnerfehler
- * zählt hier nicht (steht in `error`).
+ * Anfrage (mit den Paket-Hebeln, mit denen der Entwurf gerechnet wird, den Schaltern
+ * der Firma und den angebotenen Tagen) weicht ab, das Bezugsdatum ist nicht heute,
+ * oder dem Ergebnis fehlt das Echo `montageJePosition` (Rechner vor Plan 4).
+ * Gesperrte Versionen sind nie veraltet. Ein Rechnerfehler zählt hier nicht (steht in `error`).
  */
 export function entwurfVeraltet(
   v: VersionsZeile,
   basis: RechnerAnfrage,
   heute: string,
-  paketHebel: Record<string, HebelArt[]> | null
+  paketHebel: Record<string, HebelArt[]> | null,
+  schalter: Plan5Schalter = AUS
 ): boolean {
   if (v.status !== "entwurf") return false;
-  return anfrageVeraltet(v, basis, heute, paketHebel) || ergebnisVeraltet(v.rechnerResult);
+  return anfrageVeraltet(v, basis, heute, paketHebel, schalter) || ergebnisVeraltet(v.rechnerResult);
 }
 
 async function leadOderFehler(ws: string, deal: string, d: Abh): Promise<LeadDaten> {
@@ -341,11 +519,13 @@ async function entwurfAnlegen(
   const naechste = liste.reduce((max, v) => Math.max(max, v.version), 0) + 1;
   const letzteGesperrte = liste.filter((v) => v.status === "gesperrt").sort((a, b) => b.version - a.version)[0];
   const overrides = [...(letzteGesperrte?.overrides ?? [])];
+  const kontext = await kontextLaden(ws, deal, d);
+  const heute = heuteBerlin(d.jetzt());
+  // Plan 5b: angebotene Tage erbt der neue Entwurf (ohne vergangene); sonst fielen sie
+  // beim nächsten Sperren still weg und mit ihnen die Terminwahl des Kunden.
+  const tage = kontext.schalter.tagespreise ? tageKonfigAus(letzteGesperrte?.dayPrices).filter((t) => t.datum >= heute) : [];
 
-  const berechnet = await neuBerechnen(ws, deal, lead, overrides, d, {
-    cacheErlaubt: true,
-    paketHebel: await paketHebelFuer(ws, deal, d),
-  });
+  const berechnet = await neuBerechnen(ws, deal, lead, overrides, d, { cacheErlaubt: true, kontext, tage });
   const zeile: Omit<VersionsZeile, "id" | "createdAt" | "updatedAt"> = {
     workspaceId: ws,
     dealRecordId: deal,
@@ -461,6 +641,8 @@ export async function uebersteuern(
   const geprueft = pruefeUebersteuerung(eingabe);
   const angefragt = await versionOderFehler(ws, deal, version, d);
   const lead = await leadOderFehler(ws, deal, d);
+  const kontext = await kontextLaden(ws, deal, d);
+  if (PLAN5_ARTEN.has(geprueft.art)) pruefePlan5Art(geprueft.art, kontext.schalter, autor);
 
   for (let versuch = 0; ; versuch++) {
     let ziel = angefragt;
@@ -479,6 +661,9 @@ export async function uebersteuern(
       }
       const keys = new Set((ziel.rechnerResult?.kosten?.posten ?? []).map((p) => p.key).filter((k): k is string => !!k));
       if (!keys.has(geprueft.key) && !aufhebbar) throw new UebersteuerungFehler(`Unbekannte Kostenzeile: ${geprueft.key}`);
+    }
+    if ((geprueft.art === "paketpreis" || geprueft.art === "tagespreis") && geprueft.wert !== null) {
+      pruefeUntergrenze(geprueft.art, geprueft.key, geprueft.wert, ziel.rechnerResult);
     }
 
     const vorherAnfrage = ziel.rechnerRequest;
@@ -521,7 +706,12 @@ export async function uebersteuern(
 
     let gespeichert: VersionsZeile;
     try {
-      const berechnet = await neuBerechnen(ws, deal, lead, mitNeuer.overrides, d, { paketHebel: await paketHebelFuer(ws, deal, d) });
+      const berechnet = await neuBerechnen(ws, deal, lead, mitNeuer.overrides, d, {
+        kontext,
+        tage: tageKonfigAus(mitNeuer.dayPrices),
+        // Paket- und Tagespreis, Darstellung gehen nicht an den Rechner: gleiches Ergebnis ohne neuen Aufruf.
+        ...(OHNE_RECHNER.has(geprueft.art) ? { wiederverwenden: ziel } : {}),
+      });
       gespeichert = await d.speicher.aktualisieren(ziel.id, berechnet);
     } catch (err) {
       // Inzwischen gesperrt: das Sperren hat mit der aktuellen Liste (samt dieser Übersteuerung)
@@ -532,8 +722,9 @@ export async function uebersteuern(
       gespeichert = gesperrt;
     }
 
-    // Zurücknehmen (wert null) heißt: Rechnerwert gilt; das ist keine Korrektur.
-    if (neue.wert !== null && neue.art !== "marge") {
+    // Zurücknehmen (wert null) heißt: Rechnerwert gilt; das ist keine Korrektur. Die Marge,
+    // Paket- und Tagespreise meldet erst das Sperren; Darstellung und Preismodus nie.
+    if (neue.wert !== null && neue.art !== "marge" && !PLAN5_ARTEN.has(neue.art)) {
       const tarif = ziel.tariff ?? gespeichert.tariff;
       meldeImHintergrund(d, {
         crm_deal_record_id: deal,
@@ -556,6 +747,59 @@ export async function uebersteuern(
   }
 }
 
+const OHNE_RECHNER: ReadonlySet<string> = new Set(["paketpreis", "tagespreis", "kv_darstellung"]);
+
+/**
+ * Plan-5b-Anpassungen gibt es nur mit dem Firmen-Schalter; Preismodus, Tagespreis
+ * und „als ein Posten“ setzt nur ein Mensch (Entscheidung 14, F13).
+ */
+function pruefePlan5Art(art: string, schalter: Plan5Schalter, autor: Autor): void {
+  const noetig = art === "tagespreis" ? schalter.tagespreise : schalter.angebotAusKalkulation;
+  if (!noetig) {
+    throw new UebersteuerungFehler(
+      art === "tagespreis"
+        ? "Tagespreise sind für diese Firma nicht eingeschaltet."
+        : "Diese Anpassung gibt es erst mit dem Firmen-Schalter „Angebot aus Kalkulation“."
+    );
+  }
+  if (autor.quelle !== "agent") return;
+  if (art === "tagespreis") throw new VersionsFehler("TAGESPREIS_NUR_MENSCH", PLAN5_FEHLER_TEXT.TAGESPREIS_NUR_MENSCH);
+  if (art === "preismodus") throw new VersionsFehler("STUNDEN_NUR_MENSCH", "Den Preismodus ändert nur ein Mensch.");
+  if (art === "kv_darstellung") throw new UebersteuerungFehler("„Als ein Posten zeigen“ legt nur ein Mensch fest.");
+}
+
+/** Euro als Text für Meldungen („1.290 €“). */
+const euro = (eur: number) => `${new Intl.NumberFormat("de-DE", { maximumFractionDigits: 2 }).format(eur)} €`;
+
+/**
+ * Paket- oder Tagespreis-Anpassung: nie unter dem Preis bei 30 % Marge
+ * (`preisBeiMarge(selbstkosten, 30, rundungEur)`, Entscheidung 4). Das Paket bzw.
+ * der Tag muss in der Rechner-Antwort stehen (sonst gibt es keine Selbstkosten).
+ */
+function pruefeUntergrenze(art: "paketpreis" | "tagespreis", key: string, wert: Uebersteuerung["wert"], e: RechnerErgebnis | null): void {
+  const betrag = wert && typeof wert === "object" && "betrag" in wert && typeof wert.betrag === "number" ? wert.betrag : null;
+  if (betrag === null) return;
+  const rundungHaupt = e?.preis?.rundungEur ?? 1;
+  let basis: { selbstkosten: number; rundungEur: number } | null = null;
+  if (art === "paketpreis") {
+    const p = (e?.paketpreise ?? []).find((x) => x.slug === key);
+    if (!p) throw new UebersteuerungFehler(`Unbekanntes Paket: ${key}`);
+    basis = { selbstkosten: p.selbstkosten, rundungEur: p.rundungEur ?? rundungHaupt };
+  } else {
+    const [datum, slug] = key.split(":");
+    const t = (e?.tagespreise ?? []).find((x) => x.datum === datum);
+    if (!t) throw new UebersteuerungFehler(`Der ${datum} ist kein angebotener Tag.`);
+    const p = slug ? t.paketpreise?.find((x) => x.slug === slug) ?? null : null;
+    if (slug && !p) throw new UebersteuerungFehler(`Unbekanntes Paket am ${datum}: ${slug}`);
+    basis = p ? { selbstkosten: p.selbstkosten, rundungEur: p.rundungEur ?? rundungHaupt } : { selbstkosten: t.selbstkosten, rundungEur: rundungHaupt };
+  }
+  if (!(basis.selbstkosten > 0)) return;
+  const grenze = preisBeiMarge(basis.selbstkosten, MARGE_MIN_PROZENT, basis.rundungEur);
+  if (betrag < grenze) {
+    throw new UebersteuerungFehler(`Preis liegt unter der Mindestmarge von ${MARGE_MIN_PROZENT} % (mindestens ${euro(grenze)}).`);
+  }
+}
+
 /**
  * Rechnet einen Entwurf neu, wenn er veraltet ist (`entwurfVeraltet`, mit den
  * Paket-Hebeln des Deals) oder einen Rechnerfehler hat; sonst bleibt er unverändert
@@ -573,12 +817,59 @@ export async function entwurfNeuRechnen(
   if (v.status !== "entwurf") throw new VersionsFehler("UNGUELTIG", "Nur ein Entwurf kann neu gerechnet werden.");
   const lead = await leadOderFehler(ws, deal, d);
   const heute = heuteBerlin(d.jetzt());
-  const paketHebel = await paketHebelFuer(ws, deal, d);
-  if (v.error === null && v.rechnerResult && !entwurfVeraltet(v, rechnerAnfrageAus(lead), heute, paketHebel ?? null)) {
+  const kontext = await kontextLaden(ws, deal, d);
+  if (
+    v.error === null &&
+    v.rechnerResult &&
+    !entwurfVeraltet(v, rechnerAnfrageAus(lead), heute, kontext.paketHebel ?? null, kontext.schalter)
+  ) {
     return { version: v, gerechnet: false };
   }
-  const berechnet = await neuBerechnen(ws, deal, lead, v.overrides, d, { paketHebel, referenceDate: heute });
+  const berechnet = await neuBerechnen(ws, deal, lead, v.overrides, d, { kontext, tage: tageKonfigAus(v.dayPrices), referenceDate: heute });
   return { version: await d.speicher.aktualisieren(v.id, berechnet), gerechnet: true };
+}
+
+/** Body von `POST …/lock` (Entscheidung 5). */
+export interface SperrBody {
+  bestaetigtSpanne?: boolean;
+  /** Kalkulationskarte: nur mit Marge-Anpassungen; die Karte schreibt bewusst einen Festpreis. */
+  nurMarge?: boolean;
+  erwartetPreisCent?: number;
+  /** `preisHash` der Kundenpreise, die die Seite gezeigt hat. */
+  erwartetPreisHash?: string;
+  /** Ein Mensch bestätigt, dass aus dem Stunden-KV ein Festpreis wird. */
+  modusWechselBestaetigt?: boolean;
+}
+
+/** Wahlen, die der Kunde treffen kann (für Kern-Regel und fehlende Tagespreise). */
+function kundenWahlen(p: VersionsPreise): AngebotsWahl[] {
+  const pakete: (string | null)[] = p.packagePrices.length > 0 ? p.packagePrices.map((x) => x.slug) : [null];
+  if (p.dayPrices.length === 0) return pakete.map((paketSlug) => ({ paketSlug, datum: null }));
+  return p.dayPrices.flatMap((t) => pakete.map((paketSlug) => ({ paketSlug, datum: t.datum })));
+}
+
+/** Kalibrierungsmeldung der wirksamen Paket- und Tagespreise beim Sperren (wie die Marge). */
+function meldePreisAnpassungen(d: Abh, deal: string, v: VersionsZeile, gesperrt: VersionsZeile): void {
+  const tarif = gesperrt.tariff ?? v.tariff;
+  for (const u of wirksameUebersteuerungen(v.overrides)) {
+    if (u.art !== "paketpreis" && u.art !== "tagespreis") continue;
+    const betrag = u.wert && typeof u.wert === "object" && "betrag" in u.wert ? u.wert.betrag : null;
+    meldeImHintergrund(d, {
+      crm_deal_record_id: deal,
+      crm_version: gesperrt.version,
+      tarif_id: tarif?.id ?? null,
+      tarif_version: tarif?.version ?? null,
+      marke: tarif?.marke ?? null,
+      regel: u.art,
+      zeile_key: u.key,
+      eingaben: v.rechnerRequest ?? {},
+      rechnerwert: zahlOderNull(rechnerwertFuer(u.art, u.key, v.rechnerRequest ?? {}, v.rechnerResult)),
+      inhaberwert: zahlOderNull(betrag),
+      grund: u.grund,
+      autor: u.autor.userId ?? "agent",
+      foto_ref: u.fotoRef,
+    });
+  }
 }
 
 /**
@@ -586,8 +877,15 @@ export async function entwurfNeuRechnen(
  * Vorher frisch prüfen: weicht die aus Lead und aktuellen Übersteuerungen neu gebaute
  * Anfrage ab, ist das Bezugsdatum nicht heute oder stand ein Fehler an, wird zuerst
  * neu gerechnet. Gesperrt wird nur, wenn die Liste bis zum Sperren gleich bleibt.
- * Mit `erwartetPreisCent` (Kalkulationsseite) nur, wenn die Posten genau den Preis
- * ergeben, den die Seite gezeigt hat (sonst PREIS_GEAENDERT, nichts gesperrt).
+ * Mit `erwartetPreisCent` (Kalkulationsseite) nur, wenn der Preis der Standardwahl
+ * genau der gezeigte ist, mit `erwartetPreisHash` nur, wenn alle Kundenpreise gleich
+ * geblieben sind (sonst PREIS_GEAENDERT, nichts gesperrt).
+ *
+ * Plan 5b (Firmen-Schalter): Paket-, Tages- und Stundenpreise aus der Version,
+ * Ablehnungen nach `sperrBefund` (eine Regel mit der Kalkulationsseite). Ohne
+ * Schalter wie nach 5a, bis auf die Regel „kein stiller Wechsel vom Stunden-KV zum
+ * Festpreis“: ein Mensch bestätigt mit `modusWechselBestaetigt` (die Kalkulationskarte
+ * mit `nurMarge` gilt als bestätigt), ein Agent nie.
  * Nach dem Sperren meldet es eine wirksame Marge-Übersteuerung einmal an den Rechner.
  */
 export async function sperren(
@@ -595,35 +893,44 @@ export async function sperren(
   deal: string,
   version: number,
   autor: Autor,
-  body: { bestaetigtSpanne?: boolean; nurMarge?: boolean; erwartetPreisCent?: number },
+  body: SperrBody,
   opts?: VersionsOptionen
 ): Promise<{ version: VersionsZeile; quotation: Quotation | null; gueltigkeitHinweis: string | null }> {
   const d = await abhaengigkeiten(opts);
   let v = await versionOderFehler(ws, deal, version, d);
   if (v.status !== "entwurf") throw new VersionsFehler("UNGUELTIG", `Version v${version} ist bereits gesperrt.`);
-  if (await d.hatPakete(deal)) {
-    throw new VersionsFehler("PAKETE", PAKETE_TEXT);
-  }
+  const k = await kontextLaden(ws, deal, d);
+  const plan5 = k.schalter.angebotAusKalkulation || k.schalter.tagespreise;
   const vorhanden = await d.ladeAngebot(deal);
-  // Ein Mensch darf einen Stunden-KV bewusst auf Festpreis umstellen (wie bisher an der
-  // Kalkulationskarte); ein Agent nie still. Eine Stunden-Version sperrt niemand.
-  if (v.pricingMode === "stunden" || (vorhanden?.isVariable && autor.quelle === "agent")) {
-    throw new VersionsFehler("STUNDEN", "Das Angebot ist ein Stunden-KV: bitte weiter über das Angebotsformular bearbeiten.");
-  }
+  const regel = (pricingMode: PreisModus, tage: number): SperrRegel => ({
+    schalter: k.schalter,
+    autor: autor.quelle,
+    hatPakete: k.hatPakete,
+    angebotIstStunden: vorhanden?.isVariable === true,
+    pricingMode,
+    modusWechselBestaetigt: autor.quelle === "mensch" && (body.modusWechselBestaetigt === true || body.nurMarge === true),
+    tage: k.schalter.tagespreise ? tage : 0,
+  });
+  const vorab = sperrBefund(regel(v.pricingMode === "stunden" ? "stunden" : "fest", v.dayPrices?.length ?? 0));
+  if (vorab) throw new VersionsFehler(vorab.code, vorab.text);
   await d.pruefeAnnahme(deal);
 
   const lead = await leadOderFehler(ws, deal, d);
   const heute = heuteBerlin(d.jetzt());
   const basis = rechnerAnfrageAus(lead);
+  const hebel = k.paketHebel ?? null;
   // Verglichen wird immer mit der aktuellen Liste der Version (auch nach einer Neuberechnung,
-  // denn parallel kann eine Übersteuerung dazugekommen sein). Paket-Deals sind oben abgelehnt.
-  for (let versuch = 0; entwurfVeraltet(v, basis, heute, null) || v.error !== null; versuch++) {
+  // denn parallel kann eine Übersteuerung dazugekommen sein).
+  for (let versuch = 0; entwurfVeraltet(v, basis, heute, hebel, k.schalter) || v.error !== null; versuch++) {
     if (versuch > 0 && v.error !== null) break; // Rechnerfehler: unten abgelehnt
     // Frisch gerechnet, nur das Echo fehlt: der Rechner kennt Montage je Position noch nicht.
     // Sein Ergebnis gilt (sonst sperrte bis zu seinem Deploy niemand mehr).
-    if (versuch > 0 && !anfrageVeraltet(v, basis, heute, null)) break;
+    if (versuch > 0 && !anfrageVeraltet(v, basis, heute, hebel, k.schalter)) break;
     if (versuch >= 3) throw new VersionsFehler("UNGUELTIG", "Die Kalkulation wird gerade geändert. Bitte erneut sperren.");
-    v = await d.speicher.aktualisieren(v.id, await neuBerechnen(ws, deal, lead, v.overrides, d, { referenceDate: heute }));
+    v = await d.speicher.aktualisieren(
+      v.id,
+      await neuBerechnen(ws, deal, lead, v.overrides, d, { referenceDate: heute, kontext: k, tage: tageKonfigAus(v.dayPrices) })
+    );
   }
   if (v.error !== null || !v.rechnerResult || !v.rechnerRequest) {
     throw new VersionsFehler("RECHNER_FEHLER", `Kalkulation nicht aktuell: ${v.error ?? "Noch keine Kalkulation vorhanden."}`);
@@ -639,6 +946,10 @@ export async function sperren(
   if (body.nurMarge === true && wirksameUebersteuerungen(v.overrides).some((u) => u.art !== "marge")) {
     throw new VersionsFehler("UNGUELTIG", kartenAbweichungText(v.version));
   }
+  // Nach dem Rechnen kann sich der Preismodus geändert haben (parallel angehängt).
+  const modus: PreisModus = k.schalter.angebotAusKalkulation && v.pricingMode === "stunden" ? "stunden" : "fest";
+  const nachher = sperrBefund(regel(modus, v.dayPrices?.length ?? 0));
+  if (nachher) throw new VersionsFehler(nachher.code, nachher.text);
 
   const bestaetigtSpanne = body.bestaetigtSpanne === true;
   const jetzt = d.jetzt();
@@ -657,11 +968,67 @@ export async function sperren(
     quantity: li.quantity,
     unitRate: Number(li.unitRate),
   }));
-  // Die Seite hat einen Preis gezeigt; ergibt die (Neu-)Berechnung einen anderen, nichts sperren.
-  if (typeof body.erwartetPreisCent === "number" && centSumme(kvItems) !== body.erwartetPreisCent) {
-    throw new VersionsFehler("PREIS_GEAENDERT", PREIS_GEAENDERT_TEXT);
+
+  let eingabe = u.eingabe;
+  let sperrKvItems = kvItems;
+  let plan5Sperre: Plan5Sperre | undefined;
+  if (!plan5) {
+    // Die Seite hat einen Preis gezeigt; ergibt die (Neu-)Berechnung einen anderen, nichts sperren.
+    if (typeof body.erwartetPreisCent === "number" && centSumme(kvItems) !== body.erwartetPreisCent) {
+      throw new VersionsFehler("PREIS_GEAENDERT", PREIS_GEAENDERT_TEXT);
+    }
+  } else {
+    const r = plan5Preise(v, k, kvItems, centSumme(kvItems), modus);
+    const istKottke = modus === "stunden" ? await d.istKottke(ws, deal) : false;
+    const befund = sperrBefund({
+      ...regel(modus, r.preise.dayPrices.length),
+      preise: {
+        pakete: k.optionen.map((o) => {
+          const p = o.catalogueSlug ? r.preise.packagePrices.find((x) => x.slug === o.catalogueSlug) ?? null : null;
+          return {
+            slug: o.catalogueSlug,
+            preis: p?.festpreis ?? null,
+            hebel: o.catalogueSlug ? k.katalogHebel[o.catalogueSlug] ?? null : null,
+            uebersteuert: !!p?.uebersteuert,
+          };
+        }),
+        stunden:
+          modus === "stunden"
+            ? {
+                kalkulierbar: !!v.rechnerResult.stunden,
+                hinweis: (v.rechnerResult as { stundenHinweis?: string | null }).stundenHinweis ?? null,
+                zusatzposten: v.rechnerResult.stunden?.zusatzposten.length ?? 0,
+              }
+            : null,
+        istKottke,
+        kerne: r.kerne,
+        anzahlungPasst: anzahlungPasst(vorhanden?.depositRequiredCents ?? null, r.preise),
+      },
+    });
+    if (befund) throw new VersionsFehler(befund.code, befund.text);
+    if (r.ohnePreis) throw new VersionsFehler("RECHNER_FEHLER", r.ohnePreis);
+    if (r.postenFalsch) {
+      throw new VersionsFehler("UNGUELTIG", "Die Posten ergeben nicht den Preis einer Wahl. Bitte neu rechnen.");
+    }
+    if (typeof body.erwartetPreisHash === "string" && body.erwartetPreisHash !== r.hash) {
+      throw new VersionsFehler("PREIS_GEAENDERT", PREIS_GEAENDERT_TEXT);
+    }
+    if (typeof body.erwartetPreisCent === "number" && r.preise.priceCents !== body.erwartetPreisCent) {
+      throw new VersionsFehler("PREIS_GEAENDERT", PREIS_GEAENDERT_TEXT);
+    }
+    // „Gültig bis“ nach dem frühesten angebotenen Tag (F17).
+    const fruehester = r.preise.dayPrices[0]?.datum ?? null;
+    if (fruehester) {
+      const frist = kvGueltigBis(heute, fruehester).datum;
+      if (frist < eingabe.validUntil) {
+        eingabe = { ...eingabe, validUntil: frist, documentDetails: { ...eingabe.documentDetails, validUntil: frist } };
+      }
+    }
+    sperrKvItems = r.preise.kvItems;
+    plan5Sperre = { preise: r.preise, standard: r.standard, stunden: r.stunden };
   }
-  const { version: gesperrt } = await d.speicher.sperrenUndAngebot(ws, deal, v.id, u.eingabe, kvItems, autor.userId, {
+
+  const { version: gesperrt } = await d.speicher.sperrenUndAngebot(ws, deal, v.id, eingabe, sperrKvItems, autor.userId, {
     uebersteuerungen: v.overrides.length,
     schnappschuss: {
       referenceDate: v.referenceDate,
@@ -673,6 +1040,7 @@ export async function sperren(
       packagePrices: v.packagePrices,
       tariff: v.tariff,
     },
+    ...(plan5Sperre ? { plan5: plan5Sperre } : {}),
   });
   await d.nachSperren(ws, deal, autor);
 
@@ -697,7 +1065,346 @@ export async function sperren(
       foto_ref: marge.fotoRef,
     });
   }
+  if (plan5Sperre) meldePreisAnpassungen(d, deal, v, gesperrt);
 
   const quotation = await d.ladeAngebot(deal);
   return { version: gesperrt, quotation, gueltigkeitHinweis: u.gueltigkeitHinweis };
+}
+
+/**
+ * Kundenpreise einer gerechneten Version mit Posten je Wahl (Task P) und die
+ * Befunde fürs Sperren. Rechnet keinen Preis: Paket-, Tages- und Stundenpreise
+ * kommen aus dem Rechner (mit begründeten Anpassungen), die Posten verteilen sie.
+ */
+export function plan5Preise(
+  v: Pick<VersionsZeile, "packagePrices" | "dayPrices" | "rechnerResult" | "rechnerRequest" | "overrides">,
+  k: Pick<RechenKontext, "schalter" | "optionen" | "katalogHebel">,
+  hauptKv: KvPosten[],
+  hauptCent: number,
+  modus: PreisModus
+): {
+  preise: VersionsPreise;
+  standard: AngebotsWahl;
+  hash: string;
+  stunden: Plan5Sperre["stunden"];
+  kerne: KernBefund[];
+  ohnePreis: string | null;
+  postenFalsch: boolean;
+} {
+  const e = v.rechnerResult!;
+  const anfrage = v.rechnerRequest!;
+  const empf = empfohlenesPaket(k.optionen);
+  const einPosten = k.schalter.angebotAusKalkulation && kvDarstellungAus(v.overrides) === "ein_posten";
+
+  if (modus === "stunden") {
+    const stunden = e.stunden ? stundenPosten(e.stunden) : null;
+    const stundenCent = e.stunden ? Math.round(e.stunden.summeGeschaetztEur * 100) : null;
+    const hash = preisHash(
+      kundenPreiseOhnePosten({ schalter: k.schalter, pricingMode: "stunden", hauptCent: null, packagePrices: [], dayPrices: [], stundenCent, empfohlenesPaket: null })
+    );
+    const preise: VersionsPreise = {
+      pricingMode: "stunden",
+      priceCents: stunden?.angebot.summeGeschaetztCent ?? stundenCent,
+      kvItems: stunden?.posten ?? [],
+      packagePrices: [],
+      dayPrices: [],
+    };
+    return { preise, standard: { paketSlug: null, datum: null }, hash, stunden, kerne: [], ohnePreis: null, postenFalsch: false };
+  }
+
+  const packagePrices = k.schalter.angebotAusKalkulation ? v.packagePrices ?? [] : [];
+  const dayPrices = k.schalter.tagespreise ? v.dayPrices ?? [] : [];
+  const hauptPosten = k.schalter.angebotAusKalkulation ? hauptPostenAus(e, anfrage, hauptCent / 100, einPosten) : hauptKv;
+  // Der Hash hängt nur an Preisen: vor dem Verteilen der Posten gebildet, wie auf der Seite.
+  const hash = preisHash(
+    kundenPreiseOhnePosten({ schalter: k.schalter, pricingMode: "fest", hauptCent, packagePrices, dayPrices, stundenCent: null, empfohlenesPaket: empf })
+  );
+  const paketHebel: Record<string, HebelArt[]> = {};
+  for (const p of packagePrices) paketHebel[p.slug] = k.katalogHebel[p.slug] ?? [];
+  const gefuellt = postenJeWahl({
+    ergebnis: e,
+    anfrage,
+    version: { pricingMode: "fest", priceCents: hauptCent, kvItems: hauptPosten, packagePrices, dayPrices },
+    paketHebel,
+    einPosten,
+  });
+  const preise = kundenPreiseAus(
+    {
+      pricingMode: "fest",
+      hauptCent: gefuellt.priceCents,
+      hauptPosten: gefuellt.kvItems,
+      packagePrices: gefuellt.packagePrices,
+      dayPrices: gefuellt.dayPrices,
+    },
+    empf
+  );
+  const standard = standardWahl(preise, packagePrices.length > 0 ? empf : null);
+
+  const kerne: KernBefund[] = [];
+  let ohnePreis: string | null = null;
+  let postenFalsch = false;
+  for (const w of kundenWahlen(preise)) {
+    const r = wahlPreis(preise, w);
+    if (!r) {
+      // Paket ohne Preis meldet die Regel (PAKET_OHNE_PREIS); hier nur ein Tag ohne Preis.
+      if (w.datum && !ohnePreis && (w.paketSlug === null || packagePrices.some((p) => p.slug === w.paketSlug && p.festpreis !== null))) {
+        ohnePreis = `Für den ${w.datum} liefert der Rechner keinen Preis. Bitte den Tag entfernen oder den Preis mit Grund setzen.`;
+      }
+      continue;
+    }
+    kerne.push(kernBefund(r.kvItems));
+    if (r.kvItems.length === 0 || centSumme(r.kvItems) !== r.priceCents) postenFalsch = true;
+  }
+  return { preise, standard, hash, stunden: null, kerne, ohnePreis, postenFalsch };
+}
+
+// ─── Termin-Dialog: Raster und „Tage anbieten“ (Entscheidung 12, F16, F17) ────
+
+/** Höchstens so viele Tage fragt das Raster beim Rechner an (Rechner: 42). */
+export const RASTER_MAX_TAGE = 42;
+/** Höchstens so viele Tage bietet „Tage anbieten“ an. */
+export const ANGEBOT_MAX_TAGE = 10;
+
+const TAG_RE = /^\d{4}-\d{2}-\d{2}$/;
+const ZEIT_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+function istTag(t: unknown): t is string {
+  if (typeof t !== "string" || !TAG_RE.test(t)) return false;
+  const [j, m, d] = t.split("-").map(Number);
+  const x = new Date(Date.UTC(j, m - 1, d));
+  return x.getUTCFullYear() === j && x.getUTCMonth() === m - 1 && x.getUTCDate() === d;
+}
+
+function tagPlus(t: string, n: number): string {
+  const [j, m, d] = t.split("-").map(Number);
+  return new Date(Date.UTC(j, m - 1, d + n)).toISOString().slice(0, 10);
+}
+
+function tageVonBis(von: string, bis: string): string[] {
+  const aus: string[] = [];
+  for (let t = von; t <= bis && aus.length <= RASTER_MAX_TAGE; t = tagPlus(t, 1)) aus.push(t);
+  return aus;
+}
+
+/** Hinweis, wenn die Marge übersteuert ist: dann gilt sie an allen Tagen (F16). */
+function margeHinweis(liste: Uebersteuerung[]): string | null {
+  const m = wirksameUebersteuerungen(liste).filter((u) => u.art === "marge").at(-1);
+  if (!m || typeof m.wert !== "number") return null;
+  const prozent = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 1 }).format(m.wert);
+  return `Die Marge ist auf ${prozent} % gesetzt und gilt an allen Tagen. Die Tage unterscheiden sich nur durch Miete und Fahrzeit.`;
+}
+
+function pruefeTagespreisSchalter(k: RechenKontext, v: Pick<VersionsZeile, "overrides" | "pricingMode">): void {
+  if (!k.schalter.tagespreise) throw new VersionsFehler("UNGUELTIG", "Tagespreise sind für diese Firma nicht eingeschaltet.");
+  if (k.schalter.angebotAusKalkulation && (v.pricingMode === "stunden" || preisModusAus(v.overrides) === "stunden")) {
+    throw new VersionsFehler("UNGUELTIG", STUNDEN_OHNE_TAGE);
+  }
+}
+const STUNDEN_OHNE_TAGE = "Im Stundenmodus gibt es keine Tagespreise.";
+
+/**
+ * Monatsraster des Termin-Dialogs (`POST …/versions/[v]/tage`). Speichert nichts:
+ * eine Rechner-Anfrage mit allen Tagen von `von` bis `bis` (höchstens 42), je Tag
+ * der Preis des empfohlenen Pakets (sonst der Hauptpreis, mit Tagespreis-Anpassung
+ * der Version), die Gründe der Marge, die Aufträge an dem Tag (Plan, ohne diesen
+ * Deal) und ob der Tag vorbei ist. Dazu der Wunschtermin (Deal, sonst Portal).
+ */
+export async function tagesRaster(
+  ws: string,
+  deal: string,
+  version: number,
+  von: string,
+  bis: string,
+  opts?: VersionsOptionen
+): Promise<TagesRaster> {
+  if (!istTag(von) || !istTag(bis)) throw new VersionsFehler("UNGUELTIG", "von und bis müssen Tage im Format JJJJ-MM-TT sein.");
+  if (von > bis) throw new VersionsFehler("UNGUELTIG", "von liegt nach bis.");
+  const tage = tageVonBis(von, bis);
+  if (tage.length > RASTER_MAX_TAGE) throw new VersionsFehler("UNGUELTIG", `Höchstens ${RASTER_MAX_TAGE} Tage je Abfrage.`);
+
+  const d = await abhaengigkeiten(opts);
+  const v = await versionOderFehler(ws, deal, version, d);
+  const k = await kontextLaden(ws, deal, d);
+  pruefeTagespreisSchalter(k, v);
+  const lead = await leadOderFehler(ws, deal, d);
+  const heute = heuteBerlin(d.jetzt());
+
+  const anfrage = anfrageFuer(rechnerAnfrageAus(lead), v.overrides, heute, k, tage);
+  const [antwort, auftraege, wunsch] = await Promise.all([
+    d.rechner(anfrage),
+    d.ladeAuftraege(ws, von, bis),
+    d.ladeWunschtermine(ws, deal),
+  ]);
+  if (!antwort.ok) throw new VersionsFehler("RECHNER_FEHLER", antwort.fehler);
+
+  const empf = empfohlenesPaket(k.optionen);
+  const preise = tagespreiseAus(
+    antwort.ergebnis.tagespreise,
+    tage.map((datum) => ({ datum, slots: [], note: null, empfohlen: false })),
+    v.overrides
+  );
+  const zellen = preise.map((t) => {
+    const paket = empf && t.paketpreise ? t.paketpreise.find((p) => p.slug === empf) ?? null : null;
+    const eur = paket ? paket.festpreis : t.festpreis;
+    return {
+      datum: t.datum,
+      wochentag: t.wochentag,
+      feiertag: t.feiertag,
+      preisCent: eur === null ? null : Math.round(eur * 100),
+      gruende: t.gruende,
+      auftraege: auftraege.filter((a) => a.datum === t.datum && a.dealId !== deal).map((a) => ({ dealId: a.dealId, name: a.name })),
+      vergangen: t.datum < heute,
+    };
+  });
+
+  const ausDeal = lead.umzugsdatum && istTag(lead.umzugsdatum) ? lead.umzugsdatum : null;
+  const portal = wunsch.filter(istTag);
+  const datum = ausDeal ?? portal[0] ?? null;
+  return {
+    von,
+    bis,
+    zellen,
+    wunschtermin: {
+      datum,
+      quelle: ausDeal ? "deal" : datum ? "portal" : null,
+      weitere: portal.filter((t) => t !== datum),
+    },
+    hinweis: margeHinweis(v.overrides),
+  };
+}
+
+function pruefeSlots(slots: unknown, datum: string): TagesSlot[] {
+  if (!Array.isArray(slots) || slots.length > 6) throw new UebersteuerungFehler(`${datum}: höchstens 6 Zeitfenster.`);
+  return slots.map((x) => {
+    const s = (x ?? {}) as Record<string, unknown>;
+    const label = typeof s.label === "string" ? s.label.trim() : "";
+    const zeit = (z: unknown) => (z === null || z === undefined || z === "" ? null : typeof z === "string" && ZEIT_RE.test(z) ? z : undefined);
+    const startTime = zeit(s.startTime);
+    const endTime = zeit(s.endTime);
+    if (label.length < 1 || label.length > 40 || startTime === undefined || endTime === undefined) {
+      throw new UebersteuerungFehler(`${datum}: Zeitfenster braucht eine Bezeichnung (bis 40 Zeichen) und Zeiten als HH:MM.`);
+    }
+    return { label, startTime, endTime };
+  });
+}
+
+/** Prüft „Tage anbieten“ (bis 10 Tage, nicht vorbei, genau eine Empfehlung, Anpassung nur mit Grund). */
+export function pruefeTageAnbieten(e: unknown, heute: string): TageAnbieten {
+  const roh = (e && typeof e === "object" ? e : {}) as Record<string, unknown>;
+  if (!Array.isArray(roh.tage)) throw new UebersteuerungFehler("tage muss eine Liste sein.");
+  if (roh.tage.length > ANGEBOT_MAX_TAGE) throw new UebersteuerungFehler(`Höchstens ${ANGEBOT_MAX_TAGE} Tage anbieten.`);
+  const gesehen = new Set<string>();
+  const tage = roh.tage.map((x) => {
+    const t = (x ?? {}) as Record<string, unknown>;
+    if (!istTag(t.datum)) throw new UebersteuerungFehler("Tag muss ein Datum JJJJ-MM-TT sein.");
+    if (t.datum < heute) throw new UebersteuerungFehler(`Der ${t.datum} liegt in der Vergangenheit.`);
+    if (gesehen.has(t.datum)) throw new UebersteuerungFehler(`Der ${t.datum} steht doppelt in der Liste.`);
+    gesehen.add(t.datum);
+    const note = t.note === null || t.note === undefined ? null : typeof t.note === "string" ? t.note.trim().slice(0, 200) || null : null;
+    return { datum: t.datum, slots: pruefeSlots(t.slots ?? [], t.datum), note, empfohlen: t.empfohlen === true };
+  });
+  if (tage.length > 0 && tage.filter((t) => t.empfohlen).length !== 1) {
+    throw new UebersteuerungFehler("Genau ein Tag muss empfohlen sein.");
+  }
+  const liste = Array.isArray(roh.uebersteuerungen) ? roh.uebersteuerungen : [];
+  const uebersteuerungen = liste.map((x) => {
+    const u = (x ?? {}) as Record<string, unknown>;
+    if (!istTag(u.datum) || !gesehen.has(u.datum)) throw new UebersteuerungFehler("Preis-Anpassung nur für einen angebotenen Tag.");
+    const paketSlug = u.paketSlug === null || u.paketSlug === undefined ? null : typeof u.paketSlug === "string" ? u.paketSlug : "";
+    const geprueft = pruefeUebersteuerung({
+      art: "tagespreis",
+      key: paketSlug === null ? u.datum : `${u.datum}:${paketSlug}`,
+      wert: u.betrag,
+      grund: typeof u.grund === "string" ? u.grund : "",
+    });
+    const betrag = geprueft.wert && typeof geprueft.wert === "object" && "betrag" in geprueft.wert ? geprueft.wert.betrag! : 0;
+    return { datum: u.datum, paketSlug, betrag, grund: geprueft.grund };
+  });
+  return { tage, uebersteuerungen };
+}
+
+/**
+ * „Tage anbieten“ (`PUT …/versions/[v]/tage`, nur Menschen): setzt die angebotenen
+ * Tage samt Slots, Notiz und Empfehlung im Entwurf und die Tagespreis-Anpassungen
+ * (die Liste ist der ganze gewünschte Stand: fehlende werden aufgehoben). An einer
+ * gesperrten Version landet alles im nächsten Entwurf (F17: neue Tage = neue
+ * Version). Gerechnet wird einmal mit den neuen Tagen; scheitert der Rechner, bleibt
+ * alles wie es war. Anpassungen nie unter dem Preis bei 30 % Marge.
+ */
+export async function tageSetzen(
+  ws: string,
+  deal: string,
+  version: number,
+  autor: Autor,
+  eingabe: TageAnbieten,
+  opts?: VersionsOptionen
+): Promise<VersionsZeile> {
+  if (autor.quelle === "agent") throw new VersionsFehler("TAGESPREIS_NUR_MENSCH", PLAN5_FEHLER_TEXT.TAGESPREIS_NUR_MENSCH);
+  const d = await abhaengigkeiten(opts);
+  const heute = heuteBerlin(d.jetzt());
+  const geprueft = pruefeTageAnbieten(eingabe, heute);
+  const angefragt = await versionOderFehler(ws, deal, version, d);
+  const k = await kontextLaden(ws, deal, d);
+  pruefeTagespreisSchalter(k, angefragt);
+  const lead = await leadOderFehler(ws, deal, d);
+
+  const ziel = angefragt.status === "entwurf" ? angefragt : (await entwurfAnlegen(ws, deal, autor, d)).version;
+  pruefeTagespreisSchalter(k, ziel);
+  const konfig: TagKonfig[] = geprueft.tage;
+  const anfrage = anfrageFuer(rechnerAnfrageAus(lead), ziel.overrides, heute, k, konfig.map((t) => t.datum));
+  const antwort = await d.rechner(anfrage);
+  if (!antwort.ok) throw new VersionsFehler("RECHNER_FEHLER", antwort.fehler);
+  for (const u of geprueft.uebersteuerungen) {
+    const key = u.paketSlug === null ? u.datum : `${u.datum}:${u.paketSlug}`;
+    pruefeUntergrenze("tagespreis", key, { betrag: u.betrag }, antwort.ergebnis);
+  }
+
+  // Anpassungen angleichen: neue oder geänderte anhängen, nicht mehr gewünschte aufheben.
+  const wirksam = new Map(
+    wirksameUebersteuerungen(ziel.overrides)
+      .filter((u) => u.art === "tagespreis")
+      .map((u) => [u.key, u] as const)
+  );
+  const soll = new Map(geprueft.uebersteuerungen.map((u) => [u.paketSlug === null ? u.datum : `${u.datum}:${u.paketSlug}`, u] as const));
+  const neue: Uebersteuerung[] = [];
+  const zeit = d.jetzt().toISOString();
+  const anlegen = (key: string, wert: Uebersteuerung["wert"], grund: string): Uebersteuerung => ({
+    id: crypto.randomUUID(),
+    art: "tagespreis",
+    key,
+    rechnerwert:
+      ziel.overrides.find((x) => x.art === "tagespreis" && x.key === key)?.rechnerwert ??
+      rechnerwertFuer("tagespreis", key, anfrage, antwort.ergebnis),
+    wert,
+    grund,
+    autor: { userId: autor.userId, quelle: autor.quelle },
+    zeit,
+    fotoRef: null,
+  });
+  for (const [key, u] of soll) {
+    const alt = wirksam.get(key);
+    const altBetrag = alt?.wert && typeof alt.wert === "object" && "betrag" in alt.wert ? alt.wert.betrag : null;
+    if (altBetrag !== u.betrag || alt?.grund !== u.grund) neue.push(anlegen(key, { betrag: u.betrag }, u.grund));
+  }
+  for (const key of wirksam.keys()) if (!soll.has(key)) neue.push(anlegen(key, null, "Im Termin-Dialog entfernt"));
+
+  let liste = ziel.overrides;
+  for (const u of neue) {
+    try {
+      liste = (await d.speicher.anhaengen(ziel.id, u)).overrides;
+    } catch (err) {
+      if (err instanceof VersionsFehler && err.code === "UNGUELTIG") {
+        throw new VersionsFehler("UNGUELTIG", "Die Kalkulation wurde gerade gesperrt. Bitte die Tage erneut anbieten.");
+      }
+      throw err;
+    }
+  }
+  const berechnet = await neuBerechnen(ws, deal, lead, liste, d, {
+    kontext: k,
+    tage: konfig,
+    referenceDate: heute,
+    // Tagespreis-Anpassungen gehen nicht an den Rechner: die Antwort oben gilt.
+    gerechnet: { anfrage, ergebnis: antwort.ergebnis },
+  });
+  return d.speicher.aktualisieren(ziel.id, berechnet);
 }

@@ -24,6 +24,7 @@
  * Die Route prüft vorher `dealImWorkspace`; jede Abfrage hier filtert
  * trotzdem auf Workspace (und Deal).
  */
+import { plan5Schalter } from "./plan5-schalter";
 import { sql } from "drizzle-orm";
 import { db } from "@/db";
 import { berechneAblauf, type AblaufFakten } from "@/lib/ablauf";
@@ -189,7 +190,7 @@ export async function ladeAkteMitFakten(
   deal: string,
   jetzt: Date = new Date()
 ): Promise<{ akte: AkteDaten; fakten: AblaufFakten }> {
-  const [grundlage, kopfRes, stufenRes, gruendeRes, entwurfRes, gespraeche, paketRes] = await Promise.all([
+  const [grundlage, kopfRes, stufenRes, gruendeRes, entwurfRes, gespraeche, paketRes, schalter] = await Promise.all([
     ladeAblaufGrundlage(ws, deal),
     kopfLesen(ws, deal),
     stufenLesen(ws),
@@ -197,6 +198,7 @@ export async function ladeAkteMitFakten(
     entwurfLesen(ws, deal, jetzt),
     dealGespraeche(ws, deal),
     paketOptionenLesen(ws, deal),
+    plan5Schalter(ws, deal),
   ]);
   const [k] = zeilen<KopfZeile>(kopfRes);
   if (!k) throw new Error("Deal nicht gefunden");
@@ -255,6 +257,7 @@ export async function ladeAkteMitFakten(
     ...kalkulationLinks(deal, altLink, {
       hatPaketoptionen: zeilen<{ hat: unknown }>(paketRes)[0]?.hat === true,
       istStunden: f.kv?.istStunden === true,
+      angebotAusKalkulation: schalter.angebotAusKalkulation,
     }),
   };
   return { akte, fakten: f };

@@ -10,6 +10,8 @@
  * laden DB-Lader erst beim Aufruf (Tests berühren `@/db` nie).
  */
 import type { DocumentCopy } from "@openclaw-crm/document-templates";
+import { angebotPasstZuVersion, type Plan5Schalter } from "@/lib/angebot-wahl";
+import { versionsPreiseAusZeile } from "@/lib/kalkulation-versionen";
 import { ohnePreisangaben } from "@/lib/ohne-preisangaben";
 import type { DealDocumentMeta } from "@/services/deal-documents";
 import type { storeCommercialDocument } from "@/services/commercial-documents";
@@ -19,8 +21,11 @@ export type KvAusVersionErgebnis =
   | { renderer: "crm"; document: DealDocumentMeta; fileName: string }
   | { renderer: "vps"; hinweis: string };
 
+type VersionFuerKv = Pick<VersionsZeile, "id" | "status"> &
+  Partial<Pick<VersionsZeile, "pricingMode" | "priceCents" | "kvItems" | "packagePrices" | "dayPrices">>;
+
 export interface KvAusVersionOptionen {
-  ladeVersion?: (ws: string, deal: string, version: number) => Promise<Pick<VersionsZeile, "id" | "status"> | null>;
+  ladeVersion?: (ws: string, deal: string, version: number) => Promise<VersionFuerKv | null>;
   /** Alle Versionen des Deals (nur gelesen, wenn die Quotation nicht auf die Version zeigt). */
   ladeVersionen?: (ws: string, deal: string) => Promise<Pick<VersionsZeile, "version" | "status">[]>;
   /** `quotations.calculation_version_id` des Deals. */
@@ -30,6 +35,10 @@ export interface KvAusVersionOptionen {
   /** Betreiberfirma Kottke: CRM-Renderer gesperrt. */
   istKottke?: (ws: string, deal: string) => Promise<boolean>;
   speichereKv?: typeof storeCommercialDocument;
+  /** Plan 5b: Firmen-Schalter des Deals. */
+  ladeSchalter?: (ws: string, deal: string) => Promise<Plan5Schalter>;
+  /** Plan 5b: Festpreis und Posten der Quotation (für `angebotPasstZuVersion`). */
+  ladeAngebot?: (deal: string) => Promise<{ fixedPrice: string | null; isVariable: boolean; lineItems: { description: string | null; quantity: number; unitRate: string | number }[] } | null>;
 }
 
 async function abhaengigkeiten(o: KvAusVersionOptionen): Promise<Required<KvAusVersionOptionen>> {
@@ -41,6 +50,8 @@ async function abhaengigkeiten(o: KvAusVersionOptionen): Promise<Required<KvAusV
     hatPakete: o.hatPakete ?? (await import("./rechner/pakete")).hatPaketoptionen,
     istKottke: o.istKottke ?? (await import("@/lib/kottke-crm-renderer-deal")).dealBlocksInRepoCrmRenderer,
     speichereKv: o.speichereKv ?? (await import("./commercial-documents")).storeCommercialDocument,
+    ladeSchalter: o.ladeSchalter ?? (async (ws, deal) => (await import("./plan5-schalter")).plan5Schalter(ws, deal)),
+    ladeAngebot: o.ladeAngebot ?? (async (deal) => (await import("./quotations")).getQuotation(deal)),
   };
 }
 
@@ -80,10 +91,27 @@ export async function kvAusVersion(
     throw new VersionsFehler("UNGUELTIG", `Das Angebot wurde nach v${n} von Hand geändert. Neue Version sperren.`);
   };
   if ((await d.ladeAngebotsVersionId(dealRecordId)) !== version.id) await ablehnen();
-  // Paketoptionen nach dem Sperren: der Paketpreis ersetzt den Festpreis der Version,
-  // ein so gerenderter KV käme nicht aus dieser Version (Pakete in Versionen: Plan 3).
-  if (await d.hatPakete(dealRecordId)) {
-    throw new VersionsFehler("PAKETE", PAKETE_TEXT);
+  const schalter = await d.ladeSchalter(workspaceId, dealRecordId);
+  if (!schalter.angebotAusKalkulation) {
+    // Ohne Schalter: der Paketpreis ersetzt den Festpreis der Version, ein so
+    // gerenderter KV käme nicht aus dieser Version.
+    if (await d.hatPakete(dealRecordId)) {
+      throw new VersionsFehler("PAKETE", PAKETE_TEXT);
+    }
+  } else if (version.pricingMode !== "stunden") {
+    // Plan 5b: Paketoptionen tragen die Preise der Version. Die Quotation muss genau eine
+    // Wahl dieser Version sein (Kundenwahl tauscht Preis und Posten, das ist keine Handänderung).
+    const q = await d.ladeAngebot(dealRecordId);
+    const fest = q && !q.isVariable && q.fixedPrice !== null ? Math.round(Number(q.fixedPrice) * 100) : null;
+    const posten = (q?.lineItems ?? []).map((li) => ({ description: li.description ?? "", quantity: li.quantity, unitRate: Number(li.unitRate) }));
+    const preise = versionsPreiseAusZeile({
+      pricingMode: version.pricingMode ?? "fest",
+      priceCents: version.priceCents ?? null,
+      kvItems: version.kvItems ?? [],
+      packagePrices: version.packagePrices ?? [],
+      dayPrices: version.dayPrices ?? [],
+    });
+    if (!angebotPasstZuVersion({ fixedPriceCents: fest, posten }, preise)) await ablehnen();
   }
 
   if (await d.istKottke(workspaceId, dealRecordId)) {

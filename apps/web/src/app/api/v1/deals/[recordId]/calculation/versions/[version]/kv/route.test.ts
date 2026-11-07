@@ -28,6 +28,7 @@ vi.mock("@/lib/kalkulation-versionen-antwort", async (importOriginal) => {
 vi.mock("@/services/kalkulation-versionen-speicher", () => ({
   dbVersionsSpeicher: { lesen: mocks.lesen, liste: mocks.liste },
 }));
+vi.mock("@/services/plan5-schalter", () => ({ plan5Schalter: async () => ({ angebotAusKalkulation: false, tagespreise: false }) }));
 vi.mock("@/services/deal-documents", () => ({ angebotsVersionId: mocks.angebotsVersionId }));
 vi.mock("@/services/rechner/pakete", () => ({ hatPaketoptionen: mocks.hatPaketoptionen }));
 vi.mock("@/lib/kottke-crm-renderer-deal", () => ({

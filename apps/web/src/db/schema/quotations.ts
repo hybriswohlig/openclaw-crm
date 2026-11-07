@@ -1,3 +1,4 @@
+import type { StundenAngebot } from "@/lib/angebot-wahl";
 import { pgTable, text, timestamp, numeric, boolean, integer, date, pgEnum, index, jsonb, foreignKey } from "drizzle-orm/pg-core";
 import { records } from "./records";
 import { workspaces } from "./workspace";

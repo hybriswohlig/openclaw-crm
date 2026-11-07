@@ -22,6 +22,7 @@ vi.mock("@/db", () => ({
     }
   ),
 }));
+vi.mock("./plan5-schalter", () => ({ plan5Schalter: async () => ({ angebotAusKalkulation: false, tagespreise: false }) }));
 vi.mock("@/services/ablauf-fakten", () => ({ ladeAblaufGrundlage: mocks.ladeAblaufGrundlage }));
 vi.mock("@/services/gespraech", () => ({ dealGespraeche: mocks.dealGespraeche }));
 

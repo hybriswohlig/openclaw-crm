@@ -87,16 +87,18 @@ export interface AkteDaten {
 /**
  * Verweise der Akte auf die Kalkulation. „Kalkulation öffnen“ geht immer auf die neue Seite.
  * „KV anpassen/erstellen“ bleibt bei Paketoptionen und Stunden-KV auf dem alten
- * Angebots-Tab, weil Sperren dort bis Plan 5 abgelehnt wird (Entscheidung 1).
+ * Angebots-Tab (Entscheidung 1), außer die Firma hat den Schalter „Angebot aus
+ * Kalkulation“ (Plan 5b, Entscheidung 15): dann sperrt die Kalkulationsseite auch diese.
  */
 export function kalkulationLinks(
   deal: string,
   altLink: string,
-  kv: { hatPaketoptionen: boolean; istStunden: boolean }
+  kv: { hatPaketoptionen: boolean; istStunden: boolean; angebotAusKalkulation?: boolean }
 ): { kalkulationLink: string; kvLink: string } {
   const kalkulationLink = `/app/leads/${deal}/kalkulation`;
   const alt = `${altLink}${altLink.includes("?") ? "&" : "?"}tab=quotation`;
-  return { kalkulationLink, kvLink: kv.hatPaketoptionen || kv.istStunden ? alt : kalkulationLink };
+  const altBleibt = !kv.angebotAusKalkulation && (kv.hatPaketoptionen || kv.istStunden);
+  return { kalkulationLink, kvLink: altBleibt ? alt : kalkulationLink };
 }
 
 // ─── Kleine Helfer ────────────────────────────────────────────────────────────

@@ -91,6 +91,23 @@ describe("POST /calculation/versions/[version]/lock", () => {
     expect(mocks.sperren.mock.calls[1][4]).toEqual({ bestaetigtSpanne: true });
   });
 
+  it("Plan 5b: erwartetPreisHash und modusWechselBestaetigt werden durchgereicht, sonst fehlen sie", async () => {
+    await POST(req({ erwartetPreisHash: "-@-=149000|basis@-=129000", modusWechselBestaetigt: true }), p());
+    expect(mocks.sperren).toHaveBeenLastCalledWith("ws_1", "deal_1", 2, { userId: "usr_1", quelle: "mensch" }, {
+      bestaetigtSpanne: false, erwartetPreisHash: "-@-=149000|basis@-=129000", modusWechselBestaetigt: true,
+    });
+    // Nur true bestätigt den Wechsel vom Stunden-KV zum Festpreis.
+    await POST(req({ modusWechselBestaetigt: "ja" }), p());
+    expect(mocks.sperren.mock.calls[1][4]).toEqual({ bestaetigtSpanne: false });
+  });
+
+  it.each([[""], [42], [null]])("erwartetPreisHash %s → 400, nichts gesperrt", async (wert) => {
+    const res = await POST(req({ erwartetPreisHash: wert }), p());
+    expect(res.status).toBe(400);
+    expect((await res.json()).error.message).toBe("erwartetPreisHash muss ein Text sein.");
+    expect(mocks.sperren).not.toHaveBeenCalled();
+  });
+
   it.each([[-1], [12.5], ["248000"], [null]])("erwartetPreisCent %s → 400, nichts gesperrt", async (wert) => {
     const res = await POST(req({ erwartetPreisCent: wert }), p());
     expect(res.status).toBe(400);
@@ -123,6 +140,15 @@ describe("POST /calculation/versions/[version]/lock", () => {
     ["UNGUELTIG", 400],
     ["NICHT_GEFUNDEN", 404],
     ["UEBERSTEUERUNG_VERWAIST", 409],
+    // Plan 5b: die neuen Ablehnungen beim Sperren (eine Regel mit der Kalkulationsseite).
+    ["KERN_NEGATIV", 409],
+    ["PAKET_OHNE_PREIS", 409],
+    ["PAKET_OHNE_HEBEL", 409],
+    ["ANZAHLUNG_UEBER_PREIS", 409],
+    ["STUNDEN_NUR_MENSCH", 409],
+    ["STUNDEN_ZUSATZ_VPS", 409],
+    ["MODUSWECHSEL", 409],
+    ["TAGESPREIS_NUR_MENSCH", 409],
   ] as const)("VersionsFehler %s → %i", async (code, status) => {
     mocks.sperren.mockRejectedValue(new VersionsFehler(code, "x"));
     const res = await POST(req(), p());

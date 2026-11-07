@@ -14,7 +14,7 @@ vi.mock("@/db", () => ({
 }));
 
 import { quotationLineItems, quotations } from "@/db/schema/quotations";
-import { PLAN5_FEHLER_TEXT } from "@/lib/angebot-wahl";
+import { PLAN5_FEHLER_TEXT, type Plan5Schalter } from "@/lib/angebot-wahl";
 import { UebersteuerungFehler } from "@/lib/kalkulation-versionen";
 import { AngebotAngenommenError } from "./kva-annahme";
 import { angebotAusVersionSchreiben, type AngebotsEingabe, type Quotation } from "./quotations";
@@ -30,6 +30,7 @@ import {
   uebersteuern,
   VersionsFehler,
   type Autor,
+  type PaketOption,
   type VersionsSpeicher,
   type VersionsZeile,
 } from "./kalkulation-versionen";
@@ -124,6 +125,11 @@ function aufbau(start = "2026-11-05T09:00:00Z") {
     ladeAngebot: vi.fn(async (): Promise<Quotation | null> => null),
     ladeCache: vi.fn(async (): Promise<KalkulationsZeile | null> => null),
     nachSperren: vi.fn(async () => undefined),
+    ladeSchalter: vi.fn(async (): Promise<Plan5Schalter> => ({ angebotAusKalkulation: false, tagespreise: false })),
+    ladePaketOptionen: vi.fn(async (): Promise<PaketOption[]> => []),
+    istKottke: vi.fn(async () => false),
+    ladeAuftraege: vi.fn(async (): Promise<{ datum: string; dealId: string; name: string }[]> => []),
+    ladeWunschtermine: vi.fn(async (): Promise<string[]> => []),
   };
 
   /** Gesperrte oder Entwurfs-Version direkt in den Speicher legen. */
@@ -667,7 +673,7 @@ describe("sperren", () => {
     expect(t.zeilen[0].status).toBe("entwurf");
   });
 
-  it("Paketoptionen → PAKETE; Stunden-KV beim Agenten oder Stunden-Version → STUNDEN; nichts gesperrt", async () => {
+  it("ohne Schalter: Paketoptionen → PAKETE; Stunden-KV beim Agenten → STUNDEN_NUR_MENSCH; Stunden-Version → STUNDEN; nichts gesperrt", async () => {
     const t = aufbau();
     await entwurfHolenOderAnlegen("ws", "deal1", MENSCH, t.deps);
     t.deps.hatPakete.mockResolvedValueOnce(true);
@@ -675,25 +681,40 @@ describe("sperren", () => {
       code: "PAKETE", status: 409, message: "Sperren mit Paketpreisen kommt später. Bis dahin den Preis über die Paketpreise pflegen.",
     });
 
-    // Ein Agent verwandelt einen Stunden-KV nie still in einen Festpreis.
+    // Ein Agent verwandelt einen Stunden-KV nie in einen Festpreis, auch nicht mit Bestätigung
+    // (Plan 5b, Entscheidung 5 und 14: eigener Code statt STUNDEN, Text aus der einen Regel).
     t.deps.ladeAngebot.mockResolvedValueOnce(angebot({ isVariable: true }));
-    await expect(sperren("ws", "deal1", 1, AGENT, {}, t.deps)).rejects.toMatchObject({ code: "STUNDEN", status: 409 });
+    await expect(sperren("ws", "deal1", 1, AGENT, { modusWechselBestaetigt: true }, t.deps)).rejects.toMatchObject({
+      code: "STUNDEN_NUR_MENSCH", status: 409, message: PLAN5_FEHLER_TEXT.STUNDEN_NUR_MENSCH,
+    });
 
-    // pricing_mode "stunden" an der Version sperrt niemand, auch kein Mensch.
+    // pricing_mode "stunden" an der Version sperrt ohne Firmen-Schalter niemand, auch kein Mensch.
     t.zeilen[0].pricingMode = "stunden";
     await expect(sperren("ws", "deal1", 1, MENSCH, {}, t.deps)).rejects.toMatchObject({ code: "STUNDEN" });
     expect(t.speicher.sperrenUndAngebot).not.toHaveBeenCalled();
     expect(t.deps.pruefeAnnahme).not.toHaveBeenCalled();
   });
 
-  it("Mensch mit vorhandenem Stunden-KV: stellt wie bisher auf Festpreis um, Notizen bleiben", async () => {
+  it("Mensch mit vorhandenem Stunden-KV: ohne Bestätigung MODUSWECHSEL (kein stiller Wechsel), mit Bestätigung Festpreis, Notizen bleiben", async () => {
     const t = aufbau();
     t.deps.ladeAngebot.mockResolvedValue(angebot({ isVariable: true, notes: "Klavier" }));
     await entwurfHolenOderAnlegen("ws", "deal1", MENSCH, t.deps);
-    const r = await sperren("ws", "deal1", 1, MENSCH, {}, t.deps);
+    await expect(sperren("ws", "deal1", 1, MENSCH, {}, t.deps)).rejects.toMatchObject({
+      code: "MODUSWECHSEL", status: 409, message: PLAN5_FEHLER_TEXT.MODUSWECHSEL,
+    });
+    expect(t.speicher.sperrenUndAngebot).not.toHaveBeenCalled();
+
+    const r = await sperren("ws", "deal1", 1, MENSCH, { modusWechselBestaetigt: true }, t.deps);
     expect(r.version.status).toBe("gesperrt");
     const eingabe = vi.mocked(t.speicher.sperrenUndAngebot).mock.calls[0][3];
     expect(eingabe).toMatchObject({ fixedPrice: "1490", isVariable: false, notes: "Klavier" });
+  });
+
+  it("Kalkulationskarte (nurMarge) schreibt bewusst einen Festpreis: gilt für einen Menschen als bestätigt", async () => {
+    const t = aufbau();
+    t.deps.ladeAngebot.mockResolvedValue(angebot({ isVariable: true }));
+    await entwurfHolenOderAnlegen("ws", "deal1", MENSCH, t.deps);
+    expect((await sperren("ws", "deal1", 1, MENSCH, { nurMarge: true }, t.deps)).version.status).toBe("gesperrt");
   });
 
   it("nur Spanne: ohne Bestätigung SPANNE mit dem heutigen Text, mit Bestätigung die Obergrenze", async () => {

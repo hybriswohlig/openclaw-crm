@@ -17,7 +17,8 @@ import {
 } from "@/lib/kalkulations-ansicht";
 import type { ZeitpostenVorlage } from "@/lib/zeitposten";
 import type { Auftragsart } from "@/lib/auftragsart";
-import { entwurfVeraltet, VersionsFehler, type VersionsSpeicher } from "./kalkulation-versionen";
+import type { Plan5Schalter } from "@/lib/angebot-wahl";
+import { entwurfVeraltet, rechenHebel, VersionsFehler, type PaketOption, type VersionsSpeicher } from "./kalkulation-versionen";
 import { rechnerAnfrageAus, type LeadDaten } from "./rechner/eingabe";
 import type { HebelArt } from "./rechner/kv-posten";
 import { heuteBerlin } from "./rechner/quelle";
@@ -32,7 +33,9 @@ export interface AnsichtOptionen {
   /** Name des Deals und seine Betriebsfirma */
   ladeKopf?: (ws: string, deal: string) => Promise<{ name: string | null; firmaId: string | null }>;
   ladeVorlagen?: (ws: string, firmaId: string) => Promise<ZeitpostenVorlage[]>;
-  ladeAngebot?: (deal: string) => Promise<{ notes: string | null; isVariable: boolean; validUntil: string | null } | null>;
+  ladeAngebot?: (
+    deal: string
+  ) => Promise<{ notes: string | null; isVariable: boolean; validUntil: string | null; depositRequiredCents?: number | null } | null>;
   /** Neuester KV (deal_documents, quotation) aus genau dieser Version */
   ladeKvDokument?: (ws: string, deal: string, versionId: string) => Promise<{ id: string; fileName: string } | null>;
   /** userId → Name */
@@ -40,6 +43,10 @@ export interface AnsichtOptionen {
   /** Paket-Slug → Anzeigename (Pakete der Firma des Deals) */
   ladePaketNamen?: (ws: string, deal: string) => Promise<Record<string, string>>;
   istKottke?: (ws: string, deal: string) => Promise<boolean>;
+  /** Plan 5b: Firmen-Schalter des Deals */
+  ladeSchalter?: (ws: string, deal: string) => Promise<Plan5Schalter>;
+  /** Plan 5b: Paketoptionen des Deals */
+  ladePaketOptionen?: (deal: string) => Promise<PaketOption[]>;
   /** Plan 5a: letzter KV-Job (VPS) dieser Version aus `document_render_jobs` */
   ladeKvJob?: (ws: string, deal: string, versionId: string) => Promise<RenderJob | null>;
   jetzt?: () => Date;
@@ -111,13 +118,23 @@ async function abhaengigkeiten(o: AnsichtOptionen): Promise<Required<AnsichtOpti
       o.ladeAngebot ??
       (async (deal) => {
         const q = await (await import("./quotations")).getQuotation(deal);
-        return q ? { notes: q.notes ?? null, isVariable: q.isVariable === true, validUntil: q.validUntil ?? null } : null;
+        return q
+          ? {
+              notes: q.notes ?? null,
+              isVariable: q.isVariable === true,
+              validUntil: q.validUntil ?? null,
+              depositRequiredCents: q.depositRequiredCents ?? null,
+            }
+          : null;
       }),
     ladeKvDokument: o.ladeKvDokument ?? (await db()).ladeKvDokument,
     ladeNamen: o.ladeNamen ?? (await db()).ladeNutzerNamen,
     ladePaketNamen: o.ladePaketNamen ?? (await db()).ladePaketNamen,
     istKottke: o.istKottke ?? (await import("@/lib/kottke-crm-renderer-deal")).dealBlocksInRepoCrmRenderer,
     ladeKvJob: o.ladeKvJob ?? (await import("./render-jobs")).letzterKvJob,
+    ladeSchalter: o.ladeSchalter ?? (async (ws, deal) => (await import("./plan5-schalter")).plan5Schalter(ws, deal)),
+    ladePaketOptionen:
+      o.ladePaketOptionen ?? (async (deal) => (await import("./kalkulation-versionen-speicher")).ladePaketOptionen(deal)),
     jetzt: o.jetzt ?? (() => new Date()),
   };
 }
@@ -130,12 +147,15 @@ export async function ladeKalkulationsAnsicht(
   opts: AnsichtOptionen = {}
 ): Promise<KalkulationsAnsicht> {
   const d = await abhaengigkeiten(opts);
-  const [v, alle, lead, hatPakete] = await Promise.all([
+  const [v, alle, lead, schalter] = await Promise.all([
     d.speicher.lesen(ws, deal, version),
     d.speicher.liste(ws, deal),
     d.ladeLead(ws, deal),
-    d.hatPakete(deal),
+    d.ladeSchalter(ws, deal),
   ]);
+  // Mit Schalter zählen die Paketoptionen selbst (Slug, Empfehlung); ohne wie vorher.
+  const paketOptionen = schalter.angebotAusKalkulation ? await d.ladePaketOptionen(deal) : [];
+  const hatPakete = schalter.angebotAusKalkulation ? paketOptionen.length > 0 : await d.hatPakete(deal);
   if (!v) throw new VersionsFehler("NICHT_GEFUNDEN", `Version v${version} nicht gefunden.`);
   if (!lead) throw new VersionsFehler("NICHT_GEFUNDEN", "Deal nicht gefunden.");
 
@@ -182,12 +202,21 @@ export async function ladeKalkulationsAnsicht(
     fotos,
     vorlagen,
     angebot,
-    veraltet: entwurfVeraltet(v, rechnerAnfrageAus(lead), heuteBerlin(jetzt), paketHebel),
+    veraltet: entwurfVeraltet(
+      v,
+      rechnerAnfrageAus(lead),
+      heuteBerlin(jetzt),
+      rechenHebel(schalter, hatPakete, paketOptionen, paketHebel) ?? null,
+      schalter
+    ),
     kvDokument,
     jetzt,
     hatPakete,
     paketNamen,
     renderer: kottke ? "vps" : "crm",
     kvErzeugung: kvErzeugungAus({ renderer: kottke ? "vps" : "crm", gesperrt, job: kvJob, kvDokument }),
+    schalter,
+    paketOptionen: paketOptionen.map((o) => ({ catalogueSlug: o.catalogueSlug, isRecommended: o.isRecommended })),
+    paketHebel: paketHebel ?? {},
   });
 }
