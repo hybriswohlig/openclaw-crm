@@ -122,6 +122,7 @@ describe("POST /calculation/versions/[version]/lock", () => {
     ["SPANNE", 409],
     ["UNGUELTIG", 400],
     ["NICHT_GEFUNDEN", 404],
+    ["UEBERSTEUERUNG_VERWAIST", 409],
   ] as const)("VersionsFehler %s → %i", async (code, status) => {
     mocks.sperren.mockRejectedValue(new VersionsFehler(code, "x"));
     const res = await POST(req(), p());

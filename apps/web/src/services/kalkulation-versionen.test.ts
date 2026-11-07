@@ -14,6 +14,7 @@ vi.mock("@/db", () => ({
 }));
 
 import { quotationLineItems, quotations } from "@/db/schema/quotations";
+import { PLAN5_FEHLER_TEXT } from "@/lib/angebot-wahl";
 import { UebersteuerungFehler } from "@/lib/kalkulation-versionen";
 import { AngebotAngenommenError } from "./kva-annahme";
 import { angebotAusVersionSchreiben, type AngebotsEingabe, type Quotation } from "./quotations";
@@ -364,8 +365,8 @@ describe("uebersteuern", () => {
   it("unbekannte Kostenzeile, fehlender Grund und unbekannte Version werden abgelehnt", async () => {
     const t = aufbau();
     await entwurfHolenOderAnlegen("ws", "deal1", MENSCH, t.deps);
-    await expect(uebersteuern("ws", "deal1", 1, { ...ueberHalteverbot, key: "fahrzeug.x.miete" }, MENSCH, t.deps)).rejects.toThrow(
-      new UebersteuerungFehler("Unbekannte Kostenzeile: fahrzeug.x.miete")
+    await expect(uebersteuern("ws", "deal1", 1, { ...ueberHalteverbot, key: "fahrzeug.sprinter@sixt-muc-ost.miete" }, MENSCH, t.deps)).rejects.toThrow(
+      new UebersteuerungFehler("Unbekannte Kostenzeile: fahrzeug.sprinter@sixt-muc-ost.miete")
     );
     await expect(uebersteuern("ws", "deal1", 1, { ...ueberHalteverbot, grund: " " }, MENSCH, t.deps)).rejects.toThrow("Grund fehlt");
     await expect(uebersteuern("ws", "deal1", 9, ueberHalteverbot, MENSCH, t.deps)).rejects.toMatchObject({ code: "NICHT_GEFUNDEN", status: 404 });
@@ -761,6 +762,46 @@ describe("sperren", () => {
     const t = aufbau();
     t.lege(1);
     await expect(sperren("ws", "deal1", 1, MENSCH, {}, t.deps)).rejects.toMatchObject({ code: "UNGUELTIG", message: "Version v1 ist bereits gesperrt." });
+  });
+
+  const fahrzeugAlt = "fahrzeug.sprinter@alte-station.miete";
+  const fahrzeugNeu = "fahrzeug.sprinter@sixt-muc-ost.miete";
+  const zeile = (key: string, wert: number | null, id: string) => ({
+    id, art: "zeile" as const, key, rechnerwert: 136.5, wert, grund: "Sonderpreis",
+    autor: MENSCH, zeit: "2026-11-05T10:00:00.000Z", fotoRef: null,
+  });
+
+  it("verwaiste Fahrzeug-Übersteuerung → UEBERSTEUERUNG_VERWAIST, nach Übertragen auf den Kandidaten erlaubt", async () => {
+    const t = aufbau();
+    const basis = ergebnis();
+    basis.kosten!.posten!.push({
+      key: fahrzeugNeu, bezeichnung: "Sprinter: Miete", menge: 1, einheit: "Tag", satz: 136.5, betrag: 136.5,
+    });
+    t.setzeAntwort({ ok: true, ergebnis: basis });
+    await entwurfHolenOderAnlegen("ws", "deal1", MENSCH, t.deps);
+    t.zeilen[0].overrides.push(zeile(fahrzeugAlt, 100, "u_fz"));
+
+    await expect(sperren("ws", "deal1", 1, MENSCH, {}, t.deps)).rejects.toMatchObject({
+      code: "UEBERSTEUERUNG_VERWAIST",
+      status: 409,
+      message: PLAN5_FEHLER_TEXT.UEBERSTEUERUNG_VERWAIST,
+    });
+    expect(t.speicher.sperrenUndAngebot).not.toHaveBeenCalled();
+    expect(t.zeilen[0].status).toBe("entwurf");
+
+    t.zeilen[0].overrides = [zeile(fahrzeugNeu, 100, "u_fz")];
+    const r = await sperren("ws", "deal1", 1, MENSCH, {}, t.deps);
+    expect(r.version.status).toBe("gesperrt");
+    expect(r.version.rechnerRequest?.zeilen_uebersteuerung).toEqual([{ key: fahrzeugNeu, betrag: 100 }]);
+  });
+
+  it("gelöschte Zeilen-Übersteuerung (wert null) blockiert das Sperren nicht", async () => {
+    const t = aufbau();
+    await entwurfHolenOderAnlegen("ws", "deal1", MENSCH, t.deps);
+    t.zeilen[0].overrides.push(zeile(fahrzeugAlt, 100, "u_fz"), zeile(fahrzeugAlt, null, "u_weg"));
+    const r = await sperren("ws", "deal1", 1, MENSCH, {}, t.deps);
+    expect(r.version.status).toBe("gesperrt");
+    expect(t.speicher.sperrenUndAngebot).toHaveBeenCalledTimes(1);
   });
 });
 

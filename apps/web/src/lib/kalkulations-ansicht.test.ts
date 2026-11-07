@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { PLAN5_FEHLER_TEXT } from "./angebot-wahl";
 import { ansichtAus, type AnsichtRest } from "./kalkulations-ansicht";
 import {
   DARIO,
@@ -189,7 +190,7 @@ describe("ansichtAus: Selbstkosten", () => {
     expect(s.gruppen.map((g) => [g.key, g.label, g.betragCent])).toEqual([
       ["arbeit", "Arbeit", 44000],
       ["fahrt", "Fahrt", 5940],
-      ["fahrzeug.sprinter_l", "Sprinter L", 14600],
+      ["fahrzeug.sprinter@sixt-feuerbach", "Sprinter L", 14600],
       ["halteverbot", "Halteverbot", 26000],
       ["material", "Material", 20660],
       ["anfahrt", "Anfahrt", 900],
@@ -217,7 +218,7 @@ describe("ansichtAus: Selbstkosten", () => {
     const fz = s.gruppen[2];
     expect(fz.formel).toBe("1 Tag × 136,50 €");
     expect(fz.unterzeilen).toEqual([
-      { key: "fahrzeug.sprinter_l.kraftstoff", label: "Kraftstoff (48 km × 12 l/100 km)", formel: "5,76 l × 1,65 €", wert: "9,50 €", uebersteuert: false },
+      { key: "fahrzeug.sprinter@sixt-feuerbach.kraftstoff", label: "Kraftstoff (48 km × 12 l/100 km)", formel: "5,76 l × 1,65 €", wert: "9,50 €", uebersteuert: false },
     ]);
     expect(s.gruppen[3].formel).toBe("2 Stück × 130,00 €");
     expect(s.gruppen[4].unterzeilen.map((u) => [u.label, u.wert])).toEqual([
@@ -247,8 +248,8 @@ describe("ansichtAus: Selbstkosten", () => {
 
   it("Hauptzeile je Gruppe: Betrag und Bezeichnung der Zeile selbst, nicht die Gruppensumme; Summengruppen ohne (I3)", () => {
     const posten = weberErgebnis().kosten!.posten!;
-    const miete = posten.find((p) => p.key === "fahrzeug.sprinter_l.miete")!;
-    const fz = s.gruppen.find((g) => g.key === "fahrzeug.sprinter_l")!;
+    const miete = posten.find((p) => p.key === "fahrzeug.sprinter@sixt-feuerbach.miete")!;
+    const fz = s.gruppen.find((g) => g.key === "fahrzeug.sprinter@sixt-feuerbach")!;
     expect(fz.postenBetragCent).toBe(Math.round(miete.betrag * 100));
     expect(fz.postenLabel).toBe(miete.bezeichnung);
     expect(fz.postenBetragCent).not.toBe(fz.betragCent);
@@ -476,5 +477,45 @@ describe("ansichtAus: Anpassungen", () => {
     const a = ansichtAus(v, rest()).anpassungen;
     expect(a).toHaveLength(1);
     expect(a[0].text).toContain("(wirkt nicht, die Zeile gibt es nach dem Neurechnen nicht mehr)");
+  });
+});
+
+const MIETE_HIER = "fahrzeug.sprinter@sixt-feuerbach.miete";
+const MIETE_ALT = "fahrzeug.sprinter@alte-station.miete";
+
+function zeilenAnpassung(key: string, wert: number | null, id = "u_fz"): Uebersteuerung {
+  return {
+    id, art: "zeile", key, rechnerwert: 136.5, wert, grund: "Sonderpreis",
+    autor: { userId: DARIO, quelle: "mensch" }, zeit: "2026-11-05T10:00:00.000Z", fotoRef: null,
+  };
+}
+
+describe("ansichtAus: verwaiste Zeilen-Anpassung", () => {
+  it("füllt verwaist und sperrt den Entwurf, wenn die Kostenzeile fehlt", () => {
+    const a = ansichtAus(weberVersion({ overrides: [...weberUebersteuerungen(), zeilenAnpassung(MIETE_ALT, 100)] }), rest());
+    expect(a.verwaist).toEqual([{ id: "u_fz", key: MIETE_ALT, kandidaten: [MIETE_HIER] }]);
+    expect(a.version.sperrbar).toBe(false);
+    expect(a.version.sperrGrund).toBe(PLAN5_FEHLER_TEXT.UEBERSTEUERUNG_VERWAIST);
+  });
+
+  it("ohne verwaiste Zeile bleibt verwaist leer und der Entwurf sperrbar", () => {
+    const a = ansichtAus(weberVersion({ overrides: [zeilenAnpassung(MIETE_HIER, 100)] }), rest());
+    expect(a.verwaist).toEqual([]);
+    expect(a.version).toMatchObject({ sperrbar: true, sperrGrund: null });
+  });
+
+  it("früherer Grund bleibt, verwaist ist trotzdem gefüllt", () => {
+    const a = ansichtAus(
+      weberVersion({ overrides: [zeilenAnpassung(MIETE_ALT, 100)] }),
+      rest({ veraltet: true })
+    );
+    expect(a.verwaist).toEqual([{ id: "u_fz", key: MIETE_ALT, kandidaten: [MIETE_HIER] }]);
+    expect(a.version.sperrGrund).toBe("Die Kalkulation ist nicht mehr aktuell. Bitte zuerst neu rechnen.");
+  });
+
+  it("gesperrte Version: verwaist gefüllt, Sperrgrund bleibt der gesperrte Text", () => {
+    const a = ansichtAus(weberVersion({ status: "gesperrt", overrides: [zeilenAnpassung(MIETE_ALT, 100)] }), rest());
+    expect(a.verwaist).toHaveLength(1);
+    expect(a.version.sperrGrund).toBe("v2 ist gesperrt. Änderungen landen in einem neuen Entwurf.");
   });
 });

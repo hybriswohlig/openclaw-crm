@@ -25,6 +25,7 @@ import {
   type Kostenzeile,
   type Uebersteuerung,
 } from "@/lib/kalkulation-versionen";
+import { PLAN5_FEHLER_TEXT, verwaisteZeilenUebersteuerungen } from "@/lib/angebot-wahl";
 import type { AngebotsEingabe, Quotation } from "@/services/quotations";
 import { meldeKorrektur, rufeRechner, type RechnerAntwort, type RechnerErgebnis } from "@/services/rechner/client";
 import { eingabeHash, rechnerAnfrageAus, type LeadDaten, type RechnerAnfrage } from "@/services/rechner/eingabe";
@@ -86,7 +87,8 @@ export type VersionsFehlerCode =
   | "STUNDEN"
   | "UNGUELTIG"
   | "SPANNE"
-  | "PREIS_GEAENDERT";
+  | "PREIS_GEAENDERT"
+  | "UEBERSTEUERUNG_VERWAIST";
 
 const FEHLER_STATUS: Record<VersionsFehlerCode, number> = {
   NICHT_GEFUNDEN: 404,
@@ -96,6 +98,7 @@ const FEHLER_STATUS: Record<VersionsFehlerCode, number> = {
   UNGUELTIG: 400,
   SPANNE: 409,
   PREIS_GEAENDERT: 409,
+  UEBERSTEUERUNG_VERWAIST: 409,
 };
 
 /** Ablehnung beim Sperren mit Paketoptionen (Sperren und KV aus der Version). */
@@ -618,6 +621,11 @@ export async function sperren(
   }
   if (v.error !== null || !v.rechnerResult || !v.rechnerRequest) {
     throw new VersionsFehler("RECHNER_FEHLER", `Kalkulation nicht aktuell: ${v.error ?? "Noch keine Kalkulation vorhanden."}`);
+  }
+  // Nach dem (Neu-)Rechnen: eine Zeilen-Anpassung ohne Kostenzeile wirkt nicht mehr.
+  const verwaist = verwaisteZeilenUebersteuerungen(v.overrides, v.rechnerResult.kosten?.posten ?? []);
+  if (verwaist.length > 0) {
+    throw new VersionsFehler("UEBERSTEUERUNG_VERWAIST", PLAN5_FEHLER_TEXT.UEBERSTEUERUNG_VERWAIST);
   }
   // Kalkulationskarte: geprüft an genau der Liste, die gesperrt wird (das Sperren gelingt
   // nur, wenn sie bis dahin gleich bleibt). Eine nach der Vorprüfung der Route angehängte

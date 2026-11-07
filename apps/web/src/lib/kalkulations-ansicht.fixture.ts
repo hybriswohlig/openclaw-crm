@@ -100,8 +100,8 @@ export function weberErgebnis(): RechnerErgebnis {
       posten: [
         posten("personal.arbeit", "Personal Arbeit (Arbeit, Fahrzeugübergabe, Puffer)", 22, "Std", 20, 440, "22 Personenstunden × 20,00 €/h"),
         posten("personal.fahrt", "Personal Fahrt (Fahrzeit, Puffer)", 3.96, "Std", 15, 59.4, "3,96 Std × 15,00 €"),
-        posten("fahrzeug.sprinter_l.kraftstoff", "Sprinter L: Kraftstoff (48 km × 12 l/100 km)", 5.76, "l", 1.65, 9.5, "5,76 l × 1,65 €"),
-        posten("fahrzeug.sprinter_l.miete", "Sprinter L: Miete", 1, "Tag", 136.5, 136.5, "1 Tag × 136,50 €"),
+        posten("fahrzeug.sprinter@sixt-feuerbach.kraftstoff", "Sprinter L: Kraftstoff (48 km × 12 l/100 km)", 5.76, "l", 1.65, 9.5, "5,76 l × 1,65 €"),
+        posten("fahrzeug.sprinter@sixt-feuerbach.miete", "Sprinter L: Miete", 1, "Tag", 136.5, 136.5, "1 Tag × 136,50 €"),
         posten("halteverbot", "Halteverbotszone", 2, "Stück", 130, 260, "2 Stück × 130,00 €", { hebel: "halteverbot" }),
         posten("material.folie", "Folie", 1, "pauschal", 30, 30, "1 pauschal × 30,00 €"),
         posten("material.decken", "Decken und Gurte", 38, "m³", 0.7, 26.6, "38 m³ × 0,70 €"),

@@ -4,7 +4,7 @@
  * Reine Typen und reine Funktionen, ohne Server-Importe: die Oberfläche
  * importiert diese Datei.
  */
-import type { KvErzeugung, VerwaisteUebersteuerung } from "@/lib/angebot-wahl";
+import { PLAN5_FEHLER_TEXT, verwaisteZeilenUebersteuerungen, type KvErzeugung, type VerwaisteUebersteuerung } from "@/lib/angebot-wahl";
 import type { VersionsZeile } from "@/services/kalkulation-versionen";
 import type { RechnerErgebnis } from "@/services/rechner/client";
 import type { RechnerAnfrage } from "@/services/rechner/eingabe";
@@ -886,6 +886,7 @@ export function ansichtAus(v: VersionsZeile, rest: AnsichtRest): KalkulationsAns
       ? "rechner"
       : "eingabe";
   const stunden = v.pricingMode === "stunden" || rest.angebot?.isVariable === true;
+  const verwaist = verwaisteZeilenUebersteuerungen(v.overrides ?? [], v.rechnerResult?.kosten?.posten ?? []);
   const neuesteGesperrt = rest.alle
     .filter((x) => x.status === "gesperrt")
     .reduce<number | null>((m, x) => (m === null || x.version > m ? x.version : m), null);
@@ -905,7 +906,9 @@ export function ansichtAus(v: VersionsZeile, rest: AnsichtRest): KalkulationsAns
               ? veraltetGrund === "rechner"
                 ? SPERRGRUND.rechner
                 : SPERRGRUND.veraltet
-              : kvFehler;
+              : verwaist.length > 0
+                ? PLAN5_FEHLER_TEXT.UEBERSTEUERUNG_VERWAIST
+                : kvFehler;
 
   const zeitpunkt = (d: Date | string) => {
     const iso = typeof d === "string" ? d : d.toISOString();
@@ -977,8 +980,7 @@ export function ansichtAus(v: VersionsZeile, rest: AnsichtRest): KalkulationsAns
       am: zeitpunktText(u.zeit),
       grund: u.grund,
     })),
-    // Plan 5a Task D füllt das über `verwaisteZeilenUebersteuerungen`.
-    verwaist: [],
+    verwaist,
     zeitpostenVorlagen: rest.vorlagen.map((z) => ({ id: z.id, bezeichnung: z.bezeichnung, minuten: z.minuten })),
   };
 }

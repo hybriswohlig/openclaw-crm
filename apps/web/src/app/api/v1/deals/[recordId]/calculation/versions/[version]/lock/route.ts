@@ -15,8 +15,8 @@ import { sperren } from "@/services/kalkulation-versionen";
  * Quotation des Deals: `{ version, quotation, gueltigkeitHinweis }`. Mit
  * `erwartetPreisCent` (Kalkulationsseite) nur, wenn die Posten genau diesen Preis
  * ergeben, sonst 409 PREIS_GEAENDERT. Ablehnungen mit dem Code des Dienstes
- * (PAKETE, STUNDEN, RECHNER_FEHLER, SPANNE, PREIS_GEAENDERT: 409; UNGUELTIG: 400;
- * NICHT_GEFUNDEN: 404), Kundenannahme 409 KVA_ACCEPTED.
+ * (PAKETE, STUNDEN, RECHNER_FEHLER, SPANNE, PREIS_GEAENDERT, UEBERSTEUERUNG_VERWAIST: 409;
+ * UNGUELTIG: 400; NICHT_GEFUNDEN: 404), Kundenannahme 409 KVA_ACCEPTED.
  */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ recordId: string; version: string }> }) {
   const ctx = await getAuthContext(req);
