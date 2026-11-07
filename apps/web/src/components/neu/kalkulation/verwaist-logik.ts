@@ -22,9 +22,22 @@ export function stationText(key: string): string {
 
 const WIRKT_NICHT = / \(wirkt nicht[^)]*\)$/;
 
-/** „Sprinter L: Kraftstoff: 20 €“ ohne den Zusatz „(wirkt nicht …)“ der Anpassungsliste. */
+const gross = (t: string) => t.replace(/_/g, " ").replace(/(^|\s)(\S)/g, (_m, l: string, z: string) => l + z.toUpperCase());
+
+/** „Sprinter L, Miete an sixt stuttgart“ aus dem Schlüssel (die Zeile selbst gibt es nicht mehr). */
+export function schluesselText(key: string): string {
+  const m = FAHRZEUG_KEY.exec(key);
+  return m ? `${gross(m[1])}, ${gross(m[3])} an ${m[2].replace(/_/g, " ")}` : key;
+}
+
+/**
+ * „Sprinter L, Miete an sixt stuttgart: 120 €“: Text der Anpassung ohne den
+ * Zusatz „(wirkt nicht …)“; trägt er nur den Rohschlüssel, steht dort der lesbare Name.
+ */
 export function verwaistText(v: VerwaisteUebersteuerung, a: AnpassungAnsicht | undefined): string {
-  return a ? a.text.replace(WIRKT_NICHT, "") : v.key;
+  if (!a) return schluesselText(v.key);
+  const text = a.text.replace(WIRKT_NICHT, "");
+  return text.startsWith(`${v.key}:`) ? `${schluesselText(v.key)}${text.slice(v.key.length)}` : text;
 }
 
 /** Übertragen geht nur bei genau einem Kandidaten und einem Zahlenwert. */
@@ -40,8 +53,9 @@ export function uebertragbar(v: VerwaisteUebersteuerung, a: AnpassungAnsicht | u
 export function uebertragenEingaben(v: VerwaisteUebersteuerung, a: AnpassungAnsicht | undefined): UebersteuerungEingabe[] {
   if (!uebertragbar(v, a)) return [];
   const ziel = v.kandidaten[0];
-  const von = stationAus(v.key) ?? v.key;
-  const nach = stationAus(ziel) ?? ziel;
+  // Lesbarer Stationsname, derselbe wie in der Rückfrage („sixt stuttgart“).
+  const von = stationText(v.key);
+  const nach = stationText(ziel);
   return [
     { art: "zeile", key: ziel, wert: a!.wert, grund: `übertragen von ${von}` },
     { art: "zeile", key: v.key, wert: null, grund: `übertragen nach ${nach}` },

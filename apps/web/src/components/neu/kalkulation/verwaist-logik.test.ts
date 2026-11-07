@@ -48,7 +48,11 @@ describe("verwaiste Fahrzeug-Anpassung (Entscheidung 5a-9)", () => {
 
   it("Text ohne den Zusatz „wirkt nicht“; ohne Anpassung der Schlüssel", () => {
     expect(verwaistText(EIN, ANPASSUNG)).toBe("Sprinter L: Miete: 120 €");
-    expect(verwaistText(EIN, undefined)).toBe(ALT);
+    expect(verwaistText(EIN, undefined)).toBe("Sprinter L, Miete an sixt stuttgart");
+    // Ohne Bezeichnung (Zeile weg) trägt der Text den Rohschlüssel: dann der lesbare Name.
+    expect(verwaistText(EIN, { ...ANPASSUNG, text: `${ALT}: 120 € (wirkt nicht, die Zeile gibt es nach dem Neurechnen nicht mehr)` })).toBe(
+      "Sprinter L, Miete an sixt stuttgart: 120 €"
+    );
   });
 
   it("Übertragen nur bei genau einem Kandidaten und Zahlenwert", () => {
@@ -61,8 +65,8 @@ describe("verwaiste Fahrzeug-Anpassung (Entscheidung 5a-9)", () => {
 
   it("Übertragen: erst Kandidat mit gleichem Wert und Grund „übertragen von {Station}“, dann die alte löschen", () => {
     expect(uebertragenEingaben(EIN, ANPASSUNG)).toEqual([
-      { art: "zeile", key: NEU, wert: 120, grund: "übertragen von sixt_stuttgart" },
-      { art: "zeile", key: ALT, wert: null, grund: "übertragen nach sixt_esslingen" },
+      { art: "zeile", key: NEU, wert: 120, grund: "übertragen von sixt stuttgart" },
+      { art: "zeile", key: ALT, wert: null, grund: "übertragen nach sixt esslingen" },
     ]);
   });
 
