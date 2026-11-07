@@ -63,7 +63,7 @@ describe("ansichtAus: Kopf und Versionen", () => {
     const a = ansichtAus(weberVersion(), rest());
     expect(a.version).toEqual({
       nummer: 2, status: "entwurf", bearbeitbar: true, gesperrtText: null, veraltet: false, veraltetGrund: null, fehler: null,
-      tarif: "Tarif v1", kvDokument: null, kvErstellbar: false, sperrbar: true, sperrGrund: null, preisModus: "fest", renderer: "vps",
+      tarif: "Tarif v1", kvDokument: null, kvErstellbar: false, kvErzeugung: { art: "keins" }, sperrbar: true, sperrGrund: null, preisModus: "fest", renderer: "vps",
     });
     expect(ansichtAus(weberVersion(), rest({ renderer: "crm" })).version.renderer).toBe("crm");
   });

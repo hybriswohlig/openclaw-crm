@@ -4,6 +4,7 @@
  * Reine Typen und reine Funktionen, ohne Server-Importe: die Oberfläche
  * importiert diese Datei.
  */
+import type { KvErzeugung, VerwaisteUebersteuerung } from "@/lib/angebot-wahl";
 import type { VersionsZeile } from "@/services/kalkulation-versionen";
 import type { RechnerErgebnis } from "@/services/rechner/client";
 import type { RechnerAnfrage } from "@/services/rechner/eingabe";
@@ -149,6 +150,8 @@ export interface KalkulationsAnsicht {
     kvDokument: { id: string; fileName: string } | null;
     /** Gesperrt, ohne KV-Dokument und die neueste gesperrte Version: nur dann kann `POST …/kv` noch ein Dokument erzeugen. */
     kvErstellbar: boolean;
+    /** Plan 5a: Zustand des VPS-KV einer gesperrten Version (Kottke); bei CRM-Renderer immer „keins“. */
+    kvErzeugung: KvErzeugung;
     sperrbar: boolean;
     sperrGrund: string | null;
     /** "fest" | "stunden" */
@@ -165,6 +168,8 @@ export interface KalkulationsAnsicht {
   /** Link aufs alte Angebotsformular (Pakete, Stunden) */
   angebotsformularLink: string;
   anpassungen: AnpassungAnsicht[];
+  /** Plan 5a: Zeilen-Anpassungen, deren Kostenzeile nach dem Neurechnen fehlt (blockieren das Sperren). */
+  verwaist: VerwaisteUebersteuerung[];
   zeitpostenVorlagen: { id: string; bezeichnung: string; minuten: number }[];
 }
 
@@ -209,6 +214,8 @@ export interface AnsichtRest {
   /** Paket-Slug → Anzeigename */
   paketNamen?: Record<string, string>;
   renderer?: "crm" | "vps";
+  /** Plan 5a: aus `letzterKvJob` (Server); fehlt → „keins“. */
+  kvErzeugung?: KvErzeugung;
 }
 
 // ─── Anzeige ──────────────────────────────────────────────────────────────────
@@ -941,6 +948,7 @@ export function ansichtAus(v: VersionsZeile, rest: AnsichtRest): KalkulationsAns
       tarif: tarif ? `Tarif v${tarif.version}` : null,
       kvDokument: rest.kvDokument,
       kvErstellbar,
+      kvErzeugung: rest.kvErzeugung ?? { art: "keins" },
       sperrbar: sperrGrund === null,
       sperrGrund,
       preisModus: stunden ? "stunden" : "fest",
@@ -969,6 +977,8 @@ export function ansichtAus(v: VersionsZeile, rest: AnsichtRest): KalkulationsAns
       am: zeitpunktText(u.zeit),
       grund: u.grund,
     })),
+    // Plan 5a Task D füllt das über `verwaisteZeilenUebersteuerungen`.
+    verwaist: [],
     zeitpostenVorlagen: rest.vorlagen.map((z) => ({ id: z.id, bezeichnung: z.bezeichnung, minuten: z.minuten })),
   };
 }
