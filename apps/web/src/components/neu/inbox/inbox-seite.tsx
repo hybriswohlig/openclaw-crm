@@ -7,8 +7,10 @@ import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { GlassButton } from "@/components/glassyui/glass-button";
+import { ComposeWhatsAppModal, type ChannelAccount } from "@/components/inbox/compose-whatsapp-modal";
 import { apiAufruf } from "@/components/neu/akte/api";
 import { useBreit } from "@/components/neu/breit";
+import { nachVerfassenSchluessel, verfassenAus, type VerfassenVorgabe } from "@/lib/handy-links";
 import type { InboxChips, InboxFilter, InboxListe, Kurzfassung } from "@/lib/inbox-neu";
 import type { Gespraech } from "@/services/gespraech";
 import { InboxChipsZeile } from "./inbox-chips";
@@ -39,6 +41,16 @@ const SUCHE_VERZUG_MS = 250;
 
 type Grund = LadeGrund;
 
+/** Abfrage-Schlüssel von `verfassenUrl` (lib/handy-links.ts); nach dem Öffnen abgeräumt. */
+const VERFASSEN_PARAMS = ["verfassen", "kanal", "telefon", "name", "deal"] as const;
+
+const LEERE_VORGABE: VerfassenVorgabe = { channelAccountId: null, telefon: null, name: null, dealRecordId: null };
+
+type VerfassenZustand =
+  | { art: "zu" }
+  | { art: "laden"; vorgabe: VerfassenVorgabe }
+  | { art: "offen"; vorgabe: VerfassenVorgabe; konten: ChannelAccount[] };
+
 type ListeZustand = { art: "laden" } | { art: "fehler"; meldung: string } | { art: "fertig"; liste: InboxListe };
 
 type MitteZustand =
@@ -64,6 +76,9 @@ export function InboxSeite() {
   const [chipsGesamt, setChipsGesamt] = useState<InboxChips | null>(null);
   const [mitte, setMitte] = useState<MitteZustand>({ art: "leer" });
   const [infoOffen, setInfoOffen] = useState(false);
+  const [verfassen, setVerfassen] = useState<VerfassenZustand>({ art: "zu" });
+  /** Nach dem Senden: dieses Gespräch wählen, sobald die neu geladene Liste da ist. */
+  const [nachSenden, setNachSenden] = useState<{ gespraechId: string; dealId: string | null } | null>(null);
   const listeLauf = useRef(0);
   const mitteLauf = useRef(0);
   const hatListe = useRef(false);
@@ -181,6 +196,43 @@ export function InboxSeite() {
     return g;
   }, [gespraechLaden, listeLaden]);
 
+  // ── Verfassen (Plan 10, Entscheidung 8) ────────────────────────────────────
+
+  /** Öffnet das WhatsApp-Fenster; Konten wie in der alten Inbox: nur WhatsApp und aktiv. */
+  const verfassenOeffnen = useCallback(async (vorgabe: VerfassenVorgabe) => {
+    setVerfassen({ art: "laden", vorgabe });
+    const r = await apiAufruf<ChannelAccount[]>("/api/v1/inbox/channel-accounts");
+    if (!r.ok) {
+      setVerfassen({ art: "zu" });
+      toast.error("WhatsApp-Konten konnten nicht geladen werden.", { description: r.message });
+      return;
+    }
+    const konten = (r.data ?? []).filter((k) => k.channelType === "whatsapp" && k.isActive);
+    setVerfassen((z) => (z.art === "laden" ? { art: "offen", vorgabe, konten } : z));
+  }, []);
+
+  // `?verfassen=1` (Akte, alte Links) öffnet das Fenster einmal; die Abfrage wird sofort
+  // abgeräumt, damit ein Neuladen es nicht erneut öffnet.
+  useEffect(() => {
+    const vorgabe = verfassenAus(new URLSearchParams(params.toString()));
+    if (!vorgabe) return;
+    const rest = new URLSearchParams(params.toString());
+    for (const k of VERFASSEN_PARAMS) rest.delete(k);
+    const q = rest.toString();
+    window.history.replaceState(null, "", q ? `/app/inbox?${q}` : "/app/inbox");
+    void verfassenOeffnen(vorgabe);
+  }, [params, verfassenOeffnen]);
+
+  const nachGesendet = useCallback(
+    (gespraechId: string) => {
+      const dealId = verfassen.art === "offen" ? verfassen.vorgabe.dealRecordId : null;
+      setVerfassen({ art: "zu" });
+      setNachSenden({ gespraechId, dealId });
+      void listeLaden(suchbegriffRef.current, "aktion");
+    },
+    [verfassen, listeLaden]
+  );
+
   // ── Auswahl ────────────────────────────────────────────────────────────────
 
   const eintraege = liste.art === "fertig" ? liste.liste.eintraege : [];
@@ -194,6 +246,15 @@ export function InboxSeite() {
     if (ersetzen) window.history.replaceState(null, "", url);
     else window.history.pushState(null, "", url);
   }, []);
+
+  // Nach dem Senden den Eintrag des neuen Gesprächs wählen. Hängt es (über die Nummer)
+  // an einem Deal, steht es unter dessen Schlüssel; sonst `nachVerfassenSchluessel`.
+  useEffect(() => {
+    if (!nachSenden || liste.art !== "fertig") return;
+    const treffer = liste.liste.eintraege.find((e) => e.gespraechIds.includes(nachSenden.gespraechId));
+    setNachSenden(null);
+    waehlen(treffer?.key ?? nachVerfassenSchluessel(nachSenden.gespraechId, nachSenden.dealId), false);
+  }, [nachSenden, liste, waehlen]);
 
   // Desktop ohne Auswahl: der erste sichtbare Eintrag (Entscheidung 14), still in die URL.
   useEffect(() => {
@@ -213,6 +274,20 @@ export function InboxSeite() {
   const filterSetzen = useCallback((teil: Partial<InboxFilter>) => setFilter((f) => ({ ...f, ...teil })), []);
 
   const chipsAnzeige = chipsGesamt ?? (liste.art === "fertig" && !suchbegriff ? liste.liste.chips : null);
+
+  const fenster =
+    verfassen.art === "offen" ? (
+      <ComposeWhatsAppModal
+        accounts={verfassen.konten}
+        initialChannelAccountId={verfassen.vorgabe.channelAccountId ?? undefined}
+        initialPhone={verfassen.vorgabe.telefon ?? undefined}
+        initialCustomerName={verfassen.vorgabe.name ?? undefined}
+        dealRecordId={verfassen.vorgabe.dealRecordId}
+        onClose={() => setVerfassen({ art: "zu" })}
+        onSent={nachGesendet}
+      />
+    ) : null;
+  const verfassenLaedt = verfassen.art === "laden";
 
   if (breit === null) return <InboxSkelett />;
 
@@ -239,6 +314,7 @@ export function InboxSeite() {
     if (schluessel) {
       return (
         <div className="inbox inbox-vollbild">
+          {fenster}
           <Mitte
             zustand={mitte}
             schluessel={schluessel}
@@ -258,12 +334,11 @@ export function InboxSeite() {
             <h1>Inbox</h1>
             <p>{chipsAnzeige ? handyUnterzeile(chipsAnzeige) : "Wird geladen"}</p>
           </div>
-          <GlassButton size="sm" asChild>
-            <Link href="/inbox?compose=1" aria-label="Neue Nachricht">
-              +
-            </Link>
+          <GlassButton size="sm" aria-label="Neue Nachricht" disabled={verfassenLaedt} onClick={() => void verfassenOeffnen(LEERE_VORGABE)}>
+            +
           </GlassButton>
         </header>
+        {fenster}
         <InboxChipsZeile chips={chipsAnzeige} aktiv={filter.chip} kompakt onWaehlen={(chip) => filterSetzen({ chip })} />
         {listePanel}
       </div>
@@ -279,11 +354,12 @@ export function InboxSeite() {
           <p className="inbox-meta">Sortiert: zuerst, was auf uns wartet, dann nach Zeit. WhatsApp, E-Mail und Anrufe zusammen.</p>
         </div>
         <div className="inbox-kopf-aktionen">
-          <GlassButton asChild>
-            <Link href="/inbox?compose=1">+ Neue Nachricht</Link>
+          <GlassButton disabled={verfassenLaedt} onClick={() => void verfassenOeffnen(LEERE_VORGABE)}>
+            + Neue Nachricht
           </GlassButton>
         </div>
       </header>
+      {fenster}
 
       <InboxChipsZeile chips={chipsAnzeige} aktiv={filter.chip} kompakt={false} onWaehlen={(chip) => filterSetzen({ chip })} />
       <InboxLeiste

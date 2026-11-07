@@ -91,7 +91,7 @@ describe("fensterZu", () => {
 });
 
 describe("startFolge", () => {
-  it("führt ohne Gespräch zur Verfassen-Seite der alten Inbox, mit derselben Abfrage wie die Datensatztabelle", () => {
+  it("führt ohne Gespräch ins Verfassen-Fenster der neuen Inbox, vorbelegt mit Konto, Nummer, Name und Deal", () => {
     const folge = startFolge({
       mode: "compose",
       channelAccountId: "konto-1",
@@ -101,7 +101,7 @@ describe("startFolge", () => {
     });
     expect(folge).toEqual({
       art: "verfassen",
-      url: "/inbox?compose=1&channelAccountId=konto-1&phone=%2B491550000201&name=Familie+Weber&dealRecordId=deal-1",
+      url: "/app/inbox?verfassen=1&kanal=konto-1&telefon=%2B491550000201&name=Familie+Weber&deal=deal-1",
     });
   });
 
@@ -116,7 +116,7 @@ describe("startFolge", () => {
     expect(folge.art).toBe("verfassen");
     const url = folge.art === "verfassen" ? folge.url : "";
     expect(url).toBe(
-      "/inbox?compose=1&channelAccountId=konto-1&phone=%2B491550000201&name=M%C3%BCller+%26+S%C3%B6hne+%233&dealRecordId=deal-1"
+      "/app/inbox?verfassen=1&kanal=konto-1&telefon=%2B491550000201&name=M%C3%BCller+%26+S%C3%B6hne+%233&deal=deal-1"
     );
     expect(new URLSearchParams(url.slice(url.indexOf("?") + 1)).get("name")).toBe("Müller & Söhne #3");
   });
@@ -150,7 +150,7 @@ describe("nachStart", () => {
     expect(nachStart(kanaele, "wa-fremd")).toEqual({
       art: "hinweis",
       text: "Das WhatsApp-Gespräch hängt an einem anderen Deal und lässt sich hier nicht senden.",
-      link: { url: "/inbox?conv=wa-fremd", text: "Im Posteingang öffnen" },
+      link: { url: "/weiter?conv=wa-fremd", text: "Im Posteingang öffnen" },
     });
   });
 
@@ -160,8 +160,8 @@ describe("nachStart", () => {
 });
 
 describe("posteingangUrl", () => {
-  it("öffnet das Gespräch in der alten Inbox", () => {
-    expect(posteingangUrl("g 1")).toBe("/inbox?conv=g%201");
+  it("öffnet das Gespräch in der alten Inbox, mit alt=1 gegen die Umleitung", () => {
+    expect(posteingangUrl("g 1")).toBe("/inbox?conv=g+1&alt=1");
   });
 });
 

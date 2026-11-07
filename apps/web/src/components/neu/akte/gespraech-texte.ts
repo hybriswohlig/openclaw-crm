@@ -3,6 +3,7 @@
  * Fehlertexte je Code, Fenster-Sperre, Folge von „WhatsApp starten“.
  * Keine React-Abhängigkeit, damit die Tests leicht bleiben.
  */
+import { mitAlt, verfassenUrl, weiterLink } from "@/lib/handy-links";
 
 /** Fehlertext je Code der Senderoute (`POST /inbox/conversations/{id}/messages`); sonst „Senden fehlgeschlagen.“ */
 export function sendeFehler(code: string | null, meldung: string): string {
@@ -96,13 +97,16 @@ export function fensterZu(k: { istWaba: boolean; imFenster: boolean | null } | u
   return Boolean(k && k.istWaba && k.imFenster === false);
 }
 
-/** Alte Inbox mit geöffnetem Gespräch. */
+/**
+ * Alte Inbox mit geöffnetem Gespräch, bewusst mit `alt=1` (Zuordnen gibt es nur
+ * dort, Plan 10, Entscheidung 5): die Umleitung alter Links greift hier nie.
+ */
 export function posteingangUrl(conversationId: string): string {
-  return `/inbox?conv=${encodeURIComponent(conversationId)}`;
+  return mitAlt(`/inbox?conv=${encodeURIComponent(conversationId)}`);
 }
 
 export type StartFolge =
-  /** Es gibt noch kein Gespräch: Verfassen-Seite der alten Inbox (Abfrage wie `records/record-table.tsx`). */
+  /** Es gibt noch kein Gespräch: Verfassen-Fenster der neuen Inbox (`verfassenUrl`, Plan 10). */
   | { art: "verfassen"; url: string }
   /** Gespräch gibt es schon (jetzt am Deal): Akte neu laden. */
   | { art: "neu_laden"; conversationId: string }
@@ -111,7 +115,7 @@ export type StartFolge =
 export type NachStart =
   /** Das Gespräch hängt jetzt am Deal und ist sendefähig: wählen, kein Hinweis. */
   | { art: "waehlen"; gespraechId: string }
-  /** Nur indirekt (anderer Deal) oder nicht sendefähig: Hinweis mit Sprung in die alte Inbox. */
+  /** Nur indirekt (anderer Deal) oder nicht sendefähig: Hinweis mit Sprung über die Weiche (`/weiter?conv=`). */
   | { art: "hinweis"; text: string; link: { url: string; text: string } };
 
 /**
@@ -127,7 +131,7 @@ export function nachStart(
   return {
     art: "hinweis",
     text: "Das WhatsApp-Gespräch hängt an einem anderen Deal und lässt sich hier nicht senden.",
-    link: { url: posteingangUrl(conversationId), text: "Im Posteingang öffnen" },
+    link: { url: weiterLink({ art: "gespraech", id: conversationId }), text: "Im Posteingang öffnen" },
   };
 }
 
@@ -144,14 +148,13 @@ export function startFolge(data: unknown): StartFolge {
     typeof d.toPhone === "string" &&
     typeof d.dealRecordId === "string"
   ) {
-    const q = new URLSearchParams({
-      compose: "1",
-      channelAccountId: d.channelAccountId,
-      phone: d.toPhone,
-      name: typeof d.customerName === "string" ? d.customerName : "",
-      dealRecordId: d.dealRecordId,
+    const url = verfassenUrl({
+      channelAccountId: d.channelAccountId || null,
+      telefon: d.toPhone || null,
+      name: typeof d.customerName === "string" && d.customerName.trim() !== "" ? d.customerName : null,
+      dealRecordId: d.dealRecordId || null,
     });
-    return { art: "verfassen", url: `/inbox?${q.toString()}` };
+    return { art: "verfassen", url };
   }
   return { art: "unbekannt" };
 }
