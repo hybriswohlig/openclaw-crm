@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { Sidebar } from "@/components/layout/sidebar";
 import { MobileTopBar } from "@/components/layout/mobile-top-bar";
 import { MobileTabBar } from "@/components/layout/mobile-tab-bar";
@@ -9,6 +9,7 @@ import { ApprovalGate } from "@/components/layout/approval-gate";
 import { WhatsappStatusBanner } from "@/components/layout/whatsapp-status-banner";
 import { PushPromptBanner } from "@/components/pwa/push-prompt-banner";
 import { BackgroundJobsProvider } from "@/components/background-jobs";
+import { AltAufrufBeacon } from "@/components/layout/alt-aufruf-beacon";
 
 export default function DashboardLayout({
   children,
@@ -19,6 +20,10 @@ export default function DashboardLayout({
 
   return (
     <ApprovalGate>
+      {/* Plan 14: Aufrufe alter Seiten zählen (useSearchParams braucht Suspense). */}
+      <Suspense fallback={null}>
+        <AltAufrufBeacon />
+      </Suspense>
       <BackgroundJobsProvider>
         <div className="flex h-screen overflow-hidden">
           {/* Mobile overlay (drawer for the full sidebar when "menu" tapped) */}
