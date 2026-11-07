@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   selectFrom: vi.fn(),
   maybeNotifyPortalEvent: vi.fn(),
   aktualisiereWartet: vi.fn(),
+  dealImWorkspace: vi.fn(async () => true),
 }));
 
 vi.mock("@/db", () => ({
@@ -35,6 +36,10 @@ vi.mock("./wartet", () => ({ aktualisiereWartet: mocks.aktualisiereWartet }));
 
 vi.mock("./deal-attribution", () => ({
   advanceDealToQuotedIfEarlier: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock("@/lib/kalkulation-versionen-antwort", () => ({
+  dealImWorkspace: mocks.dealImWorkspace,
 }));
 
 import {
@@ -330,5 +335,31 @@ describe("createDealDocument verknüpft den KV mit der Kalkulationsversion", () 
     await createDealDocument({ ...base, fileName: "RE-1.pdf", documentType: "invoice" });
     expect(mocks.insertValues).toHaveBeenCalledWith(expect.objectContaining({ calculationVersionId: null }));
     expect(mocks.selectLimit).not.toHaveBeenCalled();
+  });
+});
+
+describe("createDealDocument prüft den Workspace", () => {
+  const base = {
+    workspaceId: "ws_kottke_prod",
+    dealRecordId: "deal_fremd",
+    fileName: "KV-1.pdf",
+    fileSize: 4,
+    mimeType: "application/pdf",
+    fileContent: Buffer.from("%PDF").toString("base64"),
+    documentType: "quotation" as const,
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.dealImWorkspace.mockResolvedValue(true);
+    mocks.insertReturning.mockResolvedValue([{ id: "doc_1", documentType: "quotation", fileName: "KV-1.pdf", fileSize: 4, mimeType: "application/pdf", uploadedAt: new Date() }]);
+    mocks.aktualisiereWartet.mockResolvedValue(undefined);
+  });
+
+  it("lehnt einen Deal aus einem anderen Workspace ab und legt nichts ab", async () => {
+    mocks.dealImWorkspace.mockResolvedValueOnce(false);
+    await expect(createDealDocument(base)).rejects.toThrow("Deal nicht gefunden.");
+    expect(mocks.dealImWorkspace).toHaveBeenCalledWith("ws_kottke_prod", "deal_fremd");
+    expect(mocks.insertValues).not.toHaveBeenCalled();
   });
 });

@@ -21,8 +21,11 @@ import {
   success,
   badRequest,
 } from "@/lib/api-utils";
+import { dealImWorkspace, dealNichtGefunden } from "@/lib/kalkulation-versionen-antwort";
 import { db } from "@/db";
 import { quotations } from "@/db/schema/quotations";
+import { angebotSperren } from "@/services/quotations";
+import { annahmeSperrAntwort, pruefeNichtAngenommen } from "@/services/kva-annahme";
 
 export const dynamic = "force-dynamic";
 
@@ -40,6 +43,7 @@ export async function PATCH(
   const ctx = await getAuthContext(req);
   if (!ctx) return unauthorized(req);
   const { recordId } = await params;
+  if (!(await dealImWorkspace(ctx.workspaceId, recordId))) return dealNichtGefunden();
 
   let body: {
     depositRequiredCents?: number | null;
@@ -76,40 +80,50 @@ export async function PATCH(
     );
   }
 
-  const [existing] = await db
-    .select({ id: quotations.id })
-    .from(quotations)
-    .where(eq(quotations.dealRecordId, recordId))
-    .limit(1);
+  // Sperre zuerst, dann Annahme, dann Schreiben (K5). Nach der Annahme 409.
+  try {
+    await db.transaction(async (tx) => {
+      await angebotSperren(tx, recordId);
+      await pruefeNichtAngenommen(recordId);
 
-  if (existing) {
-    const patch: Partial<typeof quotations.$inferInsert> = {
-      updatedAt: new Date(),
-    };
-    if (deposit !== undefined) {
-      patch.depositRequiredCents = deposit === null ? null : Math.round(deposit);
-    }
-    if (method !== undefined) {
-      patch.paymentMethodPreference = method;
-    }
-    await db
-      .update(quotations)
-      .set(patch)
-      .where(eq(quotations.id, existing.id));
-  } else {
-    // No quotation row yet — insert a thin one carrying just the Anzahlung
-    // fields. The rest of the quotation (fixedPrice / line items / scope)
-    // remains the operator's job in the calculator.
-    await db.insert(quotations).values({
-      dealRecordId: recordId,
-      isVariable: false,
-      depositRequiredCents:
-        deposit === undefined || deposit === null
-          ? null
-          : Math.round(deposit),
-      paymentMethodPreference: method === undefined ? null : method,
-      showStandardInclusions: true,
+      const [existing] = await tx
+        .select({ id: quotations.id })
+        .from(quotations)
+        .where(eq(quotations.dealRecordId, recordId))
+        .limit(1);
+
+      if (existing) {
+        const patch: Partial<typeof quotations.$inferInsert> = {
+          updatedAt: new Date(),
+        };
+        if (deposit !== undefined) {
+          patch.depositRequiredCents = deposit === null ? null : Math.round(deposit);
+        }
+        if (method !== undefined) {
+          patch.paymentMethodPreference = method;
+        }
+        await tx
+          .update(quotations)
+          .set(patch)
+          .where(eq(quotations.id, existing.id));
+      } else {
+        // Noch keine Quotation: dünne Zeile nur mit der Anzahlung.
+        await tx.insert(quotations).values({
+          dealRecordId: recordId,
+          isVariable: false,
+          depositRequiredCents:
+            deposit === undefined || deposit === null
+              ? null
+              : Math.round(deposit),
+          paymentMethodPreference: method === undefined ? null : method,
+          showStandardInclusions: true,
+        });
+      }
     });
+  } catch (err) {
+    const gesperrt = annahmeSperrAntwort(err);
+    if (gesperrt) return gesperrt;
+    throw err;
   }
 
   return success({

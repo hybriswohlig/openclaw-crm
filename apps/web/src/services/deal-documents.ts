@@ -11,6 +11,7 @@
 
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
+import { dealImWorkspace } from "@/lib/kalkulation-versionen-antwort";
 import { dealDocuments } from "@/db/schema/financial";
 import { quotations } from "@/db/schema/quotations";
 import {
@@ -113,6 +114,9 @@ export async function createDealDocument(input: {
 }): Promise<DealDocumentMeta> {
   const check = validateDealDocumentUpload(input);
   if (!check.ok) throw new Error(check.error);
+  if (!(await dealImWorkspace(input.workspaceId, input.dealRecordId))) {
+    throw new Error("Deal nicht gefunden.");
+  }
   const calculationVersionId = check.documentType === "quotation" ? input.calculationVersionId ?? null : null;
 
   const [doc] = await db

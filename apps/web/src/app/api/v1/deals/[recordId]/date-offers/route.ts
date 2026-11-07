@@ -15,6 +15,7 @@ import { NextRequest } from "next/server";
 import { annahmeSperrAntwort } from "@/services/kva-annahme";
 import { eq } from "drizzle-orm";
 import { getAuthContext, unauthorized, success, badRequest } from "@/lib/api-utils";
+import { dealImWorkspace, dealNichtGefunden } from "@/lib/kalkulation-versionen-antwort";
 import { db } from "@/db";
 import { quotationDateOffers, customerDateSelections } from "@/db/schema/customer-portal";
 import { replaceDateOffers, type DateOfferInput } from "@/services/customer-portal-data";
@@ -31,6 +32,7 @@ export async function GET(
   const ctx = await getAuthContext(req);
   if (!ctx) return unauthorized(req);
   const { recordId } = await params;
+  if (!(await dealImWorkspace(ctx.workspaceId, recordId))) return dealNichtGefunden();
 
   const rows = await db
     .select()
@@ -73,6 +75,7 @@ export async function PUT(
   const ctx = await getAuthContext(req);
   if (!ctx) return unauthorized(req);
   const { recordId } = await params;
+  if (!(await dealImWorkspace(ctx.workspaceId, recordId))) return dealNichtGefunden();
 
   let body: { offers?: unknown };
   try {
@@ -138,6 +141,7 @@ export async function DELETE(
   const ctx = await getAuthContext(req);
   if (!ctx) return unauthorized(req);
   const { recordId } = await params;
+  if (!(await dealImWorkspace(ctx.workspaceId, recordId))) return dealNichtGefunden();
   try {
     await replaceDateOffers({
       workspaceId: ctx.workspaceId,
