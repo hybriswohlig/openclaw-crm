@@ -19,14 +19,36 @@ export const KUNDEN_ANNAHMEN_FELDER = [
 ] as const satisfies ReadonlyArray<keyof CalculationAssumptions>;
 
 /**
+ * Merkmale des Rechner-Hinweises, den „In Angebot übernehmen“ bis Plan 5b in das
+ * Kundenfeld `hinweis` schrieb: Mietstation, Schnellschätzung mit Spanne, Beträge.
+ * Neue Übernahmen schreiben ihn nach `rechnerHinweis` (intern).
+ */
+const RECHNER_HINWEIS = [/Mietstation/, /Schnellschätzung/, /Obergrenze/, /\d\s*€/, /€\s*\d/, /\d+(?:[.,]\d+)?\s*bis\s*\d+/];
+
+/**
+ * Ist der Kundenhinweis ein interner Rechner-Hinweis aus einer alten Übernahme?
+ * Nur wenn übernommen wurde (`uebernommenVon`), damit ein Hinweis von Hand
+ * („Preis gilt bei Zugang wie angenommen“) stehen bleibt.
+ */
+export function istRechnerHinweis(hinweis: string, a: Pick<CalculationAssumptions, "uebernommenVon">): boolean {
+  if (!a.uebernommenVon) return false;
+  return RECHNER_HINWEIS.some((m) => m.test(hinweis));
+}
+
+/**
  * Whitelist für alles, was den Kunden erreicht (Portal, Dokumente, E-Mails).
- * Selbstkosten, Marge und Übernahme-Metadaten sind intern und bleiben draußen.
+ * Selbstkosten, Marge und Übernahme-Metadaten sind intern und bleiben draußen,
+ * ebenso Rechner-Hinweise mit Beträgen oder Spannen. Bleibt keine Angabe übrig,
+ * null: dann zeigt das Portal keine Kalkulationsgrundlagen.
  */
 export function kundenAnnahmen(a: CalculationAssumptions | null | undefined): CalculationAssumptions | null {
   if (!a) return null;
   const r: Record<string, unknown> = {};
   for (const feld of KUNDEN_ANNAHMEN_FELDER) r[feld] = a[feld];
-  return r as CalculationAssumptions;
+  if (typeof r.hinweis === "string" && istRechnerHinweis(r.hinweis, a)) r.hinweis = null;
+  // Die Quelle der Anfahrt allein ist keine Angabe.
+  const sichtbar = KUNDEN_ANNAHMEN_FELDER.some((f) => f !== "anfahrtQuelle" && r[f] != null && r[f] !== "");
+  return sichtbar ? (r as CalculationAssumptions) : null;
 }
 
 const KUNDEN_FELDER = new Set<string>(KUNDEN_ANNAHMEN_FELDER);

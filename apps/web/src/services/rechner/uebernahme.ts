@@ -158,7 +158,9 @@ export function angebotsUebernahme(
         zugangBis: aufzug("nach_aufzug"),
         inventarPositionen: (ergebnis.positionen ?? []).reduce((summe, p) => summe + p.menge, 0),
         inventarVolumenCbm: ergebnis.volumen?.nettoCbm ?? null,
-        hinweis: hinweisTeile.join(" "),
+        // Rechner-Hinweise (Station, Spanne, Annahmen) sind intern: nicht ins Kundenfeld `hinweis`.
+        hinweis: null,
+        rechnerHinweis: hinweisTeile.join(" ") || null,
         selbstkosten,
         margeVorschlagProzent: p?.margeVorschlag?.prozent ?? null,
         margeGruende: p?.margeVorschlag?.gruende ?? null,

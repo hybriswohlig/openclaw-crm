@@ -26,8 +26,10 @@ describe("angebotsUebernahme", () => {
       anfahrtMinuten: 55, anfahrtQuelle: "berechnet", etageVon: "3", etageBis: "0",
       zugangVon: "ohne Aufzug", zugangBis: "kleiner Aufzug", inventarPositionen: 3, inventarVolumenCbm: 18.4,
     });
-    expect(r.eingabe.calculationAssumptions?.hinweis).toContain("SIXT Sindelfingen");
-    expect(r.eingabe.calculationAssumptions?.hinweis).toContain("Tragestrecke");
+    expect(r.eingabe.calculationAssumptions?.rechnerHinweis).toContain("SIXT Sindelfingen");
+    expect(r.eingabe.calculationAssumptions?.rechnerHinweis).toContain("Tragestrecke");
+    // Rechner-Hinweise sind intern: das Kundenfeld bleibt leer (Portal „Kalkulationsgrundlagen“).
+    expect(r.eingabe.calculationAssumptions?.hinweis).toBeNull();
   });
 
   it("nur eine Spanne: ohne Bestätigung abgelehnt, mit Bestätigung die Obergrenze", () => {
@@ -37,7 +39,7 @@ describe("angebotsUebernahme", () => {
     });
     const r = angebotsUebernahme({ result: spanne, request: {} }, null, { bestaetigtSpanne: true });
     expect(r.ok && r.eingabe.fixedPrice).toBe("1800");
-    expect(r.ok && r.eingabe.calculationAssumptions?.hinweis).toContain("Schnellschätzung 900 bis 1800 €");
+    expect(r.ok && r.eingabe.calculationAssumptions?.rechnerHinweis).toContain("Schnellschätzung 900 bis 1800 €");
   });
 
   it("ohne Ergebnis oder ohne Preis: verständlicher Fehler", () => {
@@ -122,8 +124,8 @@ describe("angebotsUebernahme mit Marge", () => {
     const spanne = { ...mitMarge, schaetzung: { festpreisVon: 800, festpreisBis: 1170, selbstkostenVon: 480, selbstkostenBis: 700, margeProzent: 40, annahmen: [] } };
     const r = angebotsUebernahme({ result: spanne, request: {} }, null, { bestaetigtSpanne: true, margeProzent: 35, jetzt });
     // 480 / 0,65 = 738,46 -> 740
-    expect(r.ok && r.eingabe.calculationAssumptions?.hinweis).toContain("Schnellschätzung 740 bis 1080 €");
-    expect(r.ok && r.eingabe.calculationAssumptions?.hinweis).not.toContain("1170");
+    expect(r.ok && r.eingabe.calculationAssumptions?.rechnerHinweis).toContain("Schnellschätzung 740 bis 1080 €");
+    expect(r.ok && r.eingabe.calculationAssumptions?.rechnerHinweis).not.toContain("1170");
     expect(r.ok && r.eingabe.calculationAssumptions?.selbstkosten).toBe(700);
   });
 

@@ -158,7 +158,10 @@ export interface CalculationAssumptions {
   zugangBis?: string | null;
   inventarPositionen?: number | null;
   inventarVolumenCbm?: number | null;
+  /** Hinweis für den Kunden (Portal „Kalkulationsgrundlagen“). */
   hinweis?: string | null;
+  /** Intern: Hinweise des Rechners aus der Übernahme (Mietstation, Schnellschätzung, Annahmen). Nie an Kunden. */
+  rechnerHinweis?: string | null;
   /** Selbstkosten, auf denen der übernommene Preis beruht. */
   selbstkosten?: number | null;
   margeVorschlagProzent?: number | null;

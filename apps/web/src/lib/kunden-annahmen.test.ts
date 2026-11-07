@@ -14,6 +14,28 @@ describe("kundenAnnahmen", () => {
     );
     expect(r).toMatchObject({ anfahrtMinuten: 55, hinweis: "x" });
   });
+  it("Rechner-Hinweise mit Beträgen oder Spannen aus einer Übernahme erreichen den Kunden nicht", () => {
+    const basis = { anfahrtMinuten: 55, etageVon: "3", uebernommenVon: "mensch" as const };
+    for (const hinweis of [
+      "Mietstation SIXT Sindelfingen (Anfahrt 12 Min, Rückfahrt 14 Min). Schnellschätzung 670 bis 1180 €, übernommen: Obergrenze.",
+      "Schnellschätzung 670 bis 1180 €, übernommen: Obergrenze.",
+      "Keine Möbelliste: Umzugsgut aus 3 Zimmern geschätzt (18 bis 26 m³).",
+      "Halteverbot 150 € eingerechnet.",
+    ]) {
+      expect(kundenAnnahmen({ ...basis, hinweis })).toMatchObject({ anfahrtMinuten: 55, hinweis: null });
+    }
+    // Ein Hinweis von Hand bleibt, auch nach einer Übernahme.
+    expect(kundenAnnahmen({ ...basis, hinweis: "Preis gilt bei Zugang wie angenommen" })?.hinweis).toBe(
+      "Preis gilt bei Zugang wie angenommen"
+    );
+    // Ohne Übernahme ist der Hinweis von Hand, auch mit Betrag.
+    expect(kundenAnnahmen({ anfahrtMinuten: 55, hinweis: "Halteverbot 150 € eingerechnet." })?.hinweis).toBe("Halteverbot 150 € eingerechnet.");
+  });
+  it("ohne sichtbare Angabe null (der Abschnitt entfällt)", () => {
+    expect(kundenAnnahmen({ hinweis: "Schnellschätzung 670 bis 1180 €, übernommen: Obergrenze.", uebernommenVon: "agent", selbstkosten: 700 })).toBeNull();
+    expect(kundenAnnahmen({ anfahrtQuelle: "manuell", hinweis: "", selbstkosten: 700 })).toBeNull();
+    expect(kundenAnnahmen({ inventarPositionen: 0 })).toMatchObject({ inventarPositionen: 0 });
+  });
   it("null und undefined bleiben null", () => {
     expect(kundenAnnahmen(null)).toBeNull();
     expect(kundenAnnahmen(undefined)).toBeNull();
