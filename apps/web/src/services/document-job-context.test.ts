@@ -123,6 +123,68 @@ describe("preiseFromQuotation", () => {
       pauschale_betrag: 1720,
     });
   });
+
+  const stundenPosten = [
+    { type: "helper" as const, description: "Helfer", quantity: 3, unitRate: "35" },
+    { type: "transporter" as const, description: "Transporter", quantity: 2, unitRate: "25" },
+  ];
+  const stunden = {
+    helfer: 3,
+    transporter: 2,
+    stundenGeschaetzt: 7.5,
+    mindestStunden: 3,
+    satzHelferEur: 35,
+    satzTransporterEur: 25,
+    summeGeschaetztCent: 98_050,
+    mindestbetragCent: 46_500,
+    quelle: "version" as const,
+  };
+
+  it("ohne documentDetails.stunden bleiben geschätzte Stunden die Transporter-Menge", () => {
+    expect(preiseFromQuotation("kottke", { isVariable: true, fixedPrice: null, lineItems: stundenPosten })).toEqual({
+      modell: "stundensatz",
+      helfer_anzahl: 3,
+      stunden_geschaetzt: 2,
+      mindest_stunden: 2,
+      stundensatz_helfer_eur: 35,
+      stundensatz_transporter_eur: 25,
+    });
+  });
+
+  it("nimmt geschätzte und Mindeststunden aus documentDetails.stunden", () => {
+    expect(
+      preiseFromQuotation("kottke", {
+        isVariable: true,
+        fixedPrice: null,
+        lineItems: stundenPosten,
+        documentDetails: { stunden },
+      })
+    ).toEqual({
+      modell: "stundensatz",
+      helfer_anzahl: 3,
+      stunden_geschaetzt: 7.5,
+      mindest_stunden: 3,
+      stundensatz_helfer_eur: 35,
+      stundensatz_transporter_eur: 25,
+    });
+  });
+
+  it("lässt einen Festpreis unverändert, auch wenn Stunden am Dokument stehen", () => {
+    expect(
+      preiseFromQuotation("kottke", {
+        isVariable: false,
+        fixedPrice: "1720.00",
+        lineItems: kernUndHebel,
+        documentDetails: { stunden },
+      })
+    ).toEqual({
+      modell: "pauschale",
+      pauschale_positionen: [
+        { titel: "Umzug mit Team und Fahrzeug", betrag: 1500 },
+        { titel: "Halteverbotszone", betrag: 220 },
+      ],
+    });
+  });
 });
 
 describe("Hinweis „Pauschale“ im KV-Fenster und KV", () => {
@@ -226,5 +288,32 @@ describe("attachDocumentJobContext: Kalkulationsversion für den VPS-Weg (Review
   it("ohne Deal: Parameter unverändert, kein Bezug", async () => {
     const r = await attachDocumentJobContext("ws_1", { document_type: "KV", _calculation_version_id: "x" });
     expect(r).toEqual({ params: { document_type: "KV" }, kv: null });
+  });
+
+  it("gibt die Stunden aus dem Angebot an den VPS weiter", async () => {
+    jobMocks.getQuotation.mockResolvedValue({
+      ...quotation("ver_2"),
+      isVariable: true,
+      fixedPrice: null,
+      lineItems: [
+        { type: "helper", description: "Helfer", quantity: 3, unitRate: "35" },
+        { type: "transporter", description: "Transporter", quantity: 2, unitRate: "25" },
+      ],
+      documentDetails: {
+        stunden: {
+          helfer: 3,
+          transporter: 2,
+          stundenGeschaetzt: 7.5,
+          mindestStunden: 3,
+          satzHelferEur: 35,
+          satzTransporterEur: 25,
+          summeGeschaetztCent: 98_050,
+          mindestbetragCent: 46_500,
+          quelle: "version",
+        },
+      },
+    });
+    const { params } = await attachDocumentJobContext("ws_1", { _deal_record_id: "deal_1", document_type: "KV", firma: "kottke" });
+    expect(params.preise).toMatchObject({ modell: "stundensatz", stunden_geschaetzt: 7.5, mindest_stunden: 3 });
   });
 });

@@ -75,7 +75,36 @@ function quotationTotalCents(q: {
  * `lib/angebot-vorbelegung.ts`, damit der VPS-Dialog dieselben Posten zeigt,
  * die der VPS druckt.
  */
-export const preiseFromQuotation = vpsPreise;
+type VpsQuelle = Parameters<typeof vpsPreise>[1] & {
+  /** `quotations.document_details`; Stunden stehen unter `stunden` (StundenAngebot). */
+  documentDetails?: unknown;
+};
+
+function stundenAusDokument(details: unknown): { stundenGeschaetzt: number; mindestStunden: number } | null {
+  if (!details || typeof details !== "object" || !("stunden" in details)) return null;
+  const roh = (details as { stunden?: unknown }).stunden;
+  if (!roh || typeof roh !== "object") return null;
+  const s = roh as { stundenGeschaetzt?: unknown; mindestStunden?: unknown };
+  if (typeof s.stundenGeschaetzt !== "number" || typeof s.mindestStunden !== "number") return null;
+  if (!Number.isFinite(s.stundenGeschaetzt) || !Number.isFinite(s.mindestStunden)) return null;
+  return { stundenGeschaetzt: s.stundenGeschaetzt, mindestStunden: s.mindestStunden };
+}
+
+/**
+ * Preisblock für den VPS. Liegt ein Stundenangebot aus der Version am Dokument,
+ * gelten dessen geschätzte und Mindeststunden. Sonst bleibt es bei der bisherigen
+ * Ableitung (beim Stundensatz: die Transporter-Menge).
+ */
+export function preiseFromQuotation(firma: string, q: VpsQuelle) {
+  const preise = vpsPreise(firma, q);
+  const stunden = stundenAusDokument(q.documentDetails);
+  if (!preise || preise.modell !== "stundensatz" || !stunden) return preise;
+  return {
+    ...preise,
+    stunden_geschaetzt: stunden.stundenGeschaetzt,
+    mindest_stunden: stunden.mindestStunden,
+  };
+}
 
 /** Version und Preis des KV aus genau der Lesung, aus der die Preise an den VPS gehen. */
 export interface KvJobBezug {
@@ -264,11 +293,8 @@ export async function attachDocumentJobContext(
   };
 
   if (quotation) {
-    const preisQuelle = abPreise ?? quotation;
-    const rebuilt = preiseFromQuotation(
-      String(next.firma || "kottke"),
-      preisQuelle
-    );
+    const preisQuelle = abPreise ? { ...abPreise, documentDetails: snapshotDetails } : quotation;
+    const rebuilt = preiseFromQuotation(String(next.firma || "kottke"), preisQuelle);
     if (rebuilt) {
       const prev = (next.preise && typeof next.preise === "object" ? next.preise : {}) as Record<
         string,
