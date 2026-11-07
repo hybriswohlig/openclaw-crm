@@ -1,4 +1,4 @@
-import type { AnnahmeRegeln, ServiceArt, WiderrufModus } from "./annahme-recht";
+import type { AnnahmeRegeln, KvStand, ServiceArt, WiderrufModus } from "./annahme-recht";
 import type { FirmaKontakt } from "./rechtstexte";
 import type { UnterschriftRecord } from "./unterschrift";
 import type { PortalLeistung } from "./leistung";
@@ -112,6 +112,8 @@ export interface KvaSnapshot {
    * snapshot — deviations on moving day are documented deviations.
    */
   calculationAssumptions: KvaCalculationAssumptions | null;
+  /** Kalkulationsversion der Quotation; null = von Hand oder Altbestand. Fehlt bei alten Schnappschüssen. */
+  calculationVersionId?: string | null;
 }
 
 /** Mirror of the quotations.calculation_assumptions jsonb (apps/web). */
@@ -432,7 +434,11 @@ export interface CustomerPortalContext {
   acceptance: AcceptanceRecord | null;
 
   /** Rechtsregeln der Annahme; Dialog und Server nutzen dieselben Werte. */
-  annahmeRecht: AnnahmeRegeln & { kontakt: FirmaKontakt };
+  annahmeRecht: AnnahmeRegeln & {
+    kontakt: FirmaKontakt;
+    /** Passt das neueste KV-PDF zur Version der Quotation? „veraltet“ sperrt die Annahme (annahmeKvSperre). */
+    kvStand?: KvStand;
+  };
   /** Leistung für die Texte (Umzug, Küche, Entrümpelung, Entrümpelung + Umzug). Recht folgt annahmeRecht.serviceType. */
   leistung: PortalLeistung;
   /** Eine frühere Annahme wurde aufgehoben: Kunde soll das neue Angebot prüfen. */

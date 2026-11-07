@@ -2,6 +2,7 @@
  * Rechtsregeln der KV-Annahme. Dialog (Client) und confirmKvaForToken (Server)
  * rufen dieselben Funktionen auf, damit beide nie auseinanderlaufen.
  */
+import { kundenText } from "./anrede";
 import { daysUntilMove } from "./stage-derivation";
 import type { ConfirmKvaPayload } from "./types";
 import { widerrufsfristEnde } from "./widerruf";
@@ -133,4 +134,33 @@ export function annahmeSperrgrund(input: {
     return "vorzeitiger_beginn_required";
   }
   return null;
+}
+
+/**
+ * Passt das neueste KV-PDF zur Kalkulationsversion der Quotation? Der Server
+ * bestimmt den Stand (CRM: `kvStand` in lib/angebot-wahl.ts) und gibt ihn im
+ * Kontext mit. „ohne_version“: Quotation ohne Version (Altbestand, von Hand),
+ * Regel von heute.
+ */
+export type KvStand = "passt" | "veraltet" | "ohne_version";
+
+/** Ablehnungscode der Annahme, solange das PDF nicht zur aktuellen Version passt (409). */
+export const KV_VERALTET = "kv_veraltet" as const;
+
+/** Dialog und confirmKvaForToken: Annahme gesperrt, solange das KV-PDF veraltet ist. */
+export function annahmeKvSperre(stand: KvStand | null | undefined): typeof KV_VERALTET | null {
+  return stand === "veraltet" ? KV_VERALTET : null;
+}
+
+/** Titel und Hinweis statt des Annahme-Knopfs; auch die Fehlermeldung des Dialogs. */
+export function kvVeraltetTitel(firma: string | null | undefined): string {
+  return kundenText(firma, "Ihr Angebot wird gerade aktualisiert", "Dein Angebot wird gerade aktualisiert");
+}
+
+export function kvVeraltetText(firma: string | null | undefined): string {
+  return kundenText(
+    firma,
+    "Wir erstellen gerade den Kostenvoranschlag zu Ihrem aktuellen Preis. In wenigen Minuten können Sie das Angebot hier annehmen. Die Seite aktualisiert sich von selbst.",
+    "Wir erstellen gerade den Kostenvoranschlag zu deinem aktuellen Preis. In wenigen Minuten kannst du das Angebot hier annehmen. Die Seite aktualisiert sich von selbst."
+  );
 }

@@ -14,12 +14,20 @@ import type { AcceptanceRecord, UnterschriftArt, WiderrufModus } from "@openclaw
 
 export type KvaConfirmationRow = typeof kvaConfirmations.$inferSelect;
 
-export function aktivBedingung(dealRecordId: string) {
-  return and(eq(kvaConfirmations.dealRecordId, dealRecordId), isNull(kvaConfirmations.supersededAt));
+/** db oder eine laufende Transaktion (z. B. unter `angebotSperren`). */
+export type DbExecutor = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+/** Aktive Annahme des Deals; mit `workspaceId` nur in diesem Workspace. */
+export function aktivBedingung(dealRecordId: string, workspaceId?: string) {
+  return and(
+    eq(kvaConfirmations.dealRecordId, dealRecordId),
+    isNull(kvaConfirmations.supersededAt),
+    workspaceId ? eq(kvaConfirmations.workspaceId, workspaceId) : undefined
+  );
 }
 
-export async function ladeAktiveAnnahme(dealRecordId: string): Promise<KvaConfirmationRow | null> {
-  const [row] = await db.select().from(kvaConfirmations).where(aktivBedingung(dealRecordId)).limit(1);
+export async function ladeAktiveAnnahme(dealRecordId: string, ex: DbExecutor = db): Promise<KvaConfirmationRow | null> {
+  const [row] = await ex.select().from(kvaConfirmations).where(aktivBedingung(dealRecordId)).limit(1);
   return row ?? null;
 }
 
@@ -41,8 +49,9 @@ export class AngebotAngenommenError extends Error {
   }
 }
 
-export async function pruefeNichtAngenommen(dealRecordId: string): Promise<void> {
-  if (await ladeAktiveAnnahme(dealRecordId)) throw new AngebotAngenommenError();
+/** Mit `ex` = Transaktion unter `angebotSperren`: die Prüfung gilt bis zum Commit. */
+export async function pruefeNichtAngenommen(dealRecordId: string, ex: DbExecutor = db): Promise<void> {
+  if (await ladeAktiveAnnahme(dealRecordId, ex)) throw new AngebotAngenommenError();
 }
 
 /** Für Operator-Routen: 409 mit deutscher Meldung, sonst null (weiterwerfen). */
@@ -60,7 +69,7 @@ export async function annahmeAufheben(input: {
   const aufgehoben = await db
     .update(kvaConfirmations)
     .set({ supersededAt: new Date(), supersededBy: input.userId, supersededReason: input.grund.slice(0, 500) })
-    .where(and(aktivBedingung(input.dealRecordId), eq(kvaConfirmations.workspaceId, input.workspaceId)))
+    .where(aktivBedingung(input.dealRecordId, input.workspaceId))
     .returning({ id: kvaConfirmations.id, total: kvaConfirmations.confirmedTotalCents });
   if (aufgehoben.length === 0) return "keine_annahme";
   await emitEvent({
@@ -147,19 +156,25 @@ export async function ladeAgbFuerAnnahme(firmaSlug: string): Promise<{ text: str
 /**
  * Das KV-PDF, das der Kunde gerade sieht: neuestes quotation-Dokument
  * (gleiche Regel wie das Portal). Ein späteres Speichern der Angebotszeile
- * zählt nicht. null nur, wenn kein KV-Dokument existiert.
+ * zählt nicht. null nur, wenn kein KV-Dokument existiert. Die Version des
+ * PDFs entscheidet über `kvStand` (Annahme gesperrt, wenn sie nicht passt).
  */
 export async function aktuellesKvDokument(
   workspaceId: string,
-  dealRecordId: string
-): Promise<{ id: string; sha256: string } | null> {
-  const docs = await db
-    .select({ id: dealDocuments.id, fileContent: dealDocuments.fileContent })
+  dealRecordId: string,
+  ex: DbExecutor = db
+): Promise<{ id: string; sha256: string; calculationVersionId: string | null } | null> {
+  const docs = await ex
+    .select({ id: dealDocuments.id, fileContent: dealDocuments.fileContent, calculationVersionId: dealDocuments.calculationVersionId })
     .from(dealDocuments)
     .where(and(eq(dealDocuments.workspaceId, workspaceId), eq(dealDocuments.dealRecordId, dealRecordId), eq(dealDocuments.documentType, "quotation")))
     .orderBy(desc(dealDocuments.uploadedAt))
     .limit(1);
   const doc = docs[0];
   if (!doc) return null;
-  return { id: doc.id, sha256: sha256Hex(Buffer.from(doc.fileContent, "base64")) };
+  return {
+    id: doc.id,
+    sha256: sha256Hex(Buffer.from(doc.fileContent, "base64")),
+    calculationVersionId: doc.calculationVersionId ?? null,
+  };
 }

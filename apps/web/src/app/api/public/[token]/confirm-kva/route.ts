@@ -1,6 +1,6 @@
 import { after, NextRequest, NextResponse } from "next/server";
 import { confirmKvaForToken } from "@/services/customer-portal-data";
-import { parseConfirmKvaPayload } from "@openclaw-crm/customer-portal-core";
+import { KV_VERALTET, parseConfirmKvaPayload } from "@openclaw-crm/customer-portal-core";
 
 export const dynamic = "force-dynamic";
 
@@ -47,6 +47,8 @@ export async function POST(
       termin_vorbei: 410,
       invalid_token: 400,
       price_changed: 409,
+      // KV-PDF passt noch nicht zur aktuellen Version: Dialog lädt neu.
+      [KV_VERALTET]: 409,
       agb_unavailable: 503,
     };
     return NextResponse.json(

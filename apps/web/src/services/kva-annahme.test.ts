@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { annahmeAusZeile, sha256Hex } from "./kva-annahme";
+import { PgDialect } from "drizzle-orm/pg-core";
+import type { SQL } from "drizzle-orm";
+import { aktivBedingung, annahmeAusZeile, sha256Hex } from "./kva-annahme";
 
 const basis = {
   signedAt: new Date("2026-10-01T08:00:00Z"),
@@ -88,5 +90,21 @@ describe("abweichungenVonAnnahme", () => {
     expect(
       abweichungenVonAnnahme(gebunden, { ...gebunden, fromAddress: " marktstr. 8,  72218, Wildberg " })
     ).toEqual([]);
+  });
+});
+
+describe("aktivBedingung", () => {
+  const text = (q: SQL | undefined) => new PgDialect().sqlToQuery(q!);
+  it("ohne Workspace: nur Deal und nicht aufgehoben (wie bisher)", () => {
+    const q = text(aktivBedingung("d1"));
+    expect(q.sql).toContain('"kva_confirmations"."deal_record_id" = $1');
+    expect(q.sql).toContain('"kva_confirmations"."superseded_at" is null');
+    expect(q.sql).not.toContain("workspace_id");
+    expect(q.params).toEqual(["d1"]);
+  });
+  it("mit Workspace: zusätzlich workspace_id", () => {
+    const q = text(aktivBedingung("d1", "ws1"));
+    expect(q.sql).toContain('"kva_confirmations"."workspace_id" = $2');
+    expect(q.params).toEqual(["d1", "ws1"]);
   });
 });

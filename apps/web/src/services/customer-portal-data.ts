@@ -87,9 +87,12 @@ import {
   leistungsWorte,
   portalLeistung,
   type PortalLeistung,
+  annahmeKvSperre,
+  type AnnahmeRegeln,
+  type KvStand as PortalKvStand,
 } from "@openclaw-crm/customer-portal-core";
 import { isKleinanzeigenRelayAddress } from "./inbox-kleinanzeigen";
-import { loadEffectiveBranding } from "./customer-portal-config";
+import { loadEffectiveBranding, type EffectiveBranding } from "./customer-portal-config";
 import { emitEvent } from "./activity-events";
 import { createTask } from "./tasks";
 import { aktualisiereWartet, aktualisiereWartetNachBesuch } from "./wartet";
@@ -105,8 +108,14 @@ import {
   ladeAktiveAnnahme,
   pruefeNichtAngenommen,
 } from "./kva-annahme";
-import type { Umzugsrahmen } from "./kva-annahme";
+import type { DbExecutor, KvaConfirmationRow as KvaConfirmationZeile, Umzugsrahmen } from "./kva-annahme";
 import { preisZahlungenCent } from "@/lib/preis-zahlungen";
+import { angebotSperren } from "./quotations";
+import { kvStand, type KvStand } from "@/lib/angebot-wahl";
+
+// Vertrag (CRM) und Portal-Core beschreiben denselben Stand.
+const _kvStandGleich: [KvStand] extends [PortalKvStand] ? ([PortalKvStand] extends [KvStand] ? true : never) : never = true;
+void _kvStandGleich;
 
 // ─── Token / link lifecycle ────────────────────────────────────────────────────
 
@@ -422,7 +431,12 @@ export async function loadContextByToken(
 
   // Documents (presence only — the public route streams them through a scoped URL)
   const docRows = await db
-    .select({ id: dealDocuments.id, type: dealDocuments.documentType, uploadedAt: dealDocuments.uploadedAt })
+    .select({
+      id: dealDocuments.id,
+      type: dealDocuments.documentType,
+      uploadedAt: dealDocuments.uploadedAt,
+      calculationVersionId: dealDocuments.calculationVersionId,
+    })
     .from(dealDocuments)
     .where(
       and(
@@ -437,14 +451,20 @@ export async function loadContextByToken(
   const invoiceDoc = docRows.find((d) => d.type === "invoice");
 
   const quotationDoc = neuestesKvDokument(docRows.filter((d) => d.type === "quotation"));
+  // Gleiche Regel wie confirmKvaForToken: PDF einer anderen Version sperrt die Annahme.
+  const kvDokumentStand = kvStand(kva?.calculationVersionId ?? null, quotationDoc);
   // Nach der Annahme zeigt das Portal das angenommene PDF; ohne gebundenes
-  // PDF (Altbestand) gilt die normale Regel weiter.
-  const quotationDocShown = angezeigtesKvDokument({
-    quotationDocumentId: acceptance?.quotationDocumentId ?? null,
-    angenommen: !!acceptance,
-    docRows,
-    aktuellesKv: quotationDoc ?? null,
-  });
+  // PDF (Altbestand) gilt die normale Regel weiter. Vorher kein veraltetes
+  // PDF: Stufe 1 zeigt dann die Angebotsansicht mit dem aktuellen Preis.
+  const quotationDocShown =
+    !acceptance && annahmeKvSperre(kvDokumentStand)
+      ? null
+      : angezeigtesKvDokument({
+          quotationDocumentId: acceptance?.quotationDocumentId ?? null,
+          angenommen: !!acceptance,
+          docRows,
+          aktuellesKv: quotationDoc ?? null,
+        });
 
   // Move timing
   const [timingRow] = await db
@@ -540,7 +560,7 @@ export async function loadContextByToken(
     crew,
     kva,
     acceptance,
-    annahmeRecht,
+    annahmeRecht: { ...annahmeRecht, kvStand: kvDokumentStand },
     leistung,
     // Umzugs-Standards (Decken, Kartons …) gehören nicht zu Küche oder Entrümpelung.
     inclusions: leistungsWorte(leistung, branding.firmaSlug).standardleistungen ? inclusions : { included: [], optional: [] },
@@ -583,26 +603,42 @@ function nachholenFuer(row: { id: string; widerrufModus: string | null; confirma
   return nachlaufNoetig(row) ? () => annahmeNachlauf(row.id, { mitTeamAlarm: false }) : null;
 }
 
-export async function confirmKvaForToken(
-  token: string,
+type AnnahmeLink = typeof customerStatusLinks.$inferSelect;
+
+/** Alles, was die Annahme prüft und bindet, aus einem Stand gelesen. */
+type AnnahmePruefung =
+  | { ok: false; reason: string }
+  | {
+      ok: true;
+      effective: EffectiveBranding;
+      kva: KvaSnapshot;
+      preisCents: number;
+      serviceType: ServiceArt;
+      regeln: AnnahmeRegeln;
+      scope: MoveScope;
+      selectedOption: DealPackageOption | null;
+      kvDokument: Awaited<ReturnType<typeof aktuellesKvDokument>>;
+    };
+
+/**
+ * Prüft die Annahme gegen den gespeicherten Stand. Läuft zweimal: vorab ohne
+ * Sperre (Ablehnung ohne AGB-Abruf) und mit `tx` unter `angebotSperren`; nur
+ * die zweite Lesung zählt für den Insert. Die Firma (Portal an, AGB) kommt
+ * aus der ersten Lesung.
+ */
+async function annahmePruefen(
+  link: AnnahmeLink,
   body: ConfirmKvaPayload,
-  ctx: ConfirmKvaContext
-): Promise<{ ok: true; nachlauf: (() => Promise<void>) | null } | { ok: false; reason: string }> {
-  if (!validateTokenShape(token)) return { ok: false, reason: "invalid_token" };
-  const [link] = await db.select().from(customerStatusLinks).where(eq(customerStatusLinks.token, token)).limit(1);
-  if (!link) return { ok: false, reason: "not_found" };
-  if (!isLinkUsable(link)) return { ok: false, reason: "revoked" };
-
-  // Doppelklick: keine zweite Zeile. Fehlt die Bestätigung, wird sie nachgeholt.
-  const vorhanden = await ladeAktiveAnnahme(link.dealRecordId);
-  if (vorhanden) return { ok: true, nachlauf: nachholenFuer(vorhanden) };
-
-  await ensureDefaultPackageSelection(link.dealRecordId);
-  const kva = await loadKvaSnapshot(link.dealRecordId);
+  unterSperre?: { tx: DbExecutor; effective: EffectiveBranding }
+): Promise<AnnahmePruefung> {
+  const ex = unterSperre?.tx ?? db;
+  const deal = link.dealRecordId;
+  await ensureDefaultPackageSelection(deal, unterSperre?.tx);
+  const kva = await loadKvaSnapshot(deal, ex);
   if (!kva) return { ok: false, reason: "no_quotation" };
 
-  const dealOffers = await loadDealPackageOffersContext(link.dealRecordId);
-  const dateOffers = await loadDateOffersContext(link.dealRecordId);
+  const dealOffers = await loadDealPackageOffersContext(deal, ex);
+  const dateOffers = await loadDateOffersContext(deal, ex);
   const hasOpenDateChoice = dateOffers.options.length > 0 && !dateOffers.selection;
   const acceptBlock = offerAcceptanceBlockReason({
     dealOptions: dealOffers.options,
@@ -622,13 +658,16 @@ export async function confirmKvaForToken(
   }
 
   const dealAttrs = await loadDealAttributeMap(link.workspaceId);
-  const dealValues = await loadValuesForRecord(link.dealRecordId);
+  const dealValues = await loadValuesForRecord(deal, ex);
   const scope = projectMoveScope(dealAttrs, dealValues);
-  const ocId = await refValue(dealValues, dealAttrs.bySlug.get("operating_company")?.id);
-  const effective = await loadEffectiveBranding(ocId);
+  let effective = unterSperre?.effective;
+  if (!effective) {
+    const ocId = await refValue(dealValues, dealAttrs.bySlug.get("operating_company")?.id);
+    effective = await loadEffectiveBranding(ocId);
+  }
   if (!effective.enabled) return { ok: false, reason: "feature_disabled" };
 
-  const { serviceType } = await loadLeistung(link.dealRecordId);
+  const { serviceType } = await loadLeistung(deal, ex);
   const regeln = annahmeRegeln({ serviceType, moveDate: scope.moveDate, hasOpenDateChoice, now: new Date() });
   const preisCents = erwarteterGesamtpreis({
     dealOptions: dealOffers.options,
@@ -643,52 +682,99 @@ export async function confirmKvaForToken(
   });
   if (sperre) return { ok: false, reason: sperre };
 
+  // Quotation aus einer Version: nur mit dem PDF genau dieser Version (Kottke:
+  // das VPS-PDF kommt Minuten nach dem Sperren). Ohne Version wie bisher.
+  const kvDokument = await aktuellesKvDokument(link.workspaceId, deal, ex);
+  const kvSperre = annahmeKvSperre(kvStand(kva.calculationVersionId ?? null, kvDokument));
+  if (kvSperre) return { ok: false, reason: kvSperre };
+
+  return { ok: true, effective, kva, preisCents, serviceType, regeln, scope, selectedOption, kvDokument };
+}
+
+export async function confirmKvaForToken(
+  token: string,
+  body: ConfirmKvaPayload,
+  ctx: ConfirmKvaContext
+): Promise<{ ok: true; nachlauf: (() => Promise<void>) | null } | { ok: false; reason: string }> {
+  if (!validateTokenShape(token)) return { ok: false, reason: "invalid_token" };
+  const [link] = await db.select().from(customerStatusLinks).where(eq(customerStatusLinks.token, token)).limit(1);
+  if (!link) return { ok: false, reason: "not_found" };
+  if (!isLinkUsable(link)) return { ok: false, reason: "revoked" };
+
+  // Doppelklick: keine zweite Zeile. Fehlt die Bestätigung, wird sie nachgeholt.
+  const vorhanden = await ladeAktiveAnnahme(link.dealRecordId);
+  if (vorhanden) return { ok: true, nachlauf: nachholenFuer(vorhanden) };
+
+  const vorab = await annahmePruefen(link, body);
+  if (!vorab.ok) return vorab;
+  const { effective } = vorab;
+
   // AGB in dem Stand speichern, den der Kunde abrufen konnte. Nicht abrufbar = keine Annahme.
+  // Netz bleibt vor der Transaktion: die Sperre hält nur kurz.
   const agb = effective.branding.agbPdfUrl ? await ladeAgbFuerAnnahme(effective.branding.firmaSlug) : null;
   if (effective.branding.agbPdfUrl && !agb) return { ok: false, reason: "agb_unavailable" };
 
-  const kvDokument = await aktuellesKvDokument(link.workspaceId, link.dealRecordId);
-  const signedAt = new Date();
-  let confirmationId: string | null = null;
+  // Unter derselben Sperre wie das Sperren einer Kalkulationsversion: Preis,
+  // PDF und Insert kommen aus einem Stand. Sperren zuerst → neuer Preis →
+  // price_changed; Annahme zuerst → das Sperren endet mit KVA_ACCEPTED.
+  type Ausgang =
+    | { art: "doppelt"; row: KvaConfirmationZeile }
+    | { art: "abgelehnt"; reason: string }
+    | { art: "angenommen"; id: string; p: Extract<AnnahmePruefung, { ok: true }> };
+  let ausgang: Ausgang;
   try {
-    const [row] = await db.insert(kvaConfirmations).values({
-      workspaceId: link.workspaceId,
-      dealRecordId: link.dealRecordId,
-      customerLinkId: link.id,
-      quotationSnapshot: kva,
-      confirmedTotalCents: preisCents,
-      agbVersionAccepted: effective.branding.agbVersion,
-      widerrufVerzichtAccepted: false,
-      ipAddress: ctx.ipAddress.slice(0, 200),
-      userAgent: ctx.userAgent.slice(0, 1000),
-      acceptedFullName: body.fullName?.trim().slice(0, 200) || null,
-      signedAt,
-      serviceType,
-      widerrufModus: regeln.widerrufModus,
-      vorzeitigerBeginnVerlangt: regeln.vorzeitigerBeginnErforderlich && body.vorzeitigerBeginnVerlangt,
-      haftungshinweisBestaetigt: regeln.haftungshinweisErforderlich && body.haftungshinweisBestaetigt,
-      versicherungGewuenscht: regeln.haftungshinweisErforderlich && body.versicherungGewuenscht,
-      selectedOptionId: selectedOption?.id ?? null,
-      selectedOptionName: selectedOption?.displayName ?? null,
-      moveDate: scope.moveDate,
-      fromAddress: scope.fromAddress,
-      toAddress: scope.toAddress,
-      quotationDocumentId: kvDokument?.id ?? null,
-      quotationDocumentSha256: kvDokument?.sha256 ?? null,
-      agbTextSha256: agb?.sha256 ?? null,
-      agbText: agb?.text ?? null,
-    }).returning({ id: kvaConfirmations.id });
-    confirmationId = row.id;
+    ausgang = await db.transaction(async (tx): Promise<Ausgang> => {
+      await angebotSperren(tx, link.dealRecordId);
+      const schon = await ladeAktiveAnnahme(link.dealRecordId, tx);
+      if (schon) return { art: "doppelt", row: schon };
+      const p = await annahmePruefen(link, body, { tx, effective });
+      if (!p.ok) return { art: "abgelehnt", reason: p.reason };
+      const { kva, regeln, scope, selectedOption, kvDokument } = p;
+      const signedAt = new Date();
+      const [row] = await tx.insert(kvaConfirmations).values({
+        workspaceId: link.workspaceId,
+        dealRecordId: link.dealRecordId,
+        customerLinkId: link.id,
+        quotationSnapshot: kva,
+        confirmedTotalCents: p.preisCents,
+        agbVersionAccepted: effective.branding.agbVersion,
+        widerrufVerzichtAccepted: false,
+        ipAddress: ctx.ipAddress.slice(0, 200),
+        userAgent: ctx.userAgent.slice(0, 1000),
+        acceptedFullName: body.fullName?.trim().slice(0, 200) || null,
+        signedAt,
+        serviceType: p.serviceType,
+        widerrufModus: regeln.widerrufModus,
+        vorzeitigerBeginnVerlangt: regeln.vorzeitigerBeginnErforderlich && body.vorzeitigerBeginnVerlangt,
+        haftungshinweisBestaetigt: regeln.haftungshinweisErforderlich && body.haftungshinweisBestaetigt,
+        versicherungGewuenscht: regeln.haftungshinweisErforderlich && body.versicherungGewuenscht,
+        selectedOptionId: selectedOption?.id ?? null,
+        selectedOptionName: selectedOption?.displayName ?? null,
+        moveDate: scope.moveDate,
+        fromAddress: scope.fromAddress,
+        toAddress: scope.toAddress,
+        quotationDocumentId: kvDokument?.id ?? null,
+        quotationDocumentSha256: kvDokument?.sha256 ?? null,
+        calculationVersionId: kva.calculationVersionId ?? null,
+        agbTextSha256: agb?.sha256 ?? null,
+        agbText: agb?.text ?? null,
+      }).returning({ id: kvaConfirmations.id });
+      return { art: "angenommen", id: row.id, p };
+    });
   } catch (err) {
-    const code = err && typeof err === "object" && "code" in err ? String((err as { code: unknown }).code) : "";
-    if (code === "23505" || /unique|duplicate/i.test(err instanceof Error ? err.message : String(err))) {
+    // 23505 bricht die Transaktion ab, deshalb erst hier. Unter der Sperre
+    // selten (ein zweiter Klick sieht die Annahme), aber möglich.
+    if (istEindeutigkeitsFehler(err)) {
       // Paralleler Klick hat gewonnen; dessen Versand ist beansprucht, sonst holen wir nach.
       const gewinner = await ladeAktiveAnnahme(link.dealRecordId);
       return { ok: true, nachlauf: gewinner ? nachholenFuer(gewinner) : null };
     }
     throw err;
   }
+  if (ausgang.art === "doppelt") return { ok: true, nachlauf: nachholenFuer(ausgang.row) };
+  if (ausgang.art === "abgelehnt") return { ok: false, reason: ausgang.reason };
 
+  const { id: confirmationId, p } = ausgang;
   await emitEvent({
     workspaceId: link.workspaceId,
     recordId: link.dealRecordId,
@@ -696,12 +782,13 @@ export async function confirmKvaForToken(
     eventType: "customer.kva_confirmed",
     payload: {
       confirmationId,
-      confirmedTotalCents: preisCents,
+      confirmedTotalCents: p.preisCents,
       agbVersion: effective.branding.agbVersion,
       agbTextSha256: agb?.sha256 ?? null,
-      quotationDocumentId: kvDokument?.id ?? null,
-      widerrufModus: regeln.widerrufModus,
-      versicherungGewuenscht: regeln.haftungshinweisErforderlich && body.versicherungGewuenscht,
+      quotationDocumentId: p.kvDokument?.id ?? null,
+      calculationVersionId: p.kva.calculationVersionId ?? null,
+      widerrufModus: p.regeln.widerrufModus,
+      versicherungGewuenscht: p.regeln.haftungshinweisErforderlich && body.versicherungGewuenscht,
       acceptedFullName: body.fullName ?? null,
       ipAddress: ctx.ipAddress.slice(0, 200),
     },
@@ -714,8 +801,20 @@ export async function confirmKvaForToken(
     console.error("[wartet] nach KV-Annahme fehlgeschlagen:", err);
   }
 
-  const id = confirmationId;
-  return { ok: true, nachlauf: () => annahmeNachlauf(id, { mitTeamAlarm: true }) };
+  return { ok: true, nachlauf: () => annahmeNachlauf(confirmationId, { mitTeamAlarm: true }) };
+}
+
+/** Postgres 23505, auch in `cause` verpackt (Drizzle). */
+function istEindeutigkeitsFehler(err: unknown): boolean {
+  const gesehen = new Set<unknown>();
+  let e: unknown = err;
+  while (e && typeof e === "object" && !gesehen.has(e)) {
+    gesehen.add(e);
+    if ((e as { code?: unknown }).code === "23505") return true;
+    if (e instanceof Error && /unique|duplicate/i.test(e.message)) return true;
+    e = (e as { cause?: unknown }).cause;
+  }
+  return typeof err === "string" && /unique|duplicate/i.test(err);
 }
 
 /**
@@ -1088,8 +1187,8 @@ async function loadDealAttributeMap(workspaceId: string): Promise<DealAttrIndex>
 
 type ValueRow = typeof recordValues.$inferSelect;
 
-async function loadValuesForRecord(recordId: string): Promise<Map<string, ValueRow>> {
-  const rows = await db
+async function loadValuesForRecord(recordId: string, ex: DbExecutor = db): Promise<Map<string, ValueRow>> {
+  const rows = await ex
     .select()
     .from(recordValues)
     .where(eq(recordValues.recordId, recordId));
@@ -1363,15 +1462,15 @@ export async function recordCustomerEmail(
   return { ok: true, status: "present", masked: maskEmail(email) };
 }
 
-async function loadKvaSnapshot(dealRecordId: string): Promise<KvaSnapshot | null> {
-  const [q] = await db
+async function loadKvaSnapshot(dealRecordId: string, ex: DbExecutor = db): Promise<KvaSnapshot | null> {
+  const [q] = await ex
     .select()
     .from(quotations)
     .where(eq(quotations.dealRecordId, dealRecordId))
     .limit(1);
   if (!q) return null;
 
-  const lineItemRows = await db
+  const lineItemRows = await ex
     .select()
     .from(quotationLineItems)
     .where(eq(quotationLineItems.quotationId, q.id))
@@ -1389,7 +1488,7 @@ async function loadKvaSnapshot(dealRecordId: string): Promise<KvaSnapshot | null
     };
   });
 
-  const optionRows = await db
+  const optionRows = await ex
     .select({
       id: quotationPackageOptions.id,
       priceCents: quotationPackageOptions.priceCents,
@@ -1420,6 +1519,7 @@ async function loadKvaSnapshot(dealRecordId: string): Promise<KvaSnapshot | null
     showStandardInclusions: q.showStandardInclusions ?? true,
     validUntil: q.validUntil ?? null,
     calculationAssumptions: kundenAnnahmen(q.calculationAssumptions),
+    calculationVersionId: q.calculationVersionId ?? null,
   };
 }
 
@@ -1461,8 +1561,11 @@ async function loadCrew(dealRecordId: string): Promise<CrewMember[]> {
   }));
 }
 
-async function loadLeistung(dealRecordId: string): Promise<{ serviceType: ServiceArt; leistung: PortalLeistung }> {
-  const [q] = await db
+async function loadLeistung(
+  dealRecordId: string,
+  ex: DbExecutor = db
+): Promise<{ serviceType: ServiceArt; leistung: PortalLeistung }> {
+  const [q] = await ex
     .select({ serviceType: quotations.serviceType, documentDetails: quotations.documentDetails })
     .from(quotations)
     .where(eq(quotations.dealRecordId, dealRecordId))
@@ -1956,9 +2059,10 @@ async function loadInclusions(
 // ─── Per-deal package options ─────────────────────────────────────────────────
 
 async function loadDealPackageOffersContext(
-  dealRecordId: string
+  dealRecordId: string,
+  ex: DbExecutor = db
 ): Promise<DealPackageOffersContext> {
-  const rows = await db
+  const rows = await ex
     .select()
     .from(quotationPackageOptions)
     .where(eq(quotationPackageOptions.dealRecordId, dealRecordId))
@@ -1978,7 +2082,7 @@ async function loadDealPackageOffersContext(
     sortOrder: r.sortOrder,
   }));
 
-  const [q] = await db
+  const [q] = await ex
     .select({ selectedPackageOptionId: quotations.selectedPackageOptionId })
     .from(quotations)
     .where(eq(quotations.dealRecordId, dealRecordId))
@@ -1994,18 +2098,57 @@ async function loadDealPackageOffersContext(
  * Persist a default option + matching price when options exist but the
  * quotation has no valid selection. Self-heals offers that were sent
  * before the default-bind write, so the first portal view is never 0 €.
+ *
+ * Schreibt unter `angebotSperren` (wie das Sperren einer Version). `tx`: die
+ * Transaktion des Aufrufers (Annahme), sonst eine eigene, aber nur, wenn
+ * es überhaupt etwas zu schreiben gibt (jeder Portal-Aufruf kommt hier vorbei).
  */
-async function ensureDefaultPackageSelection(dealRecordId: string): Promise<void> {
+export async function ensureDefaultPackageSelection(dealRecordId: string, tx?: DbExecutor): Promise<void> {
+  if (tx) return defaultAuswahlSchreiben(tx, dealRecordId);
+  if (!(await defaultAuswahlPlanen(db, dealRecordId))) return;
+  await db.transaction((t) => defaultAuswahlSchreiben(t, dealRecordId));
+}
+
+async function defaultAuswahlSchreiben(tx: DbExecutor, dealRecordId: string): Promise<void> {
+  await angebotSperren(tx, dealRecordId);
+  const plan = await defaultAuswahlPlanen(tx, dealRecordId);
+  if (!plan) return;
+  const { q, chosen, priceEur } = plan;
+  if (q) {
+    await tx
+      .update(quotations)
+      .set({
+        selectedPackageOptionId: chosen.id,
+        selectedPackageSlug: chosen.catalogueSlug,
+        fixedPrice: priceEur,
+        isVariable: false,
+        updatedAt: new Date(),
+      })
+      .where(eq(quotations.id, q.id));
+  } else {
+    await tx.insert(quotations).values({
+      dealRecordId,
+      selectedPackageOptionId: chosen.id,
+      selectedPackageSlug: chosen.catalogueSlug,
+      fixedPrice: priceEur,
+      isVariable: false,
+      showStandardInclusions: true,
+    });
+  }
+}
+
+/** Was zu schreiben wäre; null = nichts (keine Optionen, schon gebunden, angenommen). */
+async function defaultAuswahlPlanen(ex: DbExecutor, dealRecordId: string) {
   // Nach der Annahme ist das Angebot eingefroren; ein GET schreibt nichts mehr.
-  if (await ladeAktiveAnnahme(dealRecordId)) return;
-  const rows = await db
+  if (await ladeAktiveAnnahme(dealRecordId, ex)) return null;
+  const rows = await ex
     .select()
     .from(quotationPackageOptions)
     .where(eq(quotationPackageOptions.dealRecordId, dealRecordId))
     .orderBy(quotationPackageOptions.sortOrder);
-  if (rows.length === 0) return;
+  if (rows.length === 0) return null;
 
-  const [q] = await db
+  const [q] = await ex
     .select({
       id: quotations.id,
       selectedPackageOptionId: quotations.selectedPackageOptionId,
@@ -2017,7 +2160,7 @@ async function ensureDefaultPackageSelection(dealRecordId: string): Promise<void
     .limit(1);
 
   const chosen = pickDefaultDealOption(rows, q?.selectedPackageOptionId ?? null);
-  if (!chosen) return;
+  if (!chosen) return null;
   // Only a deal-specific package selection may persist a catalogue slug.
   // A Festangebot has no such rows and must stay without one on accept.
   const offerView = resolvePortalOfferView({
@@ -2026,36 +2169,15 @@ async function ensureDefaultPackageSelection(dealRecordId: string): Promise<void
     isVariable: q?.isVariable ?? false,
     dealOptionCount: rows.length,
   });
-  if (!acceptanceMayWritePackageSlug(offerView)) return;
+  if (!acceptanceMayWritePackageSlug(offerView)) return null;
 
   const priceEur = (chosen.priceCents / 100).toFixed(2);
   const alreadyBound =
     q?.selectedPackageOptionId === chosen.id &&
     q?.isVariable === false &&
     q?.fixedPrice === priceEur;
-  if (alreadyBound) return;
-
-  if (q) {
-    await db
-      .update(quotations)
-      .set({
-        selectedPackageOptionId: chosen.id,
-        selectedPackageSlug: chosen.catalogueSlug,
-        fixedPrice: priceEur,
-        isVariable: false,
-        updatedAt: new Date(),
-      })
-      .where(eq(quotations.id, q.id));
-  } else {
-    await db.insert(quotations).values({
-      dealRecordId,
-      selectedPackageOptionId: chosen.id,
-      selectedPackageSlug: chosen.catalogueSlug,
-      fixedPrice: priceEur,
-      isVariable: false,
-      showStandardInclusions: true,
-    });
-  }
+  if (alreadyBound) return null;
+  return { q: q ?? null, chosen, priceEur };
 }
 
 /**
@@ -2083,102 +2205,109 @@ export async function replaceDealPackageOptions(input: {
   options: DealPackageOptionInput[];
 }): Promise<{ count: number }> {
   await pruefeNichtAngenommen(input.dealRecordId);
-  const [existingQ] = await db
-    .select({
-      id: quotations.id,
-      selectedPackageSlug: quotations.selectedPackageSlug,
-    })
-    .from(quotations)
-    .where(eq(quotations.dealRecordId, input.dealRecordId))
-    .limit(1);
-  const previousSlug = existingQ?.selectedPackageSlug ?? null;
+  // Unter der Sperre des Angebots: Annahme oder Sperren einer Version laufen nie dazwischen.
+  const count = await db.transaction(async (tx) => {
+    await angebotSperren(tx, input.dealRecordId);
+    await pruefeNichtAngenommen(input.dealRecordId, tx);
+    const [existingQ] = await tx
+      .select({
+        id: quotations.id,
+        selectedPackageSlug: quotations.selectedPackageSlug,
+      })
+      .from(quotations)
+      .where(eq(quotations.dealRecordId, input.dealRecordId))
+      .limit(1);
+    const previousSlug = existingQ?.selectedPackageSlug ?? null;
 
-  await db
-    .delete(quotationPackageOptions)
-    .where(eq(quotationPackageOptions.dealRecordId, input.dealRecordId));
+    await tx
+      .delete(quotationPackageOptions)
+      .where(eq(quotationPackageOptions.dealRecordId, input.dealRecordId));
 
-  const validated = input.options
-    .filter(
-      (o) =>
-        typeof o.displayName === "string" &&
-        o.displayName.trim().length > 0 &&
-        Number.isFinite(o.priceCents) &&
-        o.priceCents >= 0
-    )
-    .map((o, i) => ({
-      workspaceId: input.workspaceId,
-      dealRecordId: input.dealRecordId,
-      catalogueSlug: o.catalogueSlug,
-      displayName: o.displayName.slice(0, 80),
-      shortDescription: o.shortDescription
-        ? o.shortDescription.slice(0, 200)
-        : null,
-      priceCents: Math.round(o.priceCents),
-      includedItems: (o.includedItems ?? [])
-        .filter((s): s is string => typeof s === "string")
-        .map((s) => s.slice(0, 200))
-        .slice(0, 10),
-      excludedItems: (o.excludedItems ?? [])
-        .filter((s): s is string => typeof s === "string")
-        .map((s) => s.slice(0, 200))
-        .slice(0, 10),
-      addableItems: (o.addableItems ?? [])
-        .filter((s): s is string => typeof s === "string")
-        .map((s) => s.slice(0, 200))
-        .slice(0, 10),
-      note: o.note ? o.note.slice(0, 200) : null,
-      isRecommended: !!o.isRecommended,
-      sortOrder: i,
-      createdBy: input.createdBy,
-    }));
+    const validated = input.options
+      .filter(
+        (o) =>
+          typeof o.displayName === "string" &&
+          o.displayName.trim().length > 0 &&
+          Number.isFinite(o.priceCents) &&
+          o.priceCents >= 0
+      )
+      .map((o, i) => ({
+        workspaceId: input.workspaceId,
+        dealRecordId: input.dealRecordId,
+        catalogueSlug: o.catalogueSlug,
+        displayName: o.displayName.slice(0, 80),
+        shortDescription: o.shortDescription
+          ? o.shortDescription.slice(0, 200)
+          : null,
+        priceCents: Math.round(o.priceCents),
+        includedItems: (o.includedItems ?? [])
+          .filter((s): s is string => typeof s === "string")
+          .map((s) => s.slice(0, 200))
+          .slice(0, 10),
+        excludedItems: (o.excludedItems ?? [])
+          .filter((s): s is string => typeof s === "string")
+          .map((s) => s.slice(0, 200))
+          .slice(0, 10),
+        addableItems: (o.addableItems ?? [])
+          .filter((s): s is string => typeof s === "string")
+          .map((s) => s.slice(0, 200))
+          .slice(0, 10),
+        note: o.note ? o.note.slice(0, 200) : null,
+        isRecommended: !!o.isRecommended,
+        sortOrder: i,
+        createdBy: input.createdBy,
+      }));
 
-  let inserted: Array<typeof quotationPackageOptions.$inferSelect> = [];
-  if (validated.length > 0) {
-    inserted = await db
-      .insert(quotationPackageOptions)
-      .values(validated)
-      .returning();
-  }
+    let inserted: Array<typeof quotationPackageOptions.$inferSelect> = [];
+    if (validated.length > 0) {
+      inserted = await tx
+        .insert(quotationPackageOptions)
+        .values(validated)
+        .returning();
+    }
 
-  // After DELETE+INSERT every option id is new. Always rebind the quotation
-  // to a surviving row (keep the previous catalogue slug when it still
-  // exists, otherwise recommended / first) so the portal never opens with
-  // "nothing selected" and a 0 € price card.
-  const chosen = resolveSelectedPackageAfterReplace(inserted, previousSlug);
-  if (chosen) {
-    const priceEur = (chosen.priceCents / 100).toFixed(2);
-    if (existingQ) {
-      await db
-        .update(quotations)
-        .set({
+    // After DELETE+INSERT every option id is new. Always rebind the quotation
+    // to a surviving row (keep the previous catalogue slug when it still
+    // exists, otherwise recommended / first) so the portal never opens with
+    // "nothing selected" and a 0 € price card.
+    const chosen = resolveSelectedPackageAfterReplace(inserted, previousSlug);
+    if (chosen) {
+      const priceEur = (chosen.priceCents / 100).toFixed(2);
+      if (existingQ) {
+        await tx
+          .update(quotations)
+          .set({
+            selectedPackageOptionId: chosen.id,
+            selectedPackageSlug: chosen.catalogueSlug,
+            fixedPrice: priceEur,
+            isVariable: false,
+            updatedAt: new Date(),
+          })
+          .where(eq(quotations.id, existingQ.id));
+      } else {
+        await tx.insert(quotations).values({
+          dealRecordId: input.dealRecordId,
           selectedPackageOptionId: chosen.id,
           selectedPackageSlug: chosen.catalogueSlug,
           fixedPrice: priceEur,
           isVariable: false,
-          updatedAt: new Date(),
-        })
-        .where(eq(quotations.id, existingQ.id));
-    } else {
-      await db.insert(quotations).values({
-        dealRecordId: input.dealRecordId,
-        selectedPackageOptionId: chosen.id,
-        selectedPackageSlug: chosen.catalogueSlug,
-        fixedPrice: priceEur,
-        isVariable: false,
-        showStandardInclusions: true,
-      });
+          showStandardInclusions: true,
+        });
+      }
     }
-  }
+
+    return validated.length;
+  });
 
   await emitEvent({
     workspaceId: input.workspaceId,
     recordId: input.dealRecordId,
     objectSlug: "deals",
     eventType: "customer.package_options_set",
-    payload: { count: validated.length },
+    payload: { count },
   });
 
-  return { count: validated.length };
+  return { count };
 }
 
 /**
@@ -2208,47 +2337,56 @@ export async function selectDealPackageOptionForToken(
     .limit(1);
   if (acceptance) return { ok: false, reason: "already_accepted" };
 
-  const [option] = await db
-    .select()
-    .from(quotationPackageOptions)
-    .where(
-      and(
-        eq(quotationPackageOptions.id, body.optionId),
-        eq(quotationPackageOptions.dealRecordId, link.dealRecordId)
+  // Unter der Sperre des Angebots, Annahme dort erneut prüfen.
+  const ausgang = await db.transaction(async (tx) => {
+    await angebotSperren(tx, link.dealRecordId);
+    if (await ladeAktiveAnnahme(link.dealRecordId, tx)) return { ok: false as const, reason: "already_accepted" };
+
+    const [option] = await tx
+      .select()
+      .from(quotationPackageOptions)
+      .where(
+        and(
+          eq(quotationPackageOptions.id, body.optionId),
+          eq(quotationPackageOptions.dealRecordId, link.dealRecordId)
+        )
       )
-    )
-    .limit(1);
-  if (!option) return { ok: false, reason: "option_not_found" };
+      .limit(1);
+    if (!option) return { ok: false as const, reason: "option_not_found" };
 
-  const [existingQ] = await db
-    .select({ id: quotations.id })
-    .from(quotations)
-    .where(eq(quotations.dealRecordId, link.dealRecordId))
-    .limit(1);
+    const [existingQ] = await tx
+      .select({ id: quotations.id })
+      .from(quotations)
+      .where(eq(quotations.dealRecordId, link.dealRecordId))
+      .limit(1);
 
-  const priceEur = (option.priceCents / 100).toFixed(2);
+    const priceEur = (option.priceCents / 100).toFixed(2);
 
-  if (existingQ) {
-    await db
-      .update(quotations)
-      .set({
+    if (existingQ) {
+      await tx
+        .update(quotations)
+        .set({
+          selectedPackageOptionId: option.id,
+          selectedPackageSlug: option.catalogueSlug ?? quotations.selectedPackageSlug,
+          fixedPrice: priceEur,
+          isVariable: false,
+          updatedAt: new Date(),
+        })
+        .where(eq(quotations.id, existingQ.id));
+    } else {
+      await tx.insert(quotations).values({
+        dealRecordId: link.dealRecordId,
         selectedPackageOptionId: option.id,
-        selectedPackageSlug: option.catalogueSlug ?? quotations.selectedPackageSlug,
+        selectedPackageSlug: option.catalogueSlug,
         fixedPrice: priceEur,
         isVariable: false,
-        updatedAt: new Date(),
-      })
-      .where(eq(quotations.id, existingQ.id));
-  } else {
-    await db.insert(quotations).values({
-      dealRecordId: link.dealRecordId,
-      selectedPackageOptionId: option.id,
-      selectedPackageSlug: option.catalogueSlug,
-      fixedPrice: priceEur,
-      isVariable: false,
-      showStandardInclusions: true,
-    });
-  }
+        showStandardInclusions: true,
+      });
+    }
+    return { ok: true as const, option };
+  });
+  if (!ausgang.ok) return ausgang;
+  const { option } = ausgang;
 
   await emitEvent({
     workspaceId: link.workspaceId,
@@ -2319,60 +2457,67 @@ export async function selectPackageForToken(
     .limit(1);
   if (!pkg) return { ok: false, reason: "package_not_found" };
 
-  const optionRows = await db
-    .select({ id: quotationPackageOptions.id })
-    .from(quotationPackageOptions)
-    .where(eq(quotationPackageOptions.dealRecordId, link.dealRecordId));
-  const [existingQ] = await db
-    .select({ id: quotations.id, isVariable: quotations.isVariable, fixedPrice: quotations.fixedPrice })
-    .from(quotations)
-    .where(eq(quotations.dealRecordId, link.dealRecordId))
-    .limit(1);
-  const offerView = resolvePortalOfferView({
-    hasOffer: !!existingQ,
-    fixedPriceCents:
-      existingQ && !existingQ.isVariable && existingQ.fixedPrice != null
-        ? toCents(Number(existingQ.fixedPrice))
-        : null,
-    isVariable: existingQ?.isVariable ?? false,
-    dealOptionCount: optionRows.length,
-  });
-  // Catalogue clicks must not overwrite a finished fixed price or attach its slug.
-  if (offerView === "festangebot" || offerView === "einzelangebot") {
-    return { ok: false, reason: "fixed_offer" };
-  }
-
-  if (existingQ) {
-    // Update existing quotation. Only touch fixed_price when the package
-    // carries a fixed binding price; otherwise leave the operator's
-    // numbers alone and treat the click as a "preference signal" the
-    // operator will react to.
-    const patch: Partial<typeof quotations.$inferInsert> = {
-      selectedPackageSlug: pkg.slug,
-      updatedAt: new Date(),
-    };
-    if (pkg.priceFixedFlag && pkg.priceFromCents != null) {
-      patch.fixedPrice = (pkg.priceFromCents / 100).toFixed(2);
-      patch.isVariable = false;
-    }
-    await db
-      .update(quotations)
-      .set(patch)
-      .where(eq(quotations.id, existingQ.id));
-  } else {
-    // No quotation yet — create a thin one so the customer's price card
-    // can render. Operator fills in the rest later.
-    await db.insert(quotations).values({
-      dealRecordId: link.dealRecordId,
-      selectedPackageSlug: pkg.slug,
-      isVariable: !pkg.priceFixedFlag,
-      fixedPrice:
-        pkg.priceFixedFlag && pkg.priceFromCents != null
-          ? (pkg.priceFromCents / 100).toFixed(2)
+  // Unter der Sperre des Angebots, Annahme dort erneut prüfen.
+  const ausgang = await db.transaction(async (tx): Promise<{ ok: true } | { ok: false; reason: string }> => {
+    await angebotSperren(tx, link.dealRecordId);
+    if (await ladeAktiveAnnahme(link.dealRecordId, tx)) return { ok: false, reason: "already_accepted" };
+    const optionRows = await tx
+      .select({ id: quotationPackageOptions.id })
+      .from(quotationPackageOptions)
+      .where(eq(quotationPackageOptions.dealRecordId, link.dealRecordId));
+    const [existingQ] = await tx
+      .select({ id: quotations.id, isVariable: quotations.isVariable, fixedPrice: quotations.fixedPrice })
+      .from(quotations)
+      .where(eq(quotations.dealRecordId, link.dealRecordId))
+      .limit(1);
+    const offerView = resolvePortalOfferView({
+      hasOffer: !!existingQ,
+      fixedPriceCents:
+        existingQ && !existingQ.isVariable && existingQ.fixedPrice != null
+          ? toCents(Number(existingQ.fixedPrice))
           : null,
-      showStandardInclusions: true,
+      isVariable: existingQ?.isVariable ?? false,
+      dealOptionCount: optionRows.length,
     });
-  }
+    // Catalogue clicks must not overwrite a finished fixed price or attach its slug.
+    if (offerView === "festangebot" || offerView === "einzelangebot") {
+      return { ok: false, reason: "fixed_offer" };
+    }
+
+    if (existingQ) {
+      // Update existing quotation. Only touch fixed_price when the package
+      // carries a fixed binding price; otherwise leave the operator's
+      // numbers alone and treat the click as a "preference signal" the
+      // operator will react to.
+      const patch: Partial<typeof quotations.$inferInsert> = {
+        selectedPackageSlug: pkg.slug,
+        updatedAt: new Date(),
+      };
+      if (pkg.priceFixedFlag && pkg.priceFromCents != null) {
+        patch.fixedPrice = (pkg.priceFromCents / 100).toFixed(2);
+        patch.isVariable = false;
+      }
+      await tx
+        .update(quotations)
+        .set(patch)
+        .where(eq(quotations.id, existingQ.id));
+    } else {
+      // No quotation yet — create a thin one so the customer's price card
+      // can render. Operator fills in the rest later.
+      await tx.insert(quotations).values({
+        dealRecordId: link.dealRecordId,
+        selectedPackageSlug: pkg.slug,
+        isVariable: !pkg.priceFixedFlag,
+        fixedPrice:
+          pkg.priceFixedFlag && pkg.priceFromCents != null
+            ? (pkg.priceFromCents / 100).toFixed(2)
+            : null,
+        showStandardInclusions: true,
+      });
+    }
+    return { ok: true };
+  });
+  if (!ausgang.ok) return ausgang;
 
   await emitEvent({
     workspaceId: link.workspaceId,
@@ -2393,9 +2538,10 @@ export async function selectPackageForToken(
 }
 
 async function loadDateOffersContext(
-  dealRecordId: string
+  dealRecordId: string,
+  ex: DbExecutor = db
 ): Promise<DateOffersContext> {
-  const rows = await db
+  const rows = await ex
     .select()
     .from(quotationDateOffers)
     .where(eq(quotationDateOffers.dealRecordId, dealRecordId))
@@ -2416,7 +2562,7 @@ async function loadDateOffersContext(
     sortOrder: r.sortOrder,
   }));
 
-  const [sel] = await db
+  const [sel] = await ex
     .select()
     .from(customerDateSelections)
     .where(eq(customerDateSelections.dealRecordId, dealRecordId))
@@ -2458,61 +2604,67 @@ export async function replaceDateOffers(input: {
   offers: DateOfferInput[];
 }): Promise<{ count: number }> {
   await pruefeNichtAngenommen(input.dealRecordId);
-  // Wipe + re-insert. Done in two steps because Drizzle's pg dialect doesn't
-  // have a tidy multi-row-upsert helper here and the data is small.
-  const existingSel = await db
-    .select({ selectedDate: customerDateSelections.selectedDate })
-    .from(customerDateSelections)
-    .where(eq(customerDateSelections.dealRecordId, input.dealRecordId))
-    .limit(1);
+  // Unter der Sperre des Angebots: die Terminwahl ändert Annahmeregeln und Termin.
+  const count = await db.transaction(async (tx) => {
+    await angebotSperren(tx, input.dealRecordId);
+    await pruefeNichtAngenommen(input.dealRecordId, tx);
+    // Wipe + re-insert. Done in two steps because Drizzle's pg dialect doesn't
+    // have a tidy multi-row-upsert helper here and the data is small.
+    const existingSel = await tx
+      .select({ selectedDate: customerDateSelections.selectedDate })
+      .from(customerDateSelections)
+      .where(eq(customerDateSelections.dealRecordId, input.dealRecordId))
+      .limit(1);
 
-  await db
-    .delete(quotationDateOffers)
-    .where(eq(quotationDateOffers.dealRecordId, input.dealRecordId));
+    await tx
+      .delete(quotationDateOffers)
+      .where(eq(quotationDateOffers.dealRecordId, input.dealRecordId));
 
-  const validated = input.offers
-    .filter((o) => /^\d{4}-\d{2}-\d{2}$/.test(o.date))
-    .map((o, i) => ({
-      workspaceId: input.workspaceId,
-      dealRecordId: input.dealRecordId,
-      offerDate: o.date,
-      slots: o.slots.map((s) => ({
-        label: (s.label ?? "").slice(0, 80),
-        startTime: s.startTime || null,
-        endTime: s.endTime || null,
-      })),
-      note: o.note ? o.note.slice(0, 200) : null,
-      isRecommended: !!o.isRecommended,
-      sortOrder: i,
-      createdBy: input.createdBy,
-    }));
+    const validated = input.offers
+      .filter((o) => /^\d{4}-\d{2}-\d{2}$/.test(o.date))
+      .map((o, i) => ({
+        workspaceId: input.workspaceId,
+        dealRecordId: input.dealRecordId,
+        offerDate: o.date,
+        slots: o.slots.map((s) => ({
+          label: (s.label ?? "").slice(0, 80),
+          startTime: s.startTime || null,
+          endTime: s.endTime || null,
+        })),
+        note: o.note ? o.note.slice(0, 200) : null,
+        isRecommended: !!o.isRecommended,
+        sortOrder: i,
+        createdBy: input.createdBy,
+      }));
 
-  if (validated.length > 0) {
-    await db.insert(quotationDateOffers).values(validated);
-  }
-
-  // If the customer's prior selection no longer matches any offered date,
-  // clear it so they're re-prompted on the next portal visit.
-  if (existingSel.length > 0) {
-    const stillOffered = validated.some(
-      (o) => o.offerDate === existingSel[0].selectedDate
-    );
-    if (!stillOffered) {
-      await db
-        .delete(customerDateSelections)
-        .where(eq(customerDateSelections.dealRecordId, input.dealRecordId));
+    if (validated.length > 0) {
+      await tx.insert(quotationDateOffers).values(validated);
     }
-  }
+
+    // If the customer's prior selection no longer matches any offered date,
+    // clear it so they're re-prompted on the next portal visit.
+    if (existingSel.length > 0) {
+      const stillOffered = validated.some(
+        (o) => o.offerDate === existingSel[0].selectedDate
+      );
+      if (!stillOffered) {
+        await tx
+          .delete(customerDateSelections)
+          .where(eq(customerDateSelections.dealRecordId, input.dealRecordId));
+      }
+    }
+    return validated.length;
+  });
 
   await emitEvent({
     workspaceId: input.workspaceId,
     recordId: input.dealRecordId,
     objectSlug: "deals",
     eventType: "customer.date_offers_set",
-    payload: { count: validated.length },
+    payload: { count },
   });
 
-  return { count: validated.length };
+  return { count };
 }
 
 /**
@@ -2535,44 +2687,53 @@ export async function selectDateOffer(
   // Der Termin ist mit der Annahme festgelegt.
   if (await ladeAktiveAnnahme(link.dealRecordId)) return { ok: false, reason: "already_accepted" };
 
-  const [offer] = await db
-    .select()
-    .from(quotationDateOffers)
-    .where(
-      and(
-        eq(quotationDateOffers.id, body.dateOfferId),
-        eq(quotationDateOffers.dealRecordId, link.dealRecordId)
+  // Unter der Sperre des Angebots: der Termin gehört zum Stand, den die Annahme bindet.
+  const ausgang = await db.transaction(async (tx) => {
+    await angebotSperren(tx, link.dealRecordId);
+    if (await ladeAktiveAnnahme(link.dealRecordId, tx)) return { ok: false as const, reason: "already_accepted" };
+
+    const [offer] = await tx
+      .select()
+      .from(quotationDateOffers)
+      .where(
+        and(
+          eq(quotationDateOffers.id, body.dateOfferId),
+          eq(quotationDateOffers.dealRecordId, link.dealRecordId)
+        )
       )
-    )
-    .limit(1);
-  if (!offer) return { ok: false, reason: "offer_not_found" };
+      .limit(1);
+    if (!offer) return { ok: false as const, reason: "offer_not_found" };
 
-  const slots = Array.isArray(offer.slots) ? (offer.slots as DateOfferSlot[]) : [];
-  if (body.slotIndex < 0 || body.slotIndex >= slots.length) {
-    return { ok: false, reason: "invalid_slot" };
-  }
-  const slot = slots[body.slotIndex];
+    const slots = Array.isArray(offer.slots) ? (offer.slots as DateOfferSlot[]) : [];
+    if (body.slotIndex < 0 || body.slotIndex >= slots.length) {
+      return { ok: false as const, reason: "invalid_slot" };
+    }
+    const slot = slots[body.slotIndex];
 
-  // Upsert by deal — one customer pick per deal.
-  await db
-    .delete(customerDateSelections)
-    .where(eq(customerDateSelections.dealRecordId, link.dealRecordId));
-  await db.insert(customerDateSelections).values({
-    workspaceId: link.workspaceId,
-    dealRecordId: link.dealRecordId,
-    customerLinkId: link.id,
-    dateOfferId: offer.id,
-    selectedDate: offer.offerDate,
-    selectedSlotLabel: slot.label ?? null,
-    selectedSlotStart: slot.startTime ?? null,
-    selectedSlotEnd: slot.endTime ?? null,
-    ipAddress: ctx.ipAddress.slice(0, 200),
-    userAgent: ctx.userAgent.slice(0, 1000),
+    // Upsert by deal — one customer pick per deal.
+    await tx
+      .delete(customerDateSelections)
+      .where(eq(customerDateSelections.dealRecordId, link.dealRecordId));
+    await tx.insert(customerDateSelections).values({
+      workspaceId: link.workspaceId,
+      dealRecordId: link.dealRecordId,
+      customerLinkId: link.id,
+      dateOfferId: offer.id,
+      selectedDate: offer.offerDate,
+      selectedSlotLabel: slot.label ?? null,
+      selectedSlotStart: slot.startTime ?? null,
+      selectedSlotEnd: slot.endTime ?? null,
+      ipAddress: ctx.ipAddress.slice(0, 200),
+      userAgent: ctx.userAgent.slice(0, 1000),
+    });
+
+    // Mirror into the deal's `move_date` attribute so calendars + the rest of
+    // the CRM read the agreed-upon date without special-casing the portal.
+    await mirrorMoveDateOntoDeal(link.workspaceId, link.dealRecordId, offer.offerDate, tx);
+    return { ok: true as const, offer, slot };
   });
-
-  // Mirror into the deal's `move_date` attribute so calendars + the rest of
-  // the CRM read the agreed-upon date without special-casing the portal.
-  await mirrorMoveDateOntoDeal(link.workspaceId, link.dealRecordId, offer.offerDate);
+  if (!ausgang.ok) return ausgang;
+  const { offer, slot } = ausgang;
 
   await emitEvent({
     workspaceId: link.workspaceId,
@@ -2595,12 +2756,13 @@ export async function selectDateOffer(
 async function mirrorMoveDateOntoDeal(
   workspaceId: string,
   dealRecordId: string,
-  ymd: string
+  ymd: string,
+  ex: DbExecutor = db
 ): Promise<void> {
   const dealAttrs = await loadDealAttributeMap(workspaceId);
   const moveDateAttr = dealAttrs.bySlug.get("move_date");
   if (!moveDateAttr) return;
-  await db
+  await ex
     .delete(recordValues)
     .where(
       and(
@@ -2608,7 +2770,7 @@ async function mirrorMoveDateOntoDeal(
         eq(recordValues.attributeId, moveDateAttr.id)
       )
     );
-  await db.insert(recordValues).values({
+  await ex.insert(recordValues).values({
     recordId: dealRecordId,
     attributeId: moveDateAttr.id,
     dateValue: ymd,
