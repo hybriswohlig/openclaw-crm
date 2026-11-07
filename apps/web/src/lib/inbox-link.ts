@@ -1,11 +1,12 @@
+import { istId, weiterLink } from "@/lib/handy-links";
+
 /**
- * Link auf einen Chat in der Inbox.
+ * Link auf einen Chat über die Weiche `/weiter`.
  *
- * Die Inbox liest beim Laden genau `?conv=<id>` (app/(dashboard)/inbox/page.tsx)
- * und öffnet diesen Chat, auch wenn er in einer anderen Lane oder einem anderen
- * Status liegt. Push-Benachrichtigungen bauen ihren Link hier, damit Sender und
- * Seite denselben Parameter benutzen. Ohne Konversation geht es auf die Inbox.
+ * Push-Benachrichtigungen bauen ihren Link hier. Die Weiche liest die Oberfläche
+ * und öffnet den Chat in der neuen oder der alten Inbox. Eine gültige Kennung
+ * wird `?conv=`; ohne Kennung oder mit einer ungültigen geht es auf `/weiter`.
  */
 export function inboxKonversationUrl(conversationId: string | null | undefined): string {
-  return conversationId ? `/inbox?conv=${encodeURIComponent(conversationId)}` : "/inbox";
+  return istId(conversationId) ? weiterLink({ art: "gespraech", id: conversationId }) : weiterLink({ art: "inbox" });
 }

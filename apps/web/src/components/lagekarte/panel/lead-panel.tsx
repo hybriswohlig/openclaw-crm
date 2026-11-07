@@ -25,6 +25,7 @@ import {
   X,
 } from "lucide-react";
 import { toast } from "sonner";
+import { weiterLink } from "@/lib/handy-links";
 import { plausiblerCent, type Firma, type KartenOrt, type LeadPunkt, type StufeOption } from "@/lib/lagekarte/typen";
 import { STATUS_STIL, WARTET_LABEL, WERT_ART_LABEL, euroAusCent } from "@/lib/lagekarte/farben";
 import { StatusForm } from "@/components/lagekarte/status-form";
@@ -570,7 +571,7 @@ export default function LeadPanel({
     }
   }
 
-  const inboxHref = chatId ? `/inbox?conv=${encodeURIComponent(chatId)}` : null;
+  const inboxHref = chatId ? weiterLink({ art: "gespraech", id: chatId }) : null;
   const telefonNummer = lead.telefon ? telefonFuerLink(lead.telefon) : null;
   const kvUrl = lead.kv.dokumentId
     ? `/api/v1/deals/${encodeURIComponent(lead.id)}/documents/${encodeURIComponent(lead.kv.dokumentId)}`
@@ -820,7 +821,7 @@ export default function LeadPanel({
                     KV ansehen
                   </button>
                 )}
-                <Link href={`/objects/deals/${encodeURIComponent(lead.id)}`} className={AKTION}>
+                <Link href={weiterLink({ art: "deal", id: lead.id })} className={AKTION}>
                   <ExternalLink className="h-4 w-4" aria-hidden="true" />
                   Lead öffnen
                 </Link>

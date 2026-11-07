@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { berlinDateString } from "@/lib/berlin-date";
+import { akteLinkAusHref } from "@/lib/handy-links";
 import { calendarFeeds } from "@/services/calendar/feed-token-store";
 import { normalizeFeedTokenParam } from "@/services/calendar/feed-tokens";
 import { ICS_CACHE_CONTROL, absoluteUrl, buildCalendarIcs, icsEtag } from "@/services/calendar/ics";
@@ -55,7 +56,7 @@ export async function GET(
   const origin = requestOrigin(req);
   const body = buildCalendarIcs(bundle.events, {
     calendarName,
-    dealUrl: (href) => absoluteUrl(origin, href),
+    dealUrl: (href) => absoluteUrl(origin, akteLinkAusHref(href)),
   });
   const etag = icsEtag(body);
   if (req.headers.get("if-none-match") === etag) {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AblaufFakten } from "./ablauf";
+import { mitAlt } from "./handy-links";
 import {
   artAus,
   dockAus,
@@ -446,7 +447,7 @@ describe("Kopf-Helfer", () => {
 });
 
 describe("kalkulationLinks", () => {
-  const alt = "/objects/deals/d1";
+  const alt = mitAlt("/objects/deals/d1");
   it("normal: beide Verweise gehen auf die neue Kalkulationsseite", () => {
     expect(kalkulationLinks("d1", alt, { hatPaketoptionen: false, istStunden: false })).toEqual({
       kalkulationLink: "/app/leads/d1/kalkulation",
@@ -456,11 +457,11 @@ describe("kalkulationLinks", () => {
   it("Paketoptionen: KV bleibt auf dem alten Angebots-Tab", () => {
     expect(kalkulationLinks("d1", alt, { hatPaketoptionen: true, istStunden: false })).toEqual({
       kalkulationLink: "/app/leads/d1/kalkulation",
-      kvLink: "/objects/deals/d1?tab=quotation",
+      kvLink: "/objects/deals/d1?alt=1&tab=quotation",
     });
   });
   it("Stunden-KV: KV bleibt auf dem alten Angebots-Tab", () => {
-    expect(kalkulationLinks("d1", alt, { hatPaketoptionen: false, istStunden: true }).kvLink).toBe("/objects/deals/d1?tab=quotation");
+    expect(kalkulationLinks("d1", alt, { hatPaketoptionen: false, istStunden: true }).kvLink).toBe("/objects/deals/d1?alt=1&tab=quotation");
   });
   it("Plan 5b, Firma mit „Angebot aus Kalkulation“: Pakete und Stunden-KV gehen auf die Kalkulationsseite", () => {
     for (const kv of [
@@ -468,7 +469,7 @@ describe("kalkulationLinks", () => {
       { hatPaketoptionen: false, istStunden: true },
     ]) {
       expect(kalkulationLinks("d1", alt, { ...kv, angebotAusKalkulation: true }).kvLink).toBe("/app/leads/d1/kalkulation");
-      expect(kalkulationLinks("d1", alt, { ...kv, angebotAusKalkulation: false }).kvLink).toBe("/objects/deals/d1?tab=quotation");
+      expect(kalkulationLinks("d1", alt, { ...kv, angebotAusKalkulation: false }).kvLink).toBe("/objects/deals/d1?alt=1&tab=quotation");
     }
   });
 });

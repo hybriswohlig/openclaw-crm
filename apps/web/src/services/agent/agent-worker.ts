@@ -41,6 +41,7 @@ import { activityEvents } from "@/db/schema";
 import { z } from "zod";
 import { runAITask } from "@/services/ai/run-task";
 import { AI_TASK_SLUGS } from "@/services/ai/task-registry";
+import { weiterLink } from "@/lib/handy-links";
 import { sendPush } from "@/services/push";
 import { WhatsAppSessionExpiredError } from "@/services/inbox-whatsapp";
 import { emitEvent } from "@/services/activity-events";
@@ -842,7 +843,7 @@ async function processConversation(
             {
               title: "Lead prüfen: Termin vorbei",
               body: "Der hinterlegte Wunschtermin liegt in der Vergangenheit. Bitte kurz prüfen.",
-              url: `/objects/deals/${conv.dealRecordId}`,
+              url: weiterLink({ art: "deal", id: conv.dealRecordId }),
               tag: `agent-pastdate-${conv.id}`,
             },
             { workspaceId: conv.workspaceId, userIds: owners }
@@ -1138,7 +1139,7 @@ async function processConversation(
             {
               title: "WhatsApp-Antwort nicht möglich",
               body: "Das 24-Stunden-Fenster ist zu. Bitte manuell oder per Vorlage antworten.",
-              url: conv.dealRecordId ? `/objects/deals/${conv.dealRecordId}` : "/inbox",
+              url: conv.dealRecordId ? weiterLink({ art: "deal", id: conv.dealRecordId }) : weiterLink({ art: "inbox" }),
               tag: `agent-waba-expired-${conv.id}`,
             },
             { workspaceId: conv.workspaceId, userIds: owners }
@@ -1179,7 +1180,7 @@ async function processConversation(
         {
           title: "KI-Assistent: bitte übernehmen",
           body: turn.owner_note?.slice(0, 160) || "Ein Lead ist bereit für Ihr Angebot.",
-          url: conv.dealRecordId ? `/objects/deals/${conv.dealRecordId}` : "/inbox",
+          url: conv.dealRecordId ? weiterLink({ art: "deal", id: conv.dealRecordId }) : weiterLink({ art: "inbox" }),
           tag: `agent-handoff-${conv.id}`,
         },
         { workspaceId: conv.workspaceId, userIds: owners }

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { UI_COOKIE, altUmleitung } from "@/lib/handy-links";
 
 // Public paths that never require a session cookie. Cron and webhook endpoints
 // must be here — they are hit by Vercel's cron scheduler and third-party
@@ -186,8 +187,15 @@ export function middleware(req: NextRequest) {
 
   if (!sessionCookie) {
     const loginUrl = new URL("/login", req.url);
-    loginUrl.searchParams.set("redirect", pathname);
+    loginUrl.searchParams.set("redirect", pathname + req.nextUrl.search);
     return NextResponse.redirect(loginUrl);
+  }
+
+  // Zwei alte Handy-Ziele zur Weiche, nur bei Spiegel-Cookie neu. /api/ passt
+  // auf keines der Muster; die Regel sieht diese Pfade gar nicht.
+  if (!pathname.startsWith("/api/") && process.env.ALT_UMLEITUNG !== "aus") {
+    const ziel = altUmleitung(pathname, req.nextUrl.searchParams, req.cookies.get(UI_COOKIE)?.value);
+    if (ziel) return NextResponse.redirect(new URL(ziel, req.url), 307);
   }
 
   return NextResponse.next();

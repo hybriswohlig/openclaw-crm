@@ -234,10 +234,10 @@ describe("Karte", () => {
   });
 
   it("kvLink: bei Paketoptionen oder Stunden-KV der alte Angebots-Tab", () => {
-    expect(eintrag({ id: "d9", angebot: angebot({ istStunden: true }) }).karte.kvLink).toBe("/objects/deals/d9?tab=quotation");
+    expect(eintrag({ id: "d9", angebot: angebot({ istStunden: true }) }).karte.kvLink).toBe("/objects/deals/d9?alt=1&tab=quotation");
     expect(
       eintrag({ id: "d9", optionen: [{ id: "o1", priceCents: 1000, isRecommended: true, sortOrder: 0 }] }).karte.kvLink,
-    ).toBe("/objects/deals/d9?tab=quotation");
+    ).toBe("/objects/deals/d9?alt=1&tab=quotation");
   });
 });
 

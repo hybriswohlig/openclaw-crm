@@ -20,6 +20,7 @@ import { runAITask } from "@/services/ai/run-task";
 import { AI_TASK_SLUGS } from "@/services/ai/task-registry";
 import { emitEvent } from "@/services/activity-events";
 import { excludeInternalPhotoMessages } from "@/services/deal-photos";
+import { weiterLink } from "@/lib/handy-links";
 import { sendPush } from "@/services/push";
 import { getObjectBySlug } from "@/services/objects";
 import { getRecord } from "@/services/records";
@@ -380,7 +381,7 @@ async function runForWorkspace(
             {
               title: "Nachfass blockiert (Preis/Zusage)",
               body: "Ein KI-Nachfassentwurf enthielt einen Preis. Bitte selbst nachfassen.",
-              url: conv.dealRecordId ? `/objects/deals/${conv.dealRecordId}` : "/inbox",
+              url: conv.dealRecordId ? weiterLink({ art: "deal", id: conv.dealRecordId }) : weiterLink({ art: "inbox" }),
               tag: `agent-followup-blocked-${conv.id}`,
             },
             { workspaceId, userIds: owners }

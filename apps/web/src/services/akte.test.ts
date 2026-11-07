@@ -213,7 +213,7 @@ describe("ladeAkte", () => {
     });
     expect(akte.zahlung).toEqual({ restCent: 248000, meldungen: [] });
     expect(akte.firma).toEqual({ id: "oc_kottke", name: "Kottke" });
-    expect(akte.altLink).toBe("/objects/deals/deal_1");
+    expect(akte.altLink).toBe("/objects/deals/deal_1?alt=1");
     expect(akte.kalkulationLink).toBe("/app/leads/deal_1/kalkulation");
     expect(akte.kvLink).toBe("/app/leads/deal_1/kalkulation");
   });
@@ -222,7 +222,7 @@ describe("ladeAkte", () => {
     dbAntwortet({ paket: true });
     const akte = await ladeAkte(WS, DEAL, JETZT);
     expect(akte.kalkulationLink).toBe("/app/leads/deal_1/kalkulation");
-    expect(akte.kvLink).toBe("/objects/deals/deal_1?tab=quotation");
+    expect(akte.kvLink).toBe("/objects/deals/deal_1?alt=1&tab=quotation");
     const { text, params } = abfrage("FROM quotation_package_options");
     expect(text).toContain("p.workspace_id = $");
     expect(params).toEqual(expect.arrayContaining([WS, DEAL]));
@@ -232,7 +232,7 @@ describe("ladeAkte", () => {
     mocks.ladeAblaufGrundlage.mockResolvedValue(grundlage({ fakten: { kv: { ...fakten().kv!, istStunden: true, betragCent: null } } }));
     const akte = await ladeAkte(WS, DEAL, JETZT);
     expect(akte.kalkulationLink).toBe("/app/leads/deal_1/kalkulation");
-    expect(akte.kvLink).toBe("/objects/deals/deal_1?tab=quotation");
+    expect(akte.kvLink).toBe("/objects/deals/deal_1?alt=1&tab=quotation");
   });
 
   it("jede Abfrage filtert auf Workspace (und Deal, wo es einen gibt); nur lesen; Dienste mit Workspace und Deal", async () => {

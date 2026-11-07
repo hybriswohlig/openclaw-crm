@@ -24,6 +24,7 @@
  * Die Route prüft vorher `dealImWorkspace`; jede Abfrage hier filtert
  * trotzdem auf Workspace (und Deal).
  */
+import { mitAlt } from "@/lib/handy-links";
 import { plan5Schalter } from "./plan5-schalter";
 import { sql } from "drizzle-orm";
 import { db } from "@/db";
@@ -217,7 +218,7 @@ export async function ladeAkteMitFakten(
     ? gespraeche.some((g) => g.id === entwurf.conversation_id && g.direkt && g.kannSenden)
     : gespraeche.some((g) => g.direkt && g.kannSenden);
 
-  const altLink = `/objects/deals/${deal}`;
+  const altLink = mitAlt(`/objects/deals/${deal}`);
   const meldungen = grundlage.meldungen;
   const zimmer = alsZahl(k.zimmer);
   const name = k.name?.trim();

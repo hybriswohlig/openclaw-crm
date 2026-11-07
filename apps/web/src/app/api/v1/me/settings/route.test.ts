@@ -27,6 +27,11 @@ const NUTZER = {
   authMethod: "cookie" as const,
 };
 
+function cookie(res: Response): string | null {
+  const zeile = res.headers.getSetCookie().find((z) => z.startsWith("crm_ui="));
+  return zeile ? zeile.slice("crm_ui=".length).split(";", 1)[0] : null;
+}
+
 function callPatch(body: unknown, raw = false) {
   return PATCH(
     new NextRequest("https://crm.test/api/v1/me/settings", {
@@ -80,6 +85,7 @@ describe("PATCH /api/v1/me/settings", () => {
     expect(res.status).toBe(400);
     expect(body.error.message).toBe("uiVersion muss 'alt' oder 'neu' sein");
     expect(mocks.setUiVersion).not.toHaveBeenCalled();
+    expect(cookie(res)).toBeNull();
   });
 
   it("lehnt ungültiges JSON ab und schreibt nichts", async () => {
@@ -95,6 +101,15 @@ describe("PATCH /api/v1/me/settings", () => {
 
     expect(res.status).toBe(200);
     expect(body.data).toEqual({ uiVersion: "neu" });
+    expect(cookie(res)).toBe("neu");
     expect(mocks.setUiVersion).toHaveBeenCalledWith("usr_jonas", "neu");
+  });
+
+  it("setzt das Spiegel-Cookie auch auf alt", async () => {
+    const res = await callPatch({ uiVersion: "alt" });
+
+    expect(res.status).toBe(200);
+    expect(cookie(res)).toBe("alt");
+    expect(mocks.setUiVersion).toHaveBeenCalledWith("usr_jonas", "alt");
   });
 });

@@ -31,6 +31,11 @@ function pfad(res: Response): string {
   return new URL(loc).pathname;
 }
 
+function cookie(res: Response): string | null {
+  const zeile = res.headers.getSetCookie().find((z) => z.startsWith("crm_ui="));
+  return zeile ? zeile.slice("crm_ui=".length).split(";", 1)[0] : null;
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
 });
@@ -42,6 +47,7 @@ describe("GET /start", () => {
     const res = await GET(new NextRequest("https://crm.test/start"));
 
     expect(pfad(res)).toBe("/login");
+    expect(cookie(res)).toBeNull();
     expect(mocks.getUserSettings).not.toHaveBeenCalled();
   });
 
@@ -52,6 +58,7 @@ describe("GET /start", () => {
     const res = await GET(new NextRequest("https://crm.test/start"));
 
     expect(pfad(res)).toBe("/home");
+    expect(cookie(res)).toBe("alt");
     expect(mocks.getUserSettings).toHaveBeenCalledWith("usr_jonas");
   });
 
@@ -62,6 +69,7 @@ describe("GET /start", () => {
     const res = await GET(new NextRequest("https://crm.test/start"));
 
     expect(pfad(res)).toBe("/app/heute");
+    expect(cookie(res)).toBe("neu");
   });
 
   it("leitet bei einem Fehler beim Lesen auf /home", async () => {
@@ -71,5 +79,6 @@ describe("GET /start", () => {
     const res = await GET(new NextRequest("https://crm.test/start"));
 
     expect(pfad(res)).toBe("/home");
+    expect(cookie(res)).toBeNull();
   });
 });

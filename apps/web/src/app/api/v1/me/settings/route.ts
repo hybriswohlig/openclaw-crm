@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { badRequest, getAuthContext, success, unauthorized } from "@/lib/api-utils";
+import { uiCookieSetzen } from "@/lib/ui-cookie";
 import { normalizeUiVersion } from "@/lib/ui-version";
 import { getUserSettings, setUiVersion } from "@/services/user-settings";
 
@@ -32,5 +33,5 @@ export async function PATCH(req: NextRequest) {
   if (!uiVersion) return badRequest(UI_VERSION_FEHLER);
 
   await setUiVersion(ctx.userId, uiVersion);
-  return success({ uiVersion });
+  return uiCookieSetzen(success({ uiVersion }), uiVersion);
 }

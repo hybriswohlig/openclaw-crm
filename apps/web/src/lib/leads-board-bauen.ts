@@ -16,6 +16,7 @@
  *   Zahlungsmeldungen über `offeneMeldungen`, Leistung über `portalLeistung`.
  */
 import { portalLeistung } from "@openclaw-crm/customer-portal-core";
+import { mitAlt } from "@/lib/handy-links";
 import type { AblaufFakten } from "@/lib/ablauf";
 import { artAus, kalkulationLinks, kuerzelAus, ortAus } from "@/lib/akte";
 import { datumKurz, euroText, tagKurz, uhrzeitKurz } from "@/lib/anzeige";
@@ -385,7 +386,7 @@ export function eintragAus(
   const wartet = wartetPille(roh.wartet, kategorie, jetzt, laeuftGrund(roh, kategorie, jetzt));
   const kvGesendetAm = kvGesendetAus(roh);
   const aktivitaet = roh.letzteNachrichtAm ?? roh.erstelltAm;
-  const altLink = `/objects/deals/${roh.id}`;
+  const altLink = mitAlt(`/objects/deals/${roh.id}`);
   const firma = roh.firmaId ? k.firmen.get(roh.firmaId) ?? null : null;
   const quelle = roh.quelleId ? k.quellen.get(roh.quelleId) ?? null : null;
 

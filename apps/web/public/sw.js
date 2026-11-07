@@ -33,7 +33,7 @@ self.addEventListener("push", (event) => {
   let payload = {
     title: "Kottke",
     body: "Neue Nachricht.",
-    url: "/inbox",
+    url: "/weiter",
     tag: "kottke-inbox",
   };
 
@@ -55,7 +55,7 @@ self.addEventListener("push", (event) => {
     icon: "/icon-192.png",
     badge: "/icon-192.png",
     tag: payload.tag || "kottke-inbox",
-    data: { url: payload.url || "/inbox" },
+    data: { url: payload.url || "/weiter" },
     requireInteraction: false,
     silent: false,
     vibrate: [80, 40, 80],
@@ -66,7 +66,7 @@ self.addEventListener("push", (event) => {
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const targetUrl = event.notification.data?.url || "/inbox";
+  const targetUrl = event.notification.data?.url || "/weiter";
 
   event.waitUntil(
     (async () => {

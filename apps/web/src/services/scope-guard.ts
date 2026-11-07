@@ -26,6 +26,7 @@ import { getQuotation } from "./quotations";
 import { emitEvent } from "./activity-events";
 import { createNotification } from "./notifications";
 import { listMembers } from "./workspace";
+import { weiterLink } from "@/lib/handy-links";
 import { sendPush } from "./push";
 import { createTask } from "./tasks";
 import { aktivBedingung } from "./kva-annahme";
@@ -286,7 +287,7 @@ export async function dispatchScopeWarning(params: {
 }): Promise<void> {
   const { workspaceId, dealRecordId, dealName, tier, change, snapshotId, quotedTotalCents: qtc, actorId } = params;
   const whatChanged = change.changedLabels.join(", ") || "Umfang";
-  const url = `/objects/deals/${dealRecordId}`;
+  const url = weiterLink({ art: "deal", id: dealRecordId });
   const title = "Umfang nach Angebot geändert";
   const body = `${dealName}: ${whatChanged} hat sich nach dem Angebot geändert. Bitte Preis prüfen.`;
 

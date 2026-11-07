@@ -19,6 +19,7 @@ import Link from "next/link";
 import { format, isSameDay, parseISO } from "date-fns";
 import { de } from "date-fns/locale";
 import { Image as BildIcon, MessageSquare, Paperclip, RefreshCw, Sparkles } from "lucide-react";
+import { weiterLink } from "@/lib/handy-links";
 import type { ChatKanal, ChatKurz, ChatVorschauAntwort, LeadPunkt } from "@/lib/lagekarte/typen";
 import { ladeBeispielDaten, useVorschau, VORSCHAU_TITEL } from "../vorschau";
 
@@ -168,7 +169,7 @@ export default function ChatVorschau({ lead, chatId, onChatWechsel, jetzt, onGel
     );
   }
 
-  const inboxHref = `/inbox?conv=${encodeURIComponent(chatId)}`;
+  const inboxHref = weiterLink({ art: "gespraech", id: chatId });
   const aktiverChat = lead.chats.find((c) => c.id === chatId) ?? lead.chats[0];
 
   return (

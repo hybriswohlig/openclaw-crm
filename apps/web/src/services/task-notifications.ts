@@ -1,6 +1,7 @@
 import { db } from "@/db";
 import { users, taskAssignees, taskRecords } from "@/db/schema";
 import { eq } from "drizzle-orm";
+import { weiterLink } from "@/lib/handy-links";
 import { sendPush } from "./push";
 import { batchGetRecordDisplayNames } from "./display-names";
 import { taskLinkUrl } from "@/lib/task-link";
@@ -69,7 +70,7 @@ async function buildRecordContext(taskId: string): Promise<{
     if (info?.objectSlug === "deals") {
       return {
         label: `Lead: ${info.displayName}`,
-        url: `/objects/deals/${l.recordId}`,
+        url: weiterLink({ art: "deal", id: l.recordId }),
       };
     }
   }

@@ -99,7 +99,7 @@ describe("IMAP-Antwort auf eine vom CRM gestartete Mail", () => {
     await syncChannelAccount("mailbox");
     await Promise.all(mock.pending);
     expect(mock.push).toHaveBeenCalledWith(
-      expect.objectContaining({ title: "Anna Müller", url: "/inbox?conv=conv-crm" }),
+      expect.objectContaining({ title: "Anna Müller", url: "/weiter?conv=conv-crm" }),
       { workspaceId: "workspace" }
     );
     expect(mock.set).toHaveBeenCalledWith(expect.objectContaining({ unreadCount: 1 }));

@@ -38,6 +38,7 @@ import { z } from "zod";
 import { runAITask } from "@/services/ai/run-task";
 import { AI_TASK_SLUGS } from "@/services/ai/task-registry";
 import { emitEvent } from "@/services/activity-events";
+import { weiterLink } from "@/lib/handy-links";
 import { sendPush } from "@/services/push";
 import { getObjectBySlug } from "@/services/objects";
 import { canonicalizePhone, classifyPhoneLineType } from "@/lib/identity/canonical";
@@ -817,7 +818,7 @@ async function runEnabledWorkspace(
                 {
                   title: "Festnetz-Lead: bitte anrufen",
                   body: `${hint}. WhatsApp nicht möglich, Aufgabe erstellt.`,
-                  url: `/objects/deals/${lead.recordId}`,
+                  url: weiterLink({ art: "deal", id: lead.recordId }),
                   tag: `agent-firstcontact-${lead.recordId}`,
                 },
                 { workspaceId, userIds: owners }
@@ -1187,7 +1188,7 @@ async function notifyOwners(
         body: failed
           ? `${customerName}: bitte manuell kontaktieren.`
           : `Neuer ImmoScout-Lead ${customerName} wurde per WhatsApp begrüßt.`,
-        url: `/objects/deals/${dealRecordId}`,
+        url: weiterLink({ art: "deal", id: dealRecordId }),
         tag: `agent-firstcontact-${dealRecordId}`,
       },
       { workspaceId, userIds: owners }
