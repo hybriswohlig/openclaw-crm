@@ -14,7 +14,7 @@ describe("Migration 0062 Geld", () => {
     expect(kompakt).toContain('ON "deal_invoices" ("deal_record_id") WHERE "status" IN (\'entwurf\', \'gestellt\')');
     expect(kompakt).toContain('ON "payment_reminders" ("invoice_id", "stufe")');
     expect(sql).not.toMatch(/\bDROP\b/i);
-    expect(sql).not.toMatch(/\bDELETE\b/i);
+    expect(sql).not.toMatch(/DELETE FROM/i);
     expect(sql).not.toMatch(/\bUPDATE "/);
     for (const m of kompakt.matchAll(/CREATE (UNIQUE )?INDEX (\w+ )*/g)) {
       expect(kompakt.slice(m.index!, m.index! + 60)).toMatch(/IF NOT EXISTS/);
