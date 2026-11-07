@@ -4,6 +4,7 @@ import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
 import { CrmClient, type McpAuthContext, resolveBaseUrl } from "./client";
 import { handleTool } from "./dispatch";
 import { OPERATIVE_AREAS } from "@/lib/project-constants";
+import { SERVICE_TYPES } from "@/lib/dunkel-abschaltung";
 
 type Extra = { authInfo?: AuthInfo };
 
@@ -522,7 +523,7 @@ export function registerCrmTools(server: McpServer, req?: Request): void {
   tool(
     server,
     "crm_update_deal_quotation",
-    "Deprecated: writes the quotation without a calculation version; the KV loses its link to the calculation. Prefer crm_override_calculation + crm_lock_calculation_version. Replace a deal's quotation (PUT semantics — omitted fields are cleared, so read crm_get_deal_quotation first and merge). Saving also mints the customer portal link and anchors the scope baseline. ALWAYS pass serviceType: 'move' (Umzug), 'kitchen_installation' (Küchenmontage), 'clearance' (Entrümpelung) or 'clearance_move' (Entrümpelung + Umzug). It drives the customer portal wording, the logo and the Widerruf rules. Omitted, a stored service stays; a new quotation is guessed from its text and otherwise becomes 'move'.",
+    "Deprecated: writes the quotation without a calculation version; the KV loses its link to the calculation. Prefer crm_override_calculation + crm_lock_calculation_version. Being switched off: every call is counted, and once writing is locked (QUOTATION_PUT_STUFE=sperren) this tool writes nothing and answers QUOTATION_PUT_GONE; use crm_update_quotation_details for validity, notes, summary, payment method and service type. Replace a deal's quotation (PUT semantics — omitted fields are cleared, so read crm_get_deal_quotation first and merge). Saving also mints the customer portal link and anchors the scope baseline. ALWAYS pass serviceType: 'move' (Umzug), 'kitchen_installation' (Küchenmontage), 'clearance' (Entrümpelung) or 'clearance_move' (Entrümpelung + Umzug). It drives the customer portal wording, the logo and the Widerruf rules. Omitted, a stored service stays; a new quotation is guessed from its text and otherwise becomes 'move'.",
     {
       recordId: z.string(),
       isVariable: z.boolean().optional(),
@@ -590,6 +591,24 @@ export function registerCrmTools(server: McpServer, req?: Request): void {
           remarks: z.string().optional(),
         })
         .optional(),
+    },
+    req
+  );
+  tool(
+    server,
+    "crm_update_quotation_details",
+    "Change only the non-price details of a deal's existing quotation: validUntil (YYYY-MM-DD or null), notes (internal), summary (customer-facing description), paymentMethodPreference, showStandardInclusions and serviceType ('move', 'kitchen_installation', 'clearance', 'clearance_move'). Price, line items and the link to the calculation version stay untouched; prices change only through crm_override_calculation + crm_lock_calculation_version. Needs a quotation (404 otherwise: lock a calculation version first). After customer acceptance only notes may change (409 KVA_ACCEPTED). Texts up to 4000 characters; unknown fields are refused.",
+    {
+      recordId: z.string(),
+      validUntil: z.string().nullable().optional(),
+      notes: z.string().nullable().optional(),
+      summary: z.string().nullable().optional(),
+      serviceType: z.enum(SERVICE_TYPES).optional(),
+      paymentMethodPreference: z
+        .enum(["bank_transfer", "paypal", "cash", "card"])
+        .nullable()
+        .optional(),
+      showStandardInclusions: z.boolean().optional(),
     },
     req
   );

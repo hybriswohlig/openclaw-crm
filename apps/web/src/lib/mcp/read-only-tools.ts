@@ -107,6 +107,7 @@ export const MCP_MUTATING_TOOL_NAMES = new Set<string>([
   "crm_override_calculation",
   "crm_lock_calculation_version",
   "crm_render_kv_from_version",
+  "crm_update_quotation_details",
   "crm_set_deal_anzahlung",
   "crm_generate_document",
   "crm_render_document",

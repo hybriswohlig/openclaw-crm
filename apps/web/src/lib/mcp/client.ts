@@ -32,7 +32,12 @@ export interface RequestOptions {
   method?: string;
   query?: Record<string, string | number | boolean | undefined | null>;
   body?: unknown;
+  /** Zusätzliche Header (z. B. `x-crm-mcp-tool`); Accept, Authorization, Cookie und Content-Type setzt der Client. */
+  headers?: Record<string, string>;
 }
+
+/** Header, die nur der Client selbst setzt (Anmeldung, Format). */
+const RESERVIERTE_HEADER = new Set(["accept", "authorization", "cookie", "content-type"]);
 
 export class CrmClient {
   constructor(private readonly auth: McpAuthContext) {}
@@ -56,9 +61,11 @@ export class CrmClient {
       }
     }
 
-    const headers: Record<string, string> = {
-      Accept: "application/json",
-    };
+    const headers: Record<string, string> = {};
+    for (const [k, v] of Object.entries(options.headers ?? {})) {
+      if (!RESERVIERTE_HEADER.has(k.toLowerCase())) headers[k] = v;
+    }
+    headers.Accept = "application/json";
 
     if (this.auth.bearerToken) {
       headers.Authorization = this.auth.bearerToken.startsWith("Bearer ")

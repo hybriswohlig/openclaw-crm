@@ -41,6 +41,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { angebotAusAntwort, postenFuerSpeichern } from "@/lib/angebot-posten";
 import { renderSnippet } from "@/components/inbox/customer-link-composer";
+import { CRM_UI_CLIENT_HEADER, CRM_UI_CLIENT_VALUE } from "@/lib/deal-source";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -683,7 +684,8 @@ export function StatusLinkWizard({
 
       const qRes = await fetch(`/api/v1/deals/${dealRecordId}/quotation`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        // Plan 14: Oberfläche als Quelle, schreibt auch nach der Sperre für Bots.
+        headers: { "Content-Type": "application/json", [CRM_UI_CLIENT_HEADER]: CRM_UI_CLIENT_VALUE },
         body: JSON.stringify({
           isVariable,
           fixedPrice: festpreis,

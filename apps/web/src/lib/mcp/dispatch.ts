@@ -24,6 +24,12 @@ import {
   isKottkeFirma,
 } from "@/lib/kottke-crm-renderer";
 import { dealBlocksInRepoCrmRenderer } from "@/lib/kottke-crm-renderer-deal";
+import {
+  MCP_WERKZEUG_HEADER,
+  QUOTATION_GESPERRT,
+  QUOTATION_STUFE_ENV,
+  quotationStufe,
+} from "@/lib/dunkel-abschaltung";
 
 type Args = Record<string, unknown>;
 
@@ -138,6 +144,14 @@ async function refuseKottkeInRepoRenderer(
   }
 }
 
+/** Fertige Fehlerantwort eines Werkzeugs: wird so ausgegeben, wie sie ist, mit isError. */
+class ToolAntwortFehler extends Error {
+  constructor(readonly antwort: Record<string, unknown>) {
+    super(String(antwort.message ?? antwort.error ?? "Tool error"));
+    this.name = "ToolAntwortFehler";
+  }
+}
+
 export type ToolContent =
   | { type: "text"; text: string }
   | { type: "image"; data: string; mimeType: string };
@@ -160,6 +174,9 @@ export async function handleTool(
     }
     return { content: [{ type: "text", text: formatToolResult(data) }] };
   } catch (err) {
+    if (err instanceof ToolAntwortFehler) {
+      return { content: [{ type: "text", text: formatToolResult(err.antwort) }], isError: true };
+    }
     return {
       content: [{ type: "text", text: formatToolError(err) }],
       isError: true,
@@ -655,6 +672,14 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
       );
     }
     case "crm_update_deal_quotation": {
+      // Plan 14, Stufe „sperren“: die Route nicht mehr rufen, sofort mit Verweis antworten.
+      if (quotationStufe(process.env[QUOTATION_STUFE_ENV]) === "sperren") {
+        throw new ToolAntwortFehler({
+          error: QUOTATION_GESPERRT.code,
+          message: QUOTATION_GESPERRT.message,
+          ersatz: QUOTATION_GESPERRT.ersatz,
+        });
+      }
       // PUT replaces the quotation: omitted fields are reset, not preserved.
       // Read crm_get_deal_quotation first and merge, or fields silently drop.
       const body: Record<string, unknown> = {
@@ -678,7 +703,7 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
       }
       const data = await client.request(
         `/api/v1/deals/${encodeURIComponent(str(args.recordId))}/quotation`,
-        { method: "PUT", body }
+        { method: "PUT", body, headers: { [MCP_WERKZEUG_HEADER]: "crm_update_deal_quotation" } }
       );
       console.warn("[mcp] crm_update_deal_quotation", {
         recordId: str(args.recordId),
@@ -721,6 +746,23 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
       return client.request(
         `/api/v1/deals/${encodeURIComponent(str(args.recordId))}/calculation/versions/${encodeURIComponent(str(args.version))}/kv`,
         { method: "POST", body }
+      );
+    }
+    case "crm_update_quotation_details": {
+      const body: Record<string, unknown> = {};
+      for (const key of [
+        "validUntil",
+        "notes",
+        "summary",
+        "serviceType",
+        "paymentMethodPreference",
+        "showStandardInclusions",
+      ]) {
+        if (args[key] !== undefined) body[key] = args[key];
+      }
+      return client.request(
+        `/api/v1/deals/${encodeURIComponent(str(args.recordId))}/quotation/details`,
+        { method: "PATCH", body }
       );
     }
     case "crm_set_deal_anzahlung": {
@@ -1431,6 +1473,8 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
         method: str(args.method || "GET").toUpperCase(),
         query: asQuery(args.query),
         body: asBody(args.body),
+        // Plan 14: PUT /quotation erkennt crm_api als eigene Quelle.
+        headers: { [MCP_WERKZEUG_HEADER]: "crm_api" },
       });
     }
 

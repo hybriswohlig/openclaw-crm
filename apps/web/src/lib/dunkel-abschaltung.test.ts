@@ -16,6 +16,18 @@ import {
   minKontrast,
   themeAus,
   ueber,
+  DETAILS_TEXT_MAX,
+  NACH_ANNAHME_ERLAUBT,
+  QUOTATION_GESPERRT,
+  RUHE_TAGE,
+  SERVICE_TYPES,
+  ZAEHL_MIN_TAGE,
+  quotationDetailsPruefen,
+  quotationPutErlaubt,
+  quotationQuelle,
+  quotationStufe,
+  sperreBereit,
+  type QuotationQuelle,
 } from "./dunkel-abschaltung";
 
 // ─── 1. Darstellung ─────────────────────────────────────────────────────────
@@ -174,5 +186,158 @@ describe("4. harteFarben", () => {
 
   it("ignoriert Selektoren und Hex-ähnliche Namen ohne Deklaration", () => {
     expect(befunde("#kopf .a,\n.b {\n  width: 10px;\n}")).toEqual([]);
+  });
+});
+
+// ─── 6. PUT /quotation in Stufen ────────────────────────────────────────────
+
+describe("6. Quotation-Stufen", () => {
+  it("liest die Stufe; nur genau „sperren“ sperrt", () => {
+    expect(quotationStufe(undefined)).toBe("zaehlen");
+    expect(quotationStufe("")).toBe("zaehlen");
+    expect(quotationStufe("zaehlen")).toBe("zaehlen");
+    expect(quotationStufe("Sperren")).toBe("zaehlen");
+    expect(quotationStufe("sperren")).toBe("sperren");
+  });
+
+  it.each([
+    [{ authMethod: "cookie", uiHeader: "ui", mcpWerkzeug: null }, "ui"],
+    [{ authMethod: "cookie", uiHeader: null, mcpWerkzeug: null }, "sitzung"],
+    [{ authMethod: "cookie", uiHeader: "UI", mcpWerkzeug: null }, "sitzung"],
+    [{ authMethod: undefined, uiHeader: null, mcpWerkzeug: null }, "sitzung"],
+    [{ authMethod: "api_key", uiHeader: null, mcpWerkzeug: null }, "api_schluessel"],
+    [{ authMethod: "api_key", uiHeader: "ui", mcpWerkzeug: null }, "api_schluessel"],
+    [{ authMethod: "api_key", uiHeader: null, mcpWerkzeug: "crm_update_deal_quotation" }, "mcp_werkzeug"],
+    [{ authMethod: "cookie", uiHeader: "ui", mcpWerkzeug: "crm_update_deal_quotation" }, "mcp_werkzeug"],
+    [{ authMethod: "api_key", uiHeader: null, mcpWerkzeug: "crm_api" }, "mcp_crm_api"],
+    [{ authMethod: "cookie", uiHeader: "ui", mcpWerkzeug: "crm_api" }, "mcp_crm_api"],
+    [{ authMethod: "api_key", uiHeader: null, mcpWerkzeug: "crm_irgendwas" }, "api_schluessel"],
+  ] as const)("erkennt %j als %s", (e, quelle) => {
+    expect(quotationQuelle(e)).toBe(quelle);
+  });
+
+  it("lässt in Stufe sperren nur die Oberfläche schreiben", () => {
+    const alle: QuotationQuelle[] = ["ui", "mcp_werkzeug", "mcp_crm_api", "api_schluessel", "sitzung"];
+    for (const q of alle) {
+      expect(quotationPutErlaubt("zaehlen", q), q).toBe(true);
+      expect(quotationPutErlaubt("sperren", q), q).toBe(q === "ui");
+    }
+  });
+
+  it("nennt Code 410 und das Ersatz-Werkzeug", () => {
+    expect(QUOTATION_GESPERRT.status).toBe(410);
+    expect(QUOTATION_GESPERRT.code).toBe("QUOTATION_PUT_GONE");
+    expect(QUOTATION_GESPERRT.ersatz).toContain("crm_update_quotation_details");
+  });
+
+  describe("sperreBereit", () => {
+    const tag = 24 * 60 * 60 * 1000;
+    const jetzt = new Date("2026-12-20T12:00:00Z");
+    const vor = (tage: number, ms = 0) => new Date(jetzt.getTime() - tage * tag + ms);
+
+    it("braucht mindestens 30 Tage Zählung (29 nein, 30 ja)", () => {
+      expect(sperreBereit(vor(ZAEHL_MIN_TAGE - 1), [], jetzt)).toEqual({ bereit: false, gruende: ["erst 29 von 30 Tagen gezählt"] });
+      expect(sperreBereit(vor(ZAEHL_MIN_TAGE, 1), [], jetzt).bereit).toBe(false);
+      expect(sperreBereit(vor(ZAEHL_MIN_TAGE), [], jetzt)).toEqual({ bereit: true, gruende: [] });
+    });
+
+    it("verlangt 14 Tage ohne Aufruf außer aus der Oberfläche (13 nein, 14 ja)", () => {
+      const seit = vor(60);
+      expect(sperreBereit(seit, [{ quelle: "mcp_werkzeug", am: vor(RUHE_TAGE - 1) }], jetzt)).toEqual({
+        bereit: false,
+        gruende: ["1 Aufrufe außerhalb der Oberfläche in den letzten 14 Tagen"],
+      });
+      expect(sperreBereit(seit, [{ quelle: "api_schluessel", am: vor(RUHE_TAGE) }], jetzt).bereit).toBe(false);
+      expect(sperreBereit(seit, [{ quelle: "api_schluessel", am: vor(RUHE_TAGE, -1) }], jetzt).bereit).toBe(true);
+      expect(sperreBereit(seit, [{ quelle: "ui", am: vor(0) }, { quelle: "ui", am: vor(1) }], jetzt).bereit).toBe(true);
+    });
+
+    it("nennt beide Gründe zusammen", () => {
+      const r = sperreBereit(vor(3), [{ quelle: "sitzung", am: vor(1) }, { quelle: "mcp_crm_api", am: vor(2) }], jetzt);
+      expect(r.bereit).toBe(false);
+      expect(r.gruende).toEqual(["erst 3 von 30 Tagen gezählt", "2 Aufrufe außerhalb der Oberfläche in den letzten 14 Tagen"]);
+    });
+  });
+});
+
+// ─── 7. Ersatz-Werkzeug crm_update_quotation_details ────────────────────────
+
+describe("7. quotationDetailsPruefen", () => {
+  const ok = (roh: unknown) => {
+    const r = quotationDetailsPruefen(roh);
+    if (!r.ok) throw new Error(r.fehler);
+    return r.patch;
+  };
+  const fehler = (roh: unknown) => {
+    const r = quotationDetailsPruefen(roh);
+    if (r.ok) throw new Error(`erwartet Fehler, bekam ${JSON.stringify(r.patch)}`);
+    return r.fehler;
+  };
+
+  it("verlangt ein Objekt mit mindestens einem Feld", () => {
+    expect(fehler(null)).toBe("Body muss ein Objekt sein");
+    expect(fehler([])).toBe("Body muss ein Objekt sein");
+    expect(fehler("notes")).toBe("Body muss ein Objekt sein");
+    expect(fehler({})).toBe("Keine Felder angegeben");
+  });
+
+  it("lehnt unbekannte Felder ab, auch Preisfelder", () => {
+    expect(fehler({ notes: "a", fixedPrice: "100" })).toBe("Unbekannte Felder: fixedPrice");
+    expect(fehler({ discount: null, lineItems: [] })).toBe("Unbekannte Felder: discount, lineItems");
+    expect(fehler({ calculationVersionId: "v1" })).toBe("Unbekannte Felder: calculationVersionId");
+  });
+
+  it("prüft validUntil als Kalendertag oder null", () => {
+    expect(ok({ validUntil: "2026-12-31" })).toEqual({ validUntil: "2026-12-31" });
+    expect(ok({ validUntil: null })).toEqual({ validUntil: null });
+    for (const v of ["2026-13-01", "31.12.2026", "2026-12-31T00:00:00Z", "", 20261231, true]) {
+      expect(fehler({ validUntil: v }), String(v)).toBe("validUntil muss YYYY-MM-DD oder null sein");
+    }
+  });
+
+  it.each(["notes", "summary", "paymentMethodPreference"] as const)("prüft %s als Text bis zur Grenze, trimmt und leert zu null", (k) => {
+    expect(ok({ [k]: "  Hallo  " })).toEqual({ [k]: "Hallo" });
+    expect(ok({ [k]: "   " })).toEqual({ [k]: null });
+    expect(ok({ [k]: null })).toEqual({ [k]: null });
+    expect(ok({ [k]: "x".repeat(DETAILS_TEXT_MAX) })).toEqual({ [k]: "x".repeat(DETAILS_TEXT_MAX) });
+    expect(fehler({ [k]: "x".repeat(DETAILS_TEXT_MAX + 1) })).toBe(`${k} muss Text bis ${DETAILS_TEXT_MAX} Zeichen oder null sein`);
+    expect(fehler({ [k]: 5 })).toBe(`${k} muss Text bis ${DETAILS_TEXT_MAX} Zeichen oder null sein`);
+  });
+
+  it("prüft serviceType gegen die vier Leistungen", () => {
+    for (const t of SERVICE_TYPES) expect(ok({ serviceType: t })).toEqual({ serviceType: t });
+    for (const v of [null, "umzug", "Move", 1]) {
+      expect(fehler({ serviceType: v }), String(v)).toBe(`serviceType muss einer von ${SERVICE_TYPES.join(", ")} sein`);
+    }
+  });
+
+  it("prüft showStandardInclusions als Wahrheitswert", () => {
+    expect(ok({ showStandardInclusions: false })).toEqual({ showStandardInclusions: false });
+    expect(fehler({ showStandardInclusions: "false" })).toBe("showStandardInclusions muss true oder false sein");
+    expect(fehler({ showStandardInclusions: null })).toBe("showStandardInclusions muss true oder false sein");
+  });
+
+  it("nimmt alle sechs Felder zusammen an", () => {
+    expect(
+      ok({
+        validUntil: "2026-12-01",
+        notes: "intern",
+        summary: "3 Zimmer",
+        serviceType: "clearance_move",
+        paymentMethodPreference: "bank_transfer",
+        showStandardInclusions: true,
+      })
+    ).toEqual({
+      validUntil: "2026-12-01",
+      notes: "intern",
+      summary: "3 Zimmer",
+      serviceType: "clearance_move",
+      paymentMethodPreference: "bank_transfer",
+      showStandardInclusions: true,
+    });
+  });
+
+  it("erlaubt nach der Annahme nur notes", () => {
+    expect([...NACH_ANNAHME_ERLAUBT]).toEqual(["notes"]);
   });
 });

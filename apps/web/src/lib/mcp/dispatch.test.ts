@@ -1,4 +1,4 @@
-import { beforeEach, describe, it, expect, vi } from "vitest";
+import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
 
 const kottkeMocks = vi.hoisted(() => ({
   dealBlocksInRepoCrmRenderer: vi.fn(async () => false),
@@ -1663,5 +1663,86 @@ describe("calculation MCP tools", () => {
     expect(textBlock(res.content).id).toBe("q1");
     expect(warn).toHaveBeenCalledWith("[mcp] crm_update_deal_quotation", { recordId: "d1" });
     warn.mockRestore();
+  });
+});
+
+describe("PUT /quotation zählen und sperren (Plan 14)", () => {
+  const STUFE = "QUOTATION_PUT_STUFE";
+  let vorher: string | undefined;
+  beforeEach(() => {
+    vorher = process.env[STUFE];
+    delete process.env[STUFE];
+  });
+  afterEach(() => {
+    if (vorher === undefined) delete process.env[STUFE];
+    else process.env[STUFE] = vorher;
+  });
+
+  it("sendet x-crm-mcp-tool bei crm_update_deal_quotation", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { client, calls } = fakeClient({ id: "q1" });
+    const res = await handleTool(client, "crm_update_deal_quotation", { recordId: "d1", notes: "x" });
+    expect(res.isError).toBeUndefined();
+    expect(calls).toHaveLength(1);
+    expect(calls[0].path).toBe("/api/v1/deals/d1/quotation");
+    expect(calls[0].options.method).toBe("PUT");
+    expect(calls[0].options.headers).toEqual({ "x-crm-mcp-tool": "crm_update_deal_quotation" });
+    warn.mockRestore();
+  });
+
+  it("sendet x-crm-mcp-tool bei crm_api, auch für andere Pfade", async () => {
+    const { client, calls } = fakeClient();
+    await handleTool(client, "crm_api", { path: "/api/v1/deals/d1/quotation", method: "put", body: { isVariable: false } });
+    await handleTool(client, "crm_api", { path: "/api/v1/objects", method: "GET" });
+    expect(calls[0].options).toMatchObject({ method: "PUT", headers: { "x-crm-mcp-tool": "crm_api" } });
+    expect(calls[1].options.headers).toEqual({ "x-crm-mcp-tool": "crm_api" });
+  });
+
+  it("ruft in Stufe sperren die Route nicht und antwortet mit Verweis", async () => {
+    process.env[STUFE] = "sperren";
+    const { client, calls } = fakeClient();
+    const res = await handleTool(client, "crm_update_deal_quotation", { recordId: "d1", fixedPrice: "100" });
+    expect(calls).toHaveLength(0);
+    expect(res.isError).toBe(true);
+    const antwort = textBlock(res.content);
+    expect(antwort.error).toBe("QUOTATION_PUT_GONE");
+    expect(antwort.message).toContain("crm_update_quotation_details");
+    expect(antwort.ersatz).toContain("crm_update_quotation_details");
+    expect(antwort.ersatz).toContain("crm_override_calculation");
+  });
+
+  it("lässt crm_api in Stufe sperren durch; die Route entscheidet", async () => {
+    process.env[STUFE] = "sperren";
+    const { client, calls } = fakeClient();
+    await handleTool(client, "crm_api", { path: "/api/v1/deals/d1/quotation", method: "PUT", body: {} });
+    expect(calls).toHaveLength(1);
+  });
+
+  it("schreibt mit crm_update_quotation_details nur die genannten Detailfelder per PATCH", async () => {
+    const { client, calls } = fakeClient({ id: "q1" });
+    const res = await handleTool(client, "crm_update_quotation_details", {
+      recordId: "d/1",
+      validUntil: "2026-12-01",
+      notes: null,
+      serviceType: "clearance_move",
+      showStandardInclusions: false,
+    });
+    expect(res.isError).toBeUndefined();
+    expect(calls[0].path).toBe("/api/v1/deals/d%2F1/quotation/details");
+    expect(calls[0].options.method).toBe("PATCH");
+    expect(calls[0].options.body).toEqual({
+      validUntil: "2026-12-01",
+      notes: null,
+      serviceType: "clearance_move",
+      showStandardInclusions: false,
+    });
+  });
+
+  it("sperrt crm_update_quotation_details für Nur-Lese-Schlüssel", async () => {
+    const { client, calls } = fakeClient();
+    (client.context as { readOnly?: boolean }).readOnly = true;
+    const res = await handleTool(client, "crm_update_quotation_details", { recordId: "d1", notes: "x" });
+    expect(res.isError).toBe(true);
+    expect(calls).toHaveLength(0);
   });
 });

@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Plus, Trash2, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { postenFuerSpeichern } from "@/lib/angebot-posten";
+import { CRM_UI_CLIENT_HEADER, CRM_UI_CLIENT_VALUE } from "@/lib/deal-source";
 
 interface LineItem {
   type: "helper" | "transporter" | "other";
@@ -180,7 +181,8 @@ export function QuotationCalculator({ recordId, quotation, onSaved }: Props) {
       const posten = postenFuerSpeichern({ isVariable, fixedPrice: festpreis, lineItems, geladen: quotation });
       const res = await fetch(`/api/v1/deals/${recordId}/quotation`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        // Plan 14: Oberfläche als Quelle, schreibt auch nach der Sperre für Bots.
+        headers: { "Content-Type": "application/json", [CRM_UI_CLIENT_HEADER]: CRM_UI_CLIENT_VALUE },
         body: JSON.stringify({
           isVariable,
           fixedPrice: festpreis,

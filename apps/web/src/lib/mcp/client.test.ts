@@ -341,3 +341,33 @@ describe("CrmClient response body handling", () => {
     expect((err as CrmApiError).message).toBe("Attachment not found");
   });
 });
+
+describe("CrmClient extra headers (Plan 14)", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("sends extra headers but never lets them replace auth or format headers", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ data: { ok: true } }), { headers: { "content-type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CrmClient({
+      bearerToken: "oc_sk_echt",
+      userId: "u1",
+      workspaceId: "w1",
+      workspaceRole: "admin",
+      baseUrl: "https://crm.example.test",
+    });
+    await client.request("/api/v1/deals/d1/quotation", {
+      method: "PUT",
+      body: { a: 1 },
+      headers: { "x-crm-mcp-tool": "crm_api", authorization: "Bearer gefaelscht", Accept: "text/html", "Content-Type": "text/plain" },
+    });
+    const init = (fetchMock.mock.calls[0] as unknown as [URL, { headers: Record<string, string> }])[1];
+    expect(init.headers).toEqual({
+      "x-crm-mcp-tool": "crm_api",
+      Accept: "application/json",
+      Authorization: "Bearer oc_sk_echt",
+      "Content-Type": "application/json",
+    });
+  });
+});

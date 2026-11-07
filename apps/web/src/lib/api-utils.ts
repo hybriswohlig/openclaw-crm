@@ -32,6 +32,8 @@ export interface AuthContext {
    * Omitted or `"full"` keeps today's unrestricted key behaviour.
    */
   apiKeyAccess?: "full" | "read";
+  /** `api_keys.id` bei Anmeldung mit API-Schlüssel (Zählung PUT /quotation, Plan 14). */
+  apiKeyId?: string;
 }
 
 /**
@@ -239,6 +241,7 @@ async function getApiKeyAuthContext(
     permissions,
     authMethod: "api_key",
     apiKeyAccess: readOnly ? "read" : "full",
+    apiKeyId: key.id,
   };
 }
 

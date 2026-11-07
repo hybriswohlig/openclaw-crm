@@ -1,8 +1,9 @@
 import { NextRequest } from "next/server";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, notInArray } from "drizzle-orm";
 import { getAuthContext, success, unauthorized } from "@/lib/api-utils";
 import { db } from "@/db";
 import { activityEvents } from "@/db/schema/activity";
+import { ALT_AUFRUF_EVENT, QUOTATION_ZAEHL_EVENT } from "@/lib/dunkel-abschaltung";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +23,13 @@ export async function GET(req: NextRequest) {
   const rows = await db
     .select()
     .from(activityEvents)
-    .where(eq(activityEvents.workspaceId, ctx.workspaceId))
+    .where(
+      and(
+        eq(activityEvents.workspaceId, ctx.workspaceId),
+        // Plan 14: Zählungen (PUT /quotation, alte Seiten) sind keine Aktivität für die Startseite.
+        notInArray(activityEvents.eventType, [QUOTATION_ZAEHL_EVENT, ALT_AUFRUF_EVENT])
+      )
+    )
     .orderBy(desc(activityEvents.createdAt))
     .limit(limit);
 

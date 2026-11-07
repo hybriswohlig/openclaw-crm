@@ -87,6 +87,7 @@ export const CRM_TOOL_NAMES = [
   "crm_lock_calculation_version",
   "crm_render_kv_from_version",
   "crm_set_deal_anzahlung",
+  "crm_update_quotation_details",
   // ── Documents ─────────────────────────────────────────────────────
   "crm_get_deal_document",
   "crm_generate_document",
@@ -330,7 +331,9 @@ export const WEB_ONLY_TOOL_NAMES = [
 ] as const;
 
 /**
- * Calculation writes that stay on the app server on purpose.
+ * Calculation writes (and, since Plan 14, the quotation details tool that
+ * replaces the detail fields of crm_update_deal_quotation) that stay on the
+ * app server on purpose.
  *
  * This is not frozen historical drift. Do not add these names to
  * WEB_ONLY_TOOL_NAMES — that list's length and membership stay frozen.
@@ -340,6 +343,8 @@ export const WEB_ONLY_BY_DESIGN = [
   "crm_override_calculation",
   "crm_lock_calculation_version",
   "crm_render_kv_from_version",
+  // Plan 14: Ersatz für die Detailfelder von crm_update_deal_quotation.
+  "crm_update_quotation_details",
 ] as const;
 
 /**

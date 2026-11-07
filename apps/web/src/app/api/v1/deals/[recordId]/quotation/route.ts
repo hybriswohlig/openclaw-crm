@@ -1,6 +1,26 @@
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { annahmeSperrAntwort } from "@/services/kva-annahme";
-import { badRequest, getAuthContext, unauthorized, success } from "@/lib/api-utils";
+import {
+  apiKeyScopeForbidden,
+  badRequest,
+  getAuthContext,
+  isReadOnlyApiKey,
+  unauthorized,
+  success,
+} from "@/lib/api-utils";
+import { CRM_UI_CLIENT_HEADER } from "@/lib/deal-source";
+import { dealImWorkspace, dealNichtGefunden } from "@/lib/kalkulation-versionen-antwort";
+import {
+  MCP_WERKZEUG_HEADER,
+  QUOTATION_GESPERRT,
+  QUOTATION_STUFE_ENV,
+  QUOTATION_ZAEHL_EVENT,
+  quotationPutErlaubt,
+  quotationQuelle,
+  quotationStufe,
+  type QuotationZaehlung,
+} from "@/lib/dunkel-abschaltung";
+import { emitEvent } from "@/services/activity-events";
 import { getQuotation, QuotationInputError, upsertQuotation } from "@/services/quotations";
 import { ensureCustomerStatusLink } from "@/services/customer-portal-data";
 import { captureScopeSnapshot } from "@/services/scope-guard";
@@ -26,10 +46,53 @@ export async function PUT(
   if (!ctx) return unauthorized(req);
 
   const { recordId } = await params;
-  const body = await req.json();
+  if (!(await dealImWorkspace(ctx.workspaceId, recordId))) return dealNichtGefunden();
+  // getAuthContext weist Nur-Lese-Schlüssel bei PUT schon ab; hier ausdrücklich.
+  if (isReadOnlyApiKey(ctx)) return apiKeyScopeForbidden("This API key is read-only and cannot write the quotation.");
+
+  let body: unknown;
+  let jsonOk = true;
+  try {
+    body = await req.json();
+  } catch {
+    jsonOk = false;
+  }
+
+  // Plan 14: jeden Aufruf zählen (Quelle, Schlüssel, Feldnamen ohne Werte), dann
+  // je Stufe schreiben oder mit 410 ablehnen. Die Stufe ist eine Umgebungsvariable.
+  const stufe = quotationStufe(process.env[QUOTATION_STUFE_ENV]);
+  const quelle = quotationQuelle({
+    authMethod: ctx.authMethod,
+    uiHeader: req.headers.get(CRM_UI_CLIENT_HEADER),
+    mcpWerkzeug: req.headers.get(MCP_WERKZEUG_HEADER),
+  });
+  const erlaubt = quotationPutErlaubt(stufe, quelle);
+  const zaehlung: QuotationZaehlung = {
+    quelle,
+    stufe,
+    abgelehnt: !erlaubt,
+    dealRecordId: recordId,
+    apiKeyId: ctx.apiKeyId ?? null,
+    felder: body && typeof body === "object" && !Array.isArray(body) ? Object.keys(body).sort() : [],
+  };
+  await emitEvent({
+    workspaceId: ctx.workspaceId,
+    recordId: null,
+    objectSlug: null,
+    eventType: QUOTATION_ZAEHL_EVENT,
+    payload: { ...zaehlung },
+    actorId: ctx.userId,
+  });
+  console.warn("[quotation-put]", zaehlung);
+  if (!erlaubt) {
+    const { status, code, message, ersatz } = QUOTATION_GESPERRT;
+    return NextResponse.json({ error: { code, message, ersatz } }, { status });
+  }
+  if (!jsonOk) return badRequest("Invalid JSON body");
+
   let data: Awaited<ReturnType<typeof upsertQuotation>>;
   try {
-    data = await upsertQuotation(recordId, body);
+    data = await upsertQuotation(recordId, body as Parameters<typeof upsertQuotation>[1]);
   } catch (err) {
     const gesperrt = annahmeSperrAntwort(err);
     if (gesperrt) return gesperrt;

@@ -70,7 +70,11 @@ export type ActivityEventType =
   | "task.moved_to_project"
   | "task.status_changed"
   | "website.visit_linked"
-  | "website.visit_unlinked";
+  | "website.visit_unlinked"
+  // Plan 14: Zählung ohne Datensatz (record_id null), erscheint in keinem Deal-Protokoll.
+  // Nutzlast QuotationZaehlung bzw. AltAufruf aus lib/dunkel-abschaltung.ts.
+  | "quotation.put"
+  | "alte_seite.aufruf";
 
 export interface EmitEventInput {
   workspaceId: string;

@@ -397,6 +397,7 @@ describe("calculation tools", () => {
       "crm_override_calculation",
       "crm_lock_calculation_version",
       "crm_render_kv_from_version",
+      "crm_update_quotation_details",
     ]);
     const frozen = new Set<string>(WEB_ONLY_TOOL_NAMES);
     const overlap = WEB_ONLY_BY_DESIGN.filter((name) => frozen.has(name));
@@ -425,6 +426,27 @@ describe("calculation tools", () => {
     expect(casePaths(STDIO_HANDLERS).get("crm_get_calculation")).toBe(
       "/api/v1/deals/{}/calculation/versions"
     );
+  });
+
+  it("registers crm_update_quotation_details as an app-server write tool with its path (Plan 14)", () => {
+    expect(CRM_TOOL_NAMES).toContain("crm_update_quotation_details");
+    expect(MCP_MUTATING_TOOL_NAMES.has("crm_update_quotation_details")).toBe(true);
+    expect(MCP_READ_TOOL_NAMES.has("crm_update_quotation_details")).toBe(false);
+    expect(TOOLS_AT_GUARD_CREATION as readonly string[]).not.toContain("crm_update_quotation_details");
+    expect(WEB_ONLY_TOOL_NAMES as readonly string[]).not.toContain("crm_update_quotation_details");
+    expect(casePaths(DISPATCH).get("crm_update_quotation_details")).toBe("/api/v1/deals/{}/quotation/details");
+    expect(definitionNames(STDIO_DEFS)).not.toContain("crm_update_quotation_details");
+    const description = webRegistry().get("crm_update_quotation_details") ?? "";
+    expect(description).toContain("Price, line items and the link to the calculation version stay untouched");
+  });
+
+  it("keeps crm_update_deal_quotation registered and names the lock and its replacement", () => {
+    const description = webRegistry().get("crm_update_deal_quotation") ?? "";
+    expect(description).toContain("QUOTATION_PUT_GONE");
+    expect(description).toContain("crm_update_quotation_details");
+    expect(CRM_TOOL_NAMES).toContain("crm_update_deal_quotation");
+    expect(TOOLS_AT_GUARD_CREATION as readonly string[]).toContain("crm_update_deal_quotation");
+    expect(MCP_MUTATING_TOOL_NAMES.has("crm_update_deal_quotation")).toBe(true);
   });
 
   it("prefixes crm_update_deal_quotation with the deprecation notice", () => {
