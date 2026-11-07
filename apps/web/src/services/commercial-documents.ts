@@ -11,7 +11,9 @@ import {
   type DocumentCopy,
   type DocumentModel,
   type FirmaSlug,
+  type OfferChoices,
   type PackageOptionPrice,
+  type PriceLine,
   companyFromTitle,
   letterheadFromValues,
 } from "@openclaw-crm/document-templates";
@@ -20,7 +22,21 @@ import { attributes, objects } from "@/db/schema/objects";
 import { records, recordValues } from "@/db/schema/records";
 import { inboxConversations, inboxMessages } from "@/db/schema/inbox";
 import { payments } from "@/db/schema/financial";
-import { kvaConfirmations, quotationPackageOptions } from "@/db/schema/customer-portal";
+import {
+  customerDateSelections,
+  kvaConfirmations,
+  quotationPackageOptions,
+} from "@/db/schema/customer-portal";
+import { dealCalculationVersions } from "@/db/schema/deal-calculation-versions";
+import {
+  standardWahl,
+  wahlPreis,
+  type AngebotsWahl,
+  type PaketpreisVersion,
+  type Tagespreis,
+  type VersionsPreise,
+} from "@/lib/angebot-wahl";
+import type { KvPosten } from "@/services/rechner/kv-posten";
 import { formatLocation } from "@/lib/deal-doc-data";
 import { preisQuelleAusAnnahme } from "@/lib/ab-preise";
 import { assertDealInWorkspace } from "@/services/document-job-context";
@@ -279,6 +295,189 @@ async function loadCompanyAddress(
   return addressLine(company?.values.primary_location);
 }
 
+/** Deal-Paketoption, wie sie für die wählbaren Optionen gebraucht wird. */
+export interface WahlOption {
+  id: string;
+  catalogueSlug: string | null;
+  displayName: string;
+  isRecommended: boolean;
+  sortOrder: number;
+  calculationVersionId: string | null;
+}
+
+/** Was eine gesperrte Version für den KV beiträgt (nur Kundenpreise und Posten). */
+export type WahlVersion = Pick<VersionsPreise, "pricingMode" | "priceCents" | "kvItems" | "packagePrices" | "dayPrices"> & {
+  id: string;
+};
+
+function alsPreisZeilen(posten: readonly KvPosten[]): PriceLine[] {
+  return posten.map((p) => ({
+    type: "other",
+    description: p.description,
+    quantity: p.quantity,
+    unitRate: Number(p.unitRate).toFixed(2),
+  }));
+}
+
+/**
+ * Alle Wahlen eines KVs aus der gesperrten Version (Plan 5b, Entscheidung 11).
+ *
+ * Pakete sind die Deal-Optionen, die das Sperren aus genau dieser Version
+ * geschrieben hat (`calculation_version_id`, `catalogue_slug`); Optionen von
+ * Hand haben den Bezug gelöst und zählen nicht. Tage sind `day_prices`. Jeder
+ * Preis kommt aus `wahlPreis`, also derselben Regel wie Portal und Annahme.
+ * Die aktuelle Wahl ist die gebundene Option (sonst die empfohlene) am Tag der
+ * Kundenwahl (sonst am empfohlenen Tag); trägt die Quotation nicht genau ihren
+ * Preis, gibt es keinen Block (null), und das PDF bleibt wie heute.
+ * Selbstkosten, Marge und Gründe der Version gehen nie hinein.
+ */
+export function wahlenAusVersion(input: {
+  version: WahlVersion;
+  optionen: readonly WahlOption[];
+  gewaehlteOptionId: string | null;
+  gewaehltesDatum: string | null;
+  festpreisCent: number | null;
+}): { choices: OfferChoices; priceCents: number } | null {
+  const { version } = input;
+  if (version.pricingMode !== "fest" || input.festpreisCent === null) return null;
+  const preise: VersionsPreise = {
+    pricingMode: version.pricingMode,
+    priceCents: version.priceCents,
+    kvItems: version.kvItems ?? [],
+    packagePrices: version.packagePrices ?? [],
+    dayPrices: version.dayPrices ?? [],
+  };
+  const versionsSlugs = new Set(preise.packagePrices.map((p) => p.slug));
+  const pakete: WahlOption[] = [];
+  for (const o of [...input.optionen].sort((a, b) => a.sortOrder - b.sortOrder)) {
+    const slug = o.catalogueSlug;
+    if (!slug || o.calculationVersionId !== version.id || !versionsSlugs.has(slug)) continue;
+    if (pakete.some((p) => p.catalogueSlug === slug)) continue;
+    pakete.push(o);
+  }
+  const tage = [...new Set(preise.dayPrices.map((t) => t.datum))].sort();
+  if (pakete.length === 0 && tage.length === 0) return null;
+
+  const zellen: AngebotsWahl[] = [];
+  if (pakete.length > 0 && tage.length > 0) {
+    for (const datum of tage) for (const p of pakete) zellen.push({ paketSlug: p.catalogueSlug, datum });
+  } else if (pakete.length > 0) {
+    for (const p of pakete) zellen.push({ paketSlug: p.catalogueSlug, datum: null });
+  } else {
+    for (const datum of tage) zellen.push({ paketSlug: null, datum });
+  }
+
+  let paketSlug: string | null = null;
+  if (pakete.length > 0) {
+    const gebunden = pakete.find((p) => p.id === input.gewaehlteOptionId) ?? pakete.find((p) => p.isRecommended);
+    if (!gebunden) return null;
+    paketSlug = gebunden.catalogueSlug;
+  }
+  let datum: string | null = null;
+  if (tage.length > 0) {
+    datum =
+      input.gewaehltesDatum && tage.includes(input.gewaehltesDatum)
+        ? input.gewaehltesDatum
+        : standardWahl(preise, paketSlug).datum;
+  }
+  const aktuell = wahlPreis(preise, { paketSlug, datum });
+  if (!aktuell || aktuell.priceCents !== input.festpreisCent) return null;
+
+  return {
+    priceCents: aktuell.priceCents,
+    choices: {
+      packages: pakete.map((p) => ({ slug: p.catalogueSlug as string, name: p.displayName })),
+      days: tage,
+      prices: zellen.map((z) => ({
+        packageSlug: z.paketSlug,
+        date: z.datum,
+        priceCents: wahlPreis(preise, z)?.priceCents ?? null,
+      })),
+      current: { packageSlug: paketSlug, date: datum },
+      currentLines: aktuell.kvItems.length > 0 ? alsPreisZeilen(aktuell.kvItems) : null,
+    },
+  };
+}
+
+/** Liest Version, Deal-Optionen und Kundenwahl für `wahlenAusVersion`; ohne Version null. */
+async function ladeWahlen(
+  workspaceId: string,
+  dealRecordId: string,
+  quotation: {
+    calculationVersionId?: string | null;
+    isVariable: boolean;
+    fixedPrice: string | null;
+    selectedPackageOptionId?: string | null;
+  }
+): Promise<{ choices: OfferChoices; priceCents: number } | null> {
+  const versionId = quotation.calculationVersionId ?? null;
+  if (!versionId || quotation.isVariable) return null;
+  const festpreis = quotation.fixedPrice != null && quotation.fixedPrice !== "" ? Number(quotation.fixedPrice) : NaN;
+  if (!Number.isFinite(festpreis)) return null;
+  const [version] = await db
+    .select({
+      id: dealCalculationVersions.id,
+      pricingMode: dealCalculationVersions.pricingMode,
+      priceCents: dealCalculationVersions.priceCents,
+      kvItems: dealCalculationVersions.kvItems,
+      packagePrices: dealCalculationVersions.packagePrices,
+      dayPrices: dealCalculationVersions.dayPrices,
+    })
+    .from(dealCalculationVersions)
+    .where(
+      and(
+        eq(dealCalculationVersions.id, versionId),
+        eq(dealCalculationVersions.workspaceId, workspaceId),
+        eq(dealCalculationVersions.dealRecordId, dealRecordId),
+        eq(dealCalculationVersions.status, "gesperrt")
+      )
+    )
+    .limit(1);
+  if (!version) return null;
+  const [optionen, auswahl] = await Promise.all([
+    db
+      .select({
+        id: quotationPackageOptions.id,
+        catalogueSlug: quotationPackageOptions.catalogueSlug,
+        displayName: quotationPackageOptions.displayName,
+        isRecommended: quotationPackageOptions.isRecommended,
+        sortOrder: quotationPackageOptions.sortOrder,
+        calculationVersionId: quotationPackageOptions.calculationVersionId,
+      })
+      .from(quotationPackageOptions)
+      .where(
+        and(
+          eq(quotationPackageOptions.dealRecordId, dealRecordId),
+          eq(quotationPackageOptions.workspaceId, workspaceId)
+        )
+      ),
+    db
+      .select({ selectedDate: customerDateSelections.selectedDate })
+      .from(customerDateSelections)
+      .where(
+        and(
+          eq(customerDateSelections.dealRecordId, dealRecordId),
+          eq(customerDateSelections.workspaceId, workspaceId)
+        )
+      )
+      .limit(1),
+  ]);
+  return wahlenAusVersion({
+    version: {
+      id: version.id,
+      pricingMode: version.pricingMode,
+      priceCents: version.priceCents,
+      kvItems: (version.kvItems ?? []) as KvPosten[],
+      packagePrices: (version.packagePrices ?? []) as PaketpreisVersion[],
+      dayPrices: (version.dayPrices ?? []) as Tagespreis[],
+    },
+    optionen: optionen ?? [],
+    gewaehlteOptionId: quotation.selectedPackageOptionId ?? null,
+    gewaehltesDatum: isoDay(auswahl?.[0]?.selectedDate) ?? null,
+    festpreisCent: Math.round(festpreis * 100),
+  });
+}
+
 export async function loadCommercialModel(input: {
   workspaceId: string;
   dealRecordId: string;
@@ -377,6 +576,14 @@ async function ladeModellMitVersion(input: {
     }
   }
 
+  // Plan 5b: alle Wahlen der gesperrten Version. Nur wenn die Quotation genau
+  // eine davon trägt; der Preis der Wahl (Paket am Tag) gilt dann auch für die
+  // Option, deren Zeile nur den Paketpreis am Basistag kennt.
+  const wahlen = kind === "KV" ? await ladeWahlen(workspaceId, dealRecordId, quotation) : null;
+  if (wahlen && packageOption) {
+    packageOption = { ...packageOption, priceCents: wahlen.priceCents };
+  }
+
   const people = deal.values.associated_people;
   const personId =
     Array.isArray(people) && people[0] && typeof people[0] === "object" && "id" in people[0]
@@ -460,6 +667,7 @@ async function ladeModellMitVersion(input: {
       quotation: priceSourceFromStored(quotation),
       accepted: acceptedPriceFor(kind, accepted?.quotationSnapshot),
       packageOption,
+      choices: wahlen?.choices ?? null,
       paidCents,
       copy: input.copy,
     });
