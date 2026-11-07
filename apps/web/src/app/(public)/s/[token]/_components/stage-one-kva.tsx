@@ -2,7 +2,10 @@
 
 import { useMemo, useState } from "react";
 import {
+  annahmeKvSperre,
   kundenText,
+  kvVeraltetText,
+  kvVeraltetTitel,
   offerAcceptanceBlockReason,
   pickDefaultDealOption,
   type CustomerPortalContext,
@@ -11,9 +14,13 @@ import {
 import { portalOfferView } from "./portal-presentation";
 import { FestangebotView } from "./festangebot-view";
 
-/** "termin_offen": Umzug ohne festen Termin und ohne Terminangebot. */
-type AnnahmeBlock = OfferAcceptanceBlockReason | "termin_offen";
+/**
+ * "termin_offen": Umzug ohne festen Termin und ohne Terminangebot.
+ * "kv_veraltet": KV-PDF passt noch nicht zur aktuellen Version (annahmeKvSperre, wie der Server).
+ */
+type AnnahmeBlock = OfferAcceptanceBlockReason | "termin_offen" | "kv_veraltet";
 import { ConfirmKvaDialog } from "./confirm-kva-dialog";
+import { KvVeraltetHinweis } from "./kv-veraltet-hinweis";
 import { FileText, Info, ArrowRight, CheckCircle2 } from "lucide-react";
 import { PanelHeading, OrderDetails, ContactPanel } from "./portal-ui";
 import { QuotationPreview } from "./quotation-preview";
@@ -124,13 +131,14 @@ export function StageOneKva({
   const acceptedOptionName =
     (alreadyAccepted ? ctx.acceptance!.selectedOptionName : null) ?? defaultOption?.displayName ?? null;
   const terminOffen = !alreadyAccepted && ctx.annahmeRecht.terminFehlt && !hasOpenDateChoice;
+  // Erst Termin und Auswahl (der Kunde kann handeln), dann der KV-Stand.
   const acceptBlock: AnnahmeBlock | null = terminOffen ? "termin_offen" : offerAcceptanceBlockReason({
     dealOptions: ctx.dealPackageOffers.options,
     selectedOptionId: defaultOption?.id ?? ctx.dealPackageOffers.selectedOptionId,
     totalCents: displayTotalCents,
     isVariable: !!ctx.kva?.isVariable,
     hasOpenDateChoice,
-  });
+  }) ?? (alreadyAccepted ? null : annahmeKvSperre(ctx.annahmeRecht.kvStand));
 
   return (
     <>
@@ -176,6 +184,18 @@ export function StageOneKva({
             <div className="mx-auto max-w-2xl px-4 py-3">
               <OfferExpiredNotice ctx={ctx} />
             </div>
+          ) : acceptBlock === "kv_veraltet" ? (
+            <div className="mx-auto flex max-w-2xl items-center justify-between gap-3 px-4 py-3">
+              <div className="leading-tight">
+                <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                  {ctx.kva.isVariable ? "Voraussichtlich" : "Festpreis"}
+                </div>
+                <div className="display text-lg font-medium tabular-nums">
+                  {formatEurCents(displayTotalCents)}
+                </div>
+              </div>
+              <p className="max-w-[60%] flex-1 text-right text-xs font-medium leading-snug">{kvVeraltetTitel(firma)}</p>
+            </div>
           ) : (
             <div className="mx-auto flex max-w-2xl items-center justify-between gap-3 px-4 py-3">
               <div className="leading-tight">
@@ -216,6 +236,11 @@ export function StageOneKva({
               </button>
             </div>
           )}
+          {!offerExpired && acceptBlock === "kv_veraltet" && (
+            <p className="mx-auto -mt-1 max-w-2xl px-4 pb-1 text-[11px] leading-relaxed text-muted-foreground">
+              {kvVeraltetText(firma)}
+            </p>
+          )}
           {!offerExpired && acceptBlock === "termin_offen" && (
             <p className="mx-auto -mt-1 max-w-2xl px-4 pb-1 text-[11px] leading-relaxed text-muted-foreground">
               {t("Der Termin wird noch mit Ihnen abgestimmt. Danach können Sie das Angebot hier annehmen.", "Der Termin wird noch mit dir abgestimmt. Danach kannst du das Angebot hier annehmen.")}
@@ -226,7 +251,7 @@ export function StageOneKva({
 
       {/* Spacer so the last content card isn't covered by the sticky bar. */}
       {!alreadyAccepted && ctx.kva && (
-        <div className={offerExpired ? "h-48 lg:hidden" : acceptBlock === "termin_offen" ? "h-36 lg:hidden" : "h-20 lg:hidden"} aria-hidden />
+        <div className={offerExpired ? "h-48 lg:hidden" : acceptBlock === "termin_offen" || acceptBlock === "kv_veraltet" ? "h-36 lg:hidden" : "h-20 lg:hidden"} aria-hidden />
       )}
 
       <ConfirmKvaDialog
@@ -367,6 +392,8 @@ function PriceCard({
           </div>
         ) : expired ? (
           <OfferExpiredNotice ctx={ctx} />
+        ) : acceptBlock === "kv_veraltet" ? (
+          <KvVeraltetHinweis firma={ctx.branding.firmaSlug} />
         ) : (
           <>
             <button

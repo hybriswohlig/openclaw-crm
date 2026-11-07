@@ -1,7 +1,7 @@
 "use client";
 
 import { FileText, Printer, Download } from "lucide-react";
-import { kundenText, logoFuer, pickDefaultDealOption, type CustomerPortalContext } from "@openclaw-crm/customer-portal-core";
+import { annahmeKvSperre, kundenText, logoFuer, pickDefaultDealOption, type CustomerPortalContext } from "@openclaw-crm/customer-portal-core";
 import { EmailDocumentButton } from "./email-document-button";
 import { PanelHeading } from "./portal-ui";
 import { formatPortalDate, formatPortalMoney } from "./portal-presentation";
@@ -13,11 +13,15 @@ import { adressZeilen, annahmenLabels, worte } from "./leistung-worte";
  * Current stored PDF. Without one, the same deal data is a readable HTML
  * paper on screen, and Drucken still prints that paper.
  * `kva.notes` is an internal operator note and is never rendered.
+ * Passt das PDF nicht zur aktuellen Version (vor der Annahme), zeigt die
+ * Stufe 1 statt des PDFs dieses Papier mit dem aktuellen Preis.
  */
 export function QuotationPreview({ ctx, token, variant = "full", emailImBrief = false }: { ctx: CustomerPortalContext; token: string; variant?: "full" | "file"; emailImBrief?: boolean }) {
   if (!ctx.kva) return null;
   const t = (sie: string, du: string) => kundenText(ctx.branding.firmaSlug, sie, du);
-  if (ctx.documents.quotationUrl) return <section className="portal-panel" id="portal-quotation-preview">
+  const kvVeraltet = !ctx.acceptance && !!annahmeKvSperre(ctx.annahmeRecht.kvStand);
+  const pdfFolgt = kvVeraltet ? " Das PDF dazu erstellen wir gerade neu." : "";
+  if (ctx.documents.quotationUrl && !kvVeraltet) return <section className="portal-panel" id="portal-quotation-preview">
     <PanelHeading icon={FileText} title={t("Ihr Kostenvoranschlag", "Dein Kostenvoranschlag")}><p>{t("Hier finden Sie Ihr aktuelles Angebot als PDF.", "Hier findest du dein aktuelles Angebot als PDF.")}</p></PanelHeading>
     <iframe title="Kostenvoranschlag PDF-Vorschau" src={ctx.documents.quotationUrl} className="portal-document-frame" loading="lazy" />
     <a className="portal-button mt-3" href={ctx.documents.quotationUrl} download><Download size={18} aria-hidden />Kostenvoranschlag als PDF herunterladen</a>
@@ -56,12 +60,12 @@ export function QuotationPreview({ ctx, token, variant = "full", emailImBrief = 
       {ctx.branding.agbPdfUrl && <p className="mt-4"><a href={ctx.branding.agbPdfUrl} className="underline">Allgemeine Geschäftsbedingungen</a></p>}
     </article>;
   if (variant === "file") return <section className="portal-panel" id="portal-quotation-preview">
-    <PanelHeading icon={FileText} title="Kostenvoranschlag"><p>{t("Sie können Ihr Angebot drucken oder als PDF speichern.", "Du kannst dein Angebot drucken oder als PDF speichern.")}</p></PanelHeading>
+    <PanelHeading icon={FileText} title="Kostenvoranschlag"><p>{t("Sie können Ihr Angebot drucken oder als PDF speichern.", "Du kannst dein Angebot drucken oder als PDF speichern.")}{pdfFolgt}</p></PanelHeading>
     <div className="portal-quotation-scroll" role="region" aria-label="Kostenvoranschlag lesen" tabIndex={0}>{paper}</div>
     <div className="portal-document-actions"><button type="button" className="portal-button" onClick={() => window.print()}><Printer size={18} aria-hidden />Drucken / als PDF speichern</button></div>
   </section>;
   return <section className="portal-panel" id="portal-quotation-preview">
-    <PanelHeading icon={FileText} title={`Kostenvoranschlag${option ? ` (${option.displayName})` : ""}`}><p>{t("Ihr aktuelles Angebot im Überblick. Über die Druckansicht können Sie es auch als PDF speichern.", "Dein aktuelles Angebot im Überblick. Über die Druckansicht kannst du es auch als PDF speichern.")}</p></PanelHeading>
+    <PanelHeading icon={FileText} title={`Kostenvoranschlag${option ? ` (${option.displayName})` : ""}`}><p>{t("Ihr aktuelles Angebot im Überblick. Über die Druckansicht können Sie es auch als PDF speichern.", "Dein aktuelles Angebot im Überblick. Über die Druckansicht kannst du es auch als PDF speichern.")}{pdfFolgt}</p></PanelHeading>
     <div className="portal-quotation-scroll" role="region" aria-label="Kostenvoranschlag lesen" tabIndex={0}>{paper}</div>
     <div className="portal-document-actions"><button type="button" className="portal-button" onClick={() => window.print()}><Printer size={18} aria-hidden />Drucken / als PDF speichern</button></div>
   </section>;

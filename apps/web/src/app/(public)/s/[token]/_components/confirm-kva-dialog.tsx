@@ -7,10 +7,13 @@ import {
   HAFTUNG_CHECKBOX,
   VERSICHERUNG_CHECKBOX,
   abschlussHinweis,
+  annahmeKvSperre,
   haftungshinweis,
   keinWiderrufHinweis,
   kundenAnrede,
   kundenText,
+  kvVeraltetText,
+  kvVeraltetTitel,
   naechsteAktionNachAnnahme,
   unterschriftMoeglich,
   vorzeitigerBeginnCheckbox,
@@ -91,7 +94,9 @@ export function ConfirmKvaDialog({
   const hasAgb = !!agbHref;
 
   const r = ctx.annahmeRecht;
+  // Dieselbe Sperre wie confirmKvaForToken: veraltetes KV-PDF, keine Annahme.
   const ready =
+    !annahmeKvSperre(r.kvStand) &&
     accOffer &&
     (!hasAgb || accAgb) &&
     (!r.haftungshinweisErforderlich || accHaftung) &&
@@ -521,6 +526,7 @@ function formatGermanDate(ymd: string): string {
 
 const NEU_LADEN_BEI = new Set([
   "PRICE_CHANGED",
+  "KV_VERALTET",
   "DATE_REQUIRED",
   "HAFTUNGSHINWEIS_REQUIRED",
   "VORZEITIGER_BEGINN_REQUIRED",
@@ -535,6 +541,8 @@ function germanError(firma: string, code: string | undefined): string {
       return t("Bitte wählen Sie zuerst einen Termin. Ohne festen Termin können wir den Auftrag noch nicht annehmen.", "Bitte wähle zuerst einen Termin. Ohne festen Termin können wir den Auftrag noch nicht annehmen.");
     case "PRICE_CHANGED":
       return t("Das Angebot wurde gerade aktualisiert. Bitte prüfen Sie den neuen Preis und bestätigen Sie erneut.", "Das Angebot wurde gerade aktualisiert. Bitte prüfe den neuen Preis und bestätige erneut.");
+    case "KV_VERALTET":
+      return `${kvVeraltetTitel(firma)}. ${kvVeraltetText(firma)}`;
     case "AGB_UNAVAILABLE":
       return t("Unsere AGB sind gerade nicht abrufbar. Bitte versuchen Sie es in ein paar Minuten erneut.", "Unsere AGB sind gerade nicht abrufbar. Bitte versuche es in ein paar Minuten erneut.");
     case "HAFTUNGSHINWEIS_REQUIRED":

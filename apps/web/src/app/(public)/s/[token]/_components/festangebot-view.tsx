@@ -3,14 +3,18 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowRight, Info } from "lucide-react";
 import {
+  annahmeKvSperre,
   festangebotStatusStep,
   kundenText,
+  kvVeraltetText,
+  kvVeraltetTitel,
   offerAcceptanceBlockReason,
   type CustomerPortalContext,
   type KvaLineItem,
   type OfferAcceptanceBlockReason,
 } from "@openclaw-crm/customer-portal-core";
 import { ConfirmKvaDialog } from "./confirm-kva-dialog";
+import { KvVeraltetHinweis } from "./kv-veraltet-hinweis";
 import { ContactPanel } from "./portal-ui";
 import { AnnahmeZeile, BriefAnrede, BriefGruss, Strecke } from "./brief-teile";
 import { briefAnrede, briefEinleitung, briefZustand, stempel, terminVorbeiHinweis, terminVorbeiNachricht } from "./brief";
@@ -26,8 +30,11 @@ import { FurnitureListSection } from "./furniture-list-section";
 import { RestbetragHinweis } from "./restbetrag-hinweis";
 import { portalRestbetragSatz } from "@/lib/kottke-restbetrag";
 
-/** "termin_offen": Umzug ohne festen Termin und ohne Terminangebot. */
-type AnnahmeBlock = OfferAcceptanceBlockReason | "termin_offen";
+/**
+ * "termin_offen": Umzug ohne festen Termin und ohne Terminangebot.
+ * "kv_veraltet": KV-PDF passt noch nicht zur aktuellen Version (annahmeKvSperre, wie der Server).
+ */
+type AnnahmeBlock = OfferAcceptanceBlockReason | "termin_offen" | "kv_veraltet";
 
 /**
  * Stage 1 for a finished fixed price without deal-specific package options.
@@ -82,7 +89,7 @@ export function FestangebotView({
           totalCents: displayTotalCents,
           isVariable: false,
           hasOpenDateChoice,
-        });
+        }) ?? annahmeKvSperre(ctx.annahmeRecht.kvStand);
   const showBar = !alreadyAccepted;
   const priceInBar = showBar && !offerExpired;
   const deposit = kva.depositRequiredCents ?? 0;
@@ -118,7 +125,7 @@ export function FestangebotView({
   const adressen = adressZeilen(ctx);
 
   function accept() {
-    if (acceptBlock === "termin_offen") return;
+    if (acceptBlock === "termin_offen" || acceptBlock === "kv_veraltet") return;
     if (acceptBlock === "date") {
       document.querySelector("[data-portal-section='date-picker']")?.scrollIntoView({ behavior: "smooth", block: "center" });
       return;
@@ -242,7 +249,7 @@ export function FestangebotView({
 
           <BriefGruss branding={ctx.branding} />
           <AnnahmeZeile firma={ctx.branding.firmaSlug} stempel={stempelListe} vertragUrl={ctx.documents.signedContractUrl}>
-            {showBar && (offerExpired ? <ExpiredNotice ctx={ctx} /> : <AcceptButton ctx={ctx} acceptBlock={acceptBlock} onAccept={accept} />)}
+            {showBar && (offerExpired ? <ExpiredNotice ctx={ctx} /> : acceptBlock === "kv_veraltet" ? <div className="portal-fest-accept"><KvVeraltetHinweis firma={ctx.branding.firmaSlug} /></div> : <AcceptButton ctx={ctx} acceptBlock={acceptBlock} onAccept={accept} />)}
           </AnnahmeZeile>
           <EmailCaptureBanner token={token} status={ctx.customerEmailStatus} branding={ctx.branding} variant="zeile" onSaved={() => void onConfirmed()} />
         </article>
@@ -282,15 +289,19 @@ export function FestangebotView({
               <div className="portal-fest-kicker">Festpreis</div>
               <div className="portal-fest-bar-price display text-lg font-medium tabular-nums">{formatPortalMoney(displayTotalCents)}</div>
             </div>
-            <button
-              type="button"
-              disabled={acceptBlock === "termin_offen"}
-              onClick={accept}
-              className="inline-flex h-11 max-w-[60%] flex-1 items-center justify-center rounded-xl text-sm font-medium text-white disabled:opacity-60"
-              style={{ background: `#${ctx.branding.primaryColor}` }}
-            >
-              {acceptBlock === "termin_offen" ? "Termin wird abgestimmt" : acceptBlock === "date" ? "Termin wählen" : "Angebot annehmen"}
-            </button>
+            {acceptBlock === "kv_veraltet" ? (
+              <p className="max-w-[60%] flex-1 text-right text-xs font-medium leading-snug">{kvVeraltetTitel(ctx.branding.firmaSlug)}</p>
+            ) : (
+              <button
+                type="button"
+                disabled={acceptBlock === "termin_offen"}
+                onClick={accept}
+                className="inline-flex h-11 max-w-[60%] flex-1 items-center justify-center rounded-xl text-sm font-medium text-white disabled:opacity-60"
+                style={{ background: `#${ctx.branding.primaryColor}` }}
+              >
+                {acceptBlock === "termin_offen" ? "Termin wird abgestimmt" : acceptBlock === "date" ? "Termin wählen" : "Angebot annehmen"}
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -445,6 +456,7 @@ function nextSteps(firma: string, input: {
     if (input.depositCents > 0) lines.push(`Die Anzahlung von ${formatPortalMoney(input.depositCents)} wird mit der Bestätigung fällig.`);
     return lines;
   }
+  if (input.acceptBlock === "kv_veraltet") return [kvVeraltetText(firma)];
   if (input.acceptBlock === "termin_offen") {
     return [t("Der Termin wird noch mit Ihnen abgestimmt. Danach können Sie das Angebot hier annehmen.", "Der Termin wird noch mit dir abgestimmt. Danach kannst du das Angebot hier annehmen.")];
   }
