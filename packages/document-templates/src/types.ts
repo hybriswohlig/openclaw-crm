@@ -71,6 +71,26 @@ export interface QuotationPriceSource {
   validUntil: string | null;
   summary: string | null;
   serviceType: ServiceType;
+  /**
+   * Stunden-KV aus der Kalkulationsversion (`document_details.stunden`).
+   * Fehlt bei Festpreisen und bei alten Stunden-KVs; dann gilt die Darstellung von heute.
+   */
+  hourly?: HourlyTerms | null;
+}
+
+/** Kundenangaben eines Stunden-KVs aus der Version. Nur Kundenpreise, nie Selbstkosten. */
+export interface HourlyTerms {
+  helpers: number;
+  vans: number;
+  /** In halben Stunden. */
+  estimatedHours: number;
+  minimumHours: number;
+  helperRateCents: number;
+  vanRateCents: number;
+  /** Stundensatz mal geschätzte Stunden plus feste Zusatzposten. */
+  estimatedTotalCents: number;
+  /** Stundensatz mal Mindeststunden plus feste Zusatzposten. */
+  minimumTotalCents: number;
 }
 
 /** Selected per-deal package option. `note` is intentionally absent. */
@@ -78,6 +98,26 @@ export interface PackageOptionPrice {
   displayName: string;
   priceCents: number;
   includedItems: string[];
+}
+
+/**
+ * Wählbare Optionen eines KVs aus der gesperrten Kalkulationsversion (Plan 5b).
+ * Trägt nur Kundenpreise: keine Selbstkosten, keine Marge, keine Gründe.
+ */
+export interface OfferChoices {
+  /** Paketspalten in der Reihenfolge des Portals. Leer: gewählt wird nur der Tag. */
+  packages: Array<{ slug: string; name: string }>;
+  /** Angebotene Tage (YYYY-MM-DD), aufsteigend. Leer: gewählt wird nur das Paket. */
+  days: string[];
+  /** Kundenpreis je Paket und Tag in Cent, null wenn nicht wählbar. */
+  prices: Array<{ packageSlug: string | null; date: string | null; priceCents: number | null }>;
+  /** Die Wahl, zu der Preis und Posten oben gehören; null, wenn sie nicht sicher feststeht. */
+  current?: { packageSlug: string | null; date: string | null } | null;
+  /**
+   * Posten dieser Wahl aus der Version. Gedruckt, wenn die Posten der Quotation
+   * den Preis nicht ergeben und diese hier schon.
+   */
+  currentLines?: PriceLine[] | null;
 }
 
 export interface AcceptedPrice {
@@ -138,6 +178,11 @@ export interface RenderInput {
    * Ignored for variable quotes and whenever `accepted` is set.
    */
   packageOption?: PackageOptionPrice | null;
+  /**
+   * KV only. Alle Wahlen der Version (Paket, Tag, beides). Der Block
+   * „Wählbare Optionen“ erscheint nur bei mehr als einer Wahl.
+   */
+  choices?: OfferChoices | null;
   /** Booked payments in cents. Used on a Rechnung as the amount already paid. */
   paidCents?: number;
   /** Deal and Auftrag signals. The quotation's serviceType is read from `quotation`. */
@@ -151,6 +196,26 @@ export interface PositionView {
   unitRateLabel: string;
   amountLabel: string;
   amountCents: number;
+}
+
+/** Block „Wählbare Optionen“: eine Tabelle Paket × Tag oder eine Liste. */
+export interface ChoicesView {
+  layout: "table" | "list";
+  /** Tabelle: „Termin“ und die Paketnamen. Liste: „Paket“ oder „Termin“ und „Preis“. */
+  header: string[];
+  rows: Array<{ label: string; cells: Array<{ label: string; current: boolean }> }>;
+  /** „Den Preis legen Sie mit Ihrer Wahl im Kundenportal fest.“ in der Anrede des Dokuments. */
+  note: string;
+}
+
+/**
+ * Stunden-KV aus der Version: Stundensätze und Mindeststunden. Die Schätzung
+ * (Stunden × Stundensatz) und feste Zusatzposten stehen in `positions`.
+ */
+export interface HourlyView {
+  rates: Array<{ title: string; quantityLabel: string; rateLabel: string; perHourLabel: string }>;
+  perHourLabel: string;
+  minimumSentence: string;
 }
 
 export interface IssuerView {
@@ -185,7 +250,13 @@ export interface DocumentModel {
   intro: string[];
   summary?: string;
   scopeLines: string[];
+  /** Überschrift über den Posten, wenn es wählbare Optionen gibt („Preis für Komfort am Sa., 21.11.2026“). */
+  offerLabel?: string;
   positions: PositionView[];
+  /** Nur beim Stunden-KV aus der Version; `positions` sind dann Schätzung und feste Zusatzposten. */
+  hourly?: HourlyView;
+  /** Nur beim KV mit mehr als einer Wahl. */
+  choices?: ChoicesView;
   totalCents: number;
   totalLabel: string;
   totalCaption: string;

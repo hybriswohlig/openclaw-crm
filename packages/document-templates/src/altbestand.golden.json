@@ -1,0 +1,736 @@
+{
+  "kv-festpreis-falscher-posten": {
+    "model": {
+      "templateVersion": "kv-ab-re/4",
+      "logo": {
+        "firma": "kottke",
+        "leistung": "move"
+      },
+      "kind": "KV",
+      "title": "Kostenvoranschlag",
+      "fileStem": "KV-kottke-2026-10-16",
+      "issuer": {
+        "slug": "kottke",
+        "displayName": "Kottke Entrümpelung & Umzüge",
+        "lines": [
+          "Inhaber: Darioush Kottke",
+          "Marktstr. 8",
+          "72218 Wildberg",
+          "Tel.: 07054 9306962",
+          "WhatsApp: 0151 59058963",
+          "kontakt@kottke-umzuege.de",
+          "https://kottke-umzuege.de"
+        ],
+        "bank": {
+          "iban": "DE81 1001 8000 0379 5948 02",
+          "bic": "FNOMDEB2",
+          "holder": "Darioush Kottke"
+        },
+        "accent": "#1f3a5f"
+      },
+      "documentDateLabel": "16.10.2026",
+      "customerName": "Kyra Heiker",
+      "recipientLines": [
+        "Kyra Heiker",
+        "Marktstr. 1, 72218 Wildberg"
+      ],
+      "customerEmail": "kyra@example.com",
+      "customerAddress": "Marktstr. 1, 72218 Wildberg",
+      "fromAddress": "Hauptstr. 5, 72202 Nagold",
+      "toAddress": "Gartenweg 2, 70173 Stuttgart",
+      "serviceDateLabel": "03.11.2026",
+      "serviceKind": "move",
+      "serviceLabel": "Umzug",
+      "addressForm": "sie",
+      "validUntilLabel": "30.11.2026",
+      "intro": [
+        "Guten Tag,",
+        "Vielen Dank für Ihre Umzugsanfrage. Wir unterbreiten Ihnen folgendes Angebot für Ihren Umzug."
+      ],
+      "summary": "Transport einer Waschmaschine inkl. einem Helfer",
+      "scopeLines": [],
+      "positions": [],
+      "totalCents": 184765,
+      "totalLabel": "1.847,65 €",
+      "totalCaption": "Festpreis",
+      "variable": false,
+      "depositLabel": "400,00 €",
+      "remainderLabel": "1.447,65 €",
+      "paymentMethodLabel": "Bar",
+      "paymentTerms": "Die Anzahlung ist bar zu entrichten. Der Restbetrag ist am Umzugstag direkt nach dem Umzug fällig (bar oder Überweisung).",
+      "closing": [
+        "Über eine Rückmeldung freuen wir uns."
+      ],
+      "taxNote": "Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.",
+      "showBank": false
+    },
+    "html": "ced36cb174d70a4d7dbe09c2b30038ac33cad17e203d31a1b3cb1e05bd9dc077",
+    "pdf": "8469035b502d1900a1f81ae9960427473bbf259c0f3afacaea381154a2fac6c3"
+  },
+  "kv-posten-ergeben-festpreis": {
+    "model": {
+      "templateVersion": "kv-ab-re/4",
+      "logo": {
+        "firma": "ceylan",
+        "leistung": "move"
+      },
+      "kind": "KV",
+      "title": "Kostenvoranschlag",
+      "fileStem": "KV-ceylan-2026-10-16",
+      "issuer": {
+        "slug": "ceylan",
+        "displayName": "Ceylan Umzüge & Transporte",
+        "lines": [
+          "Inh. Nurullah Ceylan",
+          "Kapellenberg 13",
+          "72218 Wildberg",
+          "info@ceylan-operations.de"
+        ],
+        "bank": {
+          "iban": "DE93 1001 8000 0601 9731 97",
+          "bic": "FNOMDEB2",
+          "holder": "Nurullah Ceylan"
+        },
+        "accent": "#ea580c"
+      },
+      "documentDateLabel": "16.10.2026",
+      "customerName": "Kyra Heiker",
+      "recipientLines": [
+        "Kyra Heiker",
+        "Marktstr. 1, 72218 Wildberg"
+      ],
+      "customerEmail": "kyra@example.com",
+      "customerAddress": "Marktstr. 1, 72218 Wildberg",
+      "fromAddress": "Hauptstr. 5, 72202 Nagold",
+      "toAddress": "Gartenweg 2, 70173 Stuttgart",
+      "serviceDateLabel": "03.11.2026",
+      "serviceKind": "move",
+      "serviceLabel": "Umzug",
+      "addressForm": "sie",
+      "validUntilLabel": "30.11.2026",
+      "intro": [
+        "Guten Tag,",
+        "Vielen Dank für Ihre Umzugsanfrage. Wir unterbreiten Ihnen folgendes Angebot für Ihren Umzug."
+      ],
+      "summary": "Transport einer Waschmaschine inkl. einem Helfer",
+      "scopeLines": [],
+      "positions": [
+        {
+          "title": "Umzug Kern",
+          "quantityLabel": "1",
+          "unitRateLabel": "1.500,00 €",
+          "amountLabel": "1.500,00 €",
+          "amountCents": 150000
+        },
+        {
+          "title": "Halteverbot",
+          "quantityLabel": "2",
+          "unitRateLabel": "110,00 €",
+          "amountLabel": "220,00 €",
+          "amountCents": 22000
+        }
+      ],
+      "totalCents": 172000,
+      "totalLabel": "1.720,00 €",
+      "totalCaption": "Festpreis",
+      "variable": false,
+      "depositLabel": "400,00 €",
+      "remainderLabel": "1.320,00 €",
+      "paymentMethodLabel": "Überweisung",
+      "paymentTerms": "Die Anzahlung ist per Überweisung zu zahlen.",
+      "closing": [
+        "Über eine Rückmeldung freuen wir uns."
+      ],
+      "taxNote": "Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.",
+      "showBank": true
+    },
+    "html": "a07788885c4a050a5d1e41e825bd70f0cea128995ad174231a3573e60fb22f67",
+    "pdf": "8bce9a78d4d8843b4c034c4c82f3f41679dae4941cccac874a6ea0484691ee1b"
+  },
+  "kv-paket-passt-nicht": {
+    "model": {
+      "templateVersion": "kv-ab-re/4",
+      "logo": {
+        "firma": "ceylan",
+        "leistung": "move"
+      },
+      "kind": "KV",
+      "title": "Kostenvoranschlag",
+      "fileStem": "KV-ceylan-2026-10-16",
+      "issuer": {
+        "slug": "ceylan",
+        "displayName": "Ceylan Umzüge & Transporte",
+        "lines": [
+          "Inh. Nurullah Ceylan",
+          "Kapellenberg 13",
+          "72218 Wildberg",
+          "info@ceylan-operations.de"
+        ],
+        "bank": {
+          "iban": "DE93 1001 8000 0601 9731 97",
+          "bic": "FNOMDEB2",
+          "holder": "Nurullah Ceylan"
+        },
+        "accent": "#ea580c"
+      },
+      "documentDateLabel": "16.10.2026",
+      "customerName": "Kyra Heiker",
+      "recipientLines": [
+        "Kyra Heiker",
+        "Marktstr. 1, 72218 Wildberg"
+      ],
+      "customerEmail": "kyra@example.com",
+      "customerAddress": "Marktstr. 1, 72218 Wildberg",
+      "fromAddress": "Hauptstr. 5, 72202 Nagold",
+      "toAddress": "Gartenweg 2, 70173 Stuttgart",
+      "serviceDateLabel": "03.11.2026",
+      "serviceKind": "move",
+      "serviceLabel": "Umzug",
+      "addressForm": "sie",
+      "validUntilLabel": "30.11.2026",
+      "intro": [
+        "Guten Tag,",
+        "Vielen Dank für Ihre Umzugsanfrage. Wir unterbreiten Ihnen folgendes Angebot für Ihren Umzug."
+      ],
+      "summary": "Transport einer Waschmaschine inkl. einem Helfer",
+      "scopeLines": [
+        "Premium",
+        "Halteverbot inklusive"
+      ],
+      "positions": [],
+      "totalCents": 189000,
+      "totalLabel": "1.890,00 €",
+      "totalCaption": "Festpreis",
+      "variable": false,
+      "depositLabel": "400,00 €",
+      "remainderLabel": "1.490,00 €",
+      "paymentMethodLabel": "Bar",
+      "paymentTerms": "Die Anzahlung ist bar zu entrichten.",
+      "closing": [
+        "Über eine Rückmeldung freuen wir uns."
+      ],
+      "taxNote": "Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.",
+      "showBank": false
+    },
+    "html": "53696cff236d475e0ecc2c5710ccfbb1c436add783ddd40c58eec809dc23c468",
+    "pdf": "9b71c68bda9d0acf9c56c124232db030c47b2c75eb1d3fd66821fc7a43996a6d"
+  },
+  "kv-paket-passt": {
+    "model": {
+      "templateVersion": "kv-ab-re/4",
+      "logo": {
+        "firma": "ceylan",
+        "leistung": "move"
+      },
+      "kind": "KV",
+      "title": "Kostenvoranschlag",
+      "fileStem": "KV-ceylan-2026-10-16",
+      "issuer": {
+        "slug": "ceylan",
+        "displayName": "Ceylan Umzüge & Transporte",
+        "lines": [
+          "Inh. Nurullah Ceylan",
+          "Kapellenberg 13",
+          "72218 Wildberg",
+          "info@ceylan-operations.de"
+        ],
+        "bank": {
+          "iban": "DE93 1001 8000 0601 9731 97",
+          "bic": "FNOMDEB2",
+          "holder": "Nurullah Ceylan"
+        },
+        "accent": "#ea580c"
+      },
+      "documentDateLabel": "16.10.2026",
+      "customerName": "Kyra Heiker",
+      "recipientLines": [
+        "Kyra Heiker",
+        "Marktstr. 1, 72218 Wildberg"
+      ],
+      "customerEmail": "kyra@example.com",
+      "customerAddress": "Marktstr. 1, 72218 Wildberg",
+      "fromAddress": "Hauptstr. 5, 72202 Nagold",
+      "toAddress": "Gartenweg 2, 70173 Stuttgart",
+      "serviceDateLabel": "03.11.2026",
+      "serviceKind": "move",
+      "serviceLabel": "Umzug",
+      "addressForm": "sie",
+      "validUntilLabel": "30.11.2026",
+      "intro": [
+        "Guten Tag,",
+        "Vielen Dank für Ihre Umzugsanfrage. Wir unterbreiten Ihnen folgendes Angebot für Ihren Umzug."
+      ],
+      "summary": "Transport einer Waschmaschine inkl. einem Helfer",
+      "scopeLines": [],
+      "positions": [
+        {
+          "title": "Komfort",
+          "quantityLabel": "1",
+          "unitRateLabel": "1.890,00 €",
+          "amountLabel": "1.890,00 €",
+          "amountCents": 189000
+        }
+      ],
+      "totalCents": 189000,
+      "totalLabel": "1.890,00 €",
+      "totalCaption": "Festpreis",
+      "variable": false,
+      "depositLabel": "400,00 €",
+      "remainderLabel": "1.490,00 €",
+      "paymentMethodLabel": "Bar",
+      "paymentTerms": "Die Anzahlung ist bar zu entrichten.",
+      "closing": [
+        "Über eine Rückmeldung freuen wir uns."
+      ],
+      "taxNote": "Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.",
+      "showBank": false
+    },
+    "html": "403dcc646c98da17e86626bd895de3f95871bef9386148c361c9378b0a4444af",
+    "pdf": "0e52d62e670d54cb2fd9ccbc7e6fc020fd7e58bd0619c1479d84af80cbc52b2e"
+  },
+  "kv-stunden-alt": {
+    "model": {
+      "templateVersion": "kv-ab-re/4",
+      "logo": {
+        "firma": "ceylan",
+        "leistung": "move"
+      },
+      "kind": "KV",
+      "title": "Kostenvoranschlag",
+      "fileStem": "KV-ceylan-2026-10-16",
+      "issuer": {
+        "slug": "ceylan",
+        "displayName": "Ceylan Umzüge & Transporte",
+        "lines": [
+          "Inh. Nurullah Ceylan",
+          "Kapellenberg 13",
+          "72218 Wildberg",
+          "info@ceylan-operations.de"
+        ],
+        "bank": {
+          "iban": "DE93 1001 8000 0601 9731 97",
+          "bic": "FNOMDEB2",
+          "holder": "Nurullah Ceylan"
+        },
+        "accent": "#ea580c"
+      },
+      "documentDateLabel": "16.10.2026",
+      "customerName": "Kyra Heiker",
+      "recipientLines": [
+        "Kyra Heiker",
+        "Marktstr. 1, 72218 Wildberg"
+      ],
+      "customerEmail": "kyra@example.com",
+      "customerAddress": "Marktstr. 1, 72218 Wildberg",
+      "fromAddress": "Hauptstr. 5, 72202 Nagold",
+      "toAddress": "Gartenweg 2, 70173 Stuttgart",
+      "serviceDateLabel": "03.11.2026",
+      "serviceKind": "move",
+      "serviceLabel": "Umzug",
+      "addressForm": "sie",
+      "intro": [
+        "Guten Tag,",
+        "Vielen Dank für Ihre Umzugsanfrage. Wir unterbreiten Ihnen folgendes Angebot für Ihren Umzug."
+      ],
+      "summary": "Umzug nach Aufwand",
+      "scopeLines": [],
+      "positions": [
+        {
+          "title": "Helfer",
+          "quantityLabel": "2 Pers.",
+          "unitRateLabel": "35,00 €",
+          "amountLabel": "70,00 €",
+          "amountCents": 7000
+        },
+        {
+          "title": "Transporter",
+          "quantityLabel": "1 Std.",
+          "unitRateLabel": "25,00 €",
+          "amountLabel": "25,00 €",
+          "amountCents": 2500
+        }
+      ],
+      "totalCents": 9500,
+      "totalLabel": "95,00 €",
+      "totalCaption": "Voraussichtlicher Gesamtbetrag",
+      "variable": true,
+      "paymentMethodLabel": "Überweisung",
+      "paymentTerms": "Die Zahlung erfolgt per Überweisung.",
+      "closing": [
+        "Über eine Rückmeldung freuen wir uns."
+      ],
+      "taxNote": "Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.",
+      "showBank": true
+    },
+    "html": "389800ded7aea2f1db9d554369baaef2e8efdccf23e2dc63b29458517d6f96a8",
+    "pdf": "71d6b33199d5b6d3c9d12d5f98136a0c04a9549c452c68746f9f23dadd0891bb"
+  },
+  "kv-stunden-alt-andere-details": {
+    "model": {
+      "templateVersion": "kv-ab-re/4",
+      "logo": {
+        "firma": "ceylan",
+        "leistung": "move"
+      },
+      "kind": "KV",
+      "title": "Kostenvoranschlag",
+      "fileStem": "KV-ceylan-2026-10-16",
+      "issuer": {
+        "slug": "ceylan",
+        "displayName": "Ceylan Umzüge & Transporte",
+        "lines": [
+          "Inh. Nurullah Ceylan",
+          "Kapellenberg 13",
+          "72218 Wildberg",
+          "info@ceylan-operations.de"
+        ],
+        "bank": {
+          "iban": "DE93 1001 8000 0601 9731 97",
+          "bic": "FNOMDEB2",
+          "holder": "Nurullah Ceylan"
+        },
+        "accent": "#ea580c"
+      },
+      "documentDateLabel": "16.10.2026",
+      "customerName": "Kyra Heiker",
+      "recipientLines": [
+        "Kyra Heiker",
+        "Marktstr. 1, 72218 Wildberg"
+      ],
+      "customerEmail": "kyra@example.com",
+      "customerAddress": "Marktstr. 1, 72218 Wildberg",
+      "fromAddress": "Hauptstr. 5, 72202 Nagold",
+      "toAddress": "Gartenweg 2, 70173 Stuttgart",
+      "serviceDateLabel": "03.11.2026",
+      "serviceKind": "move",
+      "serviceLabel": "Umzug",
+      "addressForm": "sie",
+      "intro": [
+        "Guten Tag,",
+        "Vielen Dank für Ihre Umzugsanfrage. Wir unterbreiten Ihnen folgendes Angebot für Ihren Umzug."
+      ],
+      "summary": "Umzug nach Aufwand",
+      "scopeLines": [],
+      "positions": [
+        {
+          "title": "Helfer",
+          "quantityLabel": "2 Pers.",
+          "unitRateLabel": "35,00 €",
+          "amountLabel": "70,00 €",
+          "amountCents": 7000
+        },
+        {
+          "title": "Transporter",
+          "quantityLabel": "1 Std.",
+          "unitRateLabel": "25,00 €",
+          "amountLabel": "25,00 €",
+          "amountCents": 2500
+        }
+      ],
+      "totalCents": 9500,
+      "totalLabel": "95,00 €",
+      "totalCaption": "Voraussichtlicher Gesamtbetrag",
+      "variable": true,
+      "paymentMethodLabel": "Überweisung",
+      "paymentTerms": "Die Zahlung erfolgt per Überweisung.",
+      "closing": [
+        "Über eine Rückmeldung freuen wir uns."
+      ],
+      "taxNote": "Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.",
+      "showBank": true
+    },
+    "html": "389800ded7aea2f1db9d554369baaef2e8efdccf23e2dc63b29458517d6f96a8",
+    "pdf": "71d6b33199d5b6d3c9d12d5f98136a0c04a9549c452c68746f9f23dadd0891bb"
+  },
+  "ab-annahme": {
+    "model": {
+      "templateVersion": "kv-ab-re/4",
+      "logo": {
+        "firma": "kottke",
+        "leistung": "move"
+      },
+      "kind": "AB",
+      "title": "Auftragsbestätigung",
+      "fileStem": "AB-kottke-2026-10-16",
+      "issuer": {
+        "slug": "kottke",
+        "displayName": "Kottke Entrümpelung & Umzüge",
+        "lines": [
+          "Inhaber: Darioush Kottke",
+          "Marktstr. 8",
+          "72218 Wildberg",
+          "Tel.: 07054 9306962",
+          "WhatsApp: 0151 59058963",
+          "kontakt@kottke-umzuege.de",
+          "https://kottke-umzuege.de"
+        ],
+        "bank": {
+          "iban": "DE81 1001 8000 0379 5948 02",
+          "bic": "FNOMDEB2",
+          "holder": "Darioush Kottke"
+        },
+        "accent": "#1f3a5f"
+      },
+      "documentDateLabel": "16.10.2026",
+      "customerName": "Kyra Heiker",
+      "recipientLines": [
+        "Kyra Heiker",
+        "Marktstr. 1, 72218 Wildberg"
+      ],
+      "customerEmail": "kyra@example.com",
+      "customerAddress": "Marktstr. 1, 72218 Wildberg",
+      "fromAddress": "Hauptstr. 5, 72202 Nagold",
+      "toAddress": "Gartenweg 2, 70173 Stuttgart",
+      "serviceDateLabel": "03.11.2026",
+      "serviceKind": "move",
+      "serviceLabel": "Umzug",
+      "addressForm": "sie",
+      "validUntilLabel": "30.11.2026",
+      "intro": [
+        "Guten Tag,",
+        "Vielen Dank für Ihren Auftrag. Wir bestätigen Ihren Umzug zu den folgenden Konditionen."
+      ],
+      "summary": "Transport einer Waschmaschine inkl. einem Helfer",
+      "scopeLines": [],
+      "positions": [],
+      "totalCents": 189000,
+      "totalLabel": "1.890,00 €",
+      "totalCaption": "Festpreis",
+      "variable": false,
+      "depositLabel": "400,00 €",
+      "remainderLabel": "1.490,00 €",
+      "paymentMethodLabel": "Bar",
+      "paymentTerms": "Die Anzahlung ist bar zu entrichten. Der Restbetrag ist am Umzugstag direkt nach dem Umzug fällig (bar oder Überweisung).",
+      "closing": [
+        "Wir freuen uns auf den Einsatz."
+      ],
+      "taxNote": "Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.",
+      "showBank": false
+    },
+    "html": "9eb3db63363e3c3cf39bd8dc23f2ab3143d1b686bb112af21b7210d494c139f3",
+    "pdf": "9c52fb36856cb11f6e52c515b8b827a0b140cea000dff04e3bc24e9098f75d92"
+  },
+  "re-stunden-bezahlt": {
+    "model": {
+      "templateVersion": "kv-ab-re/4",
+      "logo": {
+        "firma": "ceylan",
+        "leistung": "move"
+      },
+      "kind": "RE",
+      "title": "Rechnung",
+      "fileStem": "RE-ceylan-2026-10-16",
+      "issuer": {
+        "slug": "ceylan",
+        "displayName": "Ceylan Umzüge & Transporte",
+        "lines": [
+          "Inh. Nurullah Ceylan",
+          "Kapellenberg 13",
+          "72218 Wildberg",
+          "info@ceylan-operations.de"
+        ],
+        "bank": {
+          "iban": "DE93 1001 8000 0601 9731 97",
+          "bic": "FNOMDEB2",
+          "holder": "Nurullah Ceylan"
+        },
+        "accent": "#ea580c"
+      },
+      "documentDateLabel": "16.10.2026",
+      "customerName": "Kyra Heiker",
+      "recipientLines": [
+        "Kyra Heiker",
+        "Marktstr. 1, 72218 Wildberg"
+      ],
+      "customerEmail": "kyra@example.com",
+      "customerAddress": "Marktstr. 1, 72218 Wildberg",
+      "fromAddress": "Hauptstr. 5, 72202 Nagold",
+      "toAddress": "Gartenweg 2, 70173 Stuttgart",
+      "serviceDateLabel": "03.11.2026",
+      "serviceKind": "move",
+      "serviceLabel": "Umzug",
+      "addressForm": "sie",
+      "intro": [
+        "Guten Tag,",
+        "Wir berechnen Ihnen die Umzugsleistung wie folgt."
+      ],
+      "summary": "Transport einer Waschmaschine inkl. einem Helfer",
+      "scopeLines": [],
+      "positions": [
+        {
+          "title": "Helfer",
+          "quantityLabel": "3 Pers.",
+          "unitRateLabel": "45,00 €",
+          "amountLabel": "135,00 €",
+          "amountCents": 13500
+        },
+        {
+          "title": "Transporter",
+          "quantityLabel": "4 Std.",
+          "unitRateLabel": "30,00 €",
+          "amountLabel": "120,00 €",
+          "amountCents": 12000
+        }
+      ],
+      "totalCents": 25500,
+      "totalLabel": "255,00 €",
+      "totalCaption": "Voraussichtlicher Gesamtbetrag",
+      "variable": true,
+      "depositLabel": "400,00 €",
+      "paymentMethodLabel": "Karte",
+      "paymentTerms": "Die Zahlung erfolgt per Karte vor Ort.",
+      "paidLabel": "100,00 €",
+      "openLabel": "155,00 €",
+      "closing": [
+        "Danke für den reibungslosen Ablauf am Umzugstag."
+      ],
+      "taxNote": "Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.",
+      "showBank": true
+    },
+    "html": "b9035f88163e0ce24faf81bde638362c5aff817621f7e9440deec50e799e686f",
+    "pdf": "68b4934235716c5af0eaea13ae11fda6cc18a52452012e0565a9e6122091164a"
+  },
+  "kv-du-firma-rabatt": {
+    "model": {
+      "templateVersion": "kv-ab-re/4",
+      "logo": {
+        "firma": "ceylan",
+        "leistung": "move"
+      },
+      "kind": "KV",
+      "title": "Kostenvoranschlag",
+      "fileStem": "KV-ceylan-2026-10-16",
+      "issuer": {
+        "slug": "ceylan",
+        "displayName": "Ceylan Umzüge & Transporte",
+        "lines": [
+          "Inh. Nurullah Ceylan",
+          "Kapellenberg 13",
+          "72218 Wildberg",
+          "info@ceylan-operations.de"
+        ],
+        "bank": {
+          "iban": "DE93 1001 8000 0601 9731 97",
+          "bic": "FNOMDEB2",
+          "holder": "Nurullah Ceylan"
+        },
+        "accent": "#ea580c"
+      },
+      "documentDateLabel": "16.10.2026",
+      "customerName": "Sport-Thieme GmbH, z. Hd. Roman Rothe",
+      "recipientLines": [
+        "Sport-Thieme GmbH, z. Hd. Roman Rothe",
+        "Marktstr. 1, 72218 Wildberg"
+      ],
+      "customerEmail": "kyra@example.com",
+      "customerAddress": "Marktstr. 1, 72218 Wildberg",
+      "fromAddress": "Hauptstr. 5, 72202 Nagold",
+      "toAddress": "Gartenweg 2, 70173 Stuttgart",
+      "serviceDateLabel": "03.11.2026",
+      "serviceKind": "move",
+      "serviceLabel": "Umzug",
+      "addressForm": "sie",
+      "validUntilLabel": "30.11.2026",
+      "intro": [
+        "Sehr geehrte Damen und Herren,",
+        "Vielen Dank für Ihre Umzugsanfrage. Wir unterbreiten Ihnen folgendes Angebot für Ihren Umzug."
+      ],
+      "summary": "Transport einer Waschmaschine inkl. einem Helfer",
+      "scopeLines": [],
+      "positions": [
+        {
+          "title": "Büroumzug",
+          "quantityLabel": "1",
+          "unitRateLabel": "990,00 €",
+          "amountLabel": "990,00 €",
+          "amountCents": 99000
+        },
+        {
+          "title": "Rabatt bei Termin Mo-Do",
+          "quantityLabel": "1",
+          "unitRateLabel": "-70,00 €",
+          "amountLabel": "-70,00 €",
+          "amountCents": -7000
+        }
+      ],
+      "totalCents": 92000,
+      "totalLabel": "920,00 €",
+      "totalCaption": "Festpreis",
+      "variable": false,
+      "paymentMethodLabel": "Überweisung",
+      "paymentTerms": "Die Zahlung erfolgt per Überweisung.",
+      "closing": [
+        "Über eine Rückmeldung freuen wir uns."
+      ],
+      "taxNote": "Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.",
+      "showBank": true
+    },
+    "html": "6f7b449623ec4a79bfb4bb9204dd0c2e9e4cda00885a92b613aed5584aab4c7b",
+    "pdf": "72fd7ddebb388203353692829c3187a31e7e3190f3d1e2ddeed30a062b627062"
+  },
+  "kv-du-privat": {
+    "model": {
+      "templateVersion": "kv-ab-re/4",
+      "logo": {
+        "firma": "ceylan",
+        "leistung": "move"
+      },
+      "kind": "KV",
+      "title": "Kostenvoranschlag",
+      "fileStem": "KV-ceylan-2026-10-16",
+      "issuer": {
+        "slug": "ceylan",
+        "displayName": "Ceylan Umzüge & Transporte",
+        "lines": [
+          "Inh. Nurullah Ceylan",
+          "Kapellenberg 13",
+          "72218 Wildberg",
+          "info@ceylan-operations.de"
+        ],
+        "bank": {
+          "iban": "DE93 1001 8000 0601 9731 97",
+          "bic": "FNOMDEB2",
+          "holder": "Nurullah Ceylan"
+        },
+        "accent": "#ea580c"
+      },
+      "documentDateLabel": "16.10.2026",
+      "customerName": "Kyra Heiker",
+      "recipientLines": [
+        "Kyra Heiker",
+        "Marktstr. 1, 72218 Wildberg"
+      ],
+      "customerEmail": "kyra@example.com",
+      "customerAddress": "Marktstr. 1, 72218 Wildberg",
+      "fromAddress": "Hauptstr. 5, 72202 Nagold",
+      "toAddress": "Gartenweg 2, 70173 Stuttgart",
+      "serviceDateLabel": "03.11.2026",
+      "serviceKind": "move",
+      "serviceLabel": "Umzug",
+      "addressForm": "du",
+      "validUntilLabel": "30.11.2026",
+      "intro": [
+        "Hallo Kyra,",
+        "Vielen Dank für deine Umzugsanfrage. Wir unterbreiten dir folgendes Angebot für deinen Umzug."
+      ],
+      "summary": "Transport einer Waschmaschine inkl. einem Helfer",
+      "scopeLines": [],
+      "positions": [],
+      "totalCents": 65000,
+      "totalLabel": "650,00 €",
+      "totalCaption": "Festpreis",
+      "variable": false,
+      "depositLabel": "400,00 €",
+      "remainderLabel": "250,00 €",
+      "paymentMethodLabel": "Bar",
+      "paymentTerms": "Die Anzahlung ist bar zu entrichten.",
+      "closing": [
+        "Über eine Rückmeldung freuen wir uns."
+      ],
+      "taxNote": "Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.",
+      "showBank": false
+    },
+    "html": "610499a9b9c80e259228089372eb33a1b814dd5a8156b6b920a404b5bcb85d10",
+    "pdf": "96e69bc063d17a243e06ef56b6aa6d2762a25c797ee56276a2e65a587de5bbf4"
+  }
+}

@@ -78,6 +78,11 @@ class Writer {
     return 20 + this.footerLines().length * 12;
   }
 
+  /** Hält einen Block zusammen: passt er nicht mehr, beginnt er auf der nächsten Seite. */
+  keepTogether(height: number) {
+    this.ensure(height);
+  }
+
   private ensure(height: number) {
     if (this.y - height < this.footerReserve()) {
       this.page = this.addPage();
@@ -147,15 +152,20 @@ class Writer {
     this.y -= 12;
   }
 
-  columns(cells: string[], widths: number[], opts: { bold?: boolean; size?: number } = {}) {
-    const font = opts.bold ? this.bold : this.font;
+  columns(
+    cells: string[],
+    widths: number[],
+    opts: { bold?: boolean; size?: number; boldCells?: boolean[] } = {}
+  ) {
+    const fontOf = (i: number) => (opts.bold || opts.boldCells?.[i] ? this.bold : this.font);
     const size = opts.size ?? 9;
-    const wrapped = cells.map((cell, i) => this.wrap(cell, font, size, widths[i] - 6));
+    const wrapped = cells.map((cell, i) => this.wrap(cell, fontOf(i), size, widths[i] - 6));
     const rows = Math.max(...wrapped.map((lines) => lines.length));
     const lineHeight = size + 3;
     this.ensure(rows * lineHeight + 4);
     let x = MARGIN;
     for (let i = 0; i < cells.length; i++) {
+      const font = fontOf(i);
       const alignRight = i > 0;
       for (let r = 0; r < wrapped[i].length; r++) {
         const line = wrapped[i][r];
@@ -236,8 +246,17 @@ export async function renderPdf(model: DocumentModel): Promise<Uint8Array> {
     w.text(model.summary, { size: 11, gap: 6 });
   }
   for (const line of model.scopeLines) w.text(`• ${line}`, { size: 11, gap: 1 });
+  if (model.offerLabel) w.text(model.offerLabel, { font: bold, size: 12, gap: 2 });
 
   const widths = [255, 50, 95, 95];
+  if (model.hourly) {
+    w.columns(["Stundensatz", "Menge", "Satz je Std.", "je Stunde"], widths, { bold: true, size: 11 });
+    for (const rate of model.hourly.rates) {
+      w.columns([rate.title, rate.quantityLabel, rate.rateLabel, rate.perHourLabel], widths, { size: 11 });
+    }
+    w.columns(["Stundensatz gesamt", "", "", model.hourly.perHourLabel], widths, { bold: true, size: 11 });
+    w.text("", { gap: 4 });
+  }
   if (model.positions.length > 0) {
     w.columns(["Position", "Menge", "Einzelpreis", "Betrag"], widths, { bold: true, size: 11 });
     for (const position of model.positions) {
@@ -248,13 +267,34 @@ export async function renderPdf(model: DocumentModel): Promise<Uint8Array> {
       );
     }
   }
-  w.text(`${model.totalCaption}: ${model.totalLabel}`, { font: bold, size: 12, gap: 6 });
+  w.text(`${model.totalCaption}: ${model.totalLabel}`, { font: bold, size: 12, gap: model.hourly ? 2 : 6 });
+  if (model.hourly) w.text(model.hourly.minimumSentence, { size: 11, gap: 6 });
 
   if (model.depositLabel) w.text(`Anzahlung: ${model.depositLabel}`, { size: 11, gap: 1 });
   if (model.remainderLabel) w.text(`Rest nach Anzahlung: ${model.remainderLabel}`, { size: 11, gap: 1 });
   if (model.paymentMethodLabel) w.text(`Zahlungsart: ${model.paymentMethodLabel}`, { size: 11, gap: 1 });
   if (model.paidLabel) w.text(`Bereits gebucht: ${model.paidLabel}`, { size: 11, gap: 1 });
   if (model.openLabel) w.text(`Offen: ${model.openLabel}`, { size: 11, gap: 4 });
+  if (model.choices) {
+    const c = model.choices;
+    w.text("", { gap: 4 });
+    // Überschrift, Kopf, Zeilen und Satz auf einer Seite (Zeilen zu 18 pt, Text zu 14 pt).
+    w.keepTogether(17 + 18 * (c.rows.length + 1) + 2 * 14);
+    w.text("Wählbare Optionen", { font: bold, size: 12, gap: 2 });
+    const breite = PAGE_W - MARGIN * 2;
+    const spalten =
+      c.layout === "table"
+        ? [110, ...c.header.slice(1).map(() => (breite - 110) / (c.header.length - 1))]
+        : [200, 110];
+    w.columns(c.header, spalten, { bold: true, size: 11 });
+    for (const row of c.rows) {
+      w.columns([row.label, ...row.cells.map((cell) => cell.label)], spalten, {
+        size: 11,
+        boldCells: [false, ...row.cells.map((cell) => cell.current)],
+      });
+    }
+    w.text(c.note, { size: 11, gap: 6 });
+  }
   if (model.paymentTerms) w.text(model.paymentTerms, { size: 11, gap: 6 });
 
   if (model.remarks) {

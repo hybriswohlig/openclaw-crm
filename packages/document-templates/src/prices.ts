@@ -2,6 +2,8 @@ import { eurosToCents, formatEur, lineAmountCents } from "./money";
 import type {
   AcceptedPrice,
   DocKind,
+  HourlyTerms,
+  HourlyView,
   PackageOptionPrice,
   PositionView,
   PriceLine,
@@ -10,9 +12,17 @@ import type {
 } from "./types";
 
 export class MissingPriceError extends Error {
-  constructor() {
-    super("Kein Preis im gespeicherten Angebot.");
+  constructor(message = "Kein Preis im gespeicherten Angebot.") {
+    super(message);
     this.name = "MissingPriceError";
+  }
+}
+
+/** Stunden-KV, dessen Stundenangaben nicht zu Sätzen und Posten passen: lieber kein PDF als ein falsches. */
+export class HourlyMismatchError extends MissingPriceError {
+  constructor() {
+    super("Die Stundenangaben passen nicht zu den Posten. Bitte die Kalkulation neu sperren.");
+    this.name = "HourlyMismatchError";
   }
 }
 
@@ -48,6 +58,7 @@ export function priceSourceFromStored(row: {
   calculationAssumptions?: unknown;
   documentDetails?: unknown;
 }): QuotationPriceSource {
+  const hourly = row.isVariable ? hourlyFromDetails(row.documentDetails) : null;
   return {
     isVariable: row.isVariable,
     fixedPrice: row.fixedPrice,
@@ -62,6 +73,56 @@ export function priceSourceFromStored(row: {
     validUntil: row.validUntil,
     summary: row.summary?.trim() ? row.summary.trim() : null,
     serviceType: asServiceType(row.serviceType),
+    ...(hourly ? { hourly } : {}),
+  };
+}
+
+/**
+ * Liest `document_details.stunden` (Plan 5b, `quelle: "version"`). Übernimmt nur
+ * die Kundenangaben; alles andere in `document_details` bleibt draußen.
+ */
+export function hourlyFromDetails(details: unknown): HourlyTerms | null {
+  if (!details || typeof details !== "object") return null;
+  const raw = (details as { stunden?: unknown }).stunden;
+  if (!raw || typeof raw !== "object") return null;
+  const s = raw as Record<string, unknown>;
+  if (s.quelle !== "version") return null;
+  const zahl = (key: string): number | null => {
+    const v = s[key];
+    return typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : null;
+  };
+  const helpers = zahl("helfer");
+  const vans = zahl("transporter");
+  const estimatedHours = zahl("stundenGeschaetzt");
+  const minimumHours = zahl("mindestStunden");
+  const helperRate = zahl("satzHelferEur");
+  const vanRate = zahl("satzTransporterEur");
+  const estimatedTotalCents = zahl("summeGeschaetztCent");
+  const minimumTotalCents = zahl("mindestbetragCent");
+  if (
+    helpers === null ||
+    vans === null ||
+    estimatedHours === null ||
+    minimumHours === null ||
+    helperRate === null ||
+    vanRate === null ||
+    estimatedTotalCents === null ||
+    minimumTotalCents === null ||
+    !Number.isInteger(helpers) ||
+    !Number.isInteger(vans) ||
+    helpers < 1
+  ) {
+    return null;
+  }
+  return {
+    helpers,
+    vans,
+    estimatedHours,
+    minimumHours,
+    helperRateCents: Math.round(helperRate * 100),
+    vanRateCents: Math.round(vanRate * 100),
+    estimatedTotalCents: Math.round(estimatedTotalCents),
+    minimumTotalCents: Math.round(minimumTotalCents),
   };
 }
 
@@ -126,6 +187,80 @@ export interface ResolvedPrices {
   totalCaption: string;
   variable: boolean;
   scopeLines: string[];
+  /** Nur beim Stunden-KV aus der Version. */
+  hourly?: HourlyView;
+}
+
+const hoursNumber = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 2 });
+
+/** 1 → „1 Stunde“, 6,5 → „6,5 Stunden“. */
+export function hoursLabel(hours: number): string {
+  return `${hoursNumber.format(hours)} ${hours === 1 ? "Stunde" : "Stunden"}`;
+}
+
+function isRateLine(line: PriceLine): boolean {
+  return line.type === "helper" || line.type === "transporter";
+}
+
+/**
+ * Stunden-KV aus der Version: Stundensatz aus den Sätzen, Schätzung und
+ * Mindeststunden aus der Version, feste Zusatzposten aus den Posten. Passen
+ * die Zahlen nicht zusammen, wirft es (kein PDF mit zwei Wahrheiten).
+ */
+function hourlyPrices(terms: HourlyTerms, lines: PriceLine[]): ResolvedPrices {
+  const helperCents = terms.helpers * terms.helperRateCents;
+  const vanCents = terms.vans * terms.vanRateCents;
+  const perHourCents = helperCents + vanCents;
+  const rateLines = lines.filter(isRateLine);
+  const extras = lines.filter((line) => !isRateLine(line));
+  const extrasCents = sumCents(extras);
+  const estimateCents = Math.round(perHourCents * terms.estimatedHours);
+  const minimumCents = Math.round(perHourCents * terms.minimumHours);
+  const nah = (a: number, b: number) => Math.abs(a - b) <= 1;
+  if (
+    perHourCents <= 0 ||
+    (rateLines.length > 0 && sumCents(rateLines) !== perHourCents) ||
+    !nah(estimateCents + extrasCents, terms.estimatedTotalCents) ||
+    !nah(minimumCents + extrasCents, terms.minimumTotalCents)
+  ) {
+    throw new HourlyMismatchError();
+  }
+  const rates: HourlyView["rates"] = [
+    {
+      title: "Helfer",
+      quantityLabel: `${terms.helpers} Pers.`,
+      rateLabel: formatEur(terms.helperRateCents),
+      perHourLabel: formatEur(helperCents),
+    },
+  ];
+  if (terms.vans > 0) {
+    rates.push({
+      title: "Transporter",
+      quantityLabel: String(terms.vans),
+      rateLabel: formatEur(terms.vanRateCents),
+      perHourLabel: formatEur(vanCents),
+    });
+  }
+  const estimateAmountCents = terms.estimatedTotalCents - extrasCents;
+  const estimate: PositionView = {
+    title: "Geschätzter Aufwand",
+    quantityLabel: `${hoursNumber.format(terms.estimatedHours)} Std.`,
+    unitRateLabel: formatEur(perHourCents),
+    amountLabel: formatEur(estimateAmountCents),
+    amountCents: estimateAmountCents,
+  };
+  return {
+    positions: [estimate, ...positionsFromLines(extras)],
+    totalCents: terms.estimatedTotalCents,
+    totalCaption: "Voraussichtlicher Gesamtbetrag",
+    variable: true,
+    scopeLines: [],
+    hourly: {
+      rates,
+      perHourLabel: formatEur(perHourCents),
+      minimumSentence: `Abgerechnet wird nach Aufwand, mindestens ${hoursLabel(terms.minimumHours)} (${formatEur(terms.minimumTotalCents)}).`,
+    },
+  };
 }
 
 /**
@@ -140,24 +275,42 @@ export function resolveDocumentPrices(input: {
   quotation: QuotationPriceSource;
   accepted?: AcceptedPrice | null;
   packageOption?: PackageOptionPrice | null;
+  /**
+   * KV mit Wahl aus der Version: Posten genau dieser Wahl. Gedruckt nur, wenn
+   * die Posten der Quotation den Preis nicht ergeben und diese hier schon.
+   */
+  choiceLines?: PriceLine[] | null;
 }): ResolvedPrices {
   let isVariable = input.quotation.isVariable;
   let fixedPrice = input.quotation.fixedPrice;
   let lines = input.quotation.lineItems;
   let option = input.packageOption ?? null;
+  let choiceLines = input.kind === "KV" ? input.choiceLines ?? null : null;
 
   if (input.kind === "AB" && input.accepted) {
     isVariable = input.accepted.isVariable;
     fixedPrice = input.accepted.fixedPrice;
     lines = input.accepted.lineItems;
     option = null;
+    choiceLines = null;
+  }
+
+  /** Posten, die genau `cents` ergeben: die der Quotation, sonst die der Wahl. */
+  const matchingLines = (cents: number): PriceLine[] | null => {
+    if (lines.length > 0 && sumCents(lines) === cents) return lines;
+    if (choiceLines && choiceLines.length > 0 && sumCents(choiceLines) === cents) return choiceLines;
+    return null;
+  };
+
+  if (input.kind === "KV" && isVariable && input.quotation.hourly) {
+    return hourlyPrices(input.quotation.hourly, lines);
   }
 
   if (!isVariable && option && Number.isFinite(option.priceCents)) {
-    const sum = sumCents(lines);
-    if (lines.length > 0 && sum === option.priceCents) {
+    const matched = matchingLines(option.priceCents);
+    if (matched) {
       return {
-        positions: positionsFromLines(lines),
+        positions: positionsFromLines(matched),
         totalCents: option.priceCents,
         totalCaption: "Festpreis",
         variable: false,
@@ -191,10 +344,10 @@ export function resolveDocumentPrices(input: {
   const fixedCents =
     fixedPrice != null && fixedPrice !== "" ? eurosToCents(fixedPrice) : null;
   if (fixedCents != null) {
-    const sum = sumCents(lines);
-    if (lines.length > 0 && sum === fixedCents) {
+    const matched = matchingLines(fixedCents);
+    if (matched) {
       return {
-        positions: positionsFromLines(lines),
+        positions: positionsFromLines(matched),
         totalCents: fixedCents,
         totalCaption: "Festpreis",
         variable: false,

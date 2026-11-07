@@ -17,6 +17,11 @@ function row(label: string, value: string | undefined): string {
   return `<div class="fact"><span>${escapeHtml(label)}</span><strong>${textBlock(value)}</strong></div>`;
 }
 
+/** Neue Blöcke (Plan 5b) in eigener Zeile; leer bleibt das HTML des Altbestands Zeichen für Zeichen gleich. */
+function zusatz(block: string): string {
+  return block ? `\n  ${block}` : "";
+}
+
 /** Self-contained HTML preview. Every dynamic string is escaped. */
 export function renderHtml(model: DocumentModel): string {
   const positions = model.positions
@@ -33,6 +38,36 @@ export function renderHtml(model: DocumentModel): string {
     : "";
   const scope = model.scopeLines.length
     ? `<ul>${model.scopeLines.map((line) => `<li>${textBlock(line)}</li>`).join("")}</ul>`
+    : "";
+  const hourly = model.hourly
+    ? `<table class="hourly">
+    <thead><tr><th>Stundensatz</th><th class="num">Menge</th><th class="num">Satz je Std.</th><th class="num">je Stunde</th></tr></thead>
+    <tbody>${model.hourly.rates
+      .map(
+        (r) =>
+          `<tr><td>${escapeHtml(r.title)}</td><td class="num">${escapeHtml(r.quantityLabel)}</td><td class="num">${escapeHtml(r.rateLabel)}</td><td class="num">${escapeHtml(r.perHourLabel)}</td></tr>`
+      )
+      .join("")}<tr><td><strong>Stundensatz gesamt</strong></td><td></td><td></td><td class="num"><strong>${escapeHtml(model.hourly.perHourLabel)}</strong></td></tr></tbody>
+  </table>`
+    : "";
+  const choices = model.choices
+    ? `<section class="choices"><h2>Wählbare Optionen</h2><table>
+    <thead><tr>${model.choices.header
+      .map((h, i) => `<th${i > 0 ? ' class="num"' : ""}>${escapeHtml(h)}</th>`)
+      .join("")}</tr></thead>
+    <tbody>${model.choices.rows
+      .map(
+        (row) =>
+          `<tr><td>${escapeHtml(row.label)}</td>${row.cells
+            .map((cell) =>
+              cell.current
+                ? `<td class="num current"><strong>${escapeHtml(cell.label)}</strong></td>`
+                : `<td class="num">${escapeHtml(cell.label)}</td>`
+            )
+            .join("")}</tr>`
+      )
+      .join("")}</tbody>
+  </table><p>${escapeHtml(model.choices.note)}</p></section>`
     : "";
   const bank = model.showBank
     ? `<section><h2>Bankverbindung</h2><p>${escapeHtml(model.issuer.bank.holder)}<br>IBAN ${escapeHtml(model.issuer.bank.iban)}<br>BIC ${escapeHtml(model.issuer.bank.bic)}</p></section>`
@@ -93,16 +128,18 @@ export function renderHtml(model: DocumentModel): string {
   </div>
   ${model.intro.map((p) => `<p>${textBlock(p)}</p>`).join("")}
   ${model.summary ? `<h2>Leistungsumfang</h2><p>${textBlock(model.summary)}</p>` : ""}
-  ${scope}
+  ${scope}${zusatz(model.offerLabel ? `<h2>${escapeHtml(model.offerLabel)}</h2>` : "")}${zusatz(hourly)}
   ${table}
-  <div class="total"><span>${escapeHtml(model.totalCaption)}</span><span>${escapeHtml(model.totalLabel)}</span></div>
+  <div class="total"><span>${escapeHtml(model.totalCaption)}</span><span>${escapeHtml(model.totalLabel)}</span></div>${zusatz(
+    model.hourly ? `<p>${escapeHtml(model.hourly.minimumSentence)}</p>` : ""
+  )}
   <div class="meta">
     ${row("Anzahlung", model.depositLabel)}
     ${row("Rest nach Anzahlung", model.remainderLabel)}
     ${row("Zahlungsart", model.paymentMethodLabel)}
     ${row("Bereits gebucht", model.paidLabel)}
     ${row("Offen", model.openLabel)}
-  </div>
+  </div>${zusatz(choices)}
   ${model.paymentTerms ? `<p>${textBlock(model.paymentTerms)}</p>` : ""}
   ${model.remarks ? `<h2>Hinweise</h2><p>${textBlock(model.remarks)}</p>` : ""}
   ${model.closing.map((p) => `<p>${textBlock(p)}</p>`).join("")}

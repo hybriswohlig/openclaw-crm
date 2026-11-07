@@ -252,7 +252,7 @@ describe("template version", () => {
       deal: { ...deal, firma: "ceylan" },
       quotation: quotation({ paymentMethodPreference: "bank_transfer" }),
     });
-    expect(TEMPLATE_VERSION).toBe("kv-ab-re/4");
+    expect(TEMPLATE_VERSION).toBe("kv-ab-re/5");
     expect(html).toContain(`content="${TEMPLATE_VERSION}"`);
     expect(html).toContain(`Vorlage ${TEMPLATE_VERSION}`);
     expect(text).toContain(TEMPLATE_VERSION);
@@ -370,5 +370,275 @@ describe("Logo im Briefkopf", () => {
     }
     const { pdf } = await rendered({ kind: "KV", deal: { ...deal, firma: "ceylan" }, quotation: priceSourceFromStored(quotation()) } as RenderInput);
     expect(await bilderSeite1(pdf)).toBe(0);
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════
+// Plan 5b: Wählbare Optionen und Stunden-KV (Vorlage kv-ab-re/5)
+// ════════════════════════════════════════════════════════════════════════
+
+const ceylan: DealFacts = { ...deal, firma: "ceylan" };
+const NOTE_SIE = "Den Preis legen Sie mit Ihrer Wahl im Kundenportal fest.";
+const NOTE_DU = "Den Preis legst du mit deiner Wahl im Kundenportal fest.";
+
+/** Komfort am Sa 21.11.: Kern 1.500 € plus Halteverbot 150 € plus Montage 240 €. */
+const komfortSamstag = lines([
+  ["Umzug Kern", 1, "1500.00"],
+  ["Halteverbot", 1, "150.00"],
+  ["Montage", 1, "240.00"],
+]);
+
+const paketeTage = {
+  packages: [
+    { slug: "basis", name: "Basis" },
+    { slug: "komfort", name: "Komfort" },
+    { slug: "premium", name: "Premium" },
+  ],
+  days: ["2026-11-20", "2026-11-21"],
+  prices: [
+    { packageSlug: "basis", date: "2026-11-20", priceCents: 140000 },
+    { packageSlug: "komfort", date: "2026-11-20", priceCents: 178000 },
+    { packageSlug: "premium", date: "2026-11-20", priceCents: 221000 },
+    { packageSlug: "basis", date: "2026-11-21", priceCents: 150000 },
+    { packageSlug: "komfort", date: "2026-11-21", priceCents: 189000 },
+    { packageSlug: "premium", date: "2026-11-21", priceCents: 234000 },
+  ],
+  current: { packageSlug: "komfort", date: "2026-11-21" },
+};
+
+describe("Wählbare Optionen (kv-ab-re/5)", () => {
+  it("Pakete × Tage: Posten der Wahl wie heute, Tabelle mit allen Kundenpreisen, Satz in Sie", async () => {
+    const { model, html, text } = await rendered({
+      kind: "KV",
+      deal: ceylan,
+      quotation: quotation({ fixedPrice: "1890.00", lineItems: komfortSamstag, depositRequiredCents: 30000 }),
+      packageOption: { displayName: "Komfort", priceCents: 189000, includedItems: ["Halteverbot"] },
+      choices: paketeTage,
+    });
+    expect(model.totalCents).toBe(189000);
+    expect(model.positions.map((p) => p.title)).toEqual(["Umzug Kern", "Halteverbot", "Montage"]);
+    expect(model.offerLabel).toBe("Preis für Komfort am Sa., 21.11.2026");
+    expect(model.choices?.layout).toBe("table");
+    expect(model.choices?.header).toEqual(["Termin", "Basis", "Komfort", "Premium"]);
+    expect(model.choices?.rows.map((r) => r.label)).toEqual(["Fr., 20.11.2026", "Sa., 21.11.2026"]);
+    expect(model.choices?.rows[1].cells.map((c) => [c.label.replace(/\s/g, " "), c.current])).toEqual([
+      ["1.500,00 €", false],
+      ["1.890,00 €", true],
+      ["2.340,00 €", false],
+    ]);
+    expect(model.choices?.note).toBe(NOTE_SIE);
+    expect(html).toContain("Wählbare Optionen");
+    expect(html).toContain(NOTE_SIE);
+    expect(html).toContain('<td class="num current"><strong>1.890,00');
+    for (const s of ["Wählbare Optionen", "Sa., 21.11.2026", "Fr., 20.11.2026", "2.210,00", "1.400,00", "Premium", NOTE_SIE]) {
+      expect(text).toContain(s);
+    }
+    expect(text).toContain("Preis für Komfort am Sa., 21.11.2026");
+  });
+
+  it("du-Anrede: der Satz folgt addressForm", async () => {
+    const { model, html } = await rendered({
+      kind: "KV",
+      deal: { ...ceylan, addressForm: "du", givenName: "Kyra" },
+      quotation: quotation({ fixedPrice: "1890.00", lineItems: komfortSamstag }),
+      choices: paketeTage,
+    });
+    expect(model.choices?.note).toBe(NOTE_DU);
+    expect(html).toContain(NOTE_DU);
+    expect(html).not.toContain(NOTE_SIE);
+  });
+
+  it("nur Tage: Liste Termin und Preis", async () => {
+    const { model, text } = await rendered({
+      kind: "KV",
+      deal: ceylan,
+      quotation: quotation({ fixedPrice: "1650.00", lineItems: lines([["Umzug", 1, "1650.00"]]) }),
+      choices: {
+        packages: [],
+        days: ["2026-11-19", "2026-11-21", "2026-11-23"],
+        prices: [
+          { packageSlug: null, date: "2026-11-19", priceCents: 155000 },
+          { packageSlug: null, date: "2026-11-21", priceCents: 165000 },
+          { packageSlug: null, date: "2026-11-23", priceCents: 149000 },
+        ],
+        current: { packageSlug: null, date: "2026-11-21" },
+      },
+    });
+    expect(model.choices?.layout).toBe("list");
+    expect(model.choices?.header).toEqual(["Termin", "Preis"]);
+    expect(model.choices?.rows.map((r) => r.label)).toEqual(["Do., 19.11.2026", "Sa., 21.11.2026", "Mo., 23.11.2026"]);
+    expect(model.choices?.rows.map((r) => r.cells[0].current)).toEqual([false, true, false]);
+    expect(model.offerLabel).toBe("Preis am Sa., 21.11.2026");
+    expect(text).toContain("1.490,00");
+    expect(text).toContain(NOTE_SIE);
+  });
+
+  it("nur Pakete: Liste Paket und Preis", async () => {
+    const { model } = await rendered({
+      kind: "KV",
+      deal: ceylan,
+      quotation: quotation({ fixedPrice: "1890.00", lineItems: komfortSamstag }),
+      packageOption: { displayName: "Komfort", priceCents: 189000, includedItems: [] },
+      choices: {
+        packages: paketeTage.packages,
+        days: [],
+        prices: [
+          { packageSlug: "basis", date: null, priceCents: 150000 },
+          { packageSlug: "komfort", date: null, priceCents: 189000 },
+          { packageSlug: "premium", date: null, priceCents: null },
+        ],
+        current: { packageSlug: "komfort", date: null },
+      },
+    });
+    expect(model.choices?.header).toEqual(["Paket", "Preis"]);
+    // Premium hat keinen Preis und erscheint nicht.
+    expect(model.choices?.rows.map((r) => r.label)).toEqual(["Basis", "Komfort"]);
+    expect(model.offerLabel).toBe("Preis für Komfort");
+  });
+
+  it("nimmt die Posten der Wahl aus der Version, wenn die der Quotation den Preis nicht ergeben", async () => {
+    const { model } = await rendered({
+      kind: "KV",
+      deal: ceylan,
+      quotation: quotation({ fixedPrice: "1890.00", lineItems: lines([["Umzug Kern", 1, "1720.00"]]) }),
+      packageOption: { displayName: "Komfort", priceCents: 189000, includedItems: ["Halteverbot"] },
+      choices: { ...paketeTage, currentLines: komfortSamstag },
+    });
+    expect(model.positions.map((p) => p.amountCents)).toEqual([150000, 15000, 24000]);
+    expect(model.scopeLines).toEqual([]);
+  });
+
+  it("eine einzige Wahl: kein Block, keine Überschrift", async () => {
+    const { model, html, text } = await rendered({
+      kind: "KV",
+      deal: ceylan,
+      quotation: quotation({ fixedPrice: "1890.00", lineItems: komfortSamstag }),
+      choices: {
+        packages: [{ slug: "komfort", name: "Komfort" }],
+        days: ["2026-11-21"],
+        prices: [{ packageSlug: "komfort", date: "2026-11-21", priceCents: 189000 }],
+        current: { packageSlug: "komfort", date: "2026-11-21" },
+      },
+    });
+    expect(model.choices).toBeUndefined();
+    expect(model.offerLabel).toBeUndefined();
+    expect(html).not.toContain("Wählbare Optionen");
+    expect(text).not.toContain("Kundenportal fest");
+  });
+
+  it("kein Block, wenn der Preis oben keiner der Wahlen entspricht", async () => {
+    const { model } = await rendered({
+      kind: "KV",
+      deal: ceylan,
+      quotation: quotation({ fixedPrice: "1999.00", lineItems: [] }),
+      choices: paketeTage,
+    });
+    expect(model.totalCents).toBe(199900);
+    expect(model.choices).toBeUndefined();
+  });
+
+  it("AB und Rechnung zeigen keine Wahl", async () => {
+    for (const kind of ["AB", "RE"] as const) {
+      const { model, html } = await rendered({
+        kind,
+        deal: ceylan,
+        quotation: quotation({ fixedPrice: "1890.00", lineItems: komfortSamstag }),
+        accepted: kind === "AB" ? { isVariable: false, fixedPrice: "1890.00", lineItems: komfortSamstag } : null,
+        choices: paketeTage,
+      });
+      expect(model.choices).toBeUndefined();
+      expect(html).not.toContain("Wählbare Optionen");
+    }
+  });
+});
+
+const STUNDEN = {
+  helfer: 2,
+  transporter: 1,
+  stundenGeschaetzt: 6.5,
+  mindestStunden: 3,
+  satzHelferEur: 35,
+  satzTransporterEur: 25,
+  // 95 €/h × 6,5 h = 617,50 € plus Halteverbot 150 €
+  summeGeschaetztCent: 76750,
+  // 95 €/h × 3 h = 285 € plus Halteverbot 150 €
+  mindestbetragCent: 43500,
+  quelle: "version" as const,
+};
+
+function stundenAngebot(details: unknown) {
+  return priceSourceFromStored({
+    isVariable: true,
+    fixedPrice: null,
+    lineItems: lines([
+      ["Helfer", 2, "35.00", "helper"],
+      ["Transporter", 1, "25.00", "transporter"],
+      ["Halteverbot", 1, "150.00", "other"],
+    ]),
+    depositRequiredCents: null,
+    paymentMethodPreference: "cash",
+    validUntil: "2026-11-30",
+    summary: null,
+    serviceType: "move",
+    documentDetails: details,
+  });
+}
+
+describe("Stunden-KV aus der Version (kv-ab-re/5)", () => {
+  it("zeigt Stundensätze, Schätzung, Mindeststunden und den voraussichtlichen Betrag", async () => {
+    const { model, html, text } = await rendered({
+      kind: "KV",
+      deal: ceylan,
+      quotation: stundenAngebot({ stunden: STUNDEN, kitchen: { notes: "KUECHEN-NOTIZ-INTERN" } }),
+    });
+    expect(model.variable).toBe(true);
+    expect(model.totalCents).toBe(76750);
+    expect(model.totalCaption).toBe("Voraussichtlicher Gesamtbetrag");
+    expect(model.hourly?.rates.map((r) => [r.title, r.quantityLabel])).toEqual([
+      ["Helfer", "2 Pers."],
+      ["Transporter", "1"],
+    ]);
+    expect(model.hourly?.perHourLabel.replace(/\s/g, " ")).toBe("95,00 €");
+    expect(model.positions.map((p) => [p.title, p.quantityLabel, p.amountCents])).toEqual([
+      ["Geschätzter Aufwand", "6,5 Std.", 61750],
+      ["Halteverbot", "1", 15000],
+    ]);
+    expect(model.positions.reduce((s, p) => s + p.amountCents, 0)).toBe(model.totalCents);
+    expect(model.hourly?.minimumSentence.replace(/\s/g, " ")).toBe(
+      "Abgerechnet wird nach Aufwand, mindestens 3 Stunden (435,00 €)."
+    );
+    expect(model.choices).toBeUndefined();
+    for (const s of ["Stundensatz gesamt", "Satz je Std.", "Geschätzter Aufwand", "767,50", "617,50", "435,00", "mindestens 3 Stunden"]) {
+      expect(text).toContain(s);
+      expect(html).toContain(s);
+    }
+    expect(html).not.toContain("KUECHEN-NOTIZ-INTERN");
+    expect(text).not.toContain("KUECHEN-NOTIZ-INTERN");
+  });
+
+  it("ein Stunden-KV ohne Angaben aus der Version bleibt wie heute", async () => {
+    for (const details of [null, {}, { stunden: { ...STUNDEN, quelle: "alt" } }, { stunden: { ...STUNDEN, helfer: "2" } }]) {
+      const { model } = await rendered({ kind: "KV", deal: ceylan, quotation: stundenAngebot(details) });
+      expect(model.hourly).toBeUndefined();
+      // Heute: Summe der Posten (Stundensatz plus Halteverbot).
+      expect(model.totalCents).toBe(24500);
+      expect(model.positions).toHaveLength(3);
+    }
+  });
+
+  it("verweigert ein PDF, wenn Stunden und Posten nicht zusammenpassen", () => {
+    expect(() =>
+      buildDocumentModel({
+        kind: "KV",
+        deal: ceylan,
+        quotation: stundenAngebot({ stunden: { ...STUNDEN, summeGeschaetztCent: 80000 } }),
+      })
+    ).toThrow(/Stundenangaben passen nicht/);
+  });
+
+  it("Rechnung und AB nutzen die Stundenangaben nicht", async () => {
+    const { model } = await rendered({ kind: "RE", deal: ceylan, quotation: stundenAngebot({ stunden: STUNDEN }) });
+    expect(model.hourly).toBeUndefined();
+    expect(model.totalCents).toBe(24500);
   });
 });

@@ -1,3 +1,4 @@
+import { buildChoices } from "./choices";
 import { composeDocumentCopy, looksLikeCompanyName } from "./copy";
 import { issuerFor } from "./issuers";
 import { formatEur, formatGermanDate } from "./money";
@@ -41,6 +42,7 @@ export function buildDocumentModel(input: RenderInput): DocumentModel {
     quotation: input.quotation,
     accepted: input.accepted,
     packageOption: input.packageOption,
+    choiceLines: input.kind === "KV" ? input.choices?.currentLines ?? null : null,
   });
   const copy: DocumentCopy = {
     intro: cleanCopy(input.copy?.intro),
@@ -92,6 +94,11 @@ export function buildDocumentModel(input: RenderInput): DocumentModel {
     ? `${wording.service.label} · ${wording.service.detail}`
     : wording.service.label;
   const scopeLines = prices.scopeLines;
+  // Wählbare Optionen nur im KV mit Festpreis (Stunden-KV ohne Tagespreise, F15).
+  const choices =
+    input.kind === "KV" && !prices.variable
+      ? buildChoices({ choices: input.choices, totalCents, addressForm: wording.addressForm })
+      : null;
   const summary = withoutPriceSentences(cleanCopy(input.quotation.summary ?? undefined));
   const recipientLines = [recipientName, input.deal.customerAddress?.trim() || undefined].filter(
     (line): line is string => Boolean(line)
@@ -124,7 +131,9 @@ export function buildDocumentModel(input: RenderInput): DocumentModel {
     intro: wording.intro.map((line) => cleanCopy(line) ?? "").filter(Boolean),
     summary,
     scopeLines,
+    ...(choices ? { offerLabel: choices.offerLabel, choices: choices.view } : {}),
     positions: prices.positions,
+    ...(prices.hourly ? { hourly: prices.hourly } : {}),
     totalCents,
     totalLabel: formatEur(totalCents),
     totalCaption: prices.totalCaption,
