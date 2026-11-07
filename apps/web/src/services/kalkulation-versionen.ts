@@ -11,6 +11,7 @@
  * Alle Abhängigkeiten sind über `VersionsOptionen` austauschbar; die
  * Vorgaben laden DB-Lader erst beim Aufruf (Tests berühren `@/db` nie).
  */
+import { preisHashMitStunden } from "@/lib/stunden-preis-hash";
 import {
   anzahlungPasst,
   kernBefund,
@@ -1167,8 +1168,12 @@ export function plan5Preise(
   if (modus === "stunden") {
     const stunden = e.stunden ? stundenPosten(e.stunden) : null;
     const stundenCent = e.stunden ? Math.round(e.stunden.summeGeschaetztEur * 100) : null;
-    const hash = preisHash(
-      kundenPreiseOhnePosten({ schalter: k.schalter, pricingMode: "stunden", hauptCent: null, packagePrices: [], dayPrices: [], stundenCent, empfohlenesPaket: null })
+    // M4: Stunden-Anteil (Sätze, Helfer, Transporter, Mindestbetrag), wie auf der Seite.
+    const hash = preisHashMitStunden(
+      preisHash(
+        kundenPreiseOhnePosten({ schalter: k.schalter, pricingMode: "stunden", hauptCent: null, packagePrices: [], dayPrices: [], stundenCent, empfohlenesPaket: null })
+      ),
+      e.stunden
     );
     const preise: VersionsPreise = {
       pricingMode: "stunden",

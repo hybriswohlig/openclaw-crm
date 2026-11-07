@@ -3,6 +3,7 @@
  * Anpassungen der neuen Arten, „Tage anbieten“ und Raster. Posten je Wahl (Task P)
  * sind ersetzt: je Wahl ein Kern-Posten mit genau dem Preis.
  */
+import { preisHashMitStunden } from "@/lib/stunden-preis-hash";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@/db", () => ({
@@ -440,6 +441,21 @@ describe("Stunden-KV aus der Version", () => {
     f.setzeExtra({ schaetzung: { festpreisVon: 1190, festpreisBis: 1490, annahmen: [] } });
     await entwurfHolenOderAnlegen("ws", "deal1", MENSCH, f.deps);
     expect(await fehler(sperren("ws", "deal1", 1, MENSCH, {}, f.deps))).toMatchObject({ code: "SPANNE" });
+  });
+
+  it("preisHash deckt im Stundenmodus Sätze, Helfer, Transporter und Mindestbetrag (M4)", async () => {
+    const t = aufbau();
+    await stundenEntwurf(t);
+    const gezeigt = preisHashMitStunden("-@-=52250", STUNDEN);
+    // Gleiche Schätzung (522,50 €), andere Aufteilung: 1 Helfer × 70 € statt 2 × 35 €.
+    const anders: RechnerStunden = { ...STUNDEN, helfer: 1, satzHelferEur: 70 };
+    t.setzeExtra({ stunden: anders });
+    t.zeilen[0].rechnerResult = { ...t.zeilen[0].rechnerResult!, stunden: anders };
+    expect(await fehler(sperren("ws", "deal1", 1, MENSCH, { erwartetPreisHash: gezeigt }, t.deps))).toMatchObject({ code: "PREIS_GEAENDERT" });
+    t.setzeExtra({ stunden: STUNDEN });
+    t.zeilen[0].rechnerResult = { ...t.zeilen[0].rechnerResult!, stunden: STUNDEN };
+    await sperren("ws", "deal1", 1, MENSCH, { erwartetPreisHash: gezeigt }, t.deps);
+    expect(t.zeilen[0]).toMatchObject({ status: "gesperrt", pricingMode: "stunden" });
   });
 
   it("Agent sperrt keinen Stunden-KV → STUNDEN_NUR_MENSCH", async () => {

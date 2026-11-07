@@ -4,6 +4,7 @@
  * Reine Typen und reine Funktionen, ohne Server-Importe: die Oberfläche
  * importiert diese Datei.
  */
+import { preisHashMitStunden } from "@/lib/stunden-preis-hash";
 import {
   anzahlungPasst,
   kernBefund,
@@ -1247,7 +1248,8 @@ function plan5Ansicht(
     tage,
     stunden,
     kern,
-    preisHash: preisHash(ohnePosten),
+    // M4: im Stundenmodus mit Sätzen, Helfern, Transportern und Mindestbetrag (wie beim Sperren).
+    preisHash: modus === "stunden" ? preisHashMitStunden(preisHash(ohnePosten), s) : preisHash(ohnePosten),
     ...(kvNeu !== undefined ? { kv: kvNeu } : {}),
     regelPreise,
     sperrGrund: gesperrt ? null : sperrGrund,
