@@ -16,7 +16,9 @@ export const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-/i;
 export function ergebnisMitUuid(mietstation = true) {
   const e = weberErgebnis();
   e.kosten!.posten = (e.kosten!.posten ?? []).map((p) =>
-    p.key?.startsWith("fahrzeug.sprinter_l.") ? { ...p, key: p.key.replace("fahrzeug.sprinter_l.", `fahrzeug.${KLASSE}@${STATION_NEU}.`) } : p
+    p.key?.startsWith("fahrzeug.sprinter@sixt-feuerbach.")
+      ? { ...p, key: p.key.replace("fahrzeug.sprinter@sixt-feuerbach.", `fahrzeug.${KLASSE}@${STATION_NEU}.`) }
+      : p
   );
   if (!mietstation) e.mietstation = null;
   return e;

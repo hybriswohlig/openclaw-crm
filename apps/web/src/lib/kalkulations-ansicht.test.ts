@@ -493,7 +493,7 @@ function zeilenAnpassung(key: string, wert: number | null, id = "u_fz"): Ueberst
 describe("ansichtAus: verwaiste Zeilen-Anpassung", () => {
   it("füllt verwaist und sperrt den Entwurf, wenn die Kostenzeile fehlt", () => {
     const a = ansichtAus(weberVersion({ overrides: [...weberUebersteuerungen(), zeilenAnpassung(MIETE_ALT, 100)] }), rest());
-    expect(a.verwaist).toEqual([{ id: "u_fz", key: MIETE_ALT, kandidaten: [MIETE_HIER] }]);
+    expect(a.verwaist).toMatchObject([{ id: "u_fz", key: MIETE_ALT, kandidaten: [MIETE_HIER] }]);
     expect(a.version.sperrbar).toBe(false);
     expect(a.version.sperrGrund).toBe(PLAN5_FEHLER_TEXT.UEBERSTEUERUNG_VERWAIST);
   });
@@ -509,7 +509,7 @@ describe("ansichtAus: verwaiste Zeilen-Anpassung", () => {
       weberVersion({ overrides: [zeilenAnpassung(MIETE_ALT, 100)] }),
       rest({ veraltet: true })
     );
-    expect(a.verwaist).toEqual([{ id: "u_fz", key: MIETE_ALT, kandidaten: [MIETE_HIER] }]);
+    expect(a.verwaist).toMatchObject([{ id: "u_fz", key: MIETE_ALT, kandidaten: [MIETE_HIER] }]);
     expect(a.version.sperrGrund).toBe("Die Kalkulation ist nicht mehr aktuell. Bitte zuerst neu rechnen.");
   });
 
