@@ -6,23 +6,19 @@
  *
  * Ablauf: Job laden → VPS-Status `/jobs/{id}` (ohne Reservierung, damit ein
  * noch laufender Job den Browser nicht zwei Minuten blockiert) → bei „done“
- * reservieren → `/jobs/{id}/result` → `jobAblage` gegen die Version der
- * Quotation von jetzt → `createDealDocument` mit oder ohne Version, oder
- * verwerfen (F4) → Job abschließen.
+ * reservieren → `/jobs/{id}/result` → EINE Transaktion (`ablegenUnterSperre`):
+ * Deal-Sperre, eigene Reservierung prüfen, Version unter der Sperre neu lesen,
+ * `jobAblage`, Dokument anlegen oder verwerfen (F4), Job abschließen → nach dem
+ * Commit Nachläufe und Fälligkeit.
  */
+import { jobReservierbar, type JobAbschluss, type RenderJob } from "@/lib/angebot-wahl";
+import { jobLaden, jobReservieren } from "@/services/render-jobs";
 import {
-  jobAblage,
-  jobReservierbar,
-  type JobAbschluss,
-  type RenderJob,
-} from "@/lib/angebot-wahl";
-import { jobAbschliessen, jobLaden, jobReservieren } from "@/services/render-jobs";
-import {
-  angebotsVersionId,
-  createDealDocument,
+  dealDokumentNachlauf,
   parseFilenameFromContentDisposition,
   validateDealDocumentUpload,
 } from "@/services/deal-documents";
+import { abschliessenMitAnspruch, ablegenUnterSperre } from "@/services/kv-job-ablage";
 import { applyInvoiceDueDate } from "@/services/rechnung-faellig";
 
 export interface AbschlussOptionen {
@@ -75,8 +71,20 @@ function nichtReservierbar(job: RenderJob): JobAbschluss {
   }
 }
 
-async function fehlerAbschliessen(ws: string, job: RenderJob, fehler: string): Promise<AbschlussDetails> {
-  await jobAbschliessen(ws, job.vpsJobId, { status: "fehler", fehler });
+/** Endstand nach verlorener Reservierung: neu lesen, nie selbst schreiben. */
+async function neuGelesen(ws: string, vpsJobId: string): Promise<AbschlussDetails> {
+  const j = await jobLaden(ws, vpsJobId);
+  return { abschluss: j ? nichtReservierbar(j) : { status: "laeuft" }, job: j };
+}
+
+async function fehlerAbschliessen(
+  ws: string,
+  job: RenderJob & { claimedAt: string },
+  fehler: string
+): Promise<AbschlussDetails> {
+  if (!(await abschliessenMitAnspruch(ws, job.vpsJobId, job.claimedAt, { status: "fehler", fehler }))) {
+    return neuGelesen(ws, job.vpsJobId);
+  }
   return { abschluss: { status: "fehler", fehler }, job };
 }
 
@@ -112,14 +120,9 @@ export async function kvJobAbschliessenDetails(
   }
 
   // 2) Reservieren: ab hier arbeitet genau ein Aufrufer weiter.
-  const job = await jobReservieren(ws, vpsJobId, jetzt);
-  if (!job) {
-    const jetztGeladen = await jobLaden(ws, vpsJobId);
-    return {
-      abschluss: jetztGeladen ? nichtReservierbar(jetztGeladen) : { status: "laeuft" },
-      job: jetztGeladen,
-    };
-  }
+  const reserviert = await jobReservieren(ws, vpsJobId, jetzt);
+  if (!reserviert || reserviert.claimedAt === null) return neuGelesen(ws, vpsJobId);
+  const job = { ...reserviert, claimedAt: reserviert.claimedAt };
 
   if (vpsGone) return fehlerAbschliessen(ws, job, "Job auf dem VPS nicht mehr vorhanden");
   if (status.status === "error") return fehlerAbschliessen(ws, job, status.error || "Skill-Fehler auf dem VPS");
@@ -142,28 +145,30 @@ export async function kvJobAbschliessenDetails(
   const check = validateDealDocumentUpload({ fileName, fileSize: bytes.length, documentType: job.documentType });
   if (!check.ok) return fehlerAbschliessen(ws, job, check.error);
 
-  // 4) Version erst jetzt vergleichen: so kurz wie möglich vor dem Ablegen.
-  const quotationVersionId =
-    job.documentType === "quotation" && job.calculationVersionId !== null
-      ? await angebotsVersionId(job.dealRecordId)
-      : null;
-  const ablage = jobAblage(job, quotationVersionId);
-  if (ablage === "verwerfen") {
-    await jobAbschliessen(ws, job.vpsJobId, { status: "verworfen" });
-    return { abschluss: { status: "verworfen", grund: "version_veraltet" }, job };
+  // 4) Eine Transaktion unter der Deal-Sperre: genau einmal, nie veraltet.
+  let ablage: Awaited<ReturnType<typeof ablegenUnterSperre>>;
+  try {
+    ablage = await ablegenUnterSperre(job, {
+      fileName,
+      mimeType,
+      fileSize: bytes.length,
+      fileContent: bytes.toString("base64"),
+      documentType: check.documentType,
+    });
+  } catch (err) {
+    // Deal gelöscht oder in einem anderen Workspace: endgültig. Sonst nach Ablauf der Reservierung neu.
+    if (err instanceof Error && err.message === "Deal nicht gefunden.") return fehlerAbschliessen(ws, job, err.message);
+    console.error("[kv-job-abschluss]", vpsJobId, err);
+    return { abschluss: { status: "laeuft" }, job };
   }
+  if (ablage.art === "verloren") return neuGelesen(ws, vpsJobId);
+  if (ablage.art === "verworfen") return { abschluss: { status: "verworfen", grund: "version_veraltet" }, job };
+  const dokument = ablage.dokument;
 
-  const dokument = await createDealDocument({
-    workspaceId: ws,
-    dealRecordId: job.dealRecordId,
-    documentType: check.documentType,
-    fileName,
-    fileSize: bytes.length,
-    mimeType,
-    fileContent: bytes.toString("base64"),
-    calculationVersionId: ablage === "mit_version" ? job.calculationVersionId : null,
-  });
-  await jobAbschliessen(ws, job.vpsJobId, { status: "abgelegt", dealDocumentId: dokument.id });
+  // Nachläufe erst nach dem Commit; Fehler dort brechen das Ablegen nicht.
+  await dealDokumentNachlauf({ workspaceId: ws, dealRecordId: job.dealRecordId }, dokument.documentType).catch((err) =>
+    console.error("[kv-job-abschluss] Nachlauf", err)
+  );
 
   // 5) Rechnung: „Rechnung fällig am“ wie bisher in store-as-document.
   const faellig = await applyInvoiceDueDate({

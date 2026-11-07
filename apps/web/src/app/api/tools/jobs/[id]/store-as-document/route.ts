@@ -14,18 +14,10 @@
 // (`document_render_jobs`). Abgelegt wird über `kvJobAbschliessen`, dieselbe Stelle
 // wie im Cron, mit Reservierung (nie doppelt) und Versionsbezug beim KV. Ein Job
 // ohne Eintrag, aus einem anderen Workspace, mit anderem Deal oder anderem Typ
-// ergibt 404. Ausnahme: Auftragsanweisungen (eigener Skill, nicht im Register)
-// laufen wie bisher, aber nur, wenn der VPS wirklich ein „AW-…“-PDF liefert.
+// ergibt 404, ohne Ausnahme (auch Auftragsanweisungen stehen im Register).
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthContext, unauthorized, badRequest } from "@/lib/api-utils";
-import {
-  createDealDocument,
-  deduceDocumentType,
-  parseFilenameFromContentDisposition,
-  validateDealDocumentUpload,
-} from "@/services/deal-documents";
 import { jobLaden } from "@/services/render-jobs";
-import { dealImWorkspace } from "@/lib/kalkulation-versionen-antwort";
 import { kvJobAbschliessenDetails } from "@/services/kv-job-abschluss";
 
 const CRM_TOOLS_API_URL = process.env.CRM_TOOLS_API_URL;
@@ -58,7 +50,8 @@ export async function POST(
   if (!body.dealRecordId) return badRequest("dealRecordId is required");
 
   const job = await jobLaden(ctx.workspaceId, id);
-  if (!job) return ohneRegister(ctx, id, body);
+  // Ohne Eintrag (fremder Workspace, nie registriert, vor dem Deploy gestartet): 404.
+  if (!job) return nichtGefunden();
   if (job.dealRecordId !== body.dealRecordId) return nichtGefunden();
   if (body.documentType !== undefined && body.documentType !== job.documentType) return nichtGefunden();
 
@@ -91,61 +84,4 @@ export async function POST(
     case "fehler":
       return NextResponse.json({ ...a, error: a.fehler }, { status: 502 });
   }
-}
-
-/** Bisheriger Weg, nur noch für Auftragsanweisungen (Skill `auftragsanweisung`). */
-async function ohneRegister(
-  ctx: { workspaceId: string },
-  id: string,
-  body: { dealRecordId?: string; documentType?: string }
-) {
-  if (!(await dealImWorkspace(ctx.workspaceId, body.dealRecordId!))) return nichtGefunden();
-  if (body.documentType !== undefined && body.documentType !== "worker_instructions") return nichtGefunden();
-
-  const upstream = await fetch(
-    `${CRM_TOOLS_API_URL}/jobs/${encodeURIComponent(id)}/result`,
-    { headers: { Authorization: `Bearer ${CRM_TOOLS_AUTH_TOKEN}` } }
-  );
-  if (!upstream.ok) {
-    const text = await upstream.text().catch(() => "");
-    return NextResponse.json(
-      { error: "result fetch failed", detail: text },
-      { status: upstream.status }
-    );
-  }
-
-  const filename = parseFilenameFromContentDisposition(upstream.headers.get("content-disposition"));
-  if (!filename || deduceDocumentType(filename) !== "worker_instructions") return nichtGefunden();
-  const bytes = Buffer.from(await upstream.arrayBuffer());
-  const contentType = (upstream.headers.get("content-type") ?? "application/pdf").split(";")[0].trim();
-
-  const check = validateDealDocumentUpload({
-    fileName: filename,
-    fileSize: bytes.length,
-    documentType: "worker_instructions",
-  });
-  if (!check.ok) {
-    return NextResponse.json({ error: check.error }, { status: check.status });
-  }
-
-  // Direkt einfügen, kein zweiter HTTP-Weg für das PDF.
-  const uploaded = await createDealDocument({
-    workspaceId: ctx.workspaceId,
-    dealRecordId: body.dealRecordId!,
-    documentType: check.documentType,
-    fileName: filename,
-    fileSize: bytes.length,
-    mimeType: contentType || "application/pdf",
-    fileContent: bytes.toString("base64"),
-    calculationVersionId: null,
-  });
-
-  return NextResponse.json({
-    status: "abgelegt",
-    dealDocumentId: uploaded.id,
-    document: { data: uploaded },
-    deducedDocumentType: check.documentType,
-    filename,
-    rechnungFaelligAm: null,
-  });
 }

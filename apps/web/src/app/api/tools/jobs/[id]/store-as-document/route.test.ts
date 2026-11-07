@@ -15,30 +15,13 @@ const mocks = vi.hoisted(() => {
   process.env.CRM_TOOLS_AUTH_TOKEN = "tools-token";
   return {
     getAuthContext: vi.fn(),
-    createDealDocument: vi.fn(),
     applyInvoiceDueDate: vi.fn(),
-    angebotsVersionId: vi.fn(),
-    jobs: new Map<string, RenderJob>(),
   };
 });
 
-// Job-Register (Task B) als Speicher im Test, gleiche Semantik.
-vi.mock("@/services/render-jobs", () => ({
-  jobLaden: async (ws: string, id: string) => {
-    const j = mocks.jobs.get(id);
-    return j && j.workspaceId === ws ? { ...j } : null;
-  },
-  jobReservieren: async (ws: string, id: string, jetzt: Date) => {
-    const j = mocks.jobs.get(id);
-    if (!j || j.workspaceId !== ws || j.status !== "laeuft" || j.claimedAt) return null;
-    j.claimedAt = jetzt.toISOString();
-    return { ...j };
-  },
-  jobAbschliessen: async (ws: string, id: string, e: { status: RenderJob["status"]; dealDocumentId?: string }) => {
-    const j = mocks.jobs.get(id);
-    if (j && j.workspaceId === ws) Object.assign(j, { status: e.status, dealDocumentId: e.dealDocumentId ?? null });
-  },
-}));
+// Job-Register und Ablage als Speicher im Test (render-jobs.fake.ts, gleiche Semantik).
+vi.mock("@/services/render-jobs", async () => (await import("@/services/render-jobs.fake")).fake.renderJobs);
+vi.mock("@/services/kv-job-ablage", async () => (await import("@/services/render-jobs.fake")).fake.ablage);
 
 const dealImWorkspaceMock = vi.hoisted(() => vi.fn(async (_ws: string, _deal: string) => true));
 vi.mock("@/lib/kalkulation-versionen-antwort", async (importOriginal) => ({
@@ -52,7 +35,7 @@ vi.mock("@/lib/api-utils", async (importOriginal) => {
 
 vi.mock("@/services/deal-documents", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/services/deal-documents")>();
-  return { ...actual, createDealDocument: mocks.createDealDocument, angebotsVersionId: mocks.angebotsVersionId };
+  return { ...actual, dealDokumentNachlauf: vi.fn(async () => {}) };
 });
 
 vi.mock("@/services/rechnung-faellig", () => ({
@@ -60,6 +43,7 @@ vi.mock("@/services/rechnung-faellig", () => ({
 }));
 
 import { POST } from "./route";
+import { fake } from "@/services/render-jobs.fake";
 
 const WORKSPACE_ID = "ws_kottke_prod";
 const DEAL_ID = "6e9256ac-a253-4b4e-b49d-0a7845e9f940";
@@ -75,20 +59,12 @@ const AUTH_CTX = {
 const fetchMock = vi.fn();
 
 function registriert(teil: Partial<RenderJob> = {}) {
-  mocks.jobs.set(JOB_ID, {
+  fake.job({
     vpsJobId: JOB_ID,
     workspaceId: WORKSPACE_ID,
     dealRecordId: DEAL_ID,
-    documentType: "quotation",
     calculationVersionId: null,
     priceCents: null,
-    status: "laeuft",
-    createdBy: "usr_1",
-    createdAt: new Date().toISOString(),
-    claimedAt: null,
-    storedAt: null,
-    dealDocumentId: null,
-    fehler: null,
     ...teil,
   });
 }
@@ -128,21 +104,12 @@ function vpsPdfResponse(bytes: Buffer, filename: string) {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mocks.jobs.clear();
+  fake.reset();
   registriert();
-  mocks.angebotsVersionId.mockResolvedValue(null);
   fetchMock.mockReset();
   vi.stubGlobal("fetch", fetchMock);
   mocks.getAuthContext.mockResolvedValue(AUTH_CTX);
   mocks.applyInvoiceDueDate.mockResolvedValue({ rechnungFaelligAm: null });
-  mocks.createDealDocument.mockResolvedValue({
-    id: "doc_1",
-    documentType: "quotation",
-    fileName: "KV-KO-20260907-FLO-2.pdf",
-    fileSize: 100,
-    mimeType: "application/pdf",
-    uploadedAt: new Date("2026-09-07T10:00:00.000Z"),
-  });
 });
 
 describe("POST /api/tools/jobs/[id]/store-as-document", () => {
@@ -165,8 +132,8 @@ describe("POST /api/tools/jobs/[id]/store-as-document", () => {
       `https://crm-tools.test/jobs/${JOB_ID}/result`,
     ]);
 
-    expect(mocks.createDealDocument).toHaveBeenCalledTimes(1);
-    expect(mocks.createDealDocument).toHaveBeenCalledWith(
+    expect(fake.createDealDocument).toHaveBeenCalledTimes(1);
+    expect(fake.createDealDocument).toHaveBeenCalledWith(
       expect.objectContaining({
         workspaceId: WORKSPACE_ID,
         dealRecordId: DEAL_ID,
@@ -176,14 +143,14 @@ describe("POST /api/tools/jobs/[id]/store-as-document", () => {
         mimeType: "application/pdf",
       })
     );
-    const stored = mocks.createDealDocument.mock.calls[0][0];
+    const stored = fake.createDealDocument.mock.calls[0][0];
     expect(stored.fileContent).toBe(pdf.toString("base64"));
   });
 
   it("KV vom VPS: ohne Kalkulationsversion gespeichert, das Ergebnis trägt keine Job-Parameter (Review 4)", async () => {
     vpsFertig(vpsPdfResponse(Buffer.from("%PDF-1.7\n", "binary"), "KV-KO-20261106-FLO.pdf"));
     expect((await callStore()).status).toBe(200);
-    expect(mocks.createDealDocument).toHaveBeenCalledWith(
+    expect(fake.createDealDocument).toHaveBeenCalledWith(
       expect.objectContaining({ documentType: "quotation", calculationVersionId: null })
     );
   });
@@ -199,8 +166,8 @@ describe("POST /api/tools/jobs/[id]/store-as-document", () => {
     expect(res.status).toBe(502);
     expect(body).toMatchObject({ status: "fehler", error: "File too large (max 10 MB)" });
     expect(body.error).not.toBe("upload failed");
-    expect(mocks.createDealDocument).not.toHaveBeenCalled();
-    expect(mocks.jobs.get(JOB_ID)?.status).toBe("fehler");
+    expect(fake.createDealDocument).not.toHaveBeenCalled();
+    expect(fake.jobs.get(JOB_ID)?.status).toBe("fehler");
   });
 
   it("passes through an explicit documentType and does not hop the PDF", async () => {
@@ -213,7 +180,7 @@ describe("POST /api/tools/jobs/[id]/store-as-document", () => {
     });
 
     expect(res.status).toBe(200);
-    expect(mocks.createDealDocument).toHaveBeenCalledWith(
+    expect(fake.createDealDocument).toHaveBeenCalledWith(
       expect.objectContaining({ documentType: "quotation", fileName: "custom.pdf" })
     );
     expect(fetchMock).toHaveBeenCalledTimes(2);
@@ -291,24 +258,24 @@ describe("POST /api/tools/jobs/[id]/store-as-document", () => {
 
     it("KV mit Version: legt mit Versionsbezug ab", async () => {
       registriert({ calculationVersionId: "ver_3", priceCents: 172000 });
-      mocks.angebotsVersionId.mockResolvedValue("ver_3");
+      fake.angebotsVersionId.mockResolvedValue("ver_3");
       vpsFertig(kvPdf());
       const res = await callStore({ dealRecordId: DEAL_ID, documentType: "quotation" });
       expect(res.status).toBe(200);
       expect(await res.json()).toMatchObject({ status: "abgelegt", dealDocumentId: "doc_1" });
-      expect(mocks.createDealDocument).toHaveBeenCalledWith(
+      expect(fake.createDealDocument).toHaveBeenCalledWith(
         expect.objectContaining({ documentType: "quotation", calculationVersionId: "ver_3" })
       );
     });
 
     it("KV einer veralteten Version: 409 verworfen, nichts abgelegt", async () => {
       registriert({ calculationVersionId: "ver_3" });
-      mocks.angebotsVersionId.mockResolvedValue("ver_4");
+      fake.angebotsVersionId.mockResolvedValue("ver_4");
       vpsFertig(kvPdf());
       const res = await callStore();
       expect(res.status).toBe(409);
       expect(await res.json()).toMatchObject({ status: "verworfen", grund: "version_veraltet" });
-      expect(mocks.createDealDocument).not.toHaveBeenCalled();
+      expect(fake.createDealDocument).not.toHaveBeenCalled();
     });
 
     it("schon vom Cron abgelegt: 200 schon_erledigt, kein zweites Dokument", async () => {
@@ -318,7 +285,7 @@ describe("POST /api/tools/jobs/[id]/store-as-document", () => {
       expect(res.status).toBe(200);
       expect(await res.json()).toEqual({ status: "schon_erledigt", dealDocumentId: "doc_cron" });
       expect(fetchMock).not.toHaveBeenCalled();
-      expect(mocks.createDealDocument).not.toHaveBeenCalled();
+      expect(fake.createDealDocument).not.toHaveBeenCalled();
     });
 
     it("gerade vom Cron reserviert: 202 läuft", async () => {
@@ -327,15 +294,15 @@ describe("POST /api/tools/jobs/[id]/store-as-document", () => {
       const res = await callStore();
       expect(res.status).toBe(202);
       expect(await res.json()).toEqual({ status: "laeuft" });
-      expect(mocks.createDealDocument).not.toHaveBeenCalled();
+      expect(fake.createDealDocument).not.toHaveBeenCalled();
     });
 
     it("Job ohne Eintrag: 404 (fremde jobId), nichts abgelegt", async () => {
-      mocks.jobs.clear();
+      fake.jobs.clear();
       vpsFertig(kvPdf());
       const res = await callStore();
       expect(res.status).toBe(404);
-      expect(mocks.createDealDocument).not.toHaveBeenCalled();
+      expect(fake.createDealDocument).not.toHaveBeenCalled();
     });
 
     it("Job aus einem anderen Workspace: 404", async () => {
@@ -343,7 +310,7 @@ describe("POST /api/tools/jobs/[id]/store-as-document", () => {
       vpsFertig(kvPdf());
       const res = await callStore();
       expect(res.status).toBe(404);
-      expect(mocks.createDealDocument).not.toHaveBeenCalled();
+      expect(fake.createDealDocument).not.toHaveBeenCalled();
     });
 
     it("anderer Deal als im Register: 404, kein Abruf beim VPS", async () => {
@@ -351,7 +318,7 @@ describe("POST /api/tools/jobs/[id]/store-as-document", () => {
       const res = await callStore({ dealRecordId: "deal_fremd" });
       expect(res.status).toBe(404);
       expect(fetchMock).not.toHaveBeenCalled();
-      expect(mocks.createDealDocument).not.toHaveBeenCalled();
+      expect(fake.createDealDocument).not.toHaveBeenCalled();
     });
 
     it("anderer Typ als im Register: 404", async () => {
@@ -361,22 +328,23 @@ describe("POST /api/tools/jobs/[id]/store-as-document", () => {
       expect(fetchMock).not.toHaveBeenCalled();
     });
 
-    it("Auftragsanweisung (eigener Skill, ohne Eintrag): wie bisher abgelegt", async () => {
-      mocks.jobs.clear();
-      fetchMock.mockResolvedValueOnce(vpsPdfResponse(Buffer.from("%PDF-1.7\n", "binary"), "AW-KO-20261107-FLO.pdf"));
+    it("Auftragsanweisung aus dem Register: abgelegt wie jeder Job", async () => {
+      registriert({ documentType: "worker_instructions", calculationVersionId: null });
+      vpsFertig(vpsPdfResponse(Buffer.from("%PDF-1.7\n", "binary"), "AW-KO-20261107-FLO.pdf"));
       const res = await callStore({ dealRecordId: DEAL_ID, documentType: "worker_instructions" });
       expect(res.status).toBe(200);
-      expect(mocks.createDealDocument).toHaveBeenCalledWith(
+      expect(fake.createDealDocument).toHaveBeenCalledWith(
         expect.objectContaining({ documentType: "worker_instructions", calculationVersionId: null })
       );
     });
 
-    it("ohne Eintrag als Auftragsanweisung getarnt, aber der VPS liefert einen KV: 404", async () => {
-      mocks.jobs.clear();
-      fetchMock.mockResolvedValueOnce(kvPdf());
+    it("unregistrierte Auftragsanweisung (z. B. fremder Workspace): 404 ohne VPS-Abruf (Fund 4)", async () => {
+      fake.jobs.clear();
+      fetchMock.mockResolvedValue(vpsPdfResponse(Buffer.from("%PDF-1.7\n", "binary"), "AW-KO-20261107-FLO.pdf"));
       const res = await callStore({ dealRecordId: DEAL_ID, documentType: "worker_instructions" });
       expect(res.status).toBe(404);
-      expect(mocks.createDealDocument).not.toHaveBeenCalled();
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(fake.createDealDocument).not.toHaveBeenCalled();
     });
   });
 });

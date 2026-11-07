@@ -9,11 +9,12 @@ import { inboxMessageAttachments } from "@/db/schema/inbox";
 import { and, eq, inArray } from "drizzle-orm";
 import { findDealInternalPhotosByIds } from "@/services/deal-photos";
 import { rewriteKundeParamsFromDeal } from "@/services/doc-customer-name";
-import { attachDocumentJobContext, type KvJobBezug } from "@/services/document-job-context";
+import {
+  assertDealInWorkspace,
+  attachDocumentJobContext,
+  type KvJobBezug,
+} from "@/services/document-job-context";
 import { jobAnlegen } from "@/services/render-jobs";
-
-/** Skill, dessen Jobs ins Job-Register gehen (Plan 5a, Entscheidung 6). */
-const REGISTER_SKILL = "rechnungen-und-auftragsbestaetigungen";
 
 /** Dokumentart des Skills → Typ in `deal_documents` (wie `store-as-document`). */
 const DOKUMENT_TYP: Record<string, string> = {
@@ -21,6 +22,19 @@ const DOKUMENT_TYP: Record<string, string> = {
   AB: "order_confirmation",
   RE: "invoice",
 };
+
+/**
+ * Typ des Register-Eintrags (Plan 5a, Entscheidung 6 und Fix-Welle Fund 4):
+ * Rechnungs-Skill nach `document_type`, Auftragsanweisung immer
+ * `worker_instructions`. Andere Skills kommen nicht ins Register.
+ */
+function registerTyp(skill: string, params: Record<string, unknown>): string | null {
+  if (skill === "auftragsanweisung") return "worker_instructions";
+  if (skill === "rechnungen-und-auftragsbestaetigungen") {
+    return DOKUMENT_TYP[String(params.document_type ?? "").toUpperCase()] ?? null;
+  }
+  return null;
+}
 
 const CRM_TOOLS_API_URL = process.env.CRM_TOOLS_API_URL;
 const CRM_TOOLS_AUTH_TOKEN = process.env.CRM_TOOLS_AUTH_TOKEN;
@@ -102,6 +116,13 @@ export async function POST(req: NextRequest) {
         );
       }
     }
+  }
+
+  // Deal für das Register. Beim Rechnungs-Skill prüft attachDocumentJobContext den
+  // Workspace; bei der Auftragsanweisung hier, vor dem Start auf dem VPS.
+  const registerDeal = typeof params._deal_record_id === "string" ? params._deal_record_id : null;
+  if (registerDeal && body.skill === "auftragsanweisung" && !(await assertDealInWorkspace(ctx.workspaceId, registerDeal))) {
+    return NextResponse.json({ error: "Auftrag gehört nicht zu diesem Workspace." }, { status: 400 });
   }
 
   const requestedIds = Array.isArray(params._image_attachment_ids)
@@ -231,17 +252,15 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Job-Register: nur dieser Skill und nur mit Deal. Der Deal ist hier schon
-  // geprüft (attachDocumentJobContext wirft bei fremdem Workspace).
-  const dealRecordId = typeof params._deal_record_id === "string" ? params._deal_record_id : null;
+  // Job-Register: Dokument-Skills mit Deal. Abgelegt wird nur, was hier steht.
   const jobId = (data as { job_id?: unknown }).job_id;
-  const documentType = DOKUMENT_TYP[String(params.document_type ?? "").toUpperCase()];
-  if (body.skill === REGISTER_SKILL && dealRecordId && typeof jobId === "string" && documentType) {
+  const documentType = registerTyp(body.skill, params);
+  if (registerDeal && typeof jobId === "string" && documentType) {
     try {
       await jobAnlegen({
         vpsJobId: jobId,
         workspaceId: ctx.workspaceId,
-        dealRecordId,
+        dealRecordId: registerDeal,
         documentType,
         calculationVersionId: documentType === "quotation" ? (kvBezug?.calculationVersionId ?? null) : null,
         priceCents: documentType === "quotation" ? (kvBezug?.priceCents ?? null) : null,

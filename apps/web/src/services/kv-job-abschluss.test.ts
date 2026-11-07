@@ -1,77 +1,31 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { RENDER_JOB_RESERVIERUNG_MS, type RenderJob } from "@/lib/angebot-wahl";
 
-// Job-Register als Speicher im Test, mit derselben Semantik wie Task B
-// (Reservierung: status 'laeuft' und Anspruch frei oder älter als 2 Minuten).
+// Job-Register und Ablage als Speicher im Test (render-jobs.fake.ts, gleiche
+// Semantik). Die echte Transaktion prüft kv-job-ablage.db.test.ts.
 const m = vi.hoisted(() => {
   process.env.CRM_TOOLS_API_URL = "https://crm-tools.test";
   process.env.CRM_TOOLS_AUTH_TOKEN = "tools-token";
-  const jobs = new Map<string, RenderJob>();
-  return {
-    jobs,
-    createDealDocument: vi.fn(),
-    angebotsVersionId: vi.fn(),
-    applyInvoiceDueDate: vi.fn(),
-    jobReservieren: vi.fn(async (ws: string, id: string, jetzt: Date) => {
-      const j = jobs.get(id);
-      if (!j || j.workspaceId !== ws || j.status !== "laeuft") return null;
-      if (j.claimedAt && jetzt.getTime() - new Date(j.claimedAt).getTime() < 2 * 60 * 1000) return null;
-      j.claimedAt = jetzt.toISOString();
-      return { ...j };
-    }),
-    jobAbschliessen: vi.fn(
-      async (ws: string, id: string, e: { status: RenderJob["status"]; dealDocumentId?: string; fehler?: string }) => {
-        const j = jobs.get(id);
-        if (!j || j.workspaceId !== ws) return;
-        j.status = e.status;
-        j.dealDocumentId = e.dealDocumentId ?? null;
-        j.fehler = e.fehler ?? null;
-      }
-    ),
-  };
+  return { applyInvoiceDueDate: vi.fn(), dealDokumentNachlauf: vi.fn() };
 });
 
-vi.mock("@/services/render-jobs", () => ({
-  jobLaden: async (ws: string, id: string) => {
-    const j = m.jobs.get(id);
-    return j && j.workspaceId === ws ? { ...j } : null;
-  },
-  jobReservieren: m.jobReservieren,
-  jobAbschliessen: m.jobAbschliessen,
-}));
+vi.mock("@/services/render-jobs", async () => (await import("@/services/render-jobs.fake")).fake.renderJobs);
+vi.mock("@/services/kv-job-ablage", async () => (await import("@/services/render-jobs.fake")).fake.ablage);
 vi.mock("@/services/deal-documents", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/services/deal-documents")>()),
-  createDealDocument: m.createDealDocument,
-  angebotsVersionId: m.angebotsVersionId,
+  dealDokumentNachlauf: m.dealDokumentNachlauf,
 }));
 vi.mock("@/services/rechnung-faellig", () => ({ applyInvoiceDueDate: m.applyInvoiceDueDate }));
 
+import { fake } from "@/services/render-jobs.fake";
 import { kvJobAbschliessen, kvJobAbschliessenDetails } from "./kv-job-abschluss";
 
 const WS = "ws_kottke";
 const DEAL = "deal_1";
 const JETZT = new Date("2026-11-07T10:00:00.000Z");
 
-function job(teil: Partial<RenderJob> = {}): RenderJob {
-  const j: RenderJob = {
-    vpsJobId: "job_1",
-    workspaceId: WS,
-    dealRecordId: DEAL,
-    documentType: "quotation",
-    calculationVersionId: "ver_3",
-    priceCents: 172000,
-    status: "laeuft",
-    createdBy: "usr_1",
-    createdAt: "2026-11-07T09:58:00.000Z",
-    claimedAt: null,
-    storedAt: null,
-    dealDocumentId: null,
-    fehler: null,
-    ...teil,
-  };
-  m.jobs.set(j.vpsJobId, j);
-  return j;
-}
+const job = (teil: Partial<RenderJob> = {}) =>
+  fake.job({ workspaceId: WS, dealRecordId: DEAL, createdAt: "2026-11-07T09:58:00.000Z", ...teil });
 
 const pdf = (name = "KV-KO-20261107-FLO.pdf") =>
   new Response(new Uint8Array(Buffer.from("%PDF-1.7\n", "binary")), {
@@ -89,19 +43,11 @@ function vps(s: Response | (() => Response), ergebnis: () => Response = () => pd
 }
 
 beforeEach(() => {
-  m.jobs.clear();
+  fake.reset();
   vi.clearAllMocks();
-  m.angebotsVersionId.mockResolvedValue("ver_3");
+  fake.angebotsVersionId.mockResolvedValue("ver_3");
   m.applyInvoiceDueDate.mockResolvedValue({ rechnungFaelligAm: null });
-  let n = 0;
-  m.createDealDocument.mockImplementation(async (input: { documentType: string; fileName: string; fileSize: number }) => ({
-    id: `doc_${++n}`,
-    documentType: input.documentType,
-    fileName: input.fileName,
-    fileSize: input.fileSize,
-    mimeType: "application/pdf",
-    uploadedAt: JETZT,
-  }));
+  m.dealDokumentNachlauf.mockResolvedValue(undefined);
 });
 
 describe("kvJobAbschliessen", () => {
@@ -109,7 +55,7 @@ describe("kvJobAbschliessen", () => {
     job();
     const r = await kvJobAbschliessen(WS, "job_1", { abruf: vps(status("done")), jetzt: JETZT });
     expect(r).toEqual({ status: "abgelegt", dealDocumentId: "doc_1" });
-    expect(m.createDealDocument).toHaveBeenCalledWith(
+    expect(fake.createDealDocument).toHaveBeenCalledWith(
       expect.objectContaining({
         workspaceId: WS,
         dealRecordId: DEAL,
@@ -118,33 +64,33 @@ describe("kvJobAbschliessen", () => {
         calculationVersionId: "ver_3",
       })
     );
-    expect(m.jobs.get("job_1")).toMatchObject({ status: "abgelegt", dealDocumentId: "doc_1" });
+    expect(fake.jobs.get("job_1")).toMatchObject({ status: "abgelegt", dealDocumentId: "doc_1" });
   });
 
   it("KV ohne Version (Altbestand): legt ohne Bezug ab und fragt die Quotation nicht", async () => {
     job({ calculationVersionId: null });
     const r = await kvJobAbschliessen(WS, "job_1", { abruf: vps(status("done")), jetzt: JETZT });
     expect(r.status).toBe("abgelegt");
-    expect(m.createDealDocument).toHaveBeenCalledWith(expect.objectContaining({ calculationVersionId: null }));
-    expect(m.angebotsVersionId).not.toHaveBeenCalled();
+    expect(fake.createDealDocument).toHaveBeenCalledWith(expect.objectContaining({ calculationVersionId: null }));
+    expect(fake.angebotsVersionId).not.toHaveBeenCalled();
   });
 
   it("AB: wie heute ohne Bezug", async () => {
     job({ documentType: "order_confirmation", calculationVersionId: null, priceCents: null });
     const r = await kvJobAbschliessen(WS, "job_1", { abruf: vps(status("done"), () => pdf("AB-KO-1.pdf")), jetzt: JETZT });
     expect(r.status).toBe("abgelegt");
-    expect(m.createDealDocument).toHaveBeenCalledWith(
+    expect(fake.createDealDocument).toHaveBeenCalledWith(
       expect.objectContaining({ documentType: "order_confirmation", calculationVersionId: null })
     );
   });
 
   it("KV einer veralteten Version: verworfen, nichts abgelegt (F4)", async () => {
     job();
-    m.angebotsVersionId.mockResolvedValue("ver_4");
+    fake.angebotsVersionId.mockResolvedValue("ver_4");
     const r = await kvJobAbschliessen(WS, "job_1", { abruf: vps(status("done")), jetzt: JETZT });
     expect(r).toEqual({ status: "verworfen", grund: "version_veraltet" });
-    expect(m.createDealDocument).not.toHaveBeenCalled();
-    expect(m.jobs.get("job_1")?.status).toBe("verworfen");
+    expect(fake.createDealDocument).not.toHaveBeenCalled();
+    expect(fake.jobs.get("job_1")?.status).toBe("verworfen");
     // Ein zweiter Aufruf meldet wieder „verworfen“, nicht „erledigt“.
     expect(await kvJobAbschliessen(WS, "job_1", { abruf: vps(status("done")), jetzt: JETZT })).toEqual({
       status: "verworfen",
@@ -156,8 +102,7 @@ describe("kvJobAbschliessen", () => {
     job();
     const abruf = vps(status("running"));
     expect(await kvJobAbschliessen(WS, "job_1", { abruf, jetzt: JETZT })).toEqual({ status: "laeuft" });
-    expect(m.jobReservieren).not.toHaveBeenCalled();
-    expect(m.jobs.get("job_1")?.claimedAt).toBeNull();
+    expect(fake.jobs.get("job_1")?.claimedAt).toBeNull();
     expect(abruf).toHaveBeenCalledTimes(1);
   });
 
@@ -168,8 +113,8 @@ describe("kvJobAbschliessen", () => {
       jetzt: JETZT,
     });
     expect(r).toEqual({ status: "fehler", fehler: "Job auf dem VPS nicht mehr vorhanden" });
-    expect(m.jobs.get("job_1")?.status).toBe("fehler");
-    expect(m.createDealDocument).not.toHaveBeenCalled();
+    expect(fake.jobs.get("job_1")?.status).toBe("fehler");
+    expect(fake.createDealDocument).not.toHaveBeenCalled();
   });
 
   it("Skill-Fehler auf dem VPS: „fehler“ mit dem Text des VPS", async () => {
@@ -182,7 +127,7 @@ describe("kvJobAbschliessen", () => {
     job();
     const r = await kvJobAbschliessen(WS, "job_1", { abruf: vps(new Response("x", { status: 502 })), jetzt: JETZT });
     expect(r).toEqual({ status: "laeuft" });
-    expect(m.jobs.get("job_1")?.status).toBe("laeuft");
+    expect(fake.jobs.get("job_1")?.status).toBe("laeuft");
   });
 
   it("fremder Workspace: kein Zugriff auf den Job", async () => {
@@ -191,7 +136,7 @@ describe("kvJobAbschliessen", () => {
     const r = await kvJobAbschliessen("ws_ceylan", "job_1", { abruf, jetzt: JETZT });
     expect(r.status).toBe("fehler");
     expect(abruf).not.toHaveBeenCalled();
-    expect(m.createDealDocument).not.toHaveBeenCalled();
+    expect(fake.createDealDocument).not.toHaveBeenCalled();
   });
 
   it("schon abgelegt: „schon_erledigt“ mit dem Dokument, kein zweiter Abruf", async () => {
@@ -217,7 +162,7 @@ describe("kvJobAbschliessen", () => {
       kvJobAbschliessen(WS, "job_1", { abruf: vps(status("done")), jetzt: JETZT }),
       kvJobAbschliessen(WS, "job_1", { abruf: vps(status("done")), jetzt: JETZT }),
     ]);
-    expect(m.createDealDocument).toHaveBeenCalledTimes(1);
+    expect(fake.createDealDocument).toHaveBeenCalledTimes(1);
     expect([a.status, b.status].sort()).toEqual(["abgelegt", "laeuft"]);
     // Danach sieht der Verlierer den Endstand.
     expect(await kvJobAbschliessen(WS, "job_1", { abruf: vps(status("done")), jetzt: JETZT })).toEqual({
@@ -254,6 +199,32 @@ describe("kvJobAbschliessen", () => {
       });
     const r = await kvJobAbschliessen(WS, "job_1", { abruf: vps(status("done"), gross), jetzt: JETZT });
     expect(r.status).toBe("fehler");
-    expect(m.createDealDocument).not.toHaveBeenCalled();
+    expect(fake.createDealDocument).not.toHaveBeenCalled();
+  });
+
+  it("Nachläufe (Portal, Wartet) erst nach dem Ablegen, nicht beim Verwerfen", async () => {
+    job();
+    await kvJobAbschliessen(WS, "job_1", { abruf: vps(status("done")), jetzt: JETZT });
+    expect(m.dealDokumentNachlauf).toHaveBeenCalledWith({ workspaceId: WS, dealRecordId: DEAL }, "quotation");
+    m.dealDokumentNachlauf.mockClear();
+    job({ vpsJobId: "job_2" });
+    fake.angebotsVersionId.mockResolvedValue("ver_4");
+    await kvJobAbschliessen(WS, "job_2", { abruf: vps(status("done")), jetzt: JETZT });
+    expect(m.dealDokumentNachlauf).not.toHaveBeenCalled();
+  });
+
+  it("Reservierung während des PDF-Abrufs verloren: nichts abgelegt, Endstand des anderen", async () => {
+    job();
+    // Während das PDF lädt, übernimmt ein anderer nach Ablauf und legt ab.
+    const abruf = vps(status("done"), () => {
+      const j = fake.jobs.get("job_1")!;
+      Object.assign(j, { claimedAt: new Date(JETZT.getTime() + 1).toISOString(), status: "abgelegt", dealDocumentId: "doc_anderer" });
+      return pdf();
+    });
+    expect(await kvJobAbschliessen(WS, "job_1", { abruf, jetzt: JETZT })).toEqual({
+      status: "schon_erledigt",
+      dealDocumentId: "doc_anderer",
+    });
+    expect(fake.createDealDocument).not.toHaveBeenCalled();
   });
 });

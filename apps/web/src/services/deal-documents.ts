@@ -9,8 +9,10 @@
 // the MCP client can only send JSON. The size rules for that body live in
 // lib/deal-document-upload.ts (3 MB decoded, under the platform limit).
 
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { db } from "@/db";
+import { objects } from "@/db/schema/objects";
+import { records } from "@/db/schema/records";
 import { dealImWorkspace } from "@/lib/kalkulation-versionen-antwort";
 import { dealDocuments } from "@/db/schema/financial";
 import { quotations } from "@/db/schema/quotations";
@@ -82,8 +84,8 @@ const META_COLUMNS = {
  * Gesperrte Kalkulationsversion, auf die die Quotation des Deals zeigt
  * (`quotations.calculation_version_id`); null ohne Quotation oder ohne Version.
  */
-export async function angebotsVersionId(dealRecordId: string): Promise<string | null> {
-  const [row] = await db
+export async function angebotsVersionId(dealRecordId: string, ex: DbExecutor = db): Promise<string | null> {
+  const [row] = await ex
     .select({ calculationVersionId: quotations.calculationVersionId })
     .from(quotations)
     .where(eq(quotations.dealRecordId, dealRecordId))
@@ -91,7 +93,28 @@ export async function angebotsVersionId(dealRecordId: string): Promise<string | 
   return row?.calculationVersionId ?? null;
 }
 
-export async function createDealDocument(input: {
+type DbExecutor = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+/** Wie `dealImWorkspace`, aber über `ex` (unter einer Sperre keine zweite Verbindung). */
+async function dealGehoertZumWorkspace(ex: DbExecutor, workspaceId: string, dealRecordId: string): Promise<boolean> {
+  if (ex === db) return dealImWorkspace(workspaceId, dealRecordId);
+  const [row] = await ex
+    .select({ id: records.id })
+    .from(records)
+    .innerJoin(objects, eq(records.objectId, objects.id))
+    .where(
+      and(
+        eq(records.id, dealRecordId),
+        eq(objects.workspaceId, workspaceId),
+        eq(objects.slug, "deals"),
+        isNull(records.deletedAt)
+      )
+    )
+    .limit(1);
+  return !!row;
+}
+
+export interface DealDocumentInput {
   workspaceId: string;
   dealRecordId: string;
   documentType: DealDocumentType;
@@ -111,15 +134,31 @@ export async function createDealDocument(input: {
    * andere Version gesperrt worden sein. Andere Typen: immer null.
    */
   calculationVersionId?: string | null;
-}): Promise<DealDocumentMeta> {
+}
+
+/**
+ * Legt das Dokument an und stößt die Nachläufe an (Portal-Nachricht, Deal-Stufe,
+ * Wartet-Signal).
+ *
+ * Mit `ex` (Transaktion): nur prüfen und einfügen, alles über `ex`. Die Nachläufe
+ * laufen dann NICHT; der Aufrufer ruft `dealDokumentNachlauf` nach dem Commit,
+ * sonst ginge eine Nachricht zu einem Dokument raus, das ein Rollback verwirft.
+ */
+export async function createDealDocument(input: DealDocumentInput, ex?: DbExecutor): Promise<DealDocumentMeta> {
+  const doc = await dealDokumentEinfuegen(input, ex ?? db);
+  if (!ex) await dealDokumentNachlauf(input, doc.documentType);
+  return doc;
+}
+
+async function dealDokumentEinfuegen(input: DealDocumentInput, ex: DbExecutor): Promise<DealDocumentMeta> {
   const check = validateDealDocumentUpload(input);
   if (!check.ok) throw new Error(check.error);
-  if (!(await dealImWorkspace(input.workspaceId, input.dealRecordId))) {
+  if (!(await dealGehoertZumWorkspace(ex, input.workspaceId, input.dealRecordId))) {
     throw new Error("Deal nicht gefunden.");
   }
   const calculationVersionId = check.documentType === "quotation" ? input.calculationVersionId ?? null : null;
 
-  const [doc] = await db
+  const [doc] = await ex
     .insert(dealDocuments)
     .values({
       workspaceId: input.workspaceId,
@@ -133,6 +172,16 @@ export async function createDealDocument(input: {
     })
     .returning(META_COLUMNS);
 
+  // Die Tabelle kennt auch signed_contract; dieser Weg schreibt nur geprüfte Upload-Typen.
+  return { ...doc, documentType: check.documentType };
+}
+
+/** Nachläufe eines neuen Dokuments; nach dem Commit aufrufen. */
+export async function dealDokumentNachlauf(
+  input: Pick<DealDocumentInput, "workspaceId" | "dealRecordId" | "notifyCustomer">,
+  documentType: DealDocumentType
+): Promise<void> {
+  const check = { documentType };
   if (shouldNotifyDealDocument(check.documentType, input.notifyCustomer)) {
     void maybeNotifyPortalEvent(
       check.documentType === "order_confirmation" ? "ab_ready" : "invoice_ready",
@@ -160,7 +209,4 @@ export async function createDealDocument(input: {
   } catch (err) {
     console.error("[wartet] nach Dokument fehlgeschlagen:", err);
   }
-
-  // Die Tabelle kennt auch signed_contract; dieser Weg schreibt nur geprüfte Upload-Typen.
-  return { ...doc, documentType: check.documentType };
 }

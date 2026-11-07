@@ -108,9 +108,10 @@ export async function jobAbschliessen(
 
 /**
  * Laufende Jobs, deren Reservierung fehlt oder älter als `grenze` ist,
- * älteste zuerst. Einzige lesende Abfrage ohne Workspace-Filter (Cron).
+ * älteste zuerst, optional nur eine Dokumentart (der Cron nimmt nur KVs).
+ * Einzige lesende Abfrage ohne Workspace-Filter (Cron).
  */
-export async function offeneJobs(grenze: Date, limit: number): Promise<RenderJob[]> {
+export async function offeneJobs(grenze: Date, limit: number, documentType?: string): Promise<RenderJob[]> {
   const rows = await db
     .select()
     .from(documentRenderJobs)
@@ -118,6 +119,7 @@ export async function offeneJobs(grenze: Date, limit: number): Promise<RenderJob
       and(
         eq(documentRenderJobs.status, "laeuft"),
         or(isNull(documentRenderJobs.claimedAt), lt(documentRenderJobs.claimedAt, grenze)),
+        documentType === undefined ? undefined : eq(documentRenderJobs.documentType, documentType),
       ),
     )
     .orderBy(asc(documentRenderJobs.createdAt))

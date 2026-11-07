@@ -13,7 +13,7 @@ const JE_LAUF = 25;
 /**
  * Legt fertige VPS-Dokumente ab, auch wenn der Bediener den Browser schon
  * geschlossen hat (Plan 5a, Entscheidung 7). Erst Jobs älter als 24 h auf
- * „fehler“, dann offene Jobs über dieselbe Stelle wie der Browser
+ * „fehler“, dann offene KV-Jobs über dieselbe Stelle wie der Browser
  * (`kvJobAbschliessen`, mit Reservierung). Jeder Job läuft mit seinem
  * eigenen Workspace.
  */
@@ -23,7 +23,9 @@ export async function GET(req: NextRequest) {
 
   const jetzt = new Date();
   const abgelaufen = await jobsAbgelaufenMarkieren(jetzt);
-  const jobs = await offeneJobs(new Date(jetzt.getTime() - RENDER_JOB_RESERVIERUNG_MS), JE_LAUF);
+  // Nur KVs (K3). Rechnung und AB legen Browser oder MCP ab, mit ihrem Fälligkeitsdatum;
+  // nach 24 h setzt jobsAbgelaufenMarkieren auch sie auf „fehler“.
+  const jobs = await offeneJobs(new Date(jetzt.getTime() - RENDER_JOB_RESERVIERUNG_MS), JE_LAUF, "quotation");
 
   const zaehler: Record<string, number> = {};
   for (const job of jobs) {

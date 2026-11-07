@@ -4,83 +4,28 @@ import { RENDER_JOB_ABLAUF_MS, type RenderJob } from "@/lib/angebot-wahl";
 
 // Cron legt fertige VPS-Dokumente ab, auch ohne offenen Browser (Plan 5a, K3).
 // Register als Speicher im Test (Semantik wie Task B), VPS als Upstream-Mock.
-const m = vi.hoisted(() => {
+vi.hoisted(() => {
   process.env.CRM_TOOLS_API_URL = "https://crm-tools.test";
   process.env.CRM_TOOLS_AUTH_TOKEN = "tools-token";
   process.env.CRON_SECRET = "geheim";
-  return {
-    jobs: new Map<string, RenderJob>(),
-    createDealDocument: vi.fn(),
-    angebotsVersionId: vi.fn(),
-  };
 });
 
-const RESERVIERUNG = 2 * 60 * 1000;
-vi.mock("@/services/render-jobs", () => ({
-  jobLaden: async (ws: string, id: string) => {
-    const j = m.jobs.get(id);
-    return j && j.workspaceId === ws ? { ...j } : null;
-  },
-  jobReservieren: async (ws: string, id: string, jetzt: Date) => {
-    const j = m.jobs.get(id);
-    if (!j || j.workspaceId !== ws || j.status !== "laeuft") return null;
-    if (j.claimedAt && jetzt.getTime() - new Date(j.claimedAt).getTime() < RESERVIERUNG) return null;
-    j.claimedAt = jetzt.toISOString();
-    return { ...j };
-  },
-  jobAbschliessen: async (
-    ws: string,
-    id: string,
-    e: { status: RenderJob["status"]; dealDocumentId?: string; fehler?: string }
-  ) => {
-    const j = m.jobs.get(id);
-    if (j && j.workspaceId === ws) Object.assign(j, { status: e.status, dealDocumentId: e.dealDocumentId ?? null, fehler: e.fehler ?? null });
-  },
-  offeneJobs: async (grenze: Date, limit: number) =>
-    [...m.jobs.values()]
-      .filter((j) => j.status === "laeuft" && (j.claimedAt === null || new Date(j.claimedAt) < grenze))
-      .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
-      .slice(0, limit)
-      .map((j) => ({ ...j })),
-  jobsAbgelaufenMarkieren: async (jetzt: Date) => {
-    let n = 0;
-    for (const j of m.jobs.values()) {
-      if (j.status === "laeuft" && jetzt.getTime() - new Date(j.createdAt).getTime() > 24 * 60 * 60 * 1000) {
-        Object.assign(j, { status: "fehler", fehler: "abgelaufen" });
-        n++;
-      }
-    }
-    return n;
-  },
-}));
+vi.mock("@/services/render-jobs", async () => (await import("@/services/render-jobs.fake")).fake.renderJobs);
+vi.mock("@/services/kv-job-ablage", async () => (await import("@/services/render-jobs.fake")).fake.ablage);
 vi.mock("@/services/deal-documents", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/services/deal-documents")>()),
-  createDealDocument: m.createDealDocument,
-  angebotsVersionId: m.angebotsVersionId,
+  dealDokumentNachlauf: async () => {},
 }));
 vi.mock("@/services/rechnung-faellig", () => ({ applyInvoiceDueDate: async () => ({ rechnungFaelligAm: null }) }));
 
 import { GET } from "./route";
+import { fake } from "@/services/render-jobs.fake";
 
 const fetchMock = vi.fn();
+const m = { jobs: fake.jobs, createDealDocument: fake.createDealDocument, angebotsVersionId: fake.angebotsVersionId };
 
 function job(id: string, teil: Partial<RenderJob> = {}) {
-  m.jobs.set(id, {
-    vpsJobId: id,
-    workspaceId: "ws_kottke",
-    dealRecordId: `deal_${id}`,
-    documentType: "quotation",
-    calculationVersionId: "ver_3",
-    priceCents: 172000,
-    status: "laeuft",
-    createdBy: "usr_1",
-    createdAt: new Date(Date.now() - 60_000).toISOString(),
-    claimedAt: null,
-    storedAt: null,
-    dealDocumentId: null,
-    fehler: null,
-    ...teil,
-  });
+  fake.job({ vpsJobId: id, dealRecordId: `deal_${id}`, ...teil });
 }
 
 /** VPS je Job: "done" (PDF), "running" oder 404. */
@@ -103,20 +48,11 @@ const cron = (auth = "Bearer geheim") =>
   GET(new NextRequest("https://crm.test/api/cron/render-jobs", { headers: auth ? { authorization: auth } : {} }));
 
 beforeEach(() => {
-  m.jobs.clear();
+  fake.reset();
   vi.clearAllMocks();
   fetchMock.mockReset();
   vi.stubGlobal("fetch", fetchMock);
-  m.angebotsVersionId.mockResolvedValue("ver_3");
-  let n = 0;
-  m.createDealDocument.mockImplementation(async (i: { documentType: string; fileName: string; fileSize: number }) => ({
-    id: `doc_${++n}`,
-    documentType: i.documentType,
-    fileName: i.fileName,
-    fileSize: i.fileSize,
-    mimeType: "application/pdf",
-    uploadedAt: new Date(),
-  }));
+  fake.angebotsVersionId.mockResolvedValue("ver_3");
 });
 
 describe("GET /api/cron/render-jobs", () => {
@@ -185,5 +121,24 @@ describe("GET /api/cron/render-jobs", () => {
     vps({ a: "done" });
     expect(await (await cron()).json()).toMatchObject({ geprueft: 0 });
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("Rechnung und AB lässt der Cron liegen (Fälligkeit legt Browser oder MCP fest, Fund 5)", async () => {
+    job("re", { documentType: "invoice", calculationVersionId: null });
+    job("ab", { documentType: "order_confirmation", calculationVersionId: null });
+    vps({ re: "done", ab: "done" });
+    expect(await (await cron()).json()).toMatchObject({ geprueft: 0 });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(m.jobs.get("re")?.status).toBe("laeuft");
+  });
+
+  it("Rechnung nach 24 h trotzdem „fehler“", async () => {
+    job("re", {
+      documentType: "invoice",
+      calculationVersionId: null,
+      createdAt: new Date(Date.now() - RENDER_JOB_ABLAUF_MS - 60_000).toISOString(),
+    });
+    expect(await (await cron()).json()).toMatchObject({ abgelaufen: 1, geprueft: 0 });
+    expect(m.jobs.get("re")).toMatchObject({ status: "fehler", fehler: "abgelaufen" });
   });
 });

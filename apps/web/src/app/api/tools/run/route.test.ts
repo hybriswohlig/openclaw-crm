@@ -11,6 +11,7 @@ const m = vi.hoisted(() => {
   return {
     getAuthContext: vi.fn(),
     attachDocumentJobContext: vi.fn(),
+    assertDealInWorkspace: vi.fn(),
     jobAnlegen: vi.fn(),
   };
 });
@@ -24,7 +25,10 @@ vi.mock("@/services/deal-photos", () => ({ findDealInternalPhotosByIds: vi.fn(as
 vi.mock("@/services/doc-customer-name", () => ({
   rewriteKundeParamsFromDeal: async (_ws: string, p: Record<string, unknown>) => p,
 }));
-vi.mock("@/services/document-job-context", () => ({ attachDocumentJobContext: m.attachDocumentJobContext }));
+vi.mock("@/services/document-job-context", () => ({
+  attachDocumentJobContext: m.attachDocumentJobContext,
+  assertDealInWorkspace: m.assertDealInWorkspace,
+}));
 vi.mock("@/services/render-jobs", () => ({ jobAnlegen: m.jobAnlegen }));
 
 import { POST } from "./route";
@@ -49,6 +53,7 @@ beforeEach(() => {
   fetchMock.mockImplementation(async () => new Response(JSON.stringify({ job_id: "job_42" }), { status: 200 }));
   m.getAuthContext.mockResolvedValue({ userId: "usr_1", workspaceId: WS });
   m.jobAnlegen.mockResolvedValue(undefined);
+  m.assertDealInWorkspace.mockResolvedValue(true);
   m.attachDocumentJobContext.mockImplementation(async (_ws: string, p: Record<string, unknown>) => ({
     params: { ...p, preise: { modell: "pauschale" } },
     kv: p.document_type === "KV" ? { calculationVersionId: "ver_3", priceCents: 172000 } : null,
@@ -94,8 +99,31 @@ describe("POST /api/tools/run: Job-Register", () => {
     expect(m.jobAnlegen).not.toHaveBeenCalled();
   });
 
-  it("anderer Skill (Auftragsanweisung, echo-test): kein Eintrag", async () => {
-    await run("auftragsanweisung", { _deal_record_id: "deal_1" });
+  it("Auftragsanweisung mit Deal: Eintrag als worker_instructions (Fund 4)", async () => {
+    const res = await run("auftragsanweisung", { _deal_record_id: "deal_1" });
+    expect(res.status).toBe(200);
+    expect(m.assertDealInWorkspace).toHaveBeenCalledWith(WS, "deal_1");
+    expect(m.jobAnlegen).toHaveBeenCalledWith({
+      vpsJobId: "job_42",
+      workspaceId: WS,
+      dealRecordId: "deal_1",
+      documentType: "worker_instructions",
+      calculationVersionId: null,
+      priceCents: null,
+      createdBy: "usr_1",
+    });
+  });
+
+  it("Auftragsanweisung mit fremdem Deal: 400, kein Job, kein Eintrag", async () => {
+    m.assertDealInWorkspace.mockResolvedValue(false);
+    const res = await run("auftragsanweisung", { _deal_record_id: "deal_x" });
+    expect(res.status).toBe(400);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(m.jobAnlegen).not.toHaveBeenCalled();
+  });
+
+  it("Auftragsanweisung ohne Deal und echo-test: kein Eintrag", async () => {
+    await run("auftragsanweisung", {});
     await run("echo-test", { _deal_record_id: "deal_1", document_type: "KV" });
     expect(m.jobAnlegen).not.toHaveBeenCalled();
   });
