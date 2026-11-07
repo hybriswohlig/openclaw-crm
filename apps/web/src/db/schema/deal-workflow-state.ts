@@ -19,6 +19,8 @@ export const dealWorkflowState = pgTable(
     lastOutboundHumanAt: timestamp("last_outbound_human_at"),
     lastInboundAt: timestamp("last_inbound_at"),
     stageEnteredAt: timestamp("stage_entered_at"),
+    /** Voll bezahlt mit gestellter Rechnung (Plan 9, `abschlussAus`); Anker der Bewertung (Plan 11). */
+    bezahltAm: timestamp("bezahlt_am", { withTimezone: true }),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
   (table) => [

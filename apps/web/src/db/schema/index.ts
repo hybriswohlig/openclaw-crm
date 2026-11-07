@@ -29,6 +29,7 @@ export * from "./inventory";
 export * from "./deal-calculations";
 export * from "./deal-calculation-versions";
 export * from "./deal-calculation-routes";
+export * from "./deal-invoices";
 export * from "./document-render-jobs";
 export * from "./street-view-images";
 export * from "./company-settings";

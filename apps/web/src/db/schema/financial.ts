@@ -11,6 +11,8 @@ import {
   index,
   uniqueIndex,
   foreignKey,
+  check,
+  type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { workspaces } from "./workspace";
@@ -21,6 +23,7 @@ import type {
   ExpenseTaxTreatment,
   IncomeTaxTreatment,
 } from "@/lib/expense-categories";
+import type { ZahlungQuelle } from "@/lib/geld";
 
 // ─── Enums ────────────────────────────────────────────────────────────────────
 
@@ -173,10 +176,30 @@ export const payments = pgTable(
       .default("betriebseinnahme"),
     /** Fortlaufende Belegnummer, z.B. "K-E-2026-0001". Assigned once, never reused. */
     receiptNumber: text("receipt_number"),
+    /** Herkunft (Migration 0062): Hand, Meldung, Mitarbeiter-App, API, Storno. Altzeilen null. */
+    quelle: text("quelle").$type<ZahlungQuelle>(),
+    /** Wer in der Mitarbeiter-App kassiert hat. */
+    employeeId: text("employee_id").references(() => employees.id, { onDelete: "set null" }),
+    /** Bargeld vom Team bei den Inhabern angekommen. */
+    barErhaltenAm: timestamp("bar_erhalten_am", { withTimezone: true }),
+    barErhaltenVon: text("bar_erhalten_von"),
+    /** Gegenbuchung: diese Zeile storniert die genannte Zahlung. */
+    stornoVonPaymentId: text("storno_von_payment_id").references((): AnyPgColumn => payments.id, {
+      onDelete: "set null",
+    }),
+    stornoGrund: text("storno_grund"),
+    createdBy: text("created_by"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
   (table) => [
+    check(
+      "payments_quelle_check",
+      sql`${table.quelle} IS NULL OR ${table.quelle} IN ('hand', 'meldung', 'mitarbeiter', 'api', 'storno')`
+    ),
+    uniqueIndex("payments_storno_von_uniq")
+      .on(table.stornoVonPaymentId)
+      .where(sql`${table.stornoVonPaymentId} IS NOT NULL`),
     index("payments_deal_idx").on(table.dealRecordId),
     index("payments_workspace_idx").on(table.workspaceId),
     index("payments_date_idx").on(table.date),
@@ -288,8 +311,8 @@ export const belegNumberCounters = pgTable(
       .notNull()
       .references(() => records.id, { onDelete: "restrict" }),
     year: integer("year").notNull(),
-    /** "income" → E-Nummern, "expense" → A-Nummern. */
-    kind: text("kind").$type<"income" | "expense">().notNull(),
+    /** "income" → E-Nummern, "expense" → A-Nummern, "invoice" → Rechnungsnummern RE (Plan 9). */
+    kind: text("kind").$type<"income" | "expense" | "invoice">().notNull(),
     lastNumber: integer("last_number").notNull().default(0),
   },
   (table) => [

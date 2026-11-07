@@ -2,6 +2,7 @@ import { index, integer, pgTable, text, timestamp } from "drizzle-orm/pg-core";
 import { records } from "./records";
 import { dealCalculationVersions } from "./deal-calculation-versions";
 import { dealDocuments } from "./financial";
+import { dealInvoices } from "./deal-invoices";
 
 /**
  * Register der VPS-Dokumentjobs (Migration 0060). `POST /api/tools/run` legt
@@ -29,6 +30,8 @@ export const documentRenderJobs = pgTable(
     storedAt: timestamp("stored_at", { withTimezone: true }),
     dealDocumentId: text("deal_document_id").references(() => dealDocuments.id, { onDelete: "set null" }),
     fehler: text("fehler"),
+    /** Rechnungsdatensatz, den dieser Job rendert (Plan 9). */
+    invoiceId: text("invoice_id").references(() => dealInvoices.id, { onDelete: "set null" }),
   },
   (t) => [
     index("document_render_jobs_status_idx").on(t.status, t.createdAt),
