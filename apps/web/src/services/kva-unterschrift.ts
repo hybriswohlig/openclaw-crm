@@ -11,9 +11,13 @@ import { db } from "@/db";
 import { customerStatusLinks, kvaConfirmations } from "@/db/schema/customer-portal";
 import { dealDocuments } from "@/db/schema/financial";
 import {
+  gewaehltText,
   gleicheAnnahme,
   keinWiderrufHinweis,
   kundenText,
+  stundensatzText,
+  stundenVersionText,
+  tagLang,
   unterschriftErklaerung,
   validateTokenShape,
   type UnterschriftPayload,
@@ -24,7 +28,7 @@ import { sendNewEmail } from "./inbox-email";
 import { resolveCustomerEmailTransport } from "./customer-portal-emails";
 import { loadContextByToken, resolveCustomerLinkOrigin } from "./customer-portal-data";
 import { ladeAktiveAnnahme, sha256Hex } from "./kva-annahme";
-import { agbAlsText, ladeWaThread, sendeWhatsAppDokument, sendeWhatsAppText } from "./kva-bestaetigung";
+import { agbAlsText, annahmeWahlUndStunden, ladeWaThread, sendeWhatsAppDokument, sendeWhatsAppText } from "./kva-bestaetigung";
 import { leistungLabel } from "./kva-widerruf";
 import { sendeAnInterne } from "./intern/intern-senden";
 
@@ -88,6 +92,37 @@ export function teamHinweisUnterschrift(d: { dealNumber: string; name: string; a
 }
 
 /** Widerrufszeile der Annahme-Seite; null bei Altbestand ohne Modus. */
+/**
+ * Plan 5b: Wahl- und Stundentexte der Vertragsmappe (Entscheidung 10, F10,
+ * F11). Bis die Vorlage (Task D2, `VertragsmappeDaten`) die Felder
+ * `gewaehlt` und `preisAngabe` kennt, nennt die Mappe Paket („Option“),
+ * Termin und Betrag in den vorhandenen Zeilen; die Felder gehen schon mit.
+ */
+export interface MappeWahlTexte {
+  /** „Gewählt: Komfort am Samstag, 28. November 2026: 1.640,00 €“; null ohne Plan-5-Wahl. */
+  gewaehlt: string | null;
+  /** Preisangabe beim Stunden-KV; null beim Festpreis (Zeile „Festpreis“ wie vor 5b). */
+  preisAngabe: { label: string; wert: string; text: string } | null;
+}
+
+const euroMappe = (c: number) =>
+  new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" }).format(c / 100).replace(/\u00a0/g, " ");
+
+export function mappeWahlTexte(row: { quotationSnapshot: unknown; confirmedTotalCents: number }): MappeWahlTexte {
+  const { wahl, stunden } = annahmeWahlUndStunden(row.quotationSnapshot);
+  if (stunden?.modell === "version") {
+    const s = stunden.angebot;
+    return { gewaehlt: null, preisAngabe: { label: "Voraussichtlich", wert: euroMappe(s.summeGeschaetztCent), text: stundenVersionText(s, euroMappe) } };
+  }
+  if (stunden?.modell === "alt") {
+    return { gewaehlt: null, preisAngabe: { label: "Stundensatz", wert: `${euroMappe(stunden.satzCents)} je Stunde`, text: stundensatzText(stunden.satzCents, euroMappe) } };
+  }
+  const gewaehlt = wahl
+    ? gewaehltText({ paket: wahl.paketName, tag: wahl.datum ? tagLang(wahl.datum) : null, betrag: euroMappe(row.confirmedTotalCents) })
+    : null;
+  return { gewaehlt, preisAngabe: null };
+}
+
 export function widerrufHinweisFuerMappe(modus: string | null, vorzeitigerBeginn: boolean): string | null {
   if (modus === "ausgeschlossen") return keinWiderrufHinweis();
   if (modus === "belehrung") {
@@ -314,6 +349,8 @@ export async function unterschriftFuerToken(
       preisCents: row.confirmedTotalCents,
       voraussichtlich: (row.quotationSnapshot as { isVariable?: boolean } | null)?.isVariable === true,
       optionName: row.selectedOptionName,
+      // Plan 5b: Wahl- und Stundentexte; die Vorlage nutzt sie, sobald D2 sie aufnimmt.
+      ...mappeWahlTexte(row),
       leistung: leistungLabel(row.serviceType),
       moveDate: row.moveDate,
       fromAddress: row.fromAddress,

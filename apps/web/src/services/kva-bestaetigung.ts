@@ -19,8 +19,16 @@ import {
   musterWiderrufsformular,
   vorzeitigerBeginnCheckbox,
   widerrufsbelehrung,
+  gewaehltText,
+  stundenAngebotAus,
+  stundensatzAltCents,
+  stundensatzText,
+  stundenVersionText,
+  tagLang,
   type FirmaKontakt,
+  type KvaAnnahmeSnapshot,
   type KundenAnrede,
+  type PortalStundenAngebot,
   type WiderrufModus,
 } from "@openclaw-crm/customer-portal-core";
 import { emitEvent } from "./activity-events";
@@ -60,6 +68,36 @@ export interface BestaetigungsDaten {
   voraussichtlich?: boolean;
   /** AGB-Fassung der Annahme liegt der Mail bei. */
   agbDabei?: boolean;
+  /** Plan 5b: Wahl mit Paket- oder Tagespreisen aus der Version; fehlt im Altbestand. */
+  wahl?: AnnahmeWahlText | null;
+  /** Plan 5b: Stunden-KV aus der Version oder von Hand (F11); fehlt beim Festpreis. */
+  stunden?: AnnahmeStunden | null;
+}
+
+export interface AnnahmeWahlText {
+  paketName: string | null;
+  /** YYYY-MM-DD. */
+  datum: string | null;
+}
+
+export type AnnahmeStunden =
+  | { modell: "version"; angebot: PortalStundenAngebot }
+  | { modell: "alt"; satzCents: number };
+
+/**
+ * Wahl und Stunden-KV aus dem Annahme-Schnappschuss, für Bestätigung und
+ * Vertragsmappe. Ohne Plan-5-Wahl `wahl: null`. Beim Stunden-KV ohne
+ * Angebot aus der Version gilt „alt“ (F11), auch für Schnappschüsse von vor 5b.
+ */
+export function annahmeWahlUndStunden(snapshot: unknown): { wahl: AnnahmeWahlText | null; stunden: AnnahmeStunden | null } {
+  const s = (snapshot && typeof snapshot === "object" ? snapshot : {}) as Partial<KvaAnnahmeSnapshot>;
+  const wahl = s.wahl && (s.wahl.paketName || s.wahl.datum) ? { paketName: s.wahl.paketName ?? null, datum: s.wahl.datum ?? null } : null;
+  if (s.isVariable !== true) return { wahl, stunden: null };
+  const angebot = s.stundenModell === "version" ? stundenAngebotAus(s.stunden) : null;
+  const stunden: AnnahmeStunden = angebot
+    ? { modell: "version", angebot }
+    : { modell: "alt", satzCents: stundensatzAltCents(Array.isArray(s.lineItems) ? s.lineItems : [], s.totalCents ?? 0) };
+  return { wahl, stunden };
 }
 
 const euro = (c: number) =>
@@ -85,14 +123,26 @@ function restbetragHinweis(d: BestaetigungsDaten): string | null {
   return kottkeRestbetragSatz(d.widerrufModus === "ausgeschlossen");
 }
 
+/** Preiszeile: Stunden-KV nach F10 und F11, sonst wie vor 5b. */
+function preisZeile(d: BestaetigungsDaten): string {
+  if (d.stunden?.modell === "version") return `Preis: ${stundenVersionText(d.stunden.angebot, euro)}`;
+  if (d.stunden?.modell === "alt") return `Preis: ${stundensatzText(d.stunden.satzCents, euro)} (Abrechnung nach tatsächlichem Aufwand)`;
+  return d.voraussichtlich
+    ? `Preis: ${euro(d.preisCents)} (voraussichtlich, Abrechnung nach tatsächlichem Aufwand)`
+    : `Preis: ${euro(d.preisCents)} (Endpreis)`;
+}
+
 function eckdaten(d: BestaetigungsDaten): string[] {
+  // Plan 5b: „Gewählt: Komfort am Samstag, 28. November 2026: 1.640,00 € (Endpreis)“ statt Leistung und Preis.
+  const gewaehlt = d.wahl && !d.stunden
+    ? gewaehltText({ paket: d.wahl.paketName, tag: d.wahl.datum ? tagLang(d.wahl.datum) : null, betrag: `${euro(d.preisCents)} (Endpreis)` })
+    : null;
+  const terminSchonGenannt = !!gewaehlt && !!d.wahl?.datum && d.wahl.datum === d.moveDate;
   return [
     `Auftrag ${d.dealNumber}`,
-    d.optionName ? `Leistung: ${d.optionName}` : null,
-    d.voraussichtlich
-      ? `Preis: ${euro(d.preisCents)} (voraussichtlich, Abrechnung nach tatsächlichem Aufwand)`
-      : `Preis: ${euro(d.preisCents)} (Endpreis)`,
-    d.moveDate ? `Termin: ${datum(d.moveDate)}` : null,
+    gewaehlt ?? (d.optionName ? `Leistung: ${d.optionName}` : null),
+    gewaehlt ? null : preisZeile(d),
+    d.moveDate && !terminSchonGenannt ? `Termin: ${datum(d.moveDate)}` : null,
     d.fromAddress ? `Von: ${d.fromAddress}` : null,
     d.toAddress ? `Nach: ${d.toAddress}` : null,
   ].filter((z): z is string => !!z);
@@ -465,6 +515,7 @@ async function kundeBestaetigen(row: KvaRow): Promise<{ kanaele: string[]; pdf: 
     process.env.NEXT_PUBLIC_APP_URL?.trim().replace(/\/+$/, "") || null
   );
   const snapshot = row.quotationSnapshot as { isVariable?: boolean } | null;
+  const { wahl, stunden } = annahmeWahlUndStunden(row.quotationSnapshot);
   const daten: BestaetigungsDaten = {
     firma: ctx.branding.displayName,
     kontakt: firmaKontakt(ctx.branding.firmaSlug),
@@ -483,6 +534,8 @@ async function kundeBestaetigen(row: KvaRow): Promise<{ kanaele: string[]; pdf: 
     signedAt: row.signedAt.toISOString(),
     pdfDabei: false,
     voraussichtlich: snapshot?.isVariable === true,
+    wahl,
+    stunden,
   };
 
   let pdf: { buf: Buffer; filename: string } | null = null;
