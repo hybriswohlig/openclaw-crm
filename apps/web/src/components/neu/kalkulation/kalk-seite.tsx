@@ -12,6 +12,7 @@ import type { UebersteuerungsArt } from "@/lib/kalkulation-versionen";
 import { apiAufruf, jsonAufruf, type ApiAntwort } from "@/components/neu/akte/api";
 import { GrundlageSpalte } from "./grundlage-spalte";
 import { KalkKopf } from "./kalk-kopf";
+import { DOKUMENT_ABGELEGT_EVENT, eventBetrifftDeal, KV_NACHLADEN_MS } from "./kv-erzeugung";
 import { MargeSpalte } from "./marge-spalte";
 import { SelbstkostenSpalte } from "./selbstkosten-spalte";
 
@@ -113,13 +114,14 @@ export function KalkSeite({ dealId }: { dealId: string }) {
   const hatSeite = useRef(false);
   hatSeite.current = zustand.art === "fertig";
 
-  /** Ansicht einer Version laden; null = Standard. */
-  const laden = useCallback(async (deal: string, gewuenscht: number | null): Promise<void> => {
+  /** Ansicht einer Version laden; null = Standard. `leise`: ohne Fehlermeldung (Nachladen im Hintergrund). */
+  const laden = useCallback(async (deal: string, gewuenscht: number | null, leise = false): Promise<void> => {
     const dieser = ++lauf.current;
     const stillOhneSeite = !hatSeite.current;
     const fehlschlag = (f: { status: number; message: string }) => {
       if (dieser !== lauf.current) return;
       if (!stillOhneSeite) {
+        if (leise) return;
         toast.error("Kalkulation konnte nicht neu geladen werden.", { description: f.message });
         return;
       }
@@ -162,6 +164,32 @@ export function KalkSeite({ dealId }: { dealId: string }) {
   const neuLaden = useCallback(async () => {
     await laden(dealId, versionNr.current);
   }, [laden, dealId]);
+
+  // Nachladen im Hintergrund nur ohne laufende Aktion: deren eigenes Laden hätte sonst
+  // das Nachsehen (Zählerschutz in `laden`) und die Seite spränge auf die alte Version.
+  const frei = useRef(true);
+  frei.current = laeuft === null && !ausstehend;
+  const kvLaeuft = zustand.art === "fertig" && zustand.ansicht.version.kvErzeugung.art === "laeuft";
+
+  // Plan 5a: ein abgelegtes Dokument (alter Dialog, Hintergrund-Jobs) lädt die Seite neu.
+  useEffect(() => {
+    const beiAblage = (e: Event) => {
+      if (!eventBetrifftDeal((e as CustomEvent).detail, dealId) || !frei.current || !hatSeite.current) return;
+      void laden(dealId, versionNr.current, true);
+    };
+    window.addEventListener(DOKUMENT_ABGELEGT_EVENT, beiAblage);
+    return () => window.removeEventListener(DOKUMENT_ABGELEGT_EVENT, beiAblage);
+  }, [dealId, laden]);
+
+  // Solange der VPS den KV erzeugt: sparsam nachladen, nur bei sichtbarem Tab; endet mit dem Zustand oder beim Verlassen.
+  useEffect(() => {
+    if (!kvLaeuft) return;
+    const id = window.setInterval(() => {
+      if (document.visibilityState !== "visible" || !frei.current) return;
+      void laden(dealId, versionNr.current, true);
+    }, KV_NACHLADEN_MS);
+    return () => window.clearInterval(id);
+  }, [kvLaeuft, dealId, laden]);
 
   const wechsleVersion = useCallback(
     (version: number) => {

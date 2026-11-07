@@ -13,6 +13,11 @@ vi.mock("@/db", () => ({
   ),
 }));
 
+// Job-Register (Task B) gemockt: der Vorgabe-Lader darf im Test nie die DB berühren.
+const letzterKvJob = vi.hoisted(() => vi.fn(async (): Promise<RenderJob | null> => null));
+vi.mock("./render-jobs", () => ({ letzterKvJob }));
+
+import type { RenderJob } from "@/lib/angebot-wahl";
 import { anfrageMitUebersteuerungen } from "@/lib/kalkulation-versionen";
 import {
   DARIO,
@@ -26,7 +31,7 @@ import {
   weberVersion,
 } from "@/lib/kalkulations-ansicht.fixture";
 import { entwurfVeraltet, type VersionsZeile } from "./kalkulation-versionen";
-import { ladeKalkulationsAnsicht, type AnsichtOptionen } from "./kalkulations-ansicht";
+import { kvErzeugungAus, kvFehlerText, ladeKalkulationsAnsicht, type AnsichtOptionen } from "./kalkulations-ansicht";
 import { rechnerAnfrageAus, type LeadDaten } from "./rechner/eingabe";
 
 const basis = (lead: LeadDaten = WEBER_LEAD) => rechnerAnfrageAus(lead);
@@ -88,6 +93,7 @@ function deps(felder: Partial<AnsichtOptionen> = {}, versionen: VersionsZeile[] 
     ladeNamen: vi.fn(async (ids: string[]) => Object.fromEntries(ids.filter((id) => id === DARIO).map((id) => [id, "Dario Kottke"]))),
     ladePaketNamen: vi.fn(async () => ({})),
     istKottke: vi.fn(async () => true),
+    ladeKvJob: vi.fn(async () => null),
     jetzt: () => WEBER_JETZT,
     ...felder,
   };
@@ -153,5 +159,89 @@ describe("ladeKalkulationsAnsicht", () => {
     await expect(ladeKalkulationsAnsicht("ws_1", WEBER_DEAL, 2, deps({ ladeLead: vi.fn(async () => null) }))).rejects.toMatchObject({
       code: "NICHT_GEFUNDEN", message: "Deal nicht gefunden.",
     });
+  });
+});
+
+const JOB = (status: RenderJob["status"], fehler: string | null = null): RenderJob => ({
+  vpsJobId: "job_1", workspaceId: "ws_1", dealRecordId: WEBER_DEAL, documentType: "quotation",
+  calculationVersionId: "ver_v1", priceCents: 239000, status, createdBy: DARIO,
+  createdAt: "2026-11-07T09:15:00.000Z", claimedAt: null, storedAt: null, dealDocumentId: null, fehler,
+});
+const DOK = { id: "doc_1", fileName: "KV-Weber.pdf" };
+
+describe("kvErzeugungAus (Entscheidung 5a-8)", () => {
+  it("CRM-Renderer und Entwurf: immer keins, auch mit Job", () => {
+    expect(kvErzeugungAus({ renderer: "crm", gesperrt: true, job: JOB("laeuft"), kvDokument: null })).toEqual({ art: "keins" });
+    expect(kvErzeugungAus({ renderer: "vps", gesperrt: false, job: JOB("laeuft"), kvDokument: null })).toEqual({ art: "keins" });
+  });
+
+  it("Kottke gesperrt: kein Job keins, läuft mit Startzeit, verworfen", () => {
+    expect(kvErzeugungAus({ renderer: "vps", gesperrt: true, job: null, kvDokument: null })).toEqual({ art: "keins" });
+    expect(kvErzeugungAus({ renderer: "vps", gesperrt: true, job: JOB("laeuft"), kvDokument: null })).toEqual({
+      art: "laeuft",
+      seit: "2026-11-07T09:15:00.000Z",
+    });
+    expect(kvErzeugungAus({ renderer: "vps", gesperrt: true, job: JOB("verworfen"), kvDokument: null })).toEqual({ art: "verworfen" });
+  });
+
+  it("abgelegt: fertig nur mit KV-Dokument der Version, sonst keins (Dokument gelöscht)", () => {
+    expect(kvErzeugungAus({ renderer: "vps", gesperrt: true, job: JOB("abgelegt"), kvDokument: DOK })).toEqual({
+      art: "fertig",
+      dealDocumentId: "doc_1",
+      fileName: "KV-Weber.pdf",
+    });
+    expect(kvErzeugungAus({ renderer: "vps", gesperrt: true, job: JOB("abgelegt"), kvDokument: null })).toEqual({ art: "keins" });
+  });
+
+  it("fehler: verständlicher Text statt technischer Meldung", () => {
+    const e = kvErzeugungAus({ renderer: "vps", gesperrt: true, job: JOB("fehler", "upstream 502: ECONNRESET"), kvDokument: null });
+    expect(e).toEqual({ art: "fehler", text: "Der KV konnte nicht erzeugt werden. Bitte den KV neu erstellen." });
+    expect(kvFehlerText("abgelaufen nach 24 h")).toBe(
+      "Der KV kam nicht innerhalb von 24 Stunden vom Dokumenten-Server zurück. Bitte den KV neu erstellen."
+    );
+    expect(kvFehlerText("VPS 404")).toBe("Der Dokumenten-Server kennt den Auftrag nicht mehr. Bitte den KV neu erstellen.");
+    expect(kvFehlerText(null)).toBe("Der KV konnte nicht erzeugt werden. Bitte den KV neu erstellen.");
+    expect(kvFehlerText("x")).not.toMatch(/[—–]/);
+  });
+});
+
+describe("ladeKalkulationsAnsicht: KV-Erzeugung (Plan 5a)", () => {
+  it("gesperrte Kottke-Version fragt den letzten Job genau dieser Version ab", async () => {
+    const d = deps({ ladeKvJob: vi.fn(async () => JOB("laeuft")) });
+    const a = await ladeKalkulationsAnsicht("ws_1", WEBER_DEAL, 1, d);
+    expect(d.ladeKvJob).toHaveBeenCalledWith("ws_1", WEBER_DEAL, "ver_v1");
+    expect(a.version.kvErzeugung).toEqual({ art: "laeuft", seit: "2026-11-07T09:15:00.000Z" });
+  });
+
+  it("abgelegt mit Dokument: fertig", async () => {
+    const d = deps({ ladeKvJob: vi.fn(async () => JOB("abgelegt")), ladeKvDokument: vi.fn(async () => DOK) });
+    const a = await ladeKalkulationsAnsicht("ws_1", WEBER_DEAL, 1, d);
+    expect(a.version.kvErzeugung).toEqual({ art: "fertig", dealDocumentId: "doc_1", fileName: "KV-Weber.pdf" });
+    expect(a.version.kvDokument).toEqual(DOK);
+  });
+
+  it("Entwurf und Nicht-Kottke fragen das Job-Register nicht ab", async () => {
+    const d1 = deps();
+    expect((await ladeKalkulationsAnsicht("ws_1", WEBER_DEAL, 2, d1)).version.kvErzeugung).toEqual({ art: "keins" });
+    expect(d1.ladeKvJob).not.toHaveBeenCalled();
+    const d2 = deps({ istKottke: vi.fn(async () => false) });
+    expect((await ladeKalkulationsAnsicht("ws_1", WEBER_DEAL, 1, d2)).version.kvErzeugung).toEqual({ art: "keins" });
+    expect(d2.ladeKvJob).not.toHaveBeenCalled();
+  });
+
+  it("fällt das Job-Register aus, lädt die Seite trotzdem mit keins", async () => {
+    const fehler = vi.spyOn(console, "error").mockImplementation(() => {});
+    const d = deps({ ladeKvJob: vi.fn(async () => { throw new Error("relation does not exist"); }) });
+    const a = await ladeKalkulationsAnsicht("ws_1", WEBER_DEAL, 1, d);
+    expect(a.version.kvErzeugung).toEqual({ art: "keins" });
+    fehler.mockRestore();
+  });
+
+  it("ohne eigenen Lader nutzt die Seite letzterKvJob aus render-jobs", async () => {
+    letzterKvJob.mockResolvedValueOnce(JOB("verworfen"));
+    const { ladeKvJob: _weg, ...ohne } = deps();
+    const a = await ladeKalkulationsAnsicht("ws_1", WEBER_DEAL, 1, ohne);
+    expect(letzterKvJob).toHaveBeenCalledWith("ws_1", WEBER_DEAL, "ver_v1");
+    expect(a.version.kvErzeugung).toEqual({ art: "verworfen" });
   });
 });

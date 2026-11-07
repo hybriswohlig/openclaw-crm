@@ -19,6 +19,8 @@ import { MargeRegler } from "./marge-regler";
 import { margeVorschau } from "./marge-vorschau";
 import { uebersteuerbareZeilen } from "./selbstkosten-spalte";
 import { SperrenBereich } from "./sperren-bereich";
+import { ohneVerwaiste } from "./verwaist-logik";
+import { VerwaisteAnpassungen } from "./verwaiste-anpassungen";
 
 /** Speichern 800 ms nach dem letzten Reglerwert (Entscheidung 4). */
 const REGLER_WARTEZEIT_MS = 800;
@@ -51,6 +53,8 @@ type Dialog = { art: "anpassung"; start: AnpassungStart } | { art: "kv"; nurKv: 
  * beim Ziehen eine Vorschau über `margeVorschau` und speichert 800 ms nach
  * dem letzten Wert, nur wenn er vom gewählten abweicht (Entscheidung 4).
  * Sperren schickt den gesehenen Preis mit; 409 PREIS_GEAENDERT lädt neu.
+ * Plan 5a: verwaiste Fahrzeug-Anpassungen stehen als goldene Zeilen über
+ * der Liste (nicht doppelt darin), der KV-Zustand als Marke an der Vorschau.
  */
 export function MargeSpalte({ ansicht, kontext }: { ansicht: KalkulationsAnsicht; kontext: KalkKontext }) {
   const { marge, preis, version } = ansicht;
@@ -244,9 +248,20 @@ export function MargeSpalte({ ansicht, kontext }: { ansicht: KalkulationsAnsicht
         ) : null}
       </div>
 
-      <KvVorschau kv={ansicht.kv} kvFehler={ansicht.kvFehler} />
+      <KvVorschau kv={ansicht.kv} kvFehler={ansicht.kvFehler} erzeugung={version.kvErzeugung} />
       <PaketeAnzeige pakete={ansicht.pakete} preisModus={version.preisModus} link={ansicht.angebotsformularLink} />
-      <AnpassungenListe anpassungen={ansicht.anpassungen} beschaeftigt={beschaeftigt} onOeffnen={(start) => setDialog({ art: "anpassung", start })} />
+      <VerwaisteAnpassungen
+        verwaist={ansicht.verwaist}
+        anpassungen={ansicht.anpassungen}
+        kontext={kontext}
+        beschaeftigt={lauf !== null}
+        portalZiel={portalZiel}
+      />
+      <AnpassungenListe
+        anpassungen={ohneVerwaiste(ansicht.anpassungen, kontext.bearbeitbar ? ansicht.verwaist : [])}
+        beschaeftigt={beschaeftigt}
+        onOeffnen={(start) => setDialog({ art: "anpassung", start })}
+      />
       <SperrenBereich
         dealId={kontext.dealId}
         version={version}

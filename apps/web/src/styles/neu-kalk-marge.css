@@ -357,3 +357,75 @@
   font-weight: 400;
   color: var(--ink-2);
 }
+
+/* ── Plan 5a: KV-Zustand (Kottke) und verwaiste Anpassungen ── */
+
+[data-neu] .kalk-kv-fertig[data-ton="blau"] {
+  background: color-mix(in srgb, var(--blue) 10%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--blue) 30%, transparent);
+  color: var(--blue-ink);
+}
+
+[data-neu] .kalk-kv-fertig[data-ton="gold"] {
+  background: color-mix(in srgb, var(--gold) 12%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gold) 35%, transparent);
+  color: var(--gold-ink);
+}
+
+[data-neu] .kalk-kv-fertig[data-ton="rose"] {
+  background: color-mix(in srgb, var(--rose) 10%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--rose) 30%, transparent);
+  color: var(--rose-ink);
+}
+
+[data-neu] .kalk-kv-fertig > span {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
+[data-neu] .kalk-kv-marke {
+  margin-left: auto;
+}
+
+[data-neu] .kalk-kv-marke[data-ton="rose"] {
+  background: color-mix(in srgb, var(--rose) 10%, transparent);
+  color: var(--rose-ink);
+}
+
+[data-neu] .kalk-kv-marke[data-ton="blau"] {
+  color: var(--blue-ink);
+}
+
+[data-neu] .kalk-verwaist {
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--gold) 16%, var(--fill-3));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gold) 55%, transparent);
+  color: var(--ink);
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+}
+
+[data-neu] .kalk-verwaist-t {
+  margin: 0;
+  font-weight: 600;
+}
+
+[data-neu] .kalk-verwaist-f {
+  display: block;
+  margin-top: 2px;
+  font-size: 11.5px;
+  color: var(--gold-ink);
+}
+
+[data-neu] .kalk-verwaist-h {
+  margin: 6px 0 0;
+  color: var(--gold-ink);
+}
+
+[data-neu] .kalk-verwaist-k {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}

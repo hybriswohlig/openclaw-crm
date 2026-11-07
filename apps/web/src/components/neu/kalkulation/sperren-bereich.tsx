@@ -2,6 +2,7 @@
 
 import type { KalkulationsAnsicht } from "@/lib/kalkulations-ansicht";
 import type { Lauf } from "./kalk-seite";
+import { kvKnopf, kvStatus } from "./kv-erzeugung";
 
 /** Link auf das PDF des KV-Dokuments (gleiche Route wie die Dokumente der Akte). */
 export function kvDokumentLink(dealId: string, dokumentId: string): string {
@@ -15,6 +16,8 @@ export function kvDokumentLink(dealId: string, dokumentId: string): string {
  * Version „+ Neue Version“ und, bei der neuesten gesperrten ohne KV-Dokument
  * (`kvErstellbar`), „KV erstellen“, sonst der Link „KV öffnen“. „Tagespreise im Termin-Dialog“
  * kommt mit Plan 5 und bleibt deaktiviert. Alles während eines Laufs gesperrt.
+ * Plan 5a (Entscheidung 8): bei Kottke der Zustand des VPS-KV (läuft, fertig,
+ * verworfen, Fehler); solange er läuft, kein zweites „KV erstellen“.
  */
 export function SperrenBereich({
   dealId,
@@ -24,6 +27,7 @@ export function SperrenBereich({
   onKv,
   onNeueVersion,
   onNeuRechnen,
+  jetzt = new Date(),
 }: {
   dealId: string;
   version: KalkulationsAnsicht["version"];
@@ -32,6 +36,7 @@ export function SperrenBereich({
   onKv: () => void;
   onNeueVersion: () => void;
   onNeuRechnen: () => void;
+  jetzt?: Date;
 }) {
   const beschaeftigt = laeuft !== null;
   const gesperrt = version.status === "gesperrt";
@@ -39,6 +44,8 @@ export function SperrenBereich({
   const rechnet = laeuft === "neu_rechnen";
   // Ohne Montage-Echo hilft Neu rechnen nicht, solange der alte Rechner läuft (M9): kein Knopf.
   const neuRechnenNoetig = !gesperrt && (version.fehler !== null || (version.veraltet && version.veraltetGrund !== "rechner"));
+  const status = kvStatus(version, jetzt);
+  const knopf = kvKnopf(version, jetzt);
 
   return (
     <div className="kalk-aktionen">
@@ -63,20 +70,22 @@ export function SperrenBereich({
 
       {gesperrt ? (
         <>
-          {version.kvDokument ? (
-            <p className="kalk-kv-fertig">
-              <span>KV erstellt: {version.kvDokument.fileName}</span>
-              <a className="kalk-kleinknopf" href={kvDokumentLink(dealId, version.kvDokument.id)} target="_blank" rel="noreferrer">
-                KV öffnen
-              </a>
+          {status ? (
+            <p className="kalk-kv-fertig" data-ton={status.ton} role="status" aria-live="polite">
+              <span>{status.text}</span>
+              {status.dokumentId ? (
+                <a className="kalk-kleinknopf" href={kvDokumentLink(dealId, status.dokumentId)} target="_blank" rel="noreferrer">
+                  KV öffnen
+                </a>
+              ) : null}
             </p>
           ) : null}
           <button type="button" className="kalk-knopf" disabled={beschaeftigt} aria-busy={laeuft === "neue_version" || undefined} onClick={onNeueVersion}>
             {laeuft === "neue_version" ? "Legt an …" : "+ Neue Version"}
           </button>
-          {version.kvErstellbar ? (
+          {knopf ? (
             <button type="button" className="kalk-knopf" data-geist="" disabled={beschaeftigt} aria-busy={sperrt || undefined} onClick={onKv}>
-              {sperrt ? "Erstellt den KV …" : "KV erstellen"}
+              {sperrt ? "Erstellt den KV …" : knopf}
             </button>
           ) : null}
         </>

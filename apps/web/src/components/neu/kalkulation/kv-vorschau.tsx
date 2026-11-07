@@ -1,7 +1,9 @@
 "use client";
 
+import type { KvErzeugung } from "@/lib/angebot-wahl";
 import type { KalkulationsAnsicht } from "@/lib/kalkulations-ansicht";
 import { euro } from "@/components/neu/akte/format";
+import { kvMarke } from "./kv-erzeugung";
 
 /** „4 Posten, Summe 2.480 €“, bei Vorschau und Spanne mit Zusatz. */
 export function kvUnterzeile(kv: NonNullable<KalkulationsAnsicht["kv"]>): string {
@@ -14,9 +16,19 @@ export function kvUnterzeile(kv: NonNullable<KalkulationsAnsicht["kv"]>): string
 /**
  * „So steht es im KV“ (Spec 3.6): die Posten, wie sie der Kunde sieht, mit
  * Herkunft und Summe. Beim Entwurf eine Vorschau (so markiert), bei Spanne
- * mit „Obergrenze“; ohne Übernahme steht `kvFehler`.
+ * mit „Obergrenze“; ohne Übernahme steht `kvFehler`. Bei Kottke (Plan 5a)
+ * zeigt eine Marke rechts, wie weit das PDF ist.
  */
-export function KvVorschau({ kv, kvFehler }: { kv: KalkulationsAnsicht["kv"]; kvFehler: string | null }) {
+export function KvVorschau({
+  kv,
+  kvFehler,
+  erzeugung,
+}: {
+  kv: KalkulationsAnsicht["kv"];
+  kvFehler: string | null;
+  erzeugung?: KvErzeugung;
+}) {
+  const marke = erzeugung ? kvMarke(erzeugung) : null;
   return (
     <>
       <div className="kalk-panel-kopf" data-klein="">
@@ -24,6 +36,11 @@ export function KvVorschau({ kv, kvFehler }: { kv: KalkulationsAnsicht["kv"]; kv
           <h3 className="kalk-panel-titel">So steht es im KV</h3>
           <p className="kalk-panel-unter">{kv ? kvUnterzeile(kv) : "Noch keine Posten."}</p>
         </div>
+        {marke ? (
+          <span className="kalk-marke kalk-kv-marke" data-ton={marke.ton}>
+            {marke.text}
+          </span>
+        ) : null}
       </div>
       <div className="kalk-kv">
         {kv ? (

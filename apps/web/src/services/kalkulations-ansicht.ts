@@ -8,6 +8,7 @@
  * `dealImWorkspace`; jede Abfrage hier filtert trotzdem auf Workspace (und Deal).
  */
 import { ortAus, streckeAus } from "@/lib/akte";
+import type { KvErzeugung, RenderJob } from "@/lib/angebot-wahl";
 import {
   ansichtAus,
   type InboxAnhangZeile,
@@ -39,7 +40,49 @@ export interface AnsichtOptionen {
   /** Paket-Slug → Anzeigename (Pakete der Firma des Deals) */
   ladePaketNamen?: (ws: string, deal: string) => Promise<Record<string, string>>;
   istKottke?: (ws: string, deal: string) => Promise<boolean>;
+  /** Plan 5a: letzter KV-Job (VPS) dieser Version aus `document_render_jobs` */
+  ladeKvJob?: (ws: string, deal: string, versionId: string) => Promise<RenderJob | null>;
   jetzt?: () => Date;
+}
+
+/**
+ * Verständlicher Text zu einem fehlgeschlagenen KV-Job. Die Meldung im Job ist
+ * technisch (VPS-Status, Ablauf nach 24 h); hier steht, was passiert ist und
+ * was zu tun ist.
+ */
+export function kvFehlerText(fehler: string | null): string {
+  const f = (fehler ?? "").toLowerCase();
+  const was = /24|abgelaufen|ablauf|zeit|timeout/.test(f)
+    ? "Der KV kam nicht innerhalb von 24 Stunden vom Dokumenten-Server zurück."
+    : /404|nicht gefunden|unbekannt/.test(f)
+      ? "Der Dokumenten-Server kennt den Auftrag nicht mehr."
+      : "Der KV konnte nicht erzeugt werden.";
+  return `${was} Bitte den KV neu erstellen.`;
+}
+
+/**
+ * Zustand des KV auf der Kalkulationsseite (Entscheidung 5a-8). Nur eine
+ * gesperrte Version mit VPS-Renderer (Kottke) hat einen Job; das CRM rendert
+ * sofort, dort bleibt es bei „keins“. „fertig“ nur, wenn das abgelegte
+ * Dokument der Version noch da ist.
+ */
+export function kvErzeugungAus(e: {
+  renderer: "crm" | "vps";
+  gesperrt: boolean;
+  job: Pick<RenderJob, "status" | "createdAt" | "fehler"> | null;
+  kvDokument: { id: string; fileName: string } | null;
+}): KvErzeugung {
+  if (e.renderer !== "vps" || !e.gesperrt || e.job === null) return { art: "keins" };
+  switch (e.job.status) {
+    case "laeuft":
+      return { art: "laeuft", seit: e.job.createdAt };
+    case "abgelegt":
+      return e.kvDokument ? { art: "fertig", dealDocumentId: e.kvDokument.id, fileName: e.kvDokument.fileName } : { art: "keins" };
+    case "verworfen":
+      return { art: "verworfen" };
+    case "fehler":
+      return { art: "fehler", text: kvFehlerText(e.job.fehler) };
+  }
 }
 
 const ART_WORT: Record<Auftragsart, string> = {
@@ -74,6 +117,7 @@ async function abhaengigkeiten(o: AnsichtOptionen): Promise<Required<AnsichtOpti
     ladeNamen: o.ladeNamen ?? (await db()).ladeNutzerNamen,
     ladePaketNamen: o.ladePaketNamen ?? (await db()).ladePaketNamen,
     istKottke: o.istKottke ?? (await import("@/lib/kottke-crm-renderer-deal")).dealBlocksInRepoCrmRenderer,
+    ladeKvJob: o.ladeKvJob ?? (await import("./render-jobs")).letzterKvJob,
     jetzt: o.jetzt ?? (() => new Date()),
   };
 }
@@ -112,7 +156,17 @@ export async function ladeKalkulationsAnsicht(
     hatPakete ? d.ladePaketNamen(ws, deal) : Promise.resolve({}),
     d.istKottke(ws, deal),
   ]);
-  const vorlagen = kopf.firmaId ? await d.ladeVorlagen(ws, kopf.firmaId) : [];
+  const gesperrt = v.status === "gesperrt";
+  const [vorlagen, kvJob] = await Promise.all([
+    kopf.firmaId ? d.ladeVorlagen(ws, kopf.firmaId) : Promise.resolve([]),
+    // Nur ein Anzeigezustand: fällt das Job-Register aus, lädt die Seite trotzdem (dann „keins“).
+    kottke && gesperrt
+      ? d.ladeKvJob(ws, deal, v.id).catch((err: unknown) => {
+          console.error("[kalkulations-ansicht] letzterKvJob", err);
+          return null;
+        })
+      : Promise.resolve(null),
+  ]);
 
   return ansichtAus(v, {
     alle: alle.map((x) => ({ version: x.version, status: x.status, priceCents: x.priceCents, sentAt: x.sentAt })),
@@ -134,5 +188,6 @@ export async function ladeKalkulationsAnsicht(
     hatPakete,
     paketNamen,
     renderer: kottke ? "vps" : "crm",
+    kvErzeugung: kvErzeugungAus({ renderer: kottke ? "vps" : "crm", gesperrt, job: kvJob, kvDokument }),
   });
 }
