@@ -30,6 +30,7 @@ function lage(ueber: Partial<AnrufLeadLage> = {}): AnrufLeadLage {
     offeneLeads: [],
     wahl: null,
     name: "Ada Lovelace",
+    personWahl: null,
     ...ueber,
   };
 }
@@ -150,6 +151,50 @@ describe("Lead aus Anruf", () => {
     expect(istOffeneStufe({ title: "Bezahlt", stageCategory: null })).toBe(false);
     expect(istOffeneStufe({ title: "Durchgeführt", stageCategory: null })).toBe(false);
     expect(istOffeneStufe({ title: "Irgendwas", stageCategory: null })).toBe(true);
+  });
+
+  it("Personenwahl zählt nur, wenn sie zu den Treffern gehört", () => {
+    const ambiguous = entscheideAnrufLead(
+      lage({ matchStatus: "ambiguous", personen: [EINS, ZWEI], personWahl: "p2", offeneLeads: [LEAD_A] })
+    );
+    expect(ambiguous).toMatchObject({
+      art: "anlegen",
+      person: { neu: false, id: "p2" },
+      lead: { neu: false, id: "d1" },
+      status: "matched",
+      telefon: null,
+    });
+    const mehrere = entscheideAnrufLead(lage({ personen: [EINS, ZWEI], personWahl: "p1" }));
+    expect(mehrere).toMatchObject({ art: "anlegen", person: { neu: false, id: "p1" }, status: "matched", telefon: null });
+
+    const fremdAmbiguous = entscheideAnrufLead(
+      lage({ matchStatus: "ambiguous", personen: [EINS, ZWEI], personWahl: "fremd" })
+    );
+    expect(fremdAmbiguous).toMatchObject({ art: "abbruch", grund: "ambiguous", karten: [EINS, ZWEI], leads: [] });
+    const fremdMehrere = entscheideAnrufLead(lage({ personen: [EINS, ZWEI], personWahl: "fremd" }));
+    expect(fremdMehrere).toMatchObject({ art: "abbruch", grund: "mehrere_personen", karten: [EINS, ZWEI], leads: [] });
+
+    expect(entscheideAnrufLead(lage({ matchStatus: "ambiguous", personen: [EINS, ZWEI] }))).toMatchObject({
+      art: "abbruch",
+      grund: "ambiguous",
+    });
+    expect(entscheideAnrufLead(lage({ personen: [EINS, ZWEI] }))).toMatchObject({
+      art: "abbruch",
+      grund: "mehrere_personen",
+    });
+    expect(entscheideAnrufLead(lage({ personen: [EINS], personWahl: "fremd" }))).toMatchObject({
+      person: { neu: false, id: "p1" },
+      status: "matched",
+    });
+  });
+
+  it("offene Leads folgen der gewählten Person", () => {
+    expect(leadsPersonenId(lage({ matchStatus: "ambiguous", personen: [EINS, ZWEI], personWahl: "p1" }))).toBe("p1");
+    expect(leadsPersonenId(lage({ matchStatus: "ambiguous", personen: [EINS, ZWEI] }))).toBeNull();
+    expect(leadsPersonenId(lage({ personen: [EINS, ZWEI], personWahl: "p2" }))).toBe("p2");
+    expect(leadsPersonenId(lage({ personen: [EINS, ZWEI], personWahl: "fremd" }))).toBeNull();
+    expect(leadsPersonenId(lage({ personen: [EINS, ZWEI] }))).toBeNull();
+    expect(leadsPersonenId(lage({ personen: [EINS] }))).toBe("p1");
   });
 
   it("eine schon angehängte Person wird wiederverwendet, wenn die Nummer niemanden trifft", () => {

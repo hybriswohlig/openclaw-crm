@@ -1,23 +1,12 @@
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
-import { ATTRIBUTE_TYPE_COLUMN_MAP, type AttributeType } from "@openclaw-crm/shared";
 import { db } from "@/db";
-import {
-  attributes,
-  objects,
-  personIdentifiers,
-  phoneCalls,
-  recordValues,
-  records,
-  statuses,
-} from "@/db/schema";
-import { extractPersonalName } from "@/lib/display-name";
+import { attributes, objects, phoneCalls, recordValues, records, statuses } from "@/db/schema";
 import {
   anrufSperre,
   entscheideAnrufLead,
   istAnrufStatus,
   istOffeneStufe,
   leadsPersonenId,
-  personNameJson,
   sperrSchluessel,
   type AnrufLeadEntscheid,
   type AnrufStatus,
@@ -27,16 +16,17 @@ import {
 import { vorschlaegeAusAnruf } from "@/services/deal-enrichment";
 import { stampDealSourceIfEmpty } from "@/services/deal-attribution";
 import { batchGetRecordDisplayNames } from "@/services/display-names";
-import { livePersonIdsForE164 } from "@/services/phone-calls";
-import { neueAnfrageStufeId } from "@/services/stufen-wahl";
+import {
+  dealAnlegen,
+  kartenFuerNummer,
+  nameDerPerson,
+  NummerBelegt,
+  personAnlegen,
+  voraussetzungen,
+} from "@/services/lead-anlegen";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 type Db = typeof db | Tx;
-
-interface Feld {
-  id: string;
-  type: AttributeType;
-}
 
 export interface AnrufListenKontext {
   karten: PersonenKarte[];
@@ -63,62 +53,10 @@ export type LeadAntwort =
     }
   | { art: "konflikt"; meldung: string; karten: PersonenKarte[]; leads: PersonenKarte[] };
 
-class NummerBelegt extends Error {
-  constructor(readonly e164: string) {
-    super("nummer belegt");
-  }
-}
-
 class SchonErledigt extends Error {
   constructor() {
     super("erledigt");
   }
-}
-
-function istEinmalig(err: unknown): boolean {
-  const gesehen = new Set<unknown>();
-  let cur: unknown = err;
-  while (cur && typeof cur === "object" && !gesehen.has(cur)) {
-    gesehen.add(cur);
-    if ("code" in cur && (cur as { code?: string }).code === "23505") return true;
-    cur = "cause" in cur ? (cur as { cause?: unknown }).cause : null;
-  }
-  return false;
-}
-
-async function felder(objectId: string): Promise<Map<string, Feld>> {
-  const zeilen = await db
-    .select({ id: attributes.id, slug: attributes.slug, type: attributes.type })
-    .from(attributes)
-    .where(eq(attributes.objectId, objectId));
-  return new Map(zeilen.map((zeile) => [zeile.slug, { id: zeile.id, type: zeile.type as AttributeType }]));
-}
-
-function wertZeile(recordId: string, feld: Feld, value: unknown, actorId: string | null) {
-  const spalte = ATTRIBUTE_TYPE_COLUMN_MAP[feld.type];
-  const basis = { recordId, attributeId: feld.id, sortOrder: 0, createdBy: actorId };
-  if (spalte === "text_value") return { ...basis, textValue: String(value) };
-  if (spalte === "json_value") return { ...basis, jsonValue: value };
-  if (spalte === "referenced_record_id") {
-    const id = String(value);
-    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) return null;
-    return { ...basis, referencedRecordId: id };
-  }
-  return null;
-}
-
-async function schreibe(tx: Tx, recordId: string, feld: Feld | undefined, value: unknown, actorId: string | null) {
-  if (!feld) return;
-  const zeile = wertZeile(recordId, feld, value, actorId);
-  if (!zeile) return;
-  await tx.insert(recordValues).values(zeile);
-}
-
-async function kartenFuerNummer(workspaceId: string, e164: string): Promise<PersonenKarte[]> {
-  const ids = await livePersonIdsForE164(workspaceId, e164);
-  if (ids.length === 0) return [];
-  const namen = await batchGetRecordDisplayNames(ids);
-  return ids.map((id) => ({ id, name: namen.get(id)?.displayName || "Kunde" }));
 }
 
 async function lebendePerson(tx: Db, workspaceId: string, personId: string | null): Promise<string | null> {
@@ -137,21 +75,6 @@ async function lebendePerson(tx: Db, workspaceId: string, personId: string | nul
     )
     .limit(1);
   return zeile?.id ?? null;
-}
-
-async function nameDerPerson(tx: Db, peopleObjectId: string, personId: string): Promise<string> {
-  const [attr] = await tx
-    .select({ id: attributes.id })
-    .from(attributes)
-    .where(and(eq(attributes.objectId, peopleObjectId), eq(attributes.slug, "name")))
-    .limit(1);
-  if (!attr) return "Kunde";
-  const [wert] = await tx
-    .select({ json: recordValues.jsonValue, text: recordValues.textValue })
-    .from(recordValues)
-    .where(and(eq(recordValues.recordId, personId), eq(recordValues.attributeId, attr.id)))
-    .limit(1);
-  return extractPersonalName(wert?.json) || wert?.text?.trim() || "Kunde";
 }
 
 export async function offeneLeadsDerPerson(
@@ -234,48 +157,12 @@ function konfliktAus(
   return { art: "konflikt", meldung, karten: entscheid.karten, leads: entscheid.leads };
 }
 
-async function voraussetzungen(workspaceId: string): Promise<
-  | {
-      ok: true;
-      peopleId: string;
-      dealsId: string;
-      stufeId: string;
-      people: Map<string, Feld>;
-      deals: Map<string, Feld>;
-    }
-  | { ok: false; meldung: string }
-> {
-  const objekte = await db
-    .select({ id: objects.id, slug: objects.slug })
-    .from(objects)
-    .where(and(eq(objects.workspaceId, workspaceId), inArray(objects.slug, ["people", "deals"])));
-  const peopleId = objekte.find((objekt) => objekt.slug === "people")?.id;
-  const dealsId = objekte.find((objekt) => objekt.slug === "deals")?.id;
-  if (!peopleId || !dealsId) return { ok: false, meldung: "Personen oder Leads fehlen." };
-
-  const stufeId = await neueAnfrageStufeId(dealsId);
-  if (!stufeId) return { ok: false, meldung: "Die Stufe Neue Anfrage fehlt." };
-  const [stufe] = await db
-    .select({ title: statuses.title, isActive: statuses.isActive })
-    .from(statuses)
-    .where(eq(statuses.id, stufeId))
-    .limit(1);
-  if (!stufe?.isActive || !/^neue anfrage$/i.test(stufe.title.trim())) {
-    return { ok: false, meldung: "Die Stufe Neue Anfrage fehlt." };
-  }
-
-  const [people, deals] = await Promise.all([felder(peopleId), felder(dealsId)]);
-  if (!people.get("name") || !deals.get("name") || !deals.get("stage") || !deals.get("associated_people")) {
-    return { ok: false, meldung: "Personen oder Leads sind unvollständig." };
-  }
-  return { ok: true, peopleId, dealsId, stufeId, people, deals };
-}
-
 export async function leadAusAnruf(input: {
   workspaceId: string;
   callId: string;
   name: string | null;
   wahl: LeadWahl | null;
+  personId: string | null;
   actorId: string | null;
 }): Promise<LeadAntwort> {
   const basis = await voraussetzungen(input.workspaceId);
@@ -308,7 +195,7 @@ export async function leadAusAnruf(input: {
         };
       }
 
-      if (anruf.callerE164 && anruf.matchStatus === "unmatched") {
+      if (anruf.callerE164 && anruf.matchStatus !== "matched") {
         await tx.execute(
           sql`select pg_advisory_xact_lock(hashtext(${sperrSchluessel(input.workspaceId, anruf.callerE164, anruf.id)}))`
         );
@@ -325,6 +212,7 @@ export async function leadAusAnruf(input: {
         callerE164: anruf.callerE164,
         personen,
         angehaengtePersonId,
+        personWahl: input.personId,
       });
       const offeneLeads = personFuerLeads
         ? await offeneLeadsDerPerson(tx, basis.dealsId, personFuerLeads)
@@ -338,6 +226,7 @@ export async function leadAusAnruf(input: {
         offeneLeads,
         wahl: input.wahl,
         name: input.name,
+        personWahl: input.personId,
       });
       if (entscheid.art === "fertig") {
         return {
@@ -352,31 +241,16 @@ export async function leadAusAnruf(input: {
 
       let personId: string;
       if (entscheid.person.neu) {
-        const [person] = await tx
-          .insert(records)
-          .values({ objectId: basis.peopleId, createdBy: input.actorId })
-          .returning({ id: records.id });
-        personId = person.id;
-        const nameFeld = basis.people.get("name");
-        const nameWert = nameFeld?.type === "text" ? entscheid.person.name : personNameJson(entscheid.person.name);
-        await schreibe(tx, personId, nameFeld, nameWert, input.actorId);
-        if (entscheid.telefon) {
-          await schreibe(tx, personId, basis.people.get("phone_numbers"), entscheid.telefon, input.actorId);
-          try {
-            await tx.insert(personIdentifiers).values({
-              workspaceId: input.workspaceId,
-              personRecordId: personId,
-              kind: "phone",
-              valueRaw: entscheid.telefon,
-              valueCanonical: entscheid.telefon,
-              source: "operator",
-              trust: "claimed",
-            });
-          } catch (err) {
-            if (istEinmalig(err)) throw new NummerBelegt(entscheid.telefon);
-            throw err;
-          }
-        }
+        personId = await personAnlegen(tx, {
+          workspaceId: input.workspaceId,
+          peopleObjectId: basis.peopleId,
+          peopleFelder: basis.people,
+          name: entscheid.person.name,
+          telefonE164: entscheid.telefon,
+          telefonRoh: null,
+          email: null,
+          actorId: input.actorId,
+        });
       } else {
         personId = entscheid.person.id;
       }
@@ -384,14 +258,14 @@ export async function leadAusAnruf(input: {
       let dealId: string;
       if (entscheid.lead.neu) {
         const titel = entscheid.person.neu ? entscheid.person.name : await nameDerPerson(tx, basis.peopleId, personId);
-        const [lead] = await tx
-          .insert(records)
-          .values({ objectId: basis.dealsId, createdBy: input.actorId })
-          .returning({ id: records.id });
-        dealId = lead.id;
-        await schreibe(tx, dealId, basis.deals.get("name"), titel, input.actorId);
-        await schreibe(tx, dealId, basis.deals.get("stage"), basis.stufeId, input.actorId);
-        await schreibe(tx, dealId, basis.deals.get("associated_people"), personId, input.actorId);
+        dealId = await dealAnlegen(tx, {
+          dealsObjectId: basis.dealsId,
+          dealsFelder: basis.deals,
+          stufeId: basis.stufeId,
+          name: titel,
+          personId,
+          actorId: input.actorId,
+        });
       } else {
         dealId = entscheid.lead.id;
       }

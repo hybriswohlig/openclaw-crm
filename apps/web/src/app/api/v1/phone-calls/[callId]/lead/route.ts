@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { badRequest, forbidden, getAuthContext, isReadOnlyApiKey, notFound, success, unauthorized } from "@/lib/api-utils";
+import type { AnrufLeadKoerper } from "@/lib/handy-links";
 import type { LeadWahl } from "@/lib/phone-call-lead";
 import { leadAusAnruf } from "@/services/phone-call-lead";
 
@@ -23,12 +24,17 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ cal
   if (raw.name != null && typeof raw.name !== "string") return badRequest("Name muss Text sein");
   if (raw.dealId != null && typeof raw.dealId !== "string") return badRequest("Lead muss eine Kennung sein");
   if (raw.neuerLead != null && typeof raw.neuerLead !== "boolean") return badRequest("Neuer Lead muss ja oder nein sein");
+  if (raw.personId != null && typeof raw.personId !== "string") return badRequest("Person muss eine Kennung sein");
 
-  const name = typeof raw.name === "string" ? raw.name : null;
-  const dealId = typeof raw.dealId === "string" ? raw.dealId.trim() : "";
-  const wahl: LeadWahl | null = dealId
-    ? { art: "bestehend", dealId }
-    : raw.neuerLead === true
+  const koerper: AnrufLeadKoerper = {};
+  if (typeof raw.name === "string") koerper.name = raw.name;
+  if (typeof raw.dealId === "string" && raw.dealId.trim()) koerper.dealId = raw.dealId.trim();
+  if (raw.neuerLead === true) koerper.neuerLead = true;
+  if (typeof raw.personId === "string" && raw.personId.trim()) koerper.personId = raw.personId.trim();
+
+  const wahl: LeadWahl | null = koerper.dealId
+    ? { art: "bestehend", dealId: koerper.dealId }
+    : koerper.neuerLead === true
       ? { art: "neu" }
       : null;
 
@@ -36,8 +42,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ cal
     const ergebnis = await leadAusAnruf({
       workspaceId: ctx.workspaceId,
       callId,
-      name,
+      name: koerper.name ?? null,
       wahl,
+      personId: koerper.personId ?? null,
       actorId: ctx.userId,
     });
     if (ergebnis.art === "fehlt") return notFound("Anruf nicht gefunden");

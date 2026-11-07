@@ -29,6 +29,8 @@ export interface AnrufLeadLage {
   offeneLeads: PersonenKarte[];
   wahl: LeadWahl | null;
   name: string | null;
+  /** Gewählte Person, wenn die Nummer mehreren Kunden gehört. Sonst null. */
+  personWahl: string | null;
 }
 
 export type AnrufLeadEntscheid =
@@ -127,16 +129,26 @@ export function personNameJson(name: string): Record<string, string> {
 }
 
 /** Wessen offene Leads vor der Entscheidung geladen werden müssen. */
+function gewaehltePerson(lage: Pick<AnrufLeadLage, "personen" | "personWahl">): string | null {
+  if (!lage.personWahl) return null;
+  return lage.personen.some((person) => person.id === lage.personWahl) ? lage.personWahl : null;
+}
+
 export function leadsPersonenId(
-  lage: Pick<AnrufLeadLage, "matchStatus" | "dealRecordId" | "callerE164" | "personen" | "angehaengtePersonId">
+  lage: Pick<
+    AnrufLeadLage,
+    "matchStatus" | "dealRecordId" | "callerE164" | "personen" | "angehaengtePersonId" | "personWahl"
+  >
 ): string | null {
   if (lage.dealRecordId) return null;
-  if (lage.matchStatus === "matched" || lage.matchStatus === "ambiguous") return null;
+  if (lage.matchStatus === "matched") return null;
+  const gewaehlt = gewaehltePerson(lage);
+  if (lage.matchStatus === "ambiguous") return gewaehlt;
   const ohneNummer = lage.matchStatus === "no_number" || !lage.callerE164;
   if (ohneNummer) return lage.angehaengtePersonId;
   if (lage.personen.length === 1) return lage.personen[0].id;
   if (lage.personen.length === 0) return lage.angehaengtePersonId;
-  return null;
+  return gewaehlt;
 }
 
 export function entscheideAnrufLead(lage: AnrufLeadLage): AnrufLeadEntscheid {
@@ -144,16 +156,22 @@ export function entscheideAnrufLead(lage: AnrufLeadLage): AnrufLeadEntscheid {
   if (lage.matchStatus === "matched") {
     return { art: "abbruch", grund: "matched", karten: [], leads: [] };
   }
-  if (lage.matchStatus === "ambiguous") {
-    return { art: "abbruch", grund: "ambiguous", karten: lage.personen, leads: [] };
-  }
-
   const ohneNummer = lage.matchStatus === "no_number" || !lage.callerE164;
+  const wahlNoetig = lage.matchStatus === "ambiguous" || (!ohneNummer && lage.personen.length >= 2);
   let person: { neu: true } | { neu: false; id: string };
-  if (ohneNummer) {
+  let status = statusNachLead(lage.matchStatus);
+  if (wahlNoetig) {
+    const gewaehlt = gewaehltePerson(lage);
+    if (!gewaehlt) {
+      if (lage.matchStatus === "ambiguous") {
+        return { art: "abbruch", grund: "ambiguous", karten: lage.personen, leads: [] };
+      }
+      return { art: "abbruch", grund: "mehrere_personen", karten: lage.personen, leads: [] };
+    }
+    person = { neu: false, id: gewaehlt };
+    status = "matched";
+  } else if (ohneNummer) {
     person = lage.angehaengtePersonId ? { neu: false, id: lage.angehaengtePersonId } : { neu: true };
-  } else if (lage.personen.length >= 2) {
-    return { art: "abbruch", grund: "mehrere_personen", karten: lage.personen, leads: [] };
   } else if (lage.personen.length === 1) {
     person = { neu: false, id: lage.personen[0].id };
   } else if (lage.angehaengtePersonId) {
@@ -191,7 +209,6 @@ export function entscheideAnrufLead(lage: AnrufLeadLage): AnrufLeadEntscheid {
     }
   }
 
-  const status = statusNachLead(lage.matchStatus);
   return {
     art: "anlegen",
     person: festgelegt,
