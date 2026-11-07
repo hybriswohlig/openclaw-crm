@@ -14,6 +14,24 @@ import { tagKurz } from "@/lib/anzeige";
 import type { TagAnsicht } from "@/lib/kalkulations-ansicht";
 import { istTag, monatsRaster, tagPlus } from "@/lib/plan-heute";
 
+/**
+ * Browser-Event, das den Termin-Dialog öffnet (eine Definition für
+ * Kalkulationsseite, Akte und Dialog). `detail.version`: aus dieser Version
+ * rechnet das Raster; ohne wie die Kalkulationsseite (Entwurf, sonst neueste
+ * gesperrte).
+ */
+export const TERMIN_DIALOG_EVENT = "neu:termin-dialog-oeffnen";
+
+export interface TerminDialogEvent {
+  dealId: string;
+  version?: number | null;
+}
+
+/** Öffnet den Termin-Dialog über das Browser-Event; `ziel` nur für Tests. */
+export function terminDialogOeffnen(detail: TerminDialogEvent, ziel?: EventTarget): void {
+  (ziel ?? window).dispatchEvent(new CustomEvent<TerminDialogEvent>(TERMIN_DIALOG_EVENT, { detail }));
+}
+
 /** Höchstens so viele Tage je Angebot (wie der alte Dialog und `PUT date-offers`). */
 export const MAX_TAGE = 10;
 /** Höchstens so viele Zeitfenster je Tag (wie `PUT date-offers`). */

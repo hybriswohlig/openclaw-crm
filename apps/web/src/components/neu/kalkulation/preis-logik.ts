@@ -22,13 +22,12 @@ export type PreisArt = PreisStart["art"];
 /** Anpassung eines Tagespreises: geändert wird im Termin-Dialog. */
 export type TerminStart = { art: "termin" };
 
-/** Browser-Event, das den Termin-Dialog (Task U2) öffnet. */
-export const TERMIN_DIALOG_EVENT = "neu:termin-dialog-oeffnen";
-
-export interface TerminDialogDetail {
-  dealId: string;
-  version: number;
-}
+/** Event des Termin-Dialogs: eine Definition in `termin-logik.ts` (Task U2). */
+export {
+  TERMIN_DIALOG_EVENT,
+  terminDialogOeffnen,
+  type TerminDialogEvent as TerminDialogDetail,
+} from "@/components/neu/termin/termin-logik";
 
 const ZAHL = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 2 });
 
@@ -205,11 +204,6 @@ export function tagespreiseKnopf(
   }
   if (version.preisModus === "stunden") return { aktiv: false, hinweis: "Beim Stunden-KV gibt es keine Tagespreise." };
   return { aktiv: true, hinweis: null };
-}
-
-/** Öffnet den Termin-Dialog (Task U2) über ein Browser-Event. */
-export function terminDialogOeffnen(detail: TerminDialogDetail, ziel: EventTarget = window): void {
-  ziel.dispatchEvent(new CustomEvent<TerminDialogDetail>(TERMIN_DIALOG_EVENT, { detail }));
 }
 
 /** Preismodus als Wort. */

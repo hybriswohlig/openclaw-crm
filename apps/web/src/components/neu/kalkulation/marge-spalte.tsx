@@ -215,6 +215,9 @@ export function MargeSpalte({ ansicht, kontext }: { ansicht: KalkulationsAnsicht
   }
 
   const plan5 = ansicht.schalter.angebotAusKalkulation;
+  // Entscheidung 7: Stunden-KV statt Festpreis. Marge, Formel und gerundeter Preis
+  // gelten dann nicht (Sätze und Mindeststunden kommen aus den Rechner-Einstellungen).
+  const stundenModus = plan5 && version.preisModus === "stunden";
   const tagesKnopf = tagespreiseKnopf(ansicht.schalter, version);
   const preisOeffnen = (start: PreisStart) => setDialog({ art: "preis", start });
 
@@ -240,59 +243,67 @@ export function MargeSpalte({ ansicht, kontext }: { ansicht: KalkulationsAnsicht
         </div>
       </div>
 
-      <div className="kalk-marge">
-        <MargeRegler marge={marge} wert={wert} gesperrt={!kontext.bearbeitbar || beschaeftigt} speichert={speichert} onWert={reglerWert} />
-        <ul className="kalk-gruende" aria-label="Gründe des Vorschlags">
-          {marge.gruende.map((g, i) => (
-            <li key={`${g.text}-${i}`}>
-              <span>{g.text}</span>
-              <b>{punkteText(g.punkte)}</b>
-            </li>
-          ))}
-          {marge.gewaehltProzent !== null ? (
-            <li data-gewaehlt="">
-              <span>{marge.gewaehltVon ? `Gewählt von ${marge.gewaehltVon}` : "Gewählt"}</span>
-              <b>{marge.gewaehltProzent} %</b>
-            </li>
-          ) : null}
-        </ul>
-      </div>
+      {stundenModus ? null : (
+        <>
+          <div className="kalk-marge">
+            <MargeRegler marge={marge} wert={wert} gesperrt={!kontext.bearbeitbar || beschaeftigt} speichert={speichert} onWert={reglerWert} />
+            <ul className="kalk-gruende" aria-label="Gründe des Vorschlags">
+              {marge.gruende.map((g, i) => (
+                <li key={`${g.text}-${i}`}>
+                  <span>{g.text}</span>
+                  <b>{punkteText(g.punkte)}</b>
+                </li>
+              ))}
+              {marge.gewaehltProzent !== null ? (
+                <li data-gewaehlt="">
+                  <span>{marge.gewaehltVon ? `Gewählt von ${marge.gewaehltVon}` : "Gewählt"}</span>
+                  <b>{marge.gewaehltProzent} %</b>
+                </li>
+              ) : null}
+            </ul>
+          </div>
 
-      <div className="kalk-preis">
-        <div className="kalk-summe">
-          <span>{formel ? formel.formel : preis.formel}</span>
-          <span>{formel ? formel.rohText : (preis.preisRohText ?? "–")}</span>
-        </div>
-        <div className="kalk-ku">
-          <span>gerundet auf {euro(marge.rundungEur * 100)}{vorschau ? " · Vorschau" : ""}</span>
-          <span className="kalk-ku-a">{vorschau ? euro(vorschau.preisCent) : preis.gerundetCent !== null ? euro(preis.gerundetCent) : "–"}</span>
-        </div>
-        <div className="kalk-ku">
-          <span>Gewinn</span>
-          <span className="kalk-ku-a">{vorschau ? euro(vorschau.gewinnCent) : preis.gewinnCent !== null ? euro(preis.gewinnCent) : "–"}</span>
-        </div>
-        {preis.listenpreisCent !== null ? (
-          <div className="kalk-ku">
-            <span>Listenpreis zum Vergleich</span>
-            <span className="kalk-ku-a">{euro(preis.listenpreisCent)}</span>
+          <div className="kalk-preis">
+            <div className="kalk-summe">
+              <span>{formel ? formel.formel : preis.formel}</span>
+              <span>{formel ? formel.rohText : (preis.preisRohText ?? "–")}</span>
+            </div>
+            <div className="kalk-ku">
+              <span>gerundet auf {euro(marge.rundungEur * 100)}{vorschau ? " · Vorschau" : ""}</span>
+              <span className="kalk-ku-a">{vorschau ? euro(vorschau.preisCent) : preis.gerundetCent !== null ? euro(preis.gerundetCent) : "–"}</span>
+            </div>
+            <div className="kalk-ku">
+              <span>Gewinn</span>
+              <span className="kalk-ku-a">{vorschau ? euro(vorschau.gewinnCent) : preis.gewinnCent !== null ? euro(preis.gewinnCent) : "–"}</span>
+            </div>
+            {preis.listenpreisCent !== null ? (
+              <div className="kalk-ku">
+                <span>Listenpreis zum Vergleich</span>
+                <span className="kalk-ku-a">{euro(preis.listenpreisCent)}</span>
+              </div>
+            ) : null}
+            {preis.spanne ? (
+              <div className="kalk-ku">
+                <span>Spanne der Schätzung</span>
+                <span className="kalk-ku-a">
+                  {euro(preis.spanne.vonCent)} bis {euro(preis.spanne.bisCent)}
+                </span>
+              </div>
+            ) : null}
           </div>
-        ) : null}
-        {preis.spanne ? (
-          <div className="kalk-ku">
-            <span>Spanne der Schätzung</span>
-            <span className="kalk-ku-a">
-              {euro(preis.spanne.vonCent)} bis {euro(preis.spanne.bisCent)}
-            </span>
-          </div>
-        ) : null}
-      </div>
+        </>
+      )}
 
       {plan5 ? <PreismodusWahl modus={version.preisModus} beschaeftigt={lauf !== null} onPreis={preisOeffnen} /> : null}
-      <KvVorschau kv={ansicht.kv} kvFehler={ansicht.kvFehler} erzeugung={version.kvErzeugung} />
-      <KernWarnung kern={ansicht.kern} kvDarstellung={ansicht.kvDarstellung} beschaeftigt={lauf !== null} onPreis={preisOeffnen} />
+      {stundenModus ? null : (
+        <>
+          <KvVorschau kv={ansicht.kv} kvFehler={ansicht.kvFehler} erzeugung={version.kvErzeugung} />
+          <KernWarnung kern={ansicht.kern} kvDarstellung={ansicht.kvDarstellung} beschaeftigt={lauf !== null} onPreis={preisOeffnen} />
+        </>
+      )}
       {plan5 ? (
-        version.preisModus === "stunden" ? (
-          <StundenBlock stunden={ansicht.stunden} />
+        stundenModus ? (
+          <StundenBlock stunden={ansicht.stunden} erzeugung={version.kvErzeugung} />
         ) : (
           <>
             <PaketPreise pakete={ansicht.pakete} beschaeftigt={lauf !== null} onPreis={preisOeffnen} />
@@ -354,6 +365,7 @@ export function MargeSpalte({ ansicht, kontext }: { ansicht: KalkulationsAnsicht
         <KvDialog
           version={version}
           kv={ansicht.kv}
+          stunden={stundenModus ? ansicht.stunden : null}
           laeuft={lauf !== null}
           portalZiel={portalZiel}
           onSchliessen={() => setDialog(null)}

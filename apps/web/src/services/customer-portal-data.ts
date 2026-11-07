@@ -1620,7 +1620,7 @@ async function loadKvaSnapshot(
   // Plan 5b: Stunden-KV aus der Version nur, solange die Quotation an ihr
   // hängt (von Hand geänderte Sätze lösen den Bezug, dann gilt „alt“).
   const stunden = q.isVariable && q.calculationVersionId
-    ? stundenAngebotAus((q.documentDetails as { stunden?: unknown } | null)?.stunden)
+    ? stundenAngebotAus(q.documentDetails?.stunden)
     : null;
   totalCents = gesamtpreisMitWahl({
     isVariable: q.isVariable,

@@ -11,6 +11,7 @@ import {
 import type { KalkulationsAnsicht } from "@/lib/kalkulations-ansicht";
 import { euro } from "@/components/neu/akte/format";
 import { kvUnterzeile } from "./kv-vorschau";
+import { stundenKundentext } from "./preis-logik";
 
 /** Texte für `POST …/kv` (`copy`), nur gefüllte Felder. */
 export interface KvTexte {
@@ -28,6 +29,7 @@ export interface KvTexte {
 export function KvDialog({
   version,
   kv,
+  stunden = null,
   laeuft,
   portalZiel,
   onSchliessen,
@@ -35,6 +37,8 @@ export function KvDialog({
 }: {
   version: KalkulationsAnsicht["version"];
   kv: KalkulationsAnsicht["kv"];
+  /** Plan 5b, Stundenmodus: Schätzung und Kundentext statt der Posten-Summe. */
+  stunden?: KalkulationsAnsicht["stunden"];
   laeuft: boolean;
   portalZiel: HTMLElement | undefined;
   onSchliessen: () => void;
@@ -64,7 +68,12 @@ export function KvDialog({
             ? "Der KV wird aus den gesperrten Posten dieser Version erzeugt. Nichts geht an den Kunden."
             : "Der Preis wird beim Sperren noch einmal geprüft. Danach ist die Version fest; Änderungen landen in einem neuen Entwurf. Nichts geht an den Kunden."}
         </GlassDialogDescription>
-        {kv ? (
+        {stunden ? (
+          <p className="kalk-kv-dialog-summe">
+            {euro(stunden.summeGeschaetztCent)}
+            <small>Stunden-KV: {stundenKundentext(stunden)}</small>
+          </p>
+        ) : kv ? (
           <p className="kalk-kv-dialog-summe">
             {euro(kv.summeCent)}
             <small>{kvUnterzeile(kv)}</small>

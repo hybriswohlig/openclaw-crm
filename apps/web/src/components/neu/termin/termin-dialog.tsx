@@ -43,23 +43,13 @@ import {
   tagAendern,
   tageAnbietenAus,
   tagUmschalten,
+  TERMIN_DIALOG_EVENT,
   type AuswahlTag,
+  type TerminDialogEvent,
 } from "./termin-logik";
 import { TerminRaster, type MonatsStand } from "./termin-raster";
 
-/** Browser-Event, das den Termin-Dialog öffnet (Knopf auf der Kalkulationsseite, Task U1). */
-export const TERMIN_DIALOG_EVENT = "neu:termin-dialog-oeffnen";
-
-export interface TerminDialogEvent {
-  dealId: string;
-  /** Version, aus der das Raster rechnet; ohne: wie die Kalkulationsseite (Entwurf, sonst neueste gesperrte). */
-  version?: number | null;
-}
-
-/** Öffnet den Termin-Dialog über das Browser-Event (für Knöpfe außerhalb der Akte). */
-export function terminDialogOeffnen(detail: TerminDialogEvent) {
-  window.dispatchEvent(new CustomEvent<TerminDialogEvent>(TERMIN_DIALOG_EVENT, { detail }));
-}
+export { TERMIN_DIALOG_EVENT, terminDialogOeffnen, type TerminDialogEvent } from "./termin-logik";
 
 function istEvent(x: unknown): x is TerminDialogEvent {
   return !!x && typeof x === "object" && typeof (x as TerminDialogEvent).dealId === "string";

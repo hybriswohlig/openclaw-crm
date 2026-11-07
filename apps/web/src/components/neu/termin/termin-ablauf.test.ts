@@ -154,7 +154,7 @@ describe("Raster und Speichern", () => {
 });
 
 describe("Sperren und KV wie auf der Kalkulationsseite", () => {
-  it("Entwurf: lock mit Preis und Hash, dann kv", async () => {
+  it("Entwurf: lock nur mit Hash (wie die Kalkulationsseite), dann kv", async () => {
     mockeFetch({
       [`POST ${B}/3/lock`]: { body: { data: { version: { version: 3 } } } },
       [`POST ${B}/3/kv`]: { body: { data: { renderer: "crm", fileName: "KV-1001.pdf" } } },
@@ -162,7 +162,7 @@ describe("Sperren und KV wie auf der Kalkulationsseite", () => {
     const r = await sperrenUndKv("deal_1", ansicht({}), { intro: "Hallo" });
     expect(r).toEqual({ art: "fertig", fileName: "KV-1001.pdf" });
     expect(aufrufe.map((a) => a.url)).toEqual([`${B}/3/lock`, `${B}/3/kv`]);
-    expect(aufrufe[0].body).toEqual({ bestaetigtSpanne: false, erwartetPreisCent: 248000, erwartetPreisHash: "-@-=248000|-@2026-11-14=248000" });
+    expect(aufrufe[0].body).toEqual({ bestaetigtSpanne: false, erwartetPreisHash: "-@-=248000|-@2026-11-14=248000" });
     expect(aufrufe[1].body).toEqual({ copy: { intro: "Hallo" } });
   });
 

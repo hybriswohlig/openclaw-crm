@@ -14,6 +14,7 @@
 import { apiAufruf, jsonAufruf, type ApiAntwort } from "@/components/neu/akte/api";
 import type { TageAnbieten, TagesRaster } from "@/lib/angebot-wahl";
 import type { KalkulationsAnsicht } from "@/lib/kalkulations-ansicht";
+import { sperrKoerper } from "@/components/neu/kalkulation/preis-logik";
 
 export function versionenBasis(dealId: string): string {
   return `/api/v1/deals/${encodeURIComponent(dealId)}/calculation/versions`;
@@ -118,20 +119,17 @@ export type SperrErgebnis =
   | { art: "fehler"; schritt: "sperren" | "kv"; message: string };
 
 /**
- * Wie `MargeSpalte.sperrenUndKv`: beim Entwurf `lock` mit dem gesehenen Preis
- * (`erwartetPreisCent`) und dem Preis-Hash aller Kundenpreise
- * (`erwartetPreisHash`, Plan 5b), dann `kv`. Bei einer gesperrten Version
+ * Wie `MargeSpalte.sperrenUndKv`: beim Entwurf `lock` mit dem Preis-Hash aller
+ * Kundenpreise (`erwartetPreisHash`, Plan 5b), ohne Hash mit dem gesehenen Preis
+ * (`erwartetPreisCent`), dann `kv`. Bei einer gesperrten Version
  * ohne KV nur `kv`. Kottke (`renderer: "vps"`): der nächste Dialog erzeugt das PDF.
  */
 export async function sperrenUndKv(dealId: string, ansicht: KalkulationsAnsicht, texte: KvTexte): Promise<SperrErgebnis> {
   const basis = `${versionenBasis(dealId)}/${ansicht.version.nummer}`;
   if (ansicht.version.status === "entwurf") {
-    const kv = ansicht.kv;
-    const koerper: Record<string, unknown> = {
-      bestaetigtSpanne: kv?.obergrenze ?? false,
-      erwartetPreisCent: kv?.summeCent ?? ansicht.preis.gerundetCent ?? 0,
-    };
-    if (ansicht.preisHash) koerper.erwartetPreisHash = ansicht.preisHash;
+    // Dieselbe Regel wie die Kalkulationsseite: mit Preis-Hash nur der Hash (er deckt die
+    // Standardwahl mit ab), ohne Hash wie vor 5b der gezeigte Preis.
+    const koerper = sperrKoerper(ansicht);
     const sperre = await apiAufruf<{ version: { version: number } }>(`${basis}/lock`, jsonAufruf("POST", koerper));
     if (!sperre.ok) {
       if (sperre.status === 409 && sperre.code === "PREIS_GEAENDERT") return { art: "preis_geaendert", message: sperre.message };

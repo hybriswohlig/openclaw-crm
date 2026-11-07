@@ -2,6 +2,7 @@
 
 import type { KalkulationsAnsicht } from "@/lib/kalkulations-ansicht";
 import { euro } from "@/components/neu/akte/format";
+import { kvMarke } from "./kv-erzeugung";
 import { stundenKundentext, stundenZeilen } from "./preis-logik";
 
 /**
@@ -10,8 +11,17 @@ import { stundenKundentext, stundenZeilen } from "./preis-logik";
  * feste Zusatzposten und die Schätzung, darunter der Satz, den der Kunde
  * liest. Ohne Rechner-Stunden (keine Sätze für die Firma) ein Hinweis; ob
  * die Version sperrbar ist, sagt der Sperrgrund des Dienstes.
+ * Steht im Stundenmodus an Stelle von Marge, Festpreis und „So steht es im
+ * KV“; die KV-Marke (Plan 5a) zieht deshalb hierher.
  */
-export function StundenBlock({ stunden }: { stunden: KalkulationsAnsicht["stunden"] }) {
+export function StundenBlock({
+  stunden,
+  erzeugung,
+}: {
+  stunden: KalkulationsAnsicht["stunden"];
+  erzeugung?: KalkulationsAnsicht["version"]["kvErzeugung"];
+}) {
+  const marke = erzeugung ? kvMarke(erzeugung) : null;
   return (
     <>
       <div className="kalk-panel-kopf" data-klein="">
@@ -19,6 +29,11 @@ export function StundenBlock({ stunden }: { stunden: KalkulationsAnsicht["stunde
           <h3 className="kalk-panel-titel">Stunden-KV</h3>
           <p className="kalk-panel-unter">Abgerechnet nach Aufwand, aus der Version.</p>
         </div>
+        {marke ? (
+          <span className="kalk-marke kalk-kv-marke" data-ton={marke.ton}>
+            {marke.text}
+          </span>
+        ) : null}
       </div>
       {stunden ? (
         <div className="kalk-kv" aria-label="Stunden-KV">

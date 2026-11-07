@@ -11,6 +11,7 @@ import type { KalkulationsAnsicht } from "@/lib/kalkulations-ansicht";
 import type { NeueUebersteuerungsArt } from "@/lib/angebot-wahl";
 import type { UebersteuerungsArt } from "@/lib/kalkulation-versionen";
 import { apiAufruf, jsonAufruf, type ApiAntwort } from "@/components/neu/akte/api";
+import { TerminDialogEmpfaenger } from "@/components/neu/termin/termin-dialog";
 import { GrundlageSpalte } from "./grundlage-spalte";
 import { KalkKopf } from "./kalk-kopf";
 import { DOKUMENT_ABGELEGT_EVENT, eventBetrifftDeal, KV_NACHLADEN_MS } from "./kv-erzeugung";
@@ -332,6 +333,13 @@ export function KalkSeite({ dealId }: { dealId: string }) {
           <MargeSpalte ansicht={ansicht} kontext={kontext} />
         </div>
       </div>
+      {/* Knopf „Tagespreise im Termin-Dialog“ (Plan 5b, Entscheidung 15): gespeicherte Tage oder ein Sperren im Dialog zeigen danach diese Version. */}
+      <TerminDialogEmpfaenger
+        dealId={dealId}
+        onSchliessen={(e) => {
+          if (e.geaendert && e.version) wechsleVersion(e.version);
+        }}
+      />
     </div>
   );
 }

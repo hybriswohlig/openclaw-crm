@@ -76,15 +76,20 @@ function quotationTotalCents(q: {
  * die der VPS druckt.
  */
 type VpsQuelle = Parameters<typeof vpsPreise>[1] & {
-  /** `quotations.document_details`; Stunden stehen unter `stunden` (StundenAngebot). */
-  documentDetails?: unknown;
+  /** `quotations.document_details` (D2: `stunden` ist als `StundenAngebot` typisiert). */
+  documentDetails?: Pick<QuotationDocumentDetails, "stunden"> | null;
 };
 
-function stundenAusDokument(details: unknown): { stundenGeschaetzt: number; mindestStunden: number } | null {
-  if (!details || typeof details !== "object" || !("stunden" in details)) return null;
-  const roh = (details as { stunden?: unknown }).stunden;
-  if (!roh || typeof roh !== "object") return null;
-  const s = roh as { stundenGeschaetzt?: unknown; mindestStunden?: unknown };
+/**
+ * Stunden aus dem gespeicherten `StundenAngebot`. Der Typ kommt aus dem Schema;
+ * geprüft wird trotzdem, weil jsonb (auch aus einem Annahmeschnappschuss) alles
+ * enthalten kann.
+ */
+function stundenAusDokument(
+  details: Pick<QuotationDocumentDetails, "stunden"> | null | undefined
+): { stundenGeschaetzt: number; mindestStunden: number } | null {
+  const s = details?.stunden;
+  if (!s || typeof s !== "object") return null;
   if (typeof s.stundenGeschaetzt !== "number" || typeof s.mindestStunden !== "number") return null;
   if (!Number.isFinite(s.stundenGeschaetzt) || !Number.isFinite(s.mindestStunden)) return null;
   return { stundenGeschaetzt: s.stundenGeschaetzt, mindestStunden: s.mindestStunden };

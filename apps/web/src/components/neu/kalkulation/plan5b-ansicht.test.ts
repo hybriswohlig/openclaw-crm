@@ -203,6 +203,27 @@ describe("MargeSpalte je Variante", () => {
     expect(h).toMatch(/data-geist="" disabled="">Tagespreise im Termin-Dialog/);
   });
 
+  it("Stunden (Entscheidung 7): kein Marge-Regler, keine Festpreis-Formel, keine Posten-Vorschau", () => {
+    const h = spalte("stunden");
+    expect(h).not.toContain('aria-label="Gründe des Vorschlags"');
+    expect(h).not.toContain("kalk-preis");
+    expect(text(h)).not.toContain("So steht es im KV");
+    expect(text(h)).not.toContain("Gewinn");
+    expect(h).toContain('aria-label="Preismodus"');
+    expect(h).toContain('aria-label="Stunden-KV"');
+    // Festpreis-Modus derselben Firma zeigt den Block weiter.
+    const fest = spalte("pakete");
+    expect(fest).toContain("kalk-preis");
+    expect(text(fest)).toContain("So steht es im KV");
+  });
+
+  it("ohne Schalter bleibt der Festpreis-Block auch bei einer Stunden-Quotation (wie vor 5b)", () => {
+    const a = weberAnsicht5b("aus");
+    const h = html(createElement(MargeSpalte, { ansicht: { ...a, version: { ...a.version, preisModus: "stunden" } }, kontext: kontext() }));
+    expect(h).toContain("kalk-preis");
+    expect(h).toContain('aria-label="Gründe des Vorschlags"');
+  });
+
   it("Kern negativ: Sperrgrund statt Sperrknopf", () => {
     const h = spalte("kern_negativ");
     expect(h).not.toContain("sperren und KV erstellen");
