@@ -189,6 +189,42 @@ function ueberspringen(fall: PruefFall, grund: string): void {
   test.skip(true, grund);
 }
 
+interface PortalFarben {
+  htmlHintergrund: string;
+  htmlColorScheme: string;
+  bodyHintergrund: string;
+  hintergrund: string;
+  colorScheme: string;
+  textFarbe: string;
+  textLeuchtdichte: number;
+}
+
+/** Läuft in der Seite: berechnete Farben von <html>, <body> und dem gewählten Element. */
+function portalFarben(selektor: string): PortalFarben {
+  const el = document.querySelector(selektor) ?? document.body;
+  const s = getComputedStyle(el);
+  const html = getComputedStyle(document.documentElement);
+  const m = /rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)/.exec(s.color);
+  const kanal = (x: number) => {
+    const v = x / 255;
+    return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+  };
+  const textLeuchtdichte = m ? 0.2126 * kanal(+m[1]) + 0.7152 * kanal(+m[2]) + 0.0722 * kanal(+m[3]) : 1;
+  return {
+    htmlHintergrund: html.backgroundColor,
+    htmlColorScheme: html.colorScheme,
+    bodyHintergrund: getComputedStyle(document.body).backgroundColor,
+    hintergrund: s.backgroundColor,
+    colorScheme: s.colorScheme,
+    textFarbe: s.color,
+    textLeuchtdichte,
+  };
+}
+
+function normal(farbe: string): string {
+  return farbe.replace(/\s+/g, "").toLowerCase();
+}
+
 test.describe("Prüfraster", () => {
   test.beforeAll(async () => {
     const url = process.env.PRUEFRASTER_DATABASE_URL?.trim();
@@ -276,9 +312,12 @@ test.describe("Prüfraster", () => {
     }
 
     const pfad = `/s/${portalToken}`;
+    // Alle Dunkel-Wege zugleich: Gerät dunkel (prefers-color-scheme), next-themes „dark“
+    // im localStorage und die Klasse dark an <html>.
     const context = await browser.newContext({
       viewport: { width: REDUCE_BREITE, height: hoehe(REDUCE_BREITE) },
       baseURL,
+      colorScheme: "dark",
     });
     try {
       await context.addInitScript(() => {
@@ -290,20 +329,31 @@ test.describe("Prüfraster", () => {
       await netzAbwarten(page);
       await page.screenshot({ path: path.join(ausgabe, "portal-dunkel-erzwungen.png"), fullPage: true });
 
-      const hintergrund = await page.evaluate(() => {
-        const el = document.querySelector(".kottke-portal") ?? document.body;
-        return getComputedStyle(el).backgroundColor;
-      });
+      const farben = await page.evaluate(portalFarben, ".kottke-portal");
       const keinUeberlauf = await page.evaluate(pruefSkript.horizontalScroll);
       const lgTheme = await page.evaluate(pruefSkript.lgTheme);
-      const passt = hintergrund.replace(/\s+/g, "").toLowerCase() === PORTAL_HELL.replace(/\s+/g, "");
-      const hellFunde: HellFund[] = passt
-        ? []
-        : [{ beschreibung: ".kottke-portal Hintergrund", farbe: hintergrund }];
-      await testInfo.attach("portal-hintergrund", {
-        body: JSON.stringify({ hintergrund, erwartet: PORTAL_HELL, passt }, null, 2),
+
+      // Annahme-Dialog (Radix, an <body> gehängt), wenn das Angebot ihn anbietet.
+      let dialog: PortalFarben | null = null;
+      const annehmen = page.getByRole("button", { name: /Angebot verbindlich annehmen/ }).first();
+      if (await annehmen.isVisible().catch(() => false)) {
+        await annehmen.click();
+        await page.locator(".portal-accept-dialog").waitFor({ state: "visible", timeout: 10_000 });
+        await page.screenshot({ path: path.join(ausgabe, "portal-dunkel-erzwungen-dialog.png") });
+        dialog = await page.evaluate(portalFarben, ".portal-accept-dialog");
+      }
+
+      await testInfo.attach("portal-farben", {
+        body: JSON.stringify({ seite: farben, dialog }, null, 2),
         contentType: "application/json",
       });
+      const hellFunde: HellFund[] = [];
+      const pruefe = (wo: string, farbe: string, soll: string) => {
+        if (normal(farbe) !== normal(soll)) hellFunde.push({ beschreibung: wo, farbe });
+      };
+      pruefe("html Hintergrund", farben.htmlHintergrund, PORTAL_HELL);
+      pruefe("body Hintergrund", farben.bodyHintergrund, PORTAL_HELL);
+      pruefe(".kottke-portal Hintergrund", farben.hintergrund, PORTAL_HELL);
       befunde.push({
         datei: "portal-dunkel-erzwungen.png",
         pfad,
@@ -312,8 +362,22 @@ test.describe("Prüfraster", () => {
         horizontalScroll: !keinUeberlauf,
         lgTheme,
         hellFunde,
-        portalHintergrund: hintergrund,
+        portalHintergrund: farben.hintergrund,
+        ...(dialog ? {} : { uebersprungen: "Annahme-Dialog nicht angeboten" }),
       });
+
+      expect(farben.htmlColorScheme, "color-scheme an <html>").toContain("light");
+      expect(farben.htmlColorScheme, "color-scheme an <html>").not.toContain("dark");
+      expect(normal(farben.htmlHintergrund), "Hintergrund <html>").toBe(normal(PORTAL_HELL));
+      expect(normal(farben.bodyHintergrund), "Hintergrund <body>").toBe(normal(PORTAL_HELL));
+      expect(normal(farben.hintergrund), "Hintergrund .kottke-portal").toBe(normal(PORTAL_HELL));
+      expect(farben.textLeuchtdichte, "Textfarbe .kottke-portal dunkel").toBeLessThan(0.1);
+      expect(farben.colorScheme, "color-scheme .kottke-portal").not.toContain("dark");
+      if (dialog) {
+        // Der Dialog trägt selbst .kottke-portal: Papier (#fff) oder Tisch (#f6f7f9), beides hell.
+        expect(["rgb(255,255,255)", normal(PORTAL_HELL)], "Hintergrund Annahme-Dialog").toContain(normal(dialog.hintergrund));
+        expect(dialog.textLeuchtdichte, "Textfarbe Annahme-Dialog dunkel").toBeLessThan(0.1);
+      }
     } finally {
       await context.close();
     }

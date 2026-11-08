@@ -26,6 +26,17 @@ import { ensureCustomerStatusLink } from "@/services/customer-portal-data";
 import { captureScopeSnapshot } from "@/services/scope-guard";
 import { completeAgentPriceTasks } from "@/services/agent/agent-tasks";
 
+/** Feldnamen des Bodys für die Zählung: ohne Werte, höchstens 30 Namen zu je 40 Zeichen. */
+const FELDER_MAX = 30;
+const FELDNAME_MAX = 40;
+function feldnamen(body: unknown): string[] {
+  if (!body || typeof body !== "object" || Array.isArray(body)) return [];
+  return Object.keys(body)
+    .sort()
+    .slice(0, FELDER_MAX)
+    .map((k) => k.slice(0, FELDNAME_MAX));
+}
+
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ recordId: string }> }
@@ -73,7 +84,7 @@ export async function PUT(
     abgelehnt: !erlaubt,
     dealRecordId: recordId,
     apiKeyId: ctx.apiKeyId ?? null,
-    felder: body && typeof body === "object" && !Array.isArray(body) ? Object.keys(body).sort() : [],
+    felder: feldnamen(body),
   };
   await emitEvent({
     workspaceId: ctx.workspaceId,

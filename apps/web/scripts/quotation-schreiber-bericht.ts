@@ -11,7 +11,8 @@
  * Zugang holt das Skript selbst, in dieser Reihenfolge: DATABASE_URL aus der Shell,
  * sonst aus .env.local/.env (Repo-Wurzel und apps/web), sonst `vercel env pull` der
  * Produktion in eine Temp-Datei, die sofort wieder gelöscht wird. Nur SELECT in einer
- * Nur-Lese-Transaktion.
+ * Nur-Lese-Transaktion. created_at ist timestamp ohne Zone (UTC gespeichert); das Skript
+ * liest es ausdrücklich als UTC, sonst rechnet postgres.js in der Ortszeit des Rechners.
  */
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
@@ -127,11 +128,11 @@ async function main() {
       const tx = txRoh as unknown as postgres.Sql;
       const ab = new Date(Date.now() - tage * 24 * 60 * 60 * 1000);
       const roh = await tx<{ created_at: Date; payload: QuotationZaehlung }[]>`
-        select created_at, payload from activity_events
+        select created_at at time zone 'UTC' as created_at, payload from activity_events
         where event_type = ${QUOTATION_ZAEHL_EVENT} and created_at >= ${ab}
         order by created_at`;
       const [erst] = await tx<{ seit: Date | null }[]>`
-        select min(created_at) as seit from activity_events where event_type = ${QUOTATION_ZAEHL_EVENT}`;
+        select min(created_at) at time zone 'UTC' as seit from activity_events where event_type = ${QUOTATION_ZAEHL_EVENT}`;
       const ids = [...new Set(roh.map((r) => r.payload.apiKeyId).filter((x): x is string => !!x))];
       const schluessel = ids.length
         ? await tx<{ id: string; name: string; revoked_at: Date | null }[]>`

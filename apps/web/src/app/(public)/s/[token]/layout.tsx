@@ -13,6 +13,8 @@ export const viewport: Viewport = {
   maximumScale: 5,
   userScalable: true,
   viewportFit: "cover",
+  // Portal immer hell, auch gegen das Zwangs-Dunkel des Browsers (<meta name="color-scheme">).
+  colorScheme: "only light",
   // Portal immer hell (Plan 14, K1): Statusleiste in beiden Schemata wie die Seite.
   themeColor: [
     { media: "(prefers-color-scheme: light)", color: "#f6f7f9" },

@@ -50,10 +50,11 @@ describe("Portal immer hell", () => {
     expect(treffer(/(?:^|[\s"'`{(])dark:[\w[!-]/, (p) => /\.tsx?$/.test(p))).toEqual([]);
   });
 
-  it("setzt color-scheme: light am Portal und an <html>", () => {
+  it("setzt color-scheme: only light am Portal, an <html> und im Viewport", () => {
     const css = readFileSync(join(PUBLIC, "s/[token]/portal.css"), "utf8");
-    expect(css).toMatch(/\.kottke-portal\s*\{\s*color-scheme:\s*light;\s*\}/);
-    expect(css).toMatch(/html:has\(\.kottke-portal\)\s*\{\s*color-scheme:\s*light !important;\s*\}/);
+    expect(css).toMatch(/\.kottke-portal\s*\{\s*color-scheme:\s*only light;\s*\}/);
+    expect(css).toMatch(/html:has\(\.kottke-portal\)\s*\{\s*color-scheme:\s*only light !important;\s*\}/);
+    expect(viewport.colorScheme).toBe("only light");
     expect(css).toContain(`html:has(.kottke-portal) body { background-color: ${PORTAL_HELL}; }`);
   });
 

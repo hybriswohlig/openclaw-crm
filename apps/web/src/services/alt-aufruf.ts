@@ -15,12 +15,46 @@ import { ALT_AUFRUF_EVENT, type AltAufruf } from "@/lib/dunkel-abschaltung";
 export const UI_COOKIE_NAME = "crm_ui";
 export const PFAD_MAX = 200;
 
+/**
+ * Oberste Segmente der alten Oberfläche (Ordner unter app/(dashboard), ohne
+ * pending-approval). Nur Pfade darunter werden gezählt; ein Test hält die Liste
+ * mit den Ordnern gleich.
+ */
+export const ALTE_PRAEFIXE = [
+  "admin",
+  "anrufe",
+  "contract-calendar",
+  "email",
+  "employees",
+  "financial",
+  "home",
+  "inbox",
+  "integrations",
+  "leads",
+  "lists",
+  "notes",
+  "notifications",
+  "objects",
+  "operations",
+  "search",
+  "settings",
+  "sichtbarkeit",
+  "statistics",
+  "tasks",
+] as const;
+
 /** Pfad ohne Abfrage und Anker, höchstens 200 Zeichen; null, wenn es kein Pfad ist. */
 export function altPfad(roh: unknown): string | null {
   if (typeof roh !== "string") return null;
   const pfad = roh.split(/[?#]/)[0];
   if (!pfad.startsWith("/") || pfad.startsWith("//")) return null;
   return pfad.slice(0, PFAD_MAX);
+}
+
+/** Liegt der Pfad unter einem Präfix der alten Oberfläche? */
+export function istAlterPfad(pfad: string): boolean {
+  const erstes = pfad.split("/")[1] ?? "";
+  return (ALTE_PRAEFIXE as readonly string[]).includes(erstes);
 }
 
 export function uiAusCookie(wert: string | undefined | null): AltAufruf["ui"] {

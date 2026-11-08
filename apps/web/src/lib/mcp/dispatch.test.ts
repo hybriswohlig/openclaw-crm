@@ -10,7 +10,7 @@ vi.mock("@/lib/kottke-crm-renderer-deal", () => ({
 
 import { handleTool, type ToolContent } from "./dispatch";
 import { KOTTKE_CRM_RENDERER_MESSAGE } from "@/lib/kottke-crm-renderer";
-import type { CrmClient } from "./client";
+import { CrmApiError, type CrmClient } from "./client";
 import { MAX_JSON_INLINE_BYTES, MAX_MCP_INLINE_BYTES_LIMIT } from "@/lib/attachment-content";
 import { jsonDealDocumentTooLargeMessage } from "@/lib/deal-document-upload";
 import { jsonDealPhotoTooLargeMessage } from "@/lib/deal-photo-upload";
@@ -1698,17 +1698,33 @@ describe("PUT /quotation zählen und sperren (Plan 14)", () => {
     expect(calls[1].options.headers).toEqual({ "x-crm-mcp-tool": "crm_api" });
   });
 
-  it("ruft in Stufe sperren die Route nicht und antwortet mit Verweis", async () => {
-    process.env[STUFE] = "sperren";
+  it("zählt in Stufe sperren über die Route und antwortet auf deren 410 mit Verweis", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const { client, calls } = fakeClient();
+    (client.request as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(async (path: string, options: Record<string, unknown>) => {
+      calls.push({ path, options });
+      throw new CrmApiError(410, "QUOTATION_PUT_GONE", "gone", { error: { code: "QUOTATION_PUT_GONE" } });
+    });
     const res = await handleTool(client, "crm_update_deal_quotation", { recordId: "d1", fixedPrice: "100" });
-    expect(calls).toHaveLength(0);
+    // Genau ein Aufruf mit Werkzeug-Header: die Route zählt ihn als mcp_werkzeug, abgelehnt.
+    expect(calls).toHaveLength(1);
+    expect(calls[0].options).toMatchObject({ method: "PUT", headers: { "x-crm-mcp-tool": "crm_update_deal_quotation" } });
     expect(res.isError).toBe(true);
     const antwort = textBlock(res.content);
     expect(antwort.error).toBe("QUOTATION_PUT_GONE");
     expect(antwort.message).toContain("crm_update_quotation_details");
     expect(antwort.ersatz).toContain("crm_update_quotation_details");
     expect(antwort.ersatz).toContain("crm_override_calculation");
+    expect(warn).toHaveBeenCalledWith("[mcp] crm_update_deal_quotation gesperrt", { recordId: "d1" });
+    warn.mockRestore();
+  });
+
+  it("reicht andere Fehler der Route unverändert durch", async () => {
+    const { client } = fakeClient();
+    (client.request as unknown as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new CrmApiError(404, "NOT_FOUND", "Deal nicht gefunden."));
+    const res = await handleTool(client, "crm_update_deal_quotation", { recordId: "d1" });
+    expect(res.isError).toBe(true);
+    expect(textBlock(res.content)).toMatchObject({ status: 404, code: "NOT_FOUND" });
   });
 
   it("lässt crm_api in Stufe sperren durch; die Route entscheidet", async () => {

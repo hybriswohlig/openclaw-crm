@@ -148,6 +148,16 @@ describe("PUT /quotation: Stufe zählen", () => {
     expect(mocks.completeAgentPriceTasks).toHaveBeenCalledWith("ws_1", "deal_1");
   });
 
+  it("begrenzt die Feldnamen auf 30 zu je 40 Zeichen", async () => {
+    const body: Record<string, number> = { isVariable: 0 };
+    for (let i = 0; i < 50; i++) body[`feld${String(i).padStart(2, "0")}${"x".repeat(60)}`] = i;
+    await PUT(put(body), p());
+    const felder = letzteZaehlung().payload.felder as string[];
+    expect(felder).toHaveLength(30);
+    expect(Math.max(...felder.map((f) => f.length))).toBe(40);
+    expect(felder[0]).toBe(`feld00${"x".repeat(34)}`);
+  });
+
   it("zählt auch einen kaputten Body und antwortet dann 400", async () => {
     const res = await PUT(put("{kaputt"), p());
     expect(res.status).toBe(400);

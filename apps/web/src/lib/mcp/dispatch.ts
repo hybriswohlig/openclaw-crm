@@ -1,5 +1,5 @@
 import type { CrmClient } from "./client";
-import { formatToolError, formatToolResult } from "./client";
+import { CrmApiError, formatToolError, formatToolResult } from "./client";
 import { readOnlyMcpToolError } from "./read-only-tools";
 import {
   base64ByteLength,
@@ -24,12 +24,7 @@ import {
   isKottkeFirma,
 } from "@/lib/kottke-crm-renderer";
 import { dealBlocksInRepoCrmRenderer } from "@/lib/kottke-crm-renderer-deal";
-import {
-  MCP_WERKZEUG_HEADER,
-  QUOTATION_GESPERRT,
-  QUOTATION_STUFE_ENV,
-  quotationStufe,
-} from "@/lib/dunkel-abschaltung";
+import { MCP_WERKZEUG_HEADER, QUOTATION_GESPERRT } from "@/lib/dunkel-abschaltung";
 
 type Args = Record<string, unknown>;
 
@@ -672,14 +667,6 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
       );
     }
     case "crm_update_deal_quotation": {
-      // Plan 14, Stufe „sperren“: die Route nicht mehr rufen, sofort mit Verweis antworten.
-      if (quotationStufe(process.env[QUOTATION_STUFE_ENV]) === "sperren") {
-        throw new ToolAntwortFehler({
-          error: QUOTATION_GESPERRT.code,
-          message: QUOTATION_GESPERRT.message,
-          ersatz: QUOTATION_GESPERRT.ersatz,
-        });
-      }
       // PUT replaces the quotation: omitted fields are reset, not preserved.
       // Read crm_get_deal_quotation first and merge, or fields silently drop.
       const body: Record<string, unknown> = {
@@ -701,10 +688,26 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
       ]) {
         if (args[key] !== undefined) body[key] = args[key];
       }
-      const data = await client.request(
-        `/api/v1/deals/${encodeURIComponent(str(args.recordId))}/quotation`,
-        { method: "PUT", body, headers: { [MCP_WERKZEUG_HEADER]: "crm_update_deal_quotation" } }
-      );
+      // Plan 14: Die Route entscheidet über die Stufe und zählt jeden Aufruf, auch den
+      // abgelehnten (quelle mcp_werkzeug, abgelehnt true). In Stufe „sperren“ schreibt sie
+      // nichts und antwortet 410; daraus wird die Verweis-Antwort des Werkzeugs.
+      let data: unknown;
+      try {
+        data = await client.request(
+          `/api/v1/deals/${encodeURIComponent(str(args.recordId))}/quotation`,
+          { method: "PUT", body, headers: { [MCP_WERKZEUG_HEADER]: "crm_update_deal_quotation" } }
+        );
+      } catch (err) {
+        if (err instanceof CrmApiError && err.status === QUOTATION_GESPERRT.status && err.code === QUOTATION_GESPERRT.code) {
+          console.warn("[mcp] crm_update_deal_quotation gesperrt", { recordId: str(args.recordId) });
+          throw new ToolAntwortFehler({
+            error: QUOTATION_GESPERRT.code,
+            message: QUOTATION_GESPERRT.message,
+            ersatz: QUOTATION_GESPERRT.ersatz,
+          });
+        }
+        throw err;
+      }
       console.warn("[mcp] crm_update_deal_quotation", {
         recordId: str(args.recordId),
       });

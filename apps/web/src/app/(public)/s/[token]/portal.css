@@ -31,9 +31,10 @@
 }
 /* Portal immer hell (Plan 14, K2): auch wenn next-themes im selben Browser „dunkel“
    gespeichert hat und die Klasse dark an <html> setzt. next-themes schreibt
-   color-scheme inline an <html>, deshalb dort !important. */
-.kottke-portal { color-scheme: light; }
-html:has(.kottke-portal) { color-scheme: light !important; }
+   color-scheme inline an <html>, deshalb dort !important. „only“ hält auch das
+   Zwangs-Dunkel mancher Browser (Samsung Internet, Chrome Android) ab. */
+.kottke-portal { color-scheme: only light; }
+html:has(.kottke-portal) { color-scheme: only light !important; }
 html:has(.kottke-portal), html:has(.kottke-portal) body { background-color: #f6f7f9; }
 .kottke-portal .display, .kottke-portal .portal-price, .kottke-portal .portal-display { font-family: 'Plus Jakarta Sans', var(--font-inter), Arial, sans-serif; font-weight: 800; letter-spacing: -.03em; }
 .kottke-portal :is(h1, h2, h3) { font-family: 'Plus Jakarta Sans', var(--font-inter), Arial, sans-serif; }

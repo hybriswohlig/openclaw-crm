@@ -12,7 +12,10 @@ vi.mock("@/services/alt-aufruf", async (importOriginal) => {
   return { ...actual, altAufrufMerken: mocks.altAufrufMerken };
 });
 
+import { readdirSync, statSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { POST } from "./route";
+import { ALTE_PRAEFIXE, istAlterPfad } from "@/services/alt-aufruf";
 
 const SITZUNG = { userId: "usr_1", workspaceId: "ws_1", workspaceRole: "member" as const, permissions: {}, authMethod: "cookie" as const };
 const post = (body: unknown, cookie?: string) =>
@@ -64,8 +67,26 @@ describe("POST /api/v1/alt-aufruf", () => {
   });
 
   it("begrenzt den Pfad auf 200 Zeichen", async () => {
-    await POST(post({ pfad: `/${"a".repeat(300)}` }));
+    await POST(post({ pfad: `/objects/${"a".repeat(300)}` }));
     expect(mocks.altAufrufMerken.mock.calls[0][2].pfad).toHaveLength(200);
+  });
+
+  it.each(["/app/heute", "/s/abc", "/x-zufall", "/", "/objectsx", "/pending-approval", "/login"])(
+    "schreibt für %s nichts und antwortet trotzdem 204",
+    async (pfad) => {
+      expect((await POST(post({ pfad }))).status).toBe(204);
+      expect(mocks.altAufrufMerken).not.toHaveBeenCalled();
+    }
+  );
+
+  it("kennt jede alte Seite unter app/(dashboard) außer pending-approval", () => {
+    const ordner = fileURLToPath(new URL("../../../(dashboard)/", import.meta.url));
+    const segmente = readdirSync(ordner)
+      .filter((n) => statSync(`${ordner}${n}`).isDirectory() && n !== "pending-approval")
+      .sort();
+    expect([...ALTE_PRAEFIXE].sort()).toEqual(segmente);
+    expect(istAlterPfad("/objects/deals/abc")).toBe(true);
+    expect(istAlterPfad("/settings")).toBe(true);
   });
 
   it.each([["kaputtes JSON", "{x"], ["ohne Pfad", {}], ["kein Pfad", { pfad: "home" }], ["fremde Herkunft", { pfad: "//evil.example/x" }], ["Zahl", { pfad: 5 }]])(

@@ -4,11 +4,12 @@
  *   POST /api/v1/alt-aufruf   body: { pfad: string, mitAlt: boolean }
  *
  * Nur Sitzung (kein API-Schlüssel), Antwort 204 ohne Inhalt. `ui` kommt aus dem
- * Cookie `crm_ui` der Anfrage. Höchstens ein Eintrag je Nutzer, Pfad und Minute.
+ * Cookie `crm_ui` der Anfrage. Höchstens ein Eintrag je Nutzer, Pfad und Minute;
+ * Pfade außerhalb der alten Oberfläche werden nicht geschrieben.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { badRequest, forbidden, getAuthContext, unauthorized } from "@/lib/api-utils";
-import { altAufrufMerken, altPfad, uiAusCookie, UI_COOKIE_NAME } from "@/services/alt-aufruf";
+import { altAufrufMerken, altPfad, istAlterPfad, uiAusCookie, UI_COOKIE_NAME } from "@/services/alt-aufruf";
 
 export const dynamic = "force-dynamic";
 
@@ -27,6 +28,8 @@ export async function POST(req: NextRequest) {
   const body = (roh && typeof roh === "object" ? roh : {}) as { pfad?: unknown; mitAlt?: unknown };
   const pfad = altPfad(body.pfad);
   if (!pfad) return badRequest("pfad muss ein Pfad sein");
+  // Nur bekannte alte Seiten zählen; alles andere still verwerfen.
+  if (!istAlterPfad(pfad)) return new NextResponse(null, { status: 204 });
 
   await altAufrufMerken(ctx.workspaceId, ctx.userId, {
     pfad,
