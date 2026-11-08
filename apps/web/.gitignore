@@ -1,1 +1,5 @@
 .vercel
+
+# Playwright (e2e und Prüfraster)
+test-results/
+playwright-report/
