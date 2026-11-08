@@ -208,7 +208,7 @@
 
 [data-neu] .bew-zeile {
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) 90px minmax(0, 1.2fr) auto;
+  grid-template-columns: minmax(0, 1.4fr) 90px minmax(0, 1.2fr) 280px;
   align-items: center;
   gap: 8px 12px;
   padding: 9px 10px 9px 12px;

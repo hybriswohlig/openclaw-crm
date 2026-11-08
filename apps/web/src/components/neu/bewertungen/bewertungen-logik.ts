@@ -73,3 +73,14 @@ export const AKTION_TEXT: Record<ZeilenAktion, string> = {
 /** Rückfrage beim Einschalten von „Senden“ (Task D). */
 export const SENDEN_RUECKFRAGE =
   "Ab jetzt gehen fällige Anfragen ohne Rückfrage raus, nur mit Einwilligung, nur für Zahlungen ab heute.";
+
+/**
+ * Text der Rückfrage: aus „Aus“ gilt der Plan-Satz; aus „Entwurf“ bleibt der
+ * Stichtag des Entwurfs (`bewertung_modus_seit` wird nicht neu gesetzt), offene
+ * Entwürfe bleiben Entwürfe.
+ */
+export function sendenRueckfrage(vorher: "aus" | "entwurf" | "senden", seit: string | null): string {
+  if (vorher !== "entwurf" || !seit) return SENDEN_RUECKFRAGE;
+  const tag = new Date(seit).toLocaleDateString("de-DE", { timeZone: "Europe/Berlin", day: "2-digit", month: "2-digit", year: "numeric" });
+  return `Ab jetzt gehen fällige Anfragen ohne Rückfrage raus, nur mit Einwilligung, für Zahlungen ab ${tag}. Offene Entwürfe bleiben zur Freigabe stehen.`;
+}

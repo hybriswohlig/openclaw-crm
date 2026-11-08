@@ -17,7 +17,7 @@ import {
   type BewertungFirma,
   type BewertungModus,
 } from "@/lib/bewertungen-kunden";
-import { SENDEN_RUECKFRAGE } from "./bewertungen-logik";
+import { sendenRueckfrage } from "./bewertungen-logik";
 
 const MODUS_LABEL: Record<BewertungModus, string> = { aus: "Aus", entwurf: "Entwurf", senden: "Senden" };
 
@@ -89,7 +89,7 @@ export function FirmenLeiste({
         <GlassDialog open onOpenChange={(o) => !o && setFrage(null)}>
           <GlassDialogContent container={portalZiel} closeLabel="Schließen">
             <GlassDialogTitle className="akte-dialog-titel">Automatik für {frage.name} einschalten?</GlassDialogTitle>
-            <GlassDialogDescription className="akte-dialog-text">{SENDEN_RUECKFRAGE}</GlassDialogDescription>
+            <GlassDialogDescription className="akte-dialog-text">{sendenRueckfrage(frage.modus, frage.modusSeit)}</GlassDialogDescription>
             <div className="akte-dialog-knoepfe">
               <GlassButton type="button" variant="ghost" onClick={() => setFrage(null)}>
                 Abbrechen

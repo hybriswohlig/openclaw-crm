@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { BewertungZeile } from "@/lib/bewertungen-kunden";
-import { LISTEN, startListe, zeileAktionen, zeileText } from "./bewertungen-logik";
+import { LISTEN, SENDEN_RUECKFRAGE, sendenRueckfrage, startListe, zeileAktionen, zeileText } from "./bewertungen-logik";
 
 const z = (e: Partial<BewertungZeile>): BewertungZeile => ({
   dealId: "d",
@@ -42,5 +42,13 @@ describe("bewertungen-logik", () => {
     expect(zeileAktionen(z({ liste: "gesperrt", grund: "VERSAND_UNKLAR", tokenFreigebbar: true }))).toEqual(["freigeben"]);
     expect(zeileAktionen(z({ liste: "gesperrt", grund: "BESCHWERDE" }))).toEqual([]);
     expect(zeileAktionen(z({ liste: "angefragt" }))).toEqual([]);
+  });
+});
+
+describe("Rückfrage Senden", () => {
+  it("aus Aus der Plan-Satz, aus Entwurf mit dem Stichtag des Entwurfs", () => {
+    expect(sendenRueckfrage("aus", null)).toBe(SENDEN_RUECKFRAGE);
+    expect(sendenRueckfrage("entwurf", "2026-10-29T10:00:00.000Z")).toContain("für Zahlungen ab 29.10.2026");
+    expect(sendenRueckfrage("entwurf", "2026-10-29T10:00:00.000Z")).not.toMatch(/[–—]/);
   });
 });
