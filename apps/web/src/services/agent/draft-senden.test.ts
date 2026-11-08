@@ -606,3 +606,36 @@ describe("entwurfFreigebenUndSenden Wartet-Vermerk", () => {
     expect(result.ok).toBe(true);
   });
 });
+
+describe("entwurfFreigebenUndSenden Zahlungserinnerung (Plan 9)", () => {
+  const ERINNERUNG = { ...DRAFT, messageClass: "followup", sequenceId: "zahlungserinnerung", draftText: "Kurze Erinnerung." };
+
+  it("ein Mensch gibt frei: Stufe und fehlende Werbe-Einwilligung blocken nicht", async () => {
+    mocks.updateReturns = [[{ ...ERINNERUNG }], [], []];
+    mocks.selects = [CONV, [{ status: "approved" }]];
+    mocks.gate.mockResolvedValue({
+      allowed: false,
+      reasons: ["stage_disallows_followup", "no_proactive_consent"],
+      context: {},
+    });
+    const result = await entwurfFreigebenUndSenden({ workspaceId: "ws", userId: "user-1", draftId: "draft-1" });
+    expect(result.ok).toBe(true);
+    expect(mocks.send).toHaveBeenCalledOnce();
+  });
+
+  it("andere Sperren (Ruhezeit, Opt-out) bleiben; andere Sequenzen bleiben gesperrt", async () => {
+    mocks.updateReturns = [[{ ...ERINNERUNG }], []];
+    mocks.selects = [CONV];
+    mocks.gate.mockResolvedValue({ allowed: false, reasons: ["stage_disallows_followup", "quiet_hours"], context: {} });
+    const r1 = await entwurfFreigebenUndSenden({ workspaceId: "ws", userId: "user-1", draftId: "draft-1" });
+    expect(r1).toEqual({ ok: false, fehler: "gate_blocked", reasons: ["quiet_hours"] });
+
+    reset();
+    mocks.updateReturns = [[{ ...ERINNERUNG, sequenceId: "nachfass" }], []];
+    mocks.selects = [CONV];
+    mocks.gate.mockResolvedValue({ allowed: false, reasons: ["stage_disallows_followup"], context: {} });
+    const r2 = await entwurfFreigebenUndSenden({ workspaceId: "ws", userId: "user-1", draftId: "draft-1" });
+    expect(r2).toEqual({ ok: false, fehler: "gate_blocked", reasons: ["stage_disallows_followup"] });
+    expect(mocks.send).not.toHaveBeenCalled();
+  });
+});

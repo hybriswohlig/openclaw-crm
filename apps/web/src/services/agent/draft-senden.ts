@@ -53,6 +53,19 @@ export type FreigabeErgebnis =
 /** Sperrgründe, die eine menschliche Freigabe aufhebt (Standard: nur der Hauptschalter). */
 const STANDARD_UEBERSTIMMBAR: ReadonlySet<string> = new Set(["master_switch_off"]);
 
+/**
+ * Plan 9: Zahlungserinnerungen sind Vertragskommunikation zu einer gestellten
+ * Rechnung, keine Werbung. Ein Mensch gibt jeden Entwurf frei; dann heben Stufe
+ * (Durchgeführt) und fehlende Werbe-Einwilligung den Versand nicht auf. Ruhezeit,
+ * Opt-out und alle übrigen Sperren bleiben. agent-gate.ts selbst bleibt unverändert.
+ */
+export const ZAHLUNGSERINNERUNG_SEQUENZ = "zahlungserinnerung";
+const ZAHLUNGSERINNERUNG_UEBERSTIMMBAR: readonly string[] = [
+  "stage_disallows_followup",
+  "stage_terminal",
+  "no_proactive_consent",
+];
+
 /** Roll a claimed draft back to 'pending' so the operator can retry. ONLY for
  * provably pre-delivery failures — see markSendUncertain for the rest. */
 async function revertToPending(
@@ -341,7 +354,10 @@ export async function entwurfFreigebenUndSenden(input: {
     });
     const gated = gateReasonsBlockingSend({
       reasons: verdict.reasons,
-      overridable: ueberstimmbar,
+      overridable:
+        draft.sequenceId === ZAHLUNGSERINNERUNG_SEQUENZ && (userId || humanApproved)
+          ? new Set([...ueberstimmbar, ...ZAHLUNGSERINNERUNG_UEBERSTIMMBAR])
+          : ueberstimmbar,
       humanApproved,
       overrideConsent,
     });
