@@ -190,7 +190,7 @@
 }
 
 [data-neu] .geld-zeile[data-storno] .geld-zeile-betrag {
-  color: var(--rose);
+  color: var(--rose-ink);
 }
 
 [data-neu] .geld-zeile-menue,
@@ -232,7 +232,7 @@
 }
 
 [data-neu] .geld-menue .lg-menu-item[data-ton="rose"] {
-  color: var(--rose);
+  color: var(--rose-ink);
 }
 
 /* ── Tagesabschluss auf Heute ────────────────────────── */
@@ -563,7 +563,7 @@
 }
 
 [data-neu] .kasse-fuss a {
-  color: var(--blue);
+  color: var(--blue-ink);
 }
 
 @media (max-width: 1100px) {
