@@ -5,6 +5,7 @@ import type { SQL } from "drizzle-orm";
 const mocks = vi.hoisted(() => ({
   select: vi.fn(),
   update: vi.fn(),
+  insert: vi.fn(),
   offenerRest: vi.fn(),
   emitEvent: vi.fn(),
   markiereDurchgefuehrt: vi.fn(),
@@ -13,7 +14,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/db", () => ({
-  db: { select: mocks.select, update: mocks.update },
+  db: { select: mocks.select, update: mocks.update, insert: mocks.insert },
 }));
 
 vi.mock("./offener-rest", () => ({
@@ -95,6 +96,9 @@ function updateMock() {
 
 const deal = "deal-1";
 const ws = "ws-1";
+/** Antworten in der Reihenfolge von nachZahlung: Rechnungsdatensätze, Zustand, Stufe, Bezahlt-Stufe. */
+const GESTELLT = [{ status: "gestellt" }];
+const ZUSTAND_LEER: unknown[] = [];
 const DURCHGEFUEHRT = [
   { objectId: "obj-1", attributeId: "attr-1", statusId: "st-durchgefuehrt", kategorie: "done_unpaid", titel: "Durchgeführt" },
 ];
@@ -110,13 +114,17 @@ describe("nachZahlung", () => {
     mocks.markiereDurchgefuehrt.mockResolvedValue(undefined);
     mocks.setzeStufeBetreten.mockResolvedValue(undefined);
     mocks.aktualisiereWartet.mockResolvedValue(undefined);
+    mocks.insert.mockImplementation(() => ({
+      values: () => ({ onConflictDoUpdate: () => ({ returning: async () => [{ id: deal }] }) }),
+    }));
   });
 
   it("setzt von Durchgeführt auf Bezahlt, wenn eine Rechnung da ist und der Rest 0 ist, mit den Folgen des Stufenwechsels", async () => {
     mocks.offenerRest.mockResolvedValue({ gesamtCent: 248000, bezahltCent: 248000, restCent: 0, quelle: "annahme" });
-    dbLiefert([{ id: "rechnung-1" }], DURCHGEFUEHRT, [{ id: "st-bezahlt" }]);
+    dbLiefert(GESTELLT, ZUSTAND_LEER, DURCHGEFUEHRT, [{ id: "st-bezahlt" }]);
 
-    await expect(nachZahlung(ws, deal, "usr-1")).resolves.toEqual({ stufeGesetzt: true });
+    await expect(nachZahlung(ws, deal, "usr-1")).resolves.toEqual({ stufeGesetzt: true, bezahltAm: "gesetzt" });
+    expect(mocks.insert).toHaveBeenCalledTimes(1);
 
     expect(mocks.offenerRest).toHaveBeenCalledWith(ws, deal);
     expect(stand.stufe).toBe("st-bezahlt");
@@ -145,7 +153,7 @@ describe("nachZahlung", () => {
 
   it("Stufe wechselt zwischen Lesen und Schreiben (etwa auf Verloren): kein Überschreiben, stufeGesetzt false, keine Folgen", async () => {
     mocks.offenerRest.mockResolvedValue({ gesamtCent: 248000, bezahltCent: 248000, restCent: 0, quelle: "annahme" });
-    const rest: unknown[][] = [[{ id: "rechnung-1" }], DURCHGEFUEHRT];
+    const rest: unknown[][] = [GESTELLT, ZUSTAND_LEER, DURCHGEFUEHRT];
     mocks.select.mockImplementation(() => {
       const zeilen = rest.shift();
       if (zeilen) return kette(zeilen);
@@ -155,7 +163,7 @@ describe("nachZahlung", () => {
       });
     });
 
-    await expect(nachZahlung(ws, deal, "usr-1")).resolves.toEqual({ stufeGesetzt: false });
+    await expect(nachZahlung(ws, deal, "usr-1")).resolves.toEqual({ stufeGesetzt: false, bezahltAm: "gesetzt" });
 
     expect(stand.stufe).toBe("st-verloren");
     expect(stand.recordTouch).toBe(0);
@@ -166,24 +174,42 @@ describe("nachZahlung", () => {
   });
 
   it.each([
-    ["Rest größer 0", { restCent: 198000 }, []],
-    ["Rest null", { restCent: null }, []],
-    ["keine Rechnung", { restCent: 0 }, [[]]],
-    [
-      "andere Stufe",
-      { restCent: 0 },
-      [
-        [{ id: "rechnung-1" }],
-        [{ objectId: "obj-1", attributeId: "attr-1", statusId: "st-geplant", kategorie: "booked", titel: "Geplant" }],
-      ],
-    ],
-    ["keine Bezahlt-Stufe", { restCent: 0 }, [[{ id: "rechnung-1" }], DURCHGEFUEHRT, []]],
-  ] as const)("%s ändert die Stufe nicht", async (_name, rest, antworten) => {
+    ["Rest größer 0", { restCent: 198000 }, [GESTELLT, ZUSTAND_LEER, DURCHGEFUEHRT]],
+    ["Rest null", { restCent: null }, [GESTELLT, ZUSTAND_LEER, DURCHGEFUEHRT]],
+    ["keine Rechnung (weder Datensatz noch PDF)", { restCent: 0 }, [[], [], ZUSTAND_LEER, DURCHGEFUEHRT]],
+    ["nur stornierte Rechnung", { restCent: 0 }, [[{ status: "storniert" }], ZUSTAND_LEER, DURCHGEFUEHRT]],
+  ] as const)("%s: weder Stufe noch bezahlt_am", async (_name, rest, antworten) => {
     mocks.offenerRest.mockResolvedValue({ gesamtCent: null, bezahltCent: 0, quelle: "keins", ...rest });
     dbLiefert(...(antworten as unknown as unknown[][]));
 
-    await expect(nachZahlung(ws, deal, null)).resolves.toEqual({ stufeGesetzt: false });
+    await expect(nachZahlung(ws, deal, null)).resolves.toEqual({ stufeGesetzt: false, bezahltAm: null });
     expect(mocks.update).not.toHaveBeenCalled();
+    expect(mocks.insert).not.toHaveBeenCalled();
+    expect(mocks.emitEvent).not.toHaveBeenCalled();
+  });
+
+  it("Altbestand: ein Rechnungs-PDF ohne Datensatz zählt als gestellt", async () => {
+    mocks.offenerRest.mockResolvedValue({ gesamtCent: 1000, bezahltCent: 1000, restCent: 0, quelle: "annahme" });
+    dbLiefert([], [{ id: "pdf-1" }], ZUSTAND_LEER, DURCHGEFUEHRT, [{ id: "st-bezahlt" }]);
+    await expect(nachZahlung(ws, deal, null)).resolves.toEqual({ stufeGesetzt: true, bezahltAm: "gesetzt" });
+  });
+
+  it("andere Stufe: bezahlt_am ja, Stufe nein; ohne Bezahlt-Stufe ebenso", async () => {
+    mocks.offenerRest.mockResolvedValue({ gesamtCent: 1000, bezahltCent: 1000, restCent: 0, quelle: "rechnung" });
+    dbLiefert(GESTELLT, ZUSTAND_LEER, [{ objectId: "obj-1", attributeId: "attr-1", statusId: "st-geplant", kategorie: "booked", titel: "Geplant" }]);
+    await expect(nachZahlung(ws, deal, null)).resolves.toEqual({ stufeGesetzt: false, bezahltAm: "gesetzt" });
+    dbLiefert(GESTELLT, ZUSTAND_LEER, DURCHGEFUEHRT, []);
+    await expect(nachZahlung(ws, deal, null)).resolves.toEqual({ stufeGesetzt: false, bezahltAm: "gesetzt" });
+    expect(mocks.emitEvent).not.toHaveBeenCalled();
+  });
+
+  it("Rest nach Storno wieder offen: bezahlt_am wird geleert, die Stufe geht nie zurück", async () => {
+    mocks.offenerRest.mockResolvedValue({ gesamtCent: 1000, bezahltCent: 500, restCent: 500, quelle: "rechnung" });
+    dbLiefert(GESTELLT, [{ bezahltAm: new Date("2026-11-01T10:00:00Z") }], [
+      { objectId: "obj-1", attributeId: "attr-1", statusId: "st-bezahlt", kategorie: "paid", titel: "Bezahlt" },
+    ]);
+    mocks.update.mockImplementation(() => ({ set: () => ({ where: () => ({ returning: async () => [{ id: deal }] }) }) }));
+    await expect(nachZahlung(ws, deal, null)).resolves.toEqual({ stufeGesetzt: false, bezahltAm: "geleert" });
     expect(mocks.emitEvent).not.toHaveBeenCalled();
   });
 });

@@ -1,10 +1,10 @@
 /**
- * Offener Rest aus einer Quelle. Ein Stunden-KV hat keinen Rest, auch wenn
- * eine Annahme gesetzt ist (deren Summe ist nur eine Schätzung). Sonst
- * aktive Annahme, sonst Festpreis. Kein Angebot ergibt keinen Betrag.
- * Bezahlt zählt wie preisZahlungenCent (ohne nicht_steuerbar).
+ * Offener Rest aus einer Quelle. Seit Plan 9 eine dünne Hülle um `offenAus`
+ * (lib/geld.ts) für Aufrufer ohne Rechnungsdatensatz: Stunden-KV ohne Rest,
+ * sonst aktive Annahme, sonst Festpreis. Kein Angebot ergibt keinen Betrag.
+ * Bezahlt zählt wie preisZahlungenCent (ohne nicht_steuerbar), Gegenbuchungen negativ.
  */
-import { preisZahlungenCent } from "./preis-zahlungen";
+import { offenAus } from "./geld";
 
 export function restAus(e: {
   annahmeCent: number | null;
@@ -17,35 +17,6 @@ export function restAus(e: {
   restCent: number | null;
   quelle: "annahme" | "angebot" | "stunden" | "keins";
 } {
-  const bezahltCent = preisZahlungenCent(e.zahlungen);
-  if (e.istStunden) {
-    return { gesamtCent: null, bezahltCent, restCent: null, quelle: "stunden" };
-  }
-  if (e.annahmeCent != null) {
-    return {
-      gesamtCent: e.annahmeCent,
-      bezahltCent,
-      restCent: Math.max(0, e.annahmeCent - bezahltCent),
-      quelle: "annahme",
-    };
-  }
-  const gesamtCent = euroNachCent(e.festpreis);
-  if (gesamtCent == null) {
-    return { gesamtCent: null, bezahltCent, restCent: null, quelle: "keins" };
-  }
-  return {
-    gesamtCent,
-    bezahltCent,
-    restCent: Math.max(0, gesamtCent - bezahltCent),
-    quelle: "angebot",
-  };
-}
-
-function euroNachCent(festpreis: string | null): number | null {
-  if (festpreis == null) return null;
-  const text = festpreis.trim();
-  if (text === "") return null;
-  const euro = Number(text);
-  if (!Number.isFinite(euro)) return null;
-  return Math.round(euro * 100);
+  const o = offenAus({ rechnung: null, ...e });
+  return { ...o, quelle: o.quelle === "rechnung" ? "annahme" : o.quelle };
 }

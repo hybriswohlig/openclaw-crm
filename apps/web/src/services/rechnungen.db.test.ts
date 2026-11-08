@@ -20,7 +20,7 @@ vi.mock("@/db", async () => {
   const pg = (await import("postgres")).default;
   const schema = await import("@/db/schema");
   const client = pg(process.env.GELD_TEST_DATABASE_URL ?? "postgres://ungenutzt@127.0.0.1:1/x", { max: 4 });
-  return { db: drizzle(client, { schema }) };
+  return { db: drizzle(client, { schema }), __client: client };
 });
 vi.mock("./activity-events", () => ({ emitEvent: async () => {} }));
 vi.mock("./wartet", () => ({ aktualisiereWartet: async () => {}, aktualisiereWartetNachBesuch: async () => {} }));
@@ -128,6 +128,8 @@ describe.skipIf(!url)("Rechnung als Datensatz (DB, Plan 9 Task A)", { timeout: 3
 
   afterAll(async () => {
     await sql?.end();
+    // Pool des gemockten `@/db` ebenfalls schließen (Verbindungslimit der Wegwerf-DB).
+    await ((await import("@/db")) as unknown as { __client: postgres.Sql }).__client.end();
   });
 
   it("vergibt fortlaufende Nummern je Firma und Berliner Jahr, Fälligkeit am Umzugstag", async () => {

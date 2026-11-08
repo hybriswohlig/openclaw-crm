@@ -30,20 +30,28 @@ export async function markiereDurchgefuehrt(input: {
   const rec = await getRecord(input.objectId, input.recordId);
   const vorhanden = rec?.values.move_completed_at ?? null;
   if (
-    !moveCompletedSetzen({
+    moveCompletedSetzen({
       objectSlug: input.objectSlug,
       toCategory,
       vorhanden,
     })
   ) {
-    return;
+    // Volles ISO: Attributtyp timestamp, Fenster des Crons ist 4–24 Stunden.
+    await updateRecord(
+      input.objectId,
+      input.recordId,
+      { move_completed_at: new Date().toISOString() },
+      input.updatedBy
+    );
   }
 
-  // Volles ISO: Attributtyp timestamp, Fenster des Crons ist 4–24 Stunden.
-  await updateRecord(
-    input.objectId,
-    input.recordId,
-    { move_completed_at: new Date().toISOString() },
-    input.updatedBy
-  );
+  // Plan 9, Entscheidung 11: gemeinsamer Abschluss auch nach „Durchgeführt“
+  // (Rechnung gestellt und Rest 0 → Bezahlt, bezahlt_am). Fehler brechen nie.
+  // Dynamisch: nach-zahlung importiert records, records importiert diesen Dienst.
+  try {
+    const { nachZahlung } = await import("./nach-zahlung");
+    await nachZahlung(input.workspaceId, input.recordId, input.updatedBy);
+  } catch (err) {
+    console.error("[durchgefuehrt] nachZahlung fehlgeschlagen:", err);
+  }
 }

@@ -7,6 +7,8 @@ import { dealDocuments, payments } from "@/db/schema/financial";
 import { customerStatusLinks, kvaConfirmations } from "@/db/schema/customer-portal";
 import { quotations } from "@/db/schema/quotations";
 import { dealWorkflowState } from "@/db/schema/deal-workflow-state";
+import { dealInvoices } from "@/db/schema/deal-invoices";
+import { offenAus } from "@/lib/geld";
 import { berechenbareDealId, berechneWartet, type WartetEingabe } from "@/lib/wartet";
 import { preisZahlungenCent } from "@/lib/preis-zahlungen";
 import { excludeInternalPhotoMessages } from "./deal-photos";
@@ -56,19 +58,24 @@ function kategorieVon(z: { titel: string | null; kategorie: string | null }) {
 }
 
 /**
- * Voll bezahlt: Zahlungen auf den Preis (ohne Kaution) decken die aktive
- * Annahme bzw. den Festpreis. Stundenangebote (isVariable) gelten nie als
- * bezahlt, der Endbetrag steht erst nach dem Einsatz fest.
+ * Voll bezahlt nach dem einen „offen“ (`offenAus`, Plan 9): gestellte Rechnung
+ * mit Betrag vor Stunden-KV vor Annahme vor Festpreis. Ein Stunden-KV ohne
+ * Rechnungsbetrag gilt nie als bezahlt, der Endbetrag steht erst danach fest.
  */
 function istBezahlt(
   zahlungen: Array<{ amount: string | null; taxTreatment: string | null }>,
   annahmeCent: number | null,
-  angebot: { fixedPrice: string | null; isVariable: boolean } | undefined
+  angebot: { fixedPrice: string | null; isVariable: boolean } | undefined,
+  rechnung: { status: "gestellt"; bruttoCent: number | null } | null = null
 ): boolean {
-  if (angebot?.isVariable) return false;
-  const preis = annahmeCent ?? euroZuCent(angebot?.fixedPrice ?? null);
-  if (!preis || preis <= 0) return false;
-  return preisZahlungenCent(zahlungen) >= preis;
+  const o = offenAus({
+    rechnung,
+    annahmeCent,
+    festpreis: angebot?.fixedPrice ?? null,
+    istStunden: angebot?.isVariable ?? false,
+    zahlungen,
+  });
+  return o.gesamtCent != null && o.gesamtCent > 0 && o.restCent === 0;
 }
 
 /** Lädt die Eingaben von berechneWartet für viele Deals mit festen acht Abfragen. */
@@ -79,7 +86,7 @@ async function ladeEingaben(
   jetzt: Date
 ): Promise<Map<string, WartetEingabe>> {
   const zeit = sql`coalesce(${inboxMessages.sentAt}, ${inboxMessages.createdAt})`;
-  const [deals, nachrichten, zustand, dokumente, links, annahmen, zahlungen, angebote] = await Promise.all([
+  const [deals, nachrichten, zustand, dokumente, links, annahmen, zahlungen, angebote, rechnungen] = await Promise.all([
     dealsMitStufe(q, inArray(records.id, ids), workspaceId),
     q
       .select({
@@ -133,6 +140,11 @@ async function ladeEingaben(
       .select({ dealId: quotations.dealRecordId, fixedPrice: quotations.fixedPrice, isVariable: quotations.isVariable })
       .from(quotations)
       .where(inArray(quotations.dealRecordId, ids)),
+    // Plan 9: Rechnungsdatensätze; die gestellte trägt Betrag und Zeitpunkt.
+    q
+      .select({ dealId: dealInvoices.dealRecordId, status: dealInvoices.status, bruttoCent: dealInvoices.bruttoCent, am: dealInvoices.createdAt })
+      .from(dealInvoices)
+      .where(and(eq(dealInvoices.workspaceId, workspaceId), inArray(dealInvoices.dealRecordId, ids))),
   ]);
 
   const nachrichtVon = new Map(nachrichten.map((n) => [n.dealId, n]));
@@ -150,6 +162,8 @@ async function ladeEingaben(
     const mensch = menschVon.get(deal.id) ?? null;
     const eigene = [n?.eigene ?? null, mensch].filter((d): d is Date => d instanceof Date);
     const annahme = annahmeVon.get(deal.id);
+    const rechnungDesDeals = rechnungen.filter((r) => r.dealId === deal.id && r.status !== "verworfen");
+    const gestellt = rechnungDesDeals.find((r) => r.status === "gestellt");
     eingaben.set(deal.id, {
       stageCategory: kategorieVon(deal),
       erstelltAm: deal.createdAt,
@@ -159,11 +173,13 @@ async function ladeEingaben(
       kvZuletztGeoeffnetAm: linkVon.get(deal.id) ?? null,
       angenommenAm: annahme?.am ?? null,
       abErstelltAm: dokument(deal.id, "order_confirmation"),
-      rechnungErstelltAm: dokument(deal.id, "invoice"),
+      // Mit Datensatz zählt nur die gestellte Rechnung (eine stornierte fehlt wieder); ohne: das PDF.
+      rechnungErstelltAm: rechnungDesDeals.length > 0 ? (gestellt?.am ?? null) : dokument(deal.id, "invoice"),
       bezahlt: istBezahlt(
         zahlungen.filter((z) => z.dealId === deal.id),
         annahme?.cent ?? null,
-        angebotVon.get(deal.id)
+        angebotVon.get(deal.id),
+        gestellt ? { status: "gestellt", bruttoCent: gestellt.bruttoCent } : null
       ),
       jetzt,
     });

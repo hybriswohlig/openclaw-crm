@@ -4,7 +4,10 @@ const mocks = vi.hoisted(() => ({
   ladeAktiveAnnahme: vi.fn(),
   getQuotation: vi.fn(),
   listPayments: vi.fn(),
+  aktiveRechnung: vi.fn(),
 }));
+
+vi.mock("./rechnungen", () => ({ aktiveRechnung: mocks.aktiveRechnung }));
 
 vi.mock("./kva-annahme", () => ({
   ladeAktiveAnnahme: mocks.ladeAktiveAnnahme,
@@ -21,7 +24,28 @@ vi.mock("./financial", () => ({
 import { offenerRest } from "./offener-rest";
 
 describe("offenerRest", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.aktiveRechnung.mockResolvedValue(null);
+  });
+
+  it("gestellte Rechnung mit Betrag geht vor Annahme; Storno-Gegenbuchung zählt negativ", async () => {
+    mocks.aktiveRechnung.mockResolvedValue({ status: "gestellt", bruttoCent: 260000 });
+    mocks.ladeAktiveAnnahme.mockResolvedValue({ confirmedTotalCents: 248000 });
+    mocks.getQuotation.mockResolvedValue({ fixedPrice: "2480.00", isVariable: true });
+    mocks.listPayments.mockResolvedValue([
+      { workspaceId: "ws-1", amount: "500.00", taxTreatment: "betriebseinnahme" },
+      { workspaceId: "ws-1", amount: "-500.00", taxTreatment: "betriebseinnahme" },
+      { workspaceId: "ws-1", amount: "1000.00", taxTreatment: "betriebseinnahme" },
+    ]);
+    await expect(offenerRest("ws-1", "deal-1")).resolves.toEqual({
+      gesamtCent: 260000,
+      bezahltCent: 100000,
+      restCent: 160000,
+      quelle: "rechnung",
+    });
+    expect(mocks.aktiveRechnung).toHaveBeenCalledWith("ws-1", "deal-1");
+  });
 
   it("lädt Annahme, Angebot und Zahlungen und rechnet den Rest", async () => {
     mocks.ladeAktiveAnnahme.mockResolvedValue({ confirmedTotalCents: 248000 });
