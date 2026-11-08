@@ -24,7 +24,8 @@ export function BestaetigenDialog({
   portalZiel,
   onEnde,
 }: {
-  eintrag: PlanEintrag;
+  /** Plan-Eintrag oder nur Deal, Titel und letzter Termintag (Tagesabschluss auf Heute). */
+  eintrag: Pick<PlanEintrag, "dealId" | "titel"> & { bisTag: string | null };
   stufe: { id: string; label: string };
   portalZiel: HTMLElement | undefined;
   onEnde: (gesetzt: boolean) => void;
@@ -37,7 +38,7 @@ export function BestaetigenDialog({
       <GlassDialogContent container={portalZiel} closeLabel="Schließen">
         <GlassDialogTitle className="akte-dialog-titel">Durchführung von {e.titel} bestätigen?</GlassDialogTitle>
         <GlassDialogDescription className="akte-dialog-text">
-          Der Termin am {tagKurz(e.bisTag)} ist vorbei. Die Stufe wechselt auf „{stufe.label}“, danach steht der Auftrag im Plan als erledigt.
+          {e.bisTag ? `Der Termin am ${tagKurz(e.bisTag)} ist vorbei. ` : ""}Die Stufe wechselt auf „{stufe.label}“, danach steht der Auftrag im Plan als erledigt.
         </GlassDialogDescription>
         <form
           onSubmit={async (ev) => {

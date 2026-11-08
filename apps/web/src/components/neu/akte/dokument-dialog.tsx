@@ -42,12 +42,15 @@ export function DokumentDialog({
   altLink,
   portalZiel,
   onSchliessen,
+  rechnung,
 }: {
   dealId: string;
   art: DokumentDialogArt;
   altLink: string;
   portalZiel: HTMLElement | undefined;
   onSchliessen: () => void;
+  /** Nur RE (Plan 9): Betrag und Grund aus dem Rechnungsschritt. */
+  rechnung?: { bruttoCent: number; abweichungGrund?: string };
 }) {
   const [zustand, setZustand] = useState<Zustand>({ art: "laden" });
 
@@ -70,7 +73,16 @@ export function DokumentDialog({
   }, [dealId]);
 
   if (zustand.art === "bereit") {
-    return <GenerateDocumentDialog open onClose={onSchliessen} documentType={art} deal={zustand.deal} prefill={zustand.prefill} />;
+    return (
+      <GenerateDocumentDialog
+        open
+        onClose={onSchliessen}
+        documentType={art}
+        deal={zustand.deal}
+        prefill={zustand.prefill}
+        rechnung={art === "RE" ? rechnung : undefined}
+      />
+    );
   }
 
   return (

@@ -14,6 +14,7 @@ import { HeuteKopf } from "./heute-kopf";
 import { HeuteListen } from "./heute-listen";
 import { LADE_FEHLER_TEXT, handyUnterzeile, ladeFehlerFolge, type HeuteLadeGrund } from "./heute-logik";
 import { HeuteTermine } from "./heute-termine";
+import { Tagesabschluss } from "./tagesabschluss";
 
 /** Heute alle 60 s still neu (Entscheidung 19), nur bei sichtbarem Tab. */
 const TAKT_MS = 60_000;
@@ -105,6 +106,11 @@ export function HeuteSeite() {
       {kopfZeile}
       <HeuteLeadsChips chips={antwort.chips} kompakt={kompakt} />
       <HeuteInboxChips chips={antwort.inbox} abgeschnitten={antwort.inboxAbgeschnitten} kompakt={kompakt} />
+      <Tagesabschluss
+        karten={antwort.tagesabschluss ?? []}
+        durchgefuehrtStufe={antwort.durchgefuehrtStufe ?? null}
+        onNeuLaden={() => laden("takt")}
+      />
       <div className="heute-koerper">
         <div className="heute-spalte heute-spalte-termine">
           <HeuteTermine antwort={antwort} />

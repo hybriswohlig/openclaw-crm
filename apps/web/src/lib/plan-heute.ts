@@ -606,6 +606,8 @@ export interface HeuteAntwort {
   freigaben: HeuteFreigabe[];
   /** Tagesabschluss der letzten Umzüge (Plan 9). */
   tagesabschluss: TagesabschlussKarte[];
+  /** Erste aktive Stufe „Durchgeführt“ für „Durchgeführt bestätigen“ im Tagesabschluss. */
+  durchgefuehrtStufe?: { id: string; label: string } | null;
   stand: string;
 }
 

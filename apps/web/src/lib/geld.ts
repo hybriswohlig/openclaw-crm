@@ -656,6 +656,8 @@ export interface KasseAntwort {
   schlangen: Record<KasseSchlange, KasseZeile[]>;
   summen: Record<KasseSchlange, { anzahl: number; cent: number; unbekannt: number }>;
   stand: string;
+  /** Firmen des Workspace für den Filter im Kopf (Umsetzung Plan 9, additiv). */
+  firmen?: { id: string; name: string }[];
 }
 
 const akteHref = (dealId: string) => `/app/leads/${dealId}`;

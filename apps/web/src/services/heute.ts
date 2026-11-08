@@ -77,7 +77,14 @@ export async function ladeHeute(ws: string, jetzt: Date = new Date()): Promise<H
   return {
     ...heuteAus({ plan: plan.eintraege, leads: roh.eintraege, inbox, live }, jetzt),
     tagesabschluss: tagesabschlussKarten(roh.roh ?? [], roh.stufen ?? [], jetzt),
+    durchgefuehrtStufe: durchgefuehrtStufeAus(roh.stufen ?? []),
   };
+}
+
+/** Erste aktive Stufe der Kategorie Durchgeführt (wie der Plan für „Durchführung bestätigen“). */
+function durchgefuehrtStufeAus(stufen: readonly StufeZeile[]): { id: string; label: string } | null {
+  const s = [...stufen].filter((x) => x.aktiv && x.kategorie === "done_unpaid").sort((a, b) => a.reihenfolge - b.reihenfolge)[0];
+  return s ? { id: s.id, label: s.label } : null;
 }
 
 /** Karten aus denselben Lead-Zeilen. `tagesabschlussAus` lässt Erledigtes weg; Sortierung nach letztem Termintag. */

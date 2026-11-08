@@ -19,11 +19,19 @@ import { TerminDialog } from "@/components/neu/termin/termin-dialog";
 import { VorlageDialog } from "./vorlage-dialog";
 import { ZahlungDialog } from "./zahlung-dialog";
 import { Zahlenreihe } from "./zahlenreihe";
+import { RechnungFluss } from "./rechnung-fluss";
+import { ZahlungenPanel } from "./zahlungen-panel";
 
 export type GespraechDaten = Gespraech;
 
 /** Der gerade offene Dialog des Docks (höchstens einer). */
-type Dialog = { art: "zahlung" } | { art: "bewertung" } | { art: "vorlage" } | { art: "termin" } | { art: "dokument"; typ: DokumentArt };
+type Dialog =
+  | { art: "zahlung" }
+  | { art: "bewertung" }
+  | { art: "vorlage" }
+  | { art: "termin" }
+  | { art: "dokument"; typ: DokumentArt }
+  | { art: "rechnung" };
 
 /**
  * „Nachricht schreiben“: Fokus ins Eingabefeld des Gesprächs (`data-eingabe`
@@ -139,6 +147,7 @@ export function AkteSeite({ dealId }: { dealId: string }) {
         onNeuLaden={neuLadenStill}
       />
       <Zahlenreihe kacheln={akte.kacheln} />
+      <ZahlungenPanel dealId={dealId} zahlung={akte.zahlung} portalZiel={portalZiel} onNeuLaden={neuLadenStill} />
       <div className="akte-koerper">
         <section className="akte-gespraech" data-slot="gespraech" aria-label="Gespräch">
           <GespraechPanel
@@ -155,7 +164,7 @@ export function AkteSeite({ dealId }: { dealId: string }) {
             hatWaba={wabaKanaele.length > 0}
             onZahlung={() => setDialog({ art: "zahlung" })}
             onBewertung={() => setDialog({ art: "bewertung" })}
-            onDokument={(typ) => setDialog({ art: "dokument", typ })}
+            onDokument={(typ) => setDialog(typ === "RE" ? { art: "rechnung" } : { art: "dokument", typ })}
             onTermin={() => setDialog({ art: "termin" })}
             onVorlage={() => setDialog({ art: "vorlage" })}
             onNachricht={eingabeFokussieren}
@@ -191,6 +200,19 @@ export function AkteSeite({ dealId }: { dealId: string }) {
           portalZiel={portalZiel}
           onSchliessen={() => {
             // Der Termin steht in Kacheln und Ablauf: nach dem Dialog neu laden.
+            schliessen();
+            void neuLadenStill();
+          }}
+        />
+      ) : null}
+      {dialog?.art === "rechnung" ? (
+        <RechnungFluss
+          dealId={dealId}
+          altLink={akte.altLink}
+          portalZiel={portalZiel}
+          onGeaendert={neuLadenStill}
+          onEnde={() => {
+            // Die Rechnung steht in Dock, Kacheln, Zahlungen und Ablauf: neu laden.
             schliessen();
             void neuLadenStill();
           }}

@@ -101,7 +101,10 @@ export async function ladeKasse(ws: string, firmaId: string | null, jetzt: Date 
   const leads = (firmaId ? geladen.roh.filter((r) => r.firmaId === firmaId) : geladen.roh);
   const regeln = await regelnLaden(ws, leads.map((r) => r.firmaId));
   const deals = leads.map((r) => dealAus(r, stufen, firmen, regeln));
-  return kasseEintraege(deals, berlinTag(jetzt), jetzt.toISOString());
+  return {
+    ...kasseEintraege(deals, berlinTag(jetzt), jetzt.toISOString()),
+    firmen: geladen.stamm.firmen.map((f) => ({ id: f.id, name: f.name })),
+  };
 }
 
 /**

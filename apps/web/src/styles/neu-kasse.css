@@ -1,0 +1,573 @@
+/*
+ * Geld in der neuen Oberfläche (Plan 9): Seite /app/kasse (.kasse-), das
+ * Panel „Zahlungen“ der Akte, Rechnungsschritt und Tagesabschluss auf Heute
+ * (.geld-). Alles unter [data-neu]; nur Tokens aus neu.css, keine harten
+ * Farben. Gold heißt „wartet auf uns“, Jade „erledigt“. Zeilen auf --fill-3.
+ */
+
+/* ── Gemeinsam ───────────────────────────────────────── */
+
+[data-neu] .geld-panel,
+[data-neu] .geld-abschluss {
+  --lg-panel-radius: 22px;
+
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  min-width: 0;
+}
+
+[data-neu] .geld-panel-kopf {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 12px;
+}
+
+[data-neu] .geld-panel-kopf h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+[data-neu] .geld-panel-rest {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+[data-neu] .geld-panel-rest[data-ton="gold"] {
+  color: var(--gold-ink);
+}
+
+[data-neu] .geld-leer {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+[data-neu] .geld-knopf-klein {
+  margin: 0;
+  padding: 6px 11px;
+  font-size: 12px;
+}
+
+[data-neu] .akte-ablauf-knopf.geld-knopf-klein[data-ton="grau"] {
+  color: var(--ink-2);
+}
+
+[data-neu] .geld-wert {
+  display: flex;
+  align-items: center;
+  min-height: 38px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--ink);
+}
+
+/* ── Rechnung kurz ───────────────────────────────────── */
+
+[data-neu] .geld-rechnung,
+[data-neu] .geld-rechnung-alt {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  padding: 9px 12px;
+  border-radius: 14px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--rim);
+  font-size: 13px;
+  color: var(--ink);
+}
+
+[data-neu] .geld-rechnung-alt {
+  margin: 0 0 12px;
+}
+
+[data-neu] .geld-rechnung-text {
+  flex: 1 1 220px;
+  min-width: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+[data-neu] .geld-rechnung-grund {
+  flex: 1 1 100%;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+[data-neu] .geld-rechnung[data-status="storniert"] .geld-rechnung-text {
+  color: var(--ink-2);
+  text-decoration: line-through;
+}
+
+/* ── Zahlungszeilen in der Akte ──────────────────────── */
+
+[data-neu] .geld-zeilen {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+[data-neu] .geld-zeile {
+  display: grid;
+  grid-template-columns: 74px minmax(0, 1fr) auto 32px;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 6px 8px 12px;
+  border-radius: 12px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--rim);
+  font-size: 13px;
+  color: var(--ink);
+}
+
+[data-neu] .geld-zeile-tag {
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+[data-neu] .geld-zeile-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+[data-neu] .geld-zeile-details {
+  overflow-wrap: anywhere;
+}
+
+[data-neu] .geld-zeile-notiz {
+  font-size: 12px;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+
+[data-neu] .geld-zeile-betrag {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+[data-neu] .geld-zeile[data-storniert] .geld-zeile-betrag,
+[data-neu] .geld-zeile[data-storniert] .geld-zeile-details {
+  color: var(--ink-2);
+  text-decoration: line-through;
+}
+
+[data-neu] .geld-zeile[data-storno] {
+  background: color-mix(in srgb, var(--rose) 6%, var(--fill-3));
+}
+
+[data-neu] .geld-zeile[data-storno] .geld-zeile-betrag {
+  color: var(--rose);
+}
+
+[data-neu] .geld-zeile-menue,
+[data-neu] .geld-zeile-menue-platz {
+  width: 32px;
+  height: 32px;
+}
+
+[data-neu] .geld-zeile-menue {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+[data-neu] .geld-zeile-menue svg {
+  width: 18px;
+  height: 18px;
+  fill: currentColor;
+}
+
+[data-neu] .geld-zeile-menue:hover {
+  background: var(--rim);
+  color: var(--ink);
+}
+
+[data-neu] .geld-zeile-menue:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+[data-neu] .geld-menue {
+  min-width: 160px;
+}
+
+[data-neu] .geld-menue .lg-menu-item[data-ton="rose"] {
+  color: var(--rose);
+}
+
+/* ── Tagesabschluss auf Heute ────────────────────────── */
+
+[data-neu] .geld-abschluss-liste {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+[data-neu] .geld-abschluss-karte {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--rim);
+}
+
+[data-neu] .geld-abschluss-kopf {
+  display: flex;
+  flex: 1 1 220px;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+  min-width: 0;
+}
+
+[data-neu] .geld-abschluss-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+[data-neu] .geld-abschluss-name:hover {
+  text-decoration: underline;
+}
+
+[data-neu] .geld-abschluss-nummer,
+[data-neu] .geld-abschluss-hinweis {
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+[data-neu] .geld-schritte {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+[data-neu] .geld-schritt {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 12px 6px 6px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--fill-2);
+  box-shadow: inset 0 0 0 1px var(--rim);
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+[data-neu] .geld-schritt-marke {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  background: var(--rim);
+  color: var(--ink-2);
+  font-size: 11px;
+}
+
+[data-neu] .geld-schritt[data-status="jetzt"] {
+  background: color-mix(in srgb, var(--gold) 16%, var(--fill-3));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gold) 40%, var(--fill-3));
+  color: var(--gold-ink);
+  cursor: pointer;
+}
+
+[data-neu] .geld-schritt[data-status="jetzt"] .geld-schritt-marke {
+  background: var(--gold);
+  color: var(--ink);
+}
+
+[data-neu] .geld-schritt[data-status="jetzt"]:hover {
+  background: color-mix(in srgb, var(--gold) 24%, var(--fill-3));
+}
+
+[data-neu] .geld-schritt[data-status="jetzt"]:disabled {
+  cursor: progress;
+}
+
+[data-neu] .geld-schritt[data-status="erledigt"] {
+  color: var(--ink);
+}
+
+/* Fehlendes Token: Schrift auf Akzentfläche (deckend weiß); --fill-3 als Ersatz. */
+[data-neu] .geld-schritt[data-status="erledigt"] .geld-schritt-marke {
+  background: var(--jade);
+  color: var(--fill-3);
+}
+
+[data-neu] .geld-schritt:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+/* ── Seite Kasse ─────────────────────────────────────── */
+
+[data-neu] .kasse {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+[data-neu] .kasse-kopf {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px 20px;
+}
+
+[data-neu] .kasse-kacheln {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+[data-neu] .kasse-kachel {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  border-radius: 18px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--rim), var(--shadow);
+}
+
+[data-neu] .kasse-kachel-titel {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--ink-2);
+}
+
+[data-neu] .kasse-kachel-wert {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+[data-neu] .kasse-kachel[data-voll] .kasse-kachel-wert {
+  color: var(--ink);
+}
+
+[data-neu] .kasse-raster {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 14px;
+}
+
+[data-neu] .kasse-skelett {
+  height: 180px;
+  border-radius: 22px;
+}
+
+[data-neu] .kasse-schlange {
+  --lg-panel-radius: 22px;
+
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  min-width: 0;
+}
+
+[data-neu] .kasse-schlange-kopf {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 12px;
+}
+
+[data-neu] .kasse-schlange-kopf h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+[data-neu] .kasse-schlange-summe {
+  font-size: 13px;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+[data-neu] .kasse-leer {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+[data-neu] .kasse-zeilen {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+[data-neu] .kasse-zeile {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.4fr) auto auto;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 9px 10px 9px 12px;
+  border-radius: 14px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--rim);
+  font-size: 13px;
+  color: var(--ink);
+}
+
+[data-neu] .kasse-zeile[data-gold] {
+  background: color-mix(in srgb, var(--gold) 12%, var(--fill-3));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gold) 35%, var(--fill-3));
+}
+
+[data-neu] .kasse-zeile-haupt {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+[data-neu] .kasse-zeile-name {
+  font-weight: 600;
+  color: var(--ink);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+[data-neu] .kasse-zeile-name:hover {
+  text-decoration: underline;
+}
+
+[data-neu] .kasse-zeile-meta {
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+[data-neu] .kasse-zeile-text {
+  font-size: 12.5px;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+
+[data-neu] .kasse-zeile[data-gold] .kasse-zeile-text {
+  color: var(--gold-ink);
+}
+
+[data-neu] .kasse-zeile-betrag {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+[data-neu] .kasse-zeile-betrag[data-unbekannt] {
+  font-weight: 500;
+  color: var(--ink-2);
+}
+
+[data-neu] .kasse-zeile-knoepfe {
+  display: flex;
+  gap: 6px;
+}
+
+[data-neu] .kasse-hinweis {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--rim);
+  font-size: 14px;
+}
+
+[data-neu] .kasse-hinweis p {
+  margin: 0;
+}
+
+[data-neu] .kasse-fuss {
+  margin: 0;
+  padding: 0 6px;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+[data-neu] .kasse-fuss a {
+  color: var(--blue);
+}
+
+@media (max-width: 1100px) {
+  [data-neu] .kasse-raster {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 760px) {
+  [data-neu] .kasse-kacheln {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  [data-neu] .kasse-zeile {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  [data-neu] .kasse-zeile-text {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  [data-neu] .kasse-zeile-knoepfe {
+    grid-column: 1 / -1;
+    grid-row: 3;
+  }
+
+  [data-neu] .geld-zeile {
+    grid-template-columns: minmax(0, 1fr) auto 32px;
+  }
+
+  [data-neu] .geld-zeile-tag {
+    grid-column: 1 / -1;
+    font-size: 12px;
+  }
+}
