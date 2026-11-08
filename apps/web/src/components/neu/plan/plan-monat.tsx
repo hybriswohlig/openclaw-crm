@@ -1,8 +1,9 @@
 "use client";
 
 import { useDroppable } from "@dnd-kit/core";
-import type { KapazitaetTag } from "@/lib/einsatz";
+import type { KapazitaetTag, PlanBuchung } from "@/lib/einsatz";
 import { WOCHENTAGE_KURZ, monatsRaster, planTitel, type PlanEintrag } from "@/lib/plan-heute";
+import { BuchungLeiste } from "./buchung-leiste";
 import { KapazitaetChip } from "./kapazitaet-chip";
 import { EintragVorschau, PlanEintragKnopf, type EintragWahl } from "./plan-eintrag";
 import { ablageId, mehrText, zelleArt, zelleEintraege, zelleLabel, zelleZusatz } from "./plan-logik";
@@ -22,6 +23,9 @@ export interface RasterProps {
   onTag: (tag: string) => void;
   /** Plan 12a: Kapazität je Tag; null = Schalter aus oder keine aktiven Mitarbeiter. */
   kapazitaet?: ReadonlyMap<string, KapazitaetTag> | null;
+  /** Plan 12b: Transporter-Buchungen als Leiste über den Tagen. */
+  buchungen?: readonly PlanBuchung[];
+  onBuchung?: (b: PlanBuchung) => void;
 }
 
 /**
@@ -43,7 +47,13 @@ export function PlanMonat(p: RasterProps) {
         ))}
       </div>
       {wochen.map((w) => (
-        <div key={w[0]} className="plan-reihe" role="row">
+        <div
+          key={w[0]}
+          className="plan-reihe"
+          role="row"
+          data-buchungen={(p.buchungen ?? []).some((b) => b.von <= w[6]! && b.bis >= w[0]!) || undefined}
+        >
+          <BuchungLeiste buchungen={p.buchungen ?? []} tage={w} onOeffnen={p.onBuchung} />
           {w.map((tag) => (
             <MonatZelle key={tag} tag={tag} {...p} />
           ))}

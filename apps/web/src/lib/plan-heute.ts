@@ -11,7 +11,7 @@
  * Schlüsseln. Anzeige deutsch, Europe/Berlin, Trenner „·“, keine Gedankenstriche.
  */
 import { datumKurz, tagKurz, uhrzeitKurz } from "./anzeige";
-import type { KapazitaetTag, PlanBuchung } from "./einsatz";
+import { buchungChips, type KapazitaetTag, type PlanBuchung } from "./einsatz";
 import { berlinDateString } from "./berlin-date";
 import type { TagesabschlussKarte } from "./geld";
 import type { InboxChips } from "./inbox-neu";
@@ -457,9 +457,10 @@ export function verschiebenText(e: Pick<PlanEintrag, "titel" | "tag" | "von" | "
 // ─── „Im Blick“ über dem Raster ──────────────────────────────────────────────
 
 export interface PlanImBlick {
-  /** Stabil für React und den Klick: `ohne_team:{eintragId}`, `bestaetigen:{eintragId}`, `nicht_fest`. */
+  /** Stabil für React und den Klick: `ohne_team:{eintragId}`, `bestaetigen:{eintragId}`, `buchung:{id}`, `nicht_fest`. */
   key: string;
-  art: "ohne_team" | "bestaetigen" | "nicht_fest";
+  /** `buchung` (Plan 12b): Transporter-Buchung mit weniger zugeordneten als geplanten Aufträgen. */
+  art: "ohne_team" | "bestaetigen" | "nicht_fest" | "buchung";
   ton: "gold" | "grau";
   /** Fett vorne: „So 15.11.“ oder die Zahl. */
   fett: string;
@@ -474,9 +475,15 @@ export const IM_BLICK_MAX = 4;
 /**
  * „Im Blick“ (Entscheidung 8) über die geladenen Einträge: zuerst zu
  * bestätigende vergangene Umzüge, dann künftige ohne Team (je nach Tag), dann
+ * Transporter-Buchungen mit freien Plätzen (Plan 12b, `buchungChips`), dann
  * ein Zählchip „N Termine noch nicht fest“ (gestrichelt, ab heute).
  */
-export function imBlickAus(eintraege: readonly PlanEintrag[], heute: string, max = IM_BLICK_MAX): PlanImBlick[] {
+export function imBlickAus(
+  eintraege: readonly PlanEintrag[],
+  heute: string,
+  max = IM_BLICK_MAX,
+  buchungen: readonly PlanBuchung[] = [],
+): PlanImBlick[] {
   const sortiert = [...eintraege].sort((a, b) => (a.tag === b.tag ? a.titel.localeCompare(b.titel, "de") : a.tag < b.tag ? -1 : 1));
   const datiert: PlanImBlick[] = [];
   for (const e of sortiert) {
@@ -488,6 +495,9 @@ export function imBlickAus(eintraege: readonly PlanEintrag[], heute: string, max
     if (e.fehlt.includes("team") && e.tag >= heute) {
       datiert.push({ key: `ohne_team:${e.id}`, art: "ohne_team", ton: "gold", fett: tagKurz(e.tag), text: `${e.titel} ohne Team`, tag: e.tag });
     }
+  }
+  for (const c of buchungChips(buchungen, heute)) {
+    datiert.push({ key: `buchung:${c.id}`, art: "buchung", ton: "gold", fett: c.fett, text: c.text, tag: c.tag });
   }
   const chips = datiert.slice(0, max);
   const rest = datiert.length - chips.length;

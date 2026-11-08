@@ -935,6 +935,30 @@ export interface PlanBuchung {
   zugeordnet: number;
   geplant: number;
   warnungen: string[];
+  /** Koordinator 12b: zugeordnete Deals (Rückfrage beim Verschieben, Dialog). */
+  dealIds: string[];
+  /** Koordinator 12b: kurzer Name für „Im Blick“, z. B. „Sprinter L“. */
+  klasseName: string;
+}
+
+/**
+ * Chip in „Im Blick“ (12b Entscheidung 9): „Sprinter L Mo 17. bis So 23.11.:
+ * 2 von 4 Aufträgen“, solange weniger zugeordnet als geplant und der Zeitraum
+ * nicht vorbei ist; nie für stornierte Buchungen. Sortiert nach Beginn.
+ */
+export function buchungChips(buchungen: readonly PlanBuchung[], heute: string): Array<{ id: string; tag: string; fett: string; text: string }> {
+  return [...buchungen]
+    .filter((b) => b.status !== "storniert" && b.bis >= heute && b.zugeordnet < b.geplant)
+    .sort((a, b) => a.von.localeCompare(b.von) || a.id.localeCompare(b.id))
+    .map((b) => {
+      const zeitraum = b.von === b.bis ? tagText(b.von, true) : `${tagText(b.von, b.von.slice(5, 7) !== b.bis.slice(5, 7))} bis ${tagText(b.bis, true)}`;
+      return {
+        id: b.id,
+        tag: b.von < heute ? heute : b.von,
+        fett: b.klasseName,
+        text: `${zeitraum}: ${b.zugeordnet} von ${b.geplant} ${b.geplant === 1 ? "Auftrag" : "Aufträgen"}`,
+      };
+    });
 }
 
 // ─── Karten-Ansicht (12c) ────────────────────────────────────────────────────

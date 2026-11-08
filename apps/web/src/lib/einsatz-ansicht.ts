@@ -78,6 +78,11 @@ export interface EinsatzAnsicht {
   /** 12b: zugeordnete Buchung und Buchungen der Firma, die einen Tag des Umzugs decken. */
   buchung: (TransporterBuchung & { text: string; zuordnungen: BuchungZuordnung[] }) | null;
   buchungenAmTag: Array<TransporterBuchung & { text: string; zuordnungen: BuchungZuordnung[] }>;
+  /** 12b: Firmen-Schalter „Mietanteil im Preis“. */
+  buchungImPreis: boolean;
+  /** 12b: Übersteuerungen `station` und `fahrzeugklasse` der maßgeblichen Version (Rechner-IDs). */
+  stationVorgabe: string | null;
+  klasseVorgabe: string | null;
   hinweise: string[];
 }
 

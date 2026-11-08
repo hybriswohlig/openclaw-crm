@@ -3,6 +3,7 @@
 import { useDroppable } from "@dnd-kit/core";
 import { tagKurz } from "@/lib/anzeige";
 import { eintraegeAm, planTitel, wochenTage } from "@/lib/plan-heute";
+import { BuchungLeiste } from "./buchung-leiste";
 import { KapazitaetChip } from "./kapazitaet-chip";
 import { EintragVorschau, PlanEintragKnopf } from "./plan-eintrag";
 import type { RasterProps } from "./plan-monat";
@@ -18,7 +19,12 @@ export function PlanWoche(p: RasterProps) {
   const tage = wochenTage(p.anker);
   return (
     <div className="plan-woche" role="grid" aria-label={planTitel("woche", p.anker)} aria-readonly="true">
-      <div className="plan-reihe" role="row">
+      <div
+        className="plan-reihe"
+        role="row"
+        data-buchungen={(p.buchungen ?? []).some((b) => b.von <= tage[6]! && b.bis >= tage[0]!) || undefined}
+      >
+        <BuchungLeiste buchungen={p.buchungen ?? []} tage={tage} onOeffnen={p.onBuchung} />
         {tage.map((tag) => (
           <WochenSpalte key={tag} tag={tag} {...p} />
         ))}

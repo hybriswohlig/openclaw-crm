@@ -148,7 +148,8 @@ export function rechnerDatenAus(anfrage: RechnerAnfrage | null, e: RechnerErgebn
     posten,
     festpreisEur: endlich(e.preis?.festpreis),
     selbstkostenEur: endlich(e.preis?.selbstkosten ?? e.kosten?.selbstkosten),
-    fahrzeugName: opt?.name?.trim() || null,
+    // 12b: steckt eine Buchung im Preis, ist die Fahrzeugzeile ihr Anteil.
+    fahrzeugName: opt?.name?.trim() ? `${opt.name.trim()}${typeof anfrage?.buchung === "string" && anfrage.buchung !== "" ? ", Anteil Buchung" : ""}` : null,
     fahrzeugEur: fahrzeugEurAus(posten),
     station: e.mietstation?.name ?? null,
     empfehlung: opt ? { id: opt.id, name: opt.name, fahrten: opt.fahrten, km: opt.km } : null,
@@ -274,9 +275,16 @@ export async function ladeEinsatz(ws: string, deal: string, o: EinsatzLadeOption
   const option = ergebnis?.empfehlungOptionId ? (ergebnis.fahrzeugoptionen ?? []).find((x) => x.id === ergebnis.empfehlungOptionId) : null;
   const auslastung = auslastungAus(option ?? null, rechner?.auftragsart ?? null);
 
-  const anfahrtU = wirksameUebersteuerungen((Array.isArray(v?.overrides) ? v!.overrides : []) as Uebersteuerung[]).find(
-    (u) => u.art === "eingabe" && u.key === "anfahrt_team",
-  );
+  const wirksam = wirksameUebersteuerungen((Array.isArray(v?.overrides) ? v!.overrides : []) as Uebersteuerung[]);
+  const eingabe = (key: string) => wirksam.find((u) => u.art === "eingabe" && u.key === key);
+  const anfahrtU = eingabe("anfahrt_team");
+  const textWert = (key: string) => {
+    const w = eingabe(key)?.wert;
+    return typeof w === "string" ? w : null;
+  };
+
+  // 12b: zugeordnete Buchung und Buchungen der Firma, die einen Tag des Umzugs decken.
+  const { buchungImPreis, buchung, buchungenAmTag } = await buchungenFuerEinsatz(ws, deal, kopf.firmaId, tage);
   const hinweise: string[] = [];
   if (!v) hinweise.push("Noch keine Kalkulation: Minuten und Lohn fehlen.");
   if (!beladen) hinweise.push("Keine Beladeadresse: Anfahrt nicht berechnet.");
@@ -300,10 +308,47 @@ export async function ladeEinsatz(ws: string, deal: string, o: EinsatzLadeOption
     lohnVergleich: vergleich,
     auslastung,
     anfahrtUebernommenEur: anfahrtU && typeof anfahrtU.wert === "number" ? anfahrtU.wert : null,
-    buchung: null,
-    buchungenAmTag: [],
+    buchung,
+    buchungenAmTag,
+    buchungImPreis,
+    stationVorgabe: textWert("station"),
+    klasseVorgabe: textWert("fahrzeugklasse"),
     hinweise,
   };
+}
+
+type BuchungAnsicht = NonNullable<EinsatzAnsicht["buchung"]>;
+
+async function buchungenFuerEinsatz(
+  ws: string,
+  deal: string,
+  firmaId: string | null,
+  tage: readonly string[],
+): Promise<{ buchungImPreis: boolean; buchung: BuchungAnsicht | null; buchungenAmTag: BuchungAnsicht[] }> {
+  try {
+    const [{ einsatzSchalter }, { dealBuchung, ladeBuchungen }, { buchungsLeisteText }] = await Promise.all([
+      import("./plan5-schalter"),
+      import("./einsatz-buchungen"),
+      import("@/lib/einsatz"),
+    ]);
+    const [schalter, eigene] = await Promise.all([einsatzSchalter(ws, deal), dealBuchung(ws, deal)]);
+    const amTag =
+      firmaId && tage.length > 0 ? (await ladeBuchungen(ws, tage[0]!, tage[tage.length - 1]!, firmaId)).filter((b) => b.status !== "storniert") : [];
+    let buchung: BuchungAnsicht | null = null;
+    if (eigene) {
+      const mit = amTag.find((b) => b.id === eigene.id) ?? (await ladeBuchungen(ws, eigene.von, eigene.bis, eigene.firmaId)).find((b) => b.id === eigene.id);
+      const zuordnungen = mit?.zuordnungen ?? [];
+      buchung = { ...eigene, zuordnungen, text: buchungsLeisteText(eigene, zuordnungen) };
+    }
+    return {
+      buchungImPreis: schalter.buchungImPreis,
+      buchung,
+      buchungenAmTag: amTag.map((b) => ({ ...b, text: buchungsLeisteText(b, b.zuordnungen) })),
+    };
+  } catch (err) {
+    console.error("[einsatz] Buchungen", err);
+    return { buchungImPreis: false, buchung: null, buchungenAmTag: [] };
+  }
 }
 
 // ─── Team bestätigen ─────────────────────────────────────────────────────────

@@ -42,6 +42,8 @@ import {
 import { BestaetigenDialog } from "./bestaetigen-dialog";
 import { EintragPopover } from "./eintrag-popover";
 import { KundeInformieren } from "./kunde-informieren";
+import { BuchungDialog } from "./buchung-dialog";
+import { ausserhalbText } from "./buchung-logik";
 import { hatKapazitaet, kapazitaetGemerkt, kapazitaetMerken } from "./kapazitaet-chip";
 import { Legende } from "./legende";
 import { EintragInhalt } from "./plan-eintrag";
@@ -86,7 +88,9 @@ type Grund = "oeffnen" | "wechsel" | "takt" | "aktion";
 type Daten = { art: "laden" } | { art: "fehler"; meldung: string } | { art: "fertig"; antwort: PlanAntwort; fuer: GeladenesFenster };
 type Dialog =
   | { art: "bestaetigen"; eintrag: PlanEintrag; stufe: { id: string; label: string } }
-  | { art: "angebote"; dealId: string };
+  | { art: "angebote"; dealId: string }
+  | { art: "buchung"; buchung: { id: string; von: string; bis: string } }
+  | { art: "mieten"; von: string };
 
 /**
  * Der Plan (Plan 8, Entscheidungen 4 bis 19): Kern für `/app/plan` und den
@@ -222,7 +226,11 @@ export function PlanAnsicht({
   const heute = letzte?.heute ?? berlinDateString();
   const fenster = planFenster(z.modus, z.anker);
   const imFenster = useMemo(() => (antwort ? sichtbareEintraege(antwort.eintraege, fenster, false) : []), [antwort, fenster.von, fenster.bis]); // eslint-disable-line react-hooks/exhaustive-deps
-  const blick = useMemo(() => (leads ? [] : imBlickAus(imFenster, heute, blickOffen ? Number.POSITIVE_INFINITY : IM_BLICK_MAX)), [imFenster, heute, blickOffen, leads]);
+  const buchungen = useMemo(() => antwort?.buchungen ?? [], [antwort]);
+  const blick = useMemo(
+    () => (leads ? [] : imBlickAus(imFenster, heute, blickOffen ? Number.POSITIVE_INFINITY : IM_BLICK_MAX, buchungen)),
+    [imFenster, heute, blickOffen, leads, buchungen]
+  );
   const nichtFestAn = nurNichtFest && blick.some((c) => c.art === "nicht_fest");
   const sichtbar = nichtFestAn ? imFenster.filter((e) => e.ton === "gestrichelt") : imFenster;
   const filterAn = nichtFestAn || z.mitarbeiterId !== null || (leads ? leadsFilterAktiv(leads) : z.firmaId !== null);
@@ -280,6 +288,8 @@ export function PlanAnsicht({
   const kapAktiv = kapAn && hatKapazitaet(antwort?.kapazitaet);
   const raster: Omit<RasterProps, "ziehend" | "klickErlaubt"> = {
     kapazitaet: kapAktiv && antwort ? new Map(antwort.kapazitaet.map((k) => [k.tag, k])) : null,
+    buchungen: leads ? [] : buchungen,
+    onBuchung: (b) => setDialog({ art: "buchung", buchung: { id: b.id, von: b.von, bis: b.bis } }),
     anker: z.anker,
     heute,
     eintraege: sichtbar,
@@ -305,7 +315,14 @@ export function PlanAnsicht({
   } else if (z.modus === "tag") {
     inhalt = (
       <GlassPanel variant="panel" className="plan-raster plan-raster-tag" data-laedt={laedt || undefined}>
-        <PlanTag tag={z.anker} eintraege={sichtbar} leer={leerHinweis ?? <p className="plan-leer-still">{laedt ? "Lädt …" : LEER_TEXT.zeitraum}</p>} onWaehlen={waehlen} />
+        <PlanTag
+          tag={z.anker}
+          eintraege={sichtbar}
+          leer={leerHinweis ?? <p className="plan-leer-still">{laedt ? "Lädt …" : LEER_TEXT.zeitraum}</p>}
+          onWaehlen={waehlen}
+          buchungen={leads ? [] : buchungen}
+          onBuchung={(b) => setDialog({ art: "buchung", buchung: { id: b.id, von: b.von, bis: b.bis } })}
+        />
       </GlassPanel>
     );
   } else {
@@ -347,6 +364,10 @@ export function PlanAnsicht({
         <PlanKopf
           kompakt={kompakt}
           aktion={
+            <>
+            <GlassButton size="sm" variant="soft" onClick={() => setDialog({ art: "mieten", von: z.anker < heute ? heute : z.anker })}>
+              Transporter mieten
+            </GlassButton>
             <TerminNeu
               heute={heute}
               besichtigungFeld={letzte?.besichtigungFeld ?? null}
@@ -354,6 +375,7 @@ export function PlanAnsicht({
               onZug={(zg) => schick({ typ: "start", zug: zg })}
               onAngebote={(dealId) => setDialog({ art: "angebote", dealId })}
             />
+            </>
           }
         />
       )}
@@ -408,6 +430,7 @@ export function PlanAnsicht({
           portalZiel={portalZiel}
           onAbbrechen={() => schick({ typ: "abbrechen" })}
           onBestaetigen={() => schick({ typ: "bestaetigen" })}
+          zusatz={ausserhalbText(buchungen, zug.zug.dealId, zug.zug.ziel)}
         />
       ) : null}
 
@@ -437,6 +460,18 @@ export function PlanAnsicht({
               onGeaendertRef.current?.();
             }
           }}
+        />
+      ) : null}
+
+      {dialog?.art === "buchung" || dialog?.art === "mieten" ? (
+        <BuchungDialog
+          key={dialog.art === "buchung" ? dialog.buchung.id : "neu"}
+          modus={dialog.art === "buchung" ? { art: "ansehen", buchung: dialog.buchung } : { art: "neu", von: dialog.von, firmaId: z.firmaId }}
+          firmen={letzte?.firmen ?? []}
+          eintraege={antwort?.eintraege ?? []}
+          portalZiel={portalZiel}
+          onSchliessen={() => setDialog(null)}
+          onGeaendert={() => void neuLaden("aktion")}
         />
       ) : null}
 

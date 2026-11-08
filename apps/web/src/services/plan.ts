@@ -24,7 +24,15 @@ import { db } from "@/db";
 import { kuerzelAus } from "@/lib/akte";
 import { berlinDateString } from "@/lib/berlin-date";
 import { zeilen } from "@/lib/db-werte";
-import { festeEinsaetzeAus, istFest, kapazitaetAus, tageZwischen, type FesterEinsatz, type KapazitaetTag } from "@/lib/einsatz";
+import {
+  festeEinsaetzeAus,
+  istFest,
+  kapazitaetAus,
+  tageZwischen,
+  type FesterEinsatz,
+  type KapazitaetTag,
+  type PlanBuchung,
+} from "@/lib/einsatz";
 import { filtern, type LeadEintrag } from "@/lib/leads-board-bauen";
 import { eintragAus, planFiltern, planSortieren } from "@/lib/plan-bauen";
 import {
@@ -227,6 +235,36 @@ export async function kapazitaetFuer(
   return { einsaetze, kapazitaet };
 }
 
+/**
+ * Plan 12b (Entscheidung 9): Buchungen, die das Fenster schneiden, mit Leistentext
+ * und Warnungen; Firmenfilter wie die Einträge. Stornierte nur, solange gesendete
+ * Preise auf ihnen beruhen (Warnung). Fehler beim Laden lassen den Plan stehen.
+ */
+export async function planBuchungen(ws: string, von: string, bis: string, firmaId: string | null): Promise<PlanBuchung[]> {
+  try {
+    const { buchungenMitWarnungen } = await import("./einsatz-buchungen");
+    const liste = await buchungenMitWarnungen(ws, von, bis, firmaId);
+    return liste
+      .filter((b) => b.status !== "storniert" || b.warnungen.length > 0)
+      .map((b) => ({
+        id: b.id,
+        firmaId: b.firmaId,
+        von: b.von,
+        bis: b.bis,
+        text: b.text,
+        status: b.status,
+        zugeordnet: b.zuordnungen.length,
+        geplant: b.geplanteAuftraege,
+        warnungen: b.warnungen,
+        dealIds: b.zuordnungen.map((z) => z.dealId),
+        klasseName: b.klasseName,
+      }));
+  } catch (err) {
+    console.error("[plan] Buchungen", err);
+    return [];
+  }
+}
+
 /** `GET /api/v1/plan`: Einträge, „Im Blick“, Stammdaten für Leiste und Menüs. */
 export async function ladePlan(
   ws: string,
@@ -240,19 +278,19 @@ export async function ladePlan(
     mitarbeiterLesen(ws),
     besichtigungFeldLesen(ws),
   ]);
-  const { kapazitaet } = await kapazitaetFuer(ws, a.von, a.bis, alle);
+  const [{ kapazitaet }, buchungen] = await Promise.all([kapazitaetFuer(ws, a.von, a.bis, alle), planBuchungen(ws, a.von, a.bis, a.firmaId)]);
   return {
     von: a.von,
     bis: a.bis,
     heute,
     eintraege,
-    imBlick: imBlickAus(eintraege, heute),
+    imBlick: imBlickAus(eintraege, heute, undefined, buchungen),
     firmen: roh.stamm.firmen,
     mitarbeiter,
     stufen: roh.stamm.stufen,
     besichtigungFeld,
     kapazitaet,
-    buchungen: [],
+    buchungen,
     stand: jetzt.toISOString(),
   };
 }

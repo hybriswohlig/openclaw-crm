@@ -1,5 +1,6 @@
 "use client";
 
+import type { PlanBuchung } from "@/lib/einsatz";
 import { eintraegeAm, planTitel, type PlanEintrag } from "@/lib/plan-heute";
 import type { EintragWahl } from "./plan-eintrag";
 import { PlanZeile } from "./plan-zeile";
@@ -15,16 +16,41 @@ export function PlanTag({
   eintraege,
   leer,
   onWaehlen,
+  buchungen = [],
+  onBuchung,
 }: {
   tag: string;
   eintraege: readonly PlanEintrag[];
   /** Text, wenn der Tag leer ist (hängt an Filtern). */
   leer: React.ReactNode;
   onWaehlen: EintragWahl;
+  /** Plan 12b: Buchungen, die den Tag decken, über der Liste. */
+  buchungen?: readonly PlanBuchung[];
+  onBuchung?: (b: PlanBuchung) => void;
 }) {
   const liste = eintraegeAm(eintraege, tag);
-  if (liste.length === 0) return <div className="plan-tag-leer">{leer}</div>;
+  const amTag = buchungen.filter((b) => b.von <= tag && b.bis >= tag);
+  const leiste =
+    amTag.length > 0 ? (
+      <div className="plan-tag-buchungen" aria-label="Transporter-Buchungen">
+        {amTag.map((b) => (
+          <button key={b.id} type="button" className="plan-buchung" data-status={b.status} data-warnung={b.warnungen.length > 0 || undefined} onClick={() => onBuchung?.(b)}>
+            {b.warnungen.length > 0 ? <i className="plan-buchung-warn" aria-hidden="true" /> : null}
+            <span className="plan-buchung-text">{b.text}</span>
+          </button>
+        ))}
+      </div>
+    ) : null;
+  if (liste.length === 0)
+    return (
+      <>
+        {leiste}
+        <div className="plan-tag-leer">{leer}</div>
+      </>
+    );
   return (
+    <>
+    {leiste}
     <ul className="plan-tag" aria-label={planTitel("tag", tag)}>
       {liste.map((e) => (
         <li key={e.id} data-eintrag={e.id}>
@@ -38,5 +64,6 @@ export function PlanTag({
         </li>
       ))}
     </ul>
+    </>
   );
 }

@@ -16,6 +16,7 @@ import { tagKurz } from "@/lib/anzeige";
 import type { DoppelKonflikt } from "@/lib/einsatz";
 import type { EinsatzAnsicht, EinsatzPersonLage } from "@/lib/einsatz-ansicht";
 import { anfahrtUebernehmen, EINSATZ_DIALOG_EVENT, einsatzLaden, teamBestaetigen } from "./einsatz-api";
+import { EinsatzFahrwahl } from "./einsatz-fahrwahl";
 import { EinsatzFahrzeug, type FahrzeugBuchung } from "./einsatz-fahrzeug";
 import { EinsatzListe } from "./einsatz-liste";
 import {
@@ -338,6 +339,7 @@ export function EinsatzDialog({
               fahrzeugEur={rechner?.fahrzeugEur ?? null}
               auslastung={ansicht.auslastung}
               buchungen={buchungen}
+              aktion={<EinsatzFahrwahl ansicht={ansicht} onGeaendert={() => holen(false, true)} />}
             />
           </aside>
         </div>

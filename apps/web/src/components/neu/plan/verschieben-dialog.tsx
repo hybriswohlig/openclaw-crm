@@ -22,7 +22,10 @@ export function VerschiebenDialog({
   portalZiel,
   onAbbrechen,
   onBestaetigen,
+  zusatz = null,
 }: {
+  /** Plan 12b: „Der Termin liegt dann außerhalb der Buchung …“ */
+  zusatz?: string | null;
   zug: Schreibzug;
   fehler: string | null;
   speichert: boolean;
@@ -41,6 +44,11 @@ export function VerschiebenDialog({
       <GlassDialogContent container={portalZiel} closeLabel="Schließen">
         <GlassDialogTitle className="akte-dialog-titel">{text.titel}</GlassDialogTitle>
         <GlassDialogDescription className="akte-dialog-text">{text.text}</GlassDialogDescription>
+        {zusatz ? (
+          <p className="akte-dialog-text plan-dialog-zusatz" role="note">
+            {zusatz}
+          </p>
+        ) : null}
         <form
           onSubmit={(e) => {
             e.preventDefault();
