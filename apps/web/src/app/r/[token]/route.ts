@@ -7,9 +7,13 @@
  *
  * Behavior:
  *   1. Look up the token in `review_tokens`. 404 on miss.
- *   2. On first click: stamp `clicked_at` / `click_user_agent` /
- *      `click_ip`, write a `review_events` row of `event_type='clicked'`,
- *      and update the deal's `review_request_clicked_at` attribute.
+ *   2. On the first real click (not a link preview): one atomic update
+ *      stamps clicked_at, user agent, ip and zustand 'gesendet' only
+ *      while clicked_at is still null. If that update wins, write
+ *      review_events 'clicked' (channel via klickKanal) with meta
+ *      `{ token }` only, then updateRecord for review_request_clicked_at
+ *      and, only when the current title is sent_sms or sent_whatsapp,
+ *      review_request_status = the status id titled 'clicked'.
  *   3. 302-redirect to the pre-resolved per-brand `destination_url`.
  *
  * Idempotent for repeated hits — only the first click logs an event so
@@ -26,20 +30,19 @@
  * nutzt darum immer NEXT_PUBLIC_APP_URL.
  */
 
+import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/db";
-import {
-  reviewTokens,
-  reviewEvents,
-  records,
-  recordValues,
-  attributes,
-} from "@/db/schema";
+import { attributes, recordValues, records, reviewEvents, reviewTokens, statuses } from "@/db/schema";
+import { zeilen } from "@/lib/db-werte";
 import { istVorschauAgent, klickKanal } from "@/lib/reviews/klick";
+import { updateRecord } from "@/services/records";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+const STATUS_ERSETZBAR = new Set(["sent_sms", "sent_whatsapp"]);
 
 export async function GET(req: NextRequest, ctx: { params: Promise<{ token: string }> }) {
   const { token } = await ctx.params;
@@ -53,41 +56,47 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ token: stri
 
     // Best-effort writes; failures shouldn't block the customer's redirect.
     try {
-      const versand = await db
-        .select({
-          eventType: reviewEvents.eventType,
-          channel: reviewEvents.channel,
-          meta: reviewEvents.meta,
-          at: reviewEvents.at,
-        })
-        .from(reviewEvents)
-        .where(
-          and(
-            eq(reviewEvents.workspaceId, tok.workspaceId),
-            eq(reviewEvents.dealRecordId, tok.dealRecordId),
-            inArray(reviewEvents.eventType, ["sent_sms", "sent_whatsapp"])
-          )
-        );
-      const channel = klickKanal(versand, tok.token, tok.createdAt);
+      const gewonnen = zeilen(
+        await db.execute(sql`
+          UPDATE review_tokens
+          SET clicked_at = now(),
+              click_user_agent = ${userAgent},
+              click_ip = ${ip},
+              zustand = 'gesendet',
+              zustand_at = now()
+          WHERE token = ${token} AND clicked_at IS NULL
+          RETURNING token
+        `)
+      );
+      if (gewonnen.length > 0) {
+        const versand = await db
+          .select({
+            eventType: reviewEvents.eventType,
+            channel: reviewEvents.channel,
+            meta: reviewEvents.meta,
+            at: reviewEvents.at,
+          })
+          .from(reviewEvents)
+          .where(
+            and(
+              eq(reviewEvents.workspaceId, tok.workspaceId),
+              eq(reviewEvents.dealRecordId, tok.dealRecordId),
+              inArray(reviewEvents.eventType, ["sent_sms", "sent_whatsapp"])
+            )
+          );
+        const channel = klickKanal(versand, tok.token, tok.createdAt);
 
-      await db
-        .update(reviewTokens)
-        .set({
-          clickedAt: new Date(),
-          clickUserAgent: userAgent ?? null,
-          clickIp: ip,
-        })
-        .where(eq(reviewTokens.token, token));
+        await db.insert(reviewEvents).values({
+          id: randomUUID(),
+          workspaceId: tok.workspaceId,
+          dealRecordId: tok.dealRecordId,
+          eventType: "clicked",
+          channel,
+          meta: { token: tok.token },
+        });
 
-      await db.insert(reviewEvents).values({
-        workspaceId: tok.workspaceId,
-        dealRecordId: tok.dealRecordId,
-        eventType: "clicked",
-        channel,
-        meta: { user_agent: userAgent ?? null, ip: ip ?? null },
-      });
-
-      await stampDealClickedAt(tok.dealRecordId);
+        await stempelKlick(tok.dealRecordId, new Date());
+      }
     } catch (err) {
       console.error("[reviews redirect] click logging failed:", err);
     }
@@ -123,26 +132,31 @@ function notFoundPage(): NextResponse {
   });
 }
 
-async function stampDealClickedAt(dealRecordId: string): Promise<void> {
-  const [deal] = await db.select().from(records).where(eq(records.id, dealRecordId)).limit(1);
+/** Klickzeit und, nur nach sent_sms/sent_whatsapp, Status „clicked“. Nie complaint_routed überschreiben. */
+async function stempelKlick(dealId: string, wann: Date): Promise<void> {
+  const [deal] = await db.select({ objectId: records.objectId }).from(records).where(eq(records.id, dealId)).limit(1);
   if (!deal) return;
-  const [attr] = await db
-    .select()
-    .from(attributes)
-    .where(and(eq(attributes.objectId, deal.objectId), eq(attributes.slug, "review_request_clicked_at")))
-    .limit(1);
-  if (!attr) return;
 
-  // record_values has no unique constraint on (record_id, attribute_id), so
-  // delete-then-insert is the convention for single-valued attributes used
-  // elsewhere in the codebase. First-click only — repeat hits short-circuit
-  // above on tok.clickedAt being non-null.
-  await db
-    .delete(recordValues)
-    .where(and(eq(recordValues.recordId, dealRecordId), eq(recordValues.attributeId, attr.id)));
-  await db.insert(recordValues).values({
-    recordId: dealRecordId,
-    attributeId: attr.id,
-    timestampValue: new Date(),
-  });
+  const attrRows = await db.select().from(attributes).where(eq(attributes.objectId, deal.objectId));
+  const statusAttr = attrRows.find((a) => a.slug === "review_request_status");
+  const input: Record<string, unknown> = { review_request_clicked_at: wann.toISOString() };
+
+  if (statusAttr) {
+    const statusRows = await db.select().from(statuses).where(eq(statuses.attributeId, statusAttr.id));
+    const eigene = statusRows.filter((s) => s.attributeId === statusAttr.id);
+    const titel = new Map(eigene.map((s) => [s.id, s.title]));
+    const idZuTitel = new Map(eigene.map((s) => [s.title, s.id]));
+    const werte = await db
+      .select({ textValue: recordValues.textValue, attributeId: recordValues.attributeId })
+      .from(recordValues)
+      .where(and(eq(recordValues.recordId, dealId), eq(recordValues.attributeId, statusAttr.id)));
+    const cur = werte.find((v) => v.attributeId === statusAttr.id);
+    const title = cur?.textValue ? (titel.get(cur.textValue) ?? null) : null;
+    const clickedId = idZuTitel.get("clicked");
+    if (clickedId && title && STATUS_ERSETZBAR.has(title)) {
+      input.review_request_status = clickedId;
+    }
+  }
+
+  await updateRecord(deal.objectId, dealId, input, null);
 }

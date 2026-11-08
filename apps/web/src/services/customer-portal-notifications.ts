@@ -26,12 +26,15 @@ import { activityEvents } from "@/db/schema";
 import { channelAccounts, inboxConversations } from "@/db/schema/inbox";
 import { quotations } from "@/db/schema/quotations";
 import { payments } from "@/db/schema/financial";
+import { zeilen } from "@/lib/db-werte";
+import { rechnungMitGoogleHinweis } from "@/lib/bewertungen-kunden";
 import { getSetting } from "./workspace-settings";
 import { emitEvent } from "./activity-events";
 import { ensureCustomerStatusLink, loadContextByToken } from "./customer-portal-data";
 import { sendPortalNotificationEmail } from "./customer-portal-emails";
 import { sendBaileysReply, sendWhatsAppReply } from "./inbox-whatsapp";
 import { preisZahlungenCent } from "@/lib/preis-zahlungen";
+import { ladeBewertungModus } from "./bewertung-modus";
 
 const KEY_ENABLED = "portal_notifications_enabled";
 
@@ -87,12 +90,15 @@ export async function maybeNotifyPortalEvent(
     }
 
     const portalUrl = buildPortalUrl(link.token);
+    const ocId = await firmaDesDeals(input.workspaceId, input.dealRecordId);
+    // Unbekannte Firma gilt als aus: der Google-Hinweis bleibt.
+    const modus = ocId ? (await ladeBewertungModus(input.workspaceId, ocId)).modus : null;
     const content = buildContent(kind, {
       firstName: vornameFuerAnrede(context.customerDisplayName),
       dealNumber: context.dealNumber,
       portalUrl,
       firmaName: context.branding.displayName,
-      googleReviewUrl: context.branding.googleReviewUrl,
+      googleReviewUrl: rechnungMitGoogleHinweis(modus) ? context.branding.googleReviewUrl : null,
     });
 
     // 4. WhatsApp first: youngest existing thread of the deal.
@@ -199,6 +205,22 @@ async function emitSkipped(
     eventType: "portal.notification_skipped",
     payload: { kind, reason },
   });
+}
+
+/** Betriebsfirma des Deals, sonst null (Hinweis bleibt). */
+async function firmaDesDeals(ws: string, deal: string): Promise<string | null> {
+  const [row] = zeilen<{ id: string | null }>(
+    await db.execute(sql`
+      SELECT v.referenced_record_id AS id
+      FROM record_values v
+      INNER JOIN attributes a ON a.id = v.attribute_id AND a.slug = 'operating_company'
+      INNER JOIN records r ON r.id = v.record_id AND r.deleted_at IS NULL
+      INNER JOIN objects o ON o.id = r.object_id AND o.workspace_id = ${ws} AND o.slug = 'deals'
+      WHERE v.record_id = ${deal} AND v.referenced_record_id IS NOT NULL
+      LIMIT 1
+    `)
+  );
+  return row?.id ?? null;
 }
 
 function buildPortalUrl(token: string): string {

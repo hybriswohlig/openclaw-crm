@@ -8,7 +8,9 @@ const st = vi.hoisted(() => ({
   updates: [] as { table: unknown; set: unknown }[],
   inserts: [] as { table: unknown; values: unknown }[],
   deletes: [] as unknown[],
+  executes: 0,
 }));
+const recordsMock = vi.hoisted(() => ({ updateRecord: vi.fn(async () => null) }));
 
 vi.mock("@/db", () => {
   function kette(table: unknown) {
@@ -26,12 +28,18 @@ vi.mock("@/db", () => {
       }),
       insert: (table: unknown) => ({ values: async (values: unknown) => void st.inserts.push({ table, values }) }),
       delete: (table: unknown) => ({ where: async () => void st.deletes.push(table) }),
+      execute: async () => {
+        st.executes += 1;
+        return [{ token: "gewonnen" }];
+      },
     },
   };
 });
 
+vi.mock("@/services/records", () => ({ updateRecord: recordsMock.updateRecord }));
+
 import { GET } from "./route";
-import { attributes, recordValues, records, reviewEvents, reviewTokens } from "@/db/schema";
+import { attributes, recordValues, records, reviewEvents, reviewTokens, statuses } from "@/db/schema";
 
 const ZIEL = "https://g.page/r/kottke/review";
 const TOKEN = {
@@ -58,13 +66,25 @@ beforeEach(() => {
   st.updates.length = 0;
   st.inserts.length = 0;
   st.deletes.length = 0;
+  st.executes = 0;
+  recordsMock.updateRecord.mockClear();
   st.zeilen.set(reviewTokens, [TOKEN]);
   st.zeilen.set(reviewEvents, [
     { eventType: "sent_sms", channel: "sms", meta: {}, at: new Date("2026-05-10T10:00:00Z") },
     { eventType: "sent_whatsapp", channel: "whatsapp", meta: { manuell: true, token: "tok_wa" }, at: new Date("2026-11-10T10:00:01Z") },
   ]);
   st.zeilen.set(records, [{ id: "deal_1", objectId: "obj_deals" }]);
-  st.zeilen.set(attributes, [{ id: "attr_clicked" }]);
+  st.zeilen.set(attributes, [
+    { id: "attr_status", slug: "review_request_status", objectId: "obj_deals" },
+    { id: "attr_clicked", slug: "review_request_clicked_at", objectId: "obj_deals" },
+  ]);
+  st.zeilen.set(statuses, [
+    { id: "st_sent_wa", attributeId: "attr_status", title: "sent_whatsapp" },
+    { id: "st_sent_sms", attributeId: "attr_status", title: "sent_sms" },
+    { id: "st_clicked", attributeId: "attr_status", title: "clicked" },
+    { id: "st_complaint", attributeId: "attr_status", title: "complaint_routed" },
+  ]);
+  st.zeilen.set(recordValues, [{ attributeId: "attr_status", textValue: "st_sent_wa" }]);
 });
 
 describe("GET /r/[token]", () => {
@@ -86,22 +106,45 @@ describe("GET /r/[token]", () => {
     expect(st.updates).toEqual([]);
     expect(st.inserts).toEqual([]);
     expect(st.deletes).toEqual([]);
+    expect(st.executes).toBe(0);
+    expect(recordsMock.updateRecord).not.toHaveBeenCalled();
   });
 
-  it("erster echter Klick: Token gestempelt, Ereignis im Kanal des Versands, Deal-Feld gesetzt", async () => {
+  it("erster echter Klick: Ereignis im Kanal des Versands, meta nur Token, Status clicked nach sent_*", async () => {
     const res = await aufruf(IPHONE);
     expect(res.status).toBe(302);
     expect(res.headers.get("location")).toBe(ZIEL);
-    expect(st.updates).toHaveLength(1);
-    expect(st.updates[0]!.table).toBe(reviewTokens);
-    expect(st.updates[0]!.set).toMatchObject({ clickUserAgent: IPHONE, clickedAt: expect.any(Date) });
+    expect(st.executes).toBe(1);
+    expect(st.updates).toEqual([]);
+    expect(st.deletes).toEqual([]);
     const ereignis = st.inserts.find((i) => i.table === reviewEvents);
-    expect(ereignis?.values).toMatchObject({ workspaceId: "ws_1", dealRecordId: "deal_1", eventType: "clicked", channel: "whatsapp" });
-    expect(st.inserts.find((i) => i.table === recordValues)?.values).toMatchObject({
-      recordId: "deal_1",
-      attributeId: "attr_clicked",
-      timestampValue: expect.any(Date),
+    expect(ereignis?.values).toMatchObject({
+      workspaceId: "ws_1",
+      dealRecordId: "deal_1",
+      eventType: "clicked",
+      channel: "whatsapp",
+      meta: { token: "tok_wa" },
     });
+    expect(ereignis?.values).toMatchObject({ meta: expect.not.objectContaining({ ip: expect.anything(), user_agent: expect.anything() }) });
+    expect((ereignis?.values as { meta: object }).meta).not.toHaveProperty("ip");
+    expect((ereignis?.values as { meta: object }).meta).not.toHaveProperty("user_agent");
+    expect(recordsMock.updateRecord).toHaveBeenCalledWith(
+      "obj_deals",
+      "deal_1",
+      expect.objectContaining({
+        review_request_clicked_at: expect.any(String),
+        review_request_status: "st_clicked",
+      }),
+      null
+    );
+  });
+
+  it("complaint_routed bleibt, die Klickzeit wird trotzdem gesetzt", async () => {
+    st.zeilen.set(recordValues, [{ attributeId: "attr_status", textValue: "st_complaint" }]);
+    await aufruf(IPHONE);
+    const input = (recordsMock.updateRecord.mock.calls as unknown[][])[0]?.[2] as Record<string, unknown>;
+    expect(input.review_request_clicked_at).toEqual(expect.any(String));
+    expect(input).not.toHaveProperty("review_request_status");
   });
 
   it("alter SMS-Token ohne Token im Ereignis bleibt sms", async () => {
@@ -114,7 +157,9 @@ describe("GET /r/[token]", () => {
     st.zeilen.set(reviewTokens, [{ ...TOKEN, clickedAt: new Date("2026-11-10T11:00:00Z") }]);
     const res = await aufruf(IPHONE);
     expect(res.status).toBe(302);
+    expect(st.executes).toBe(0);
     expect(st.updates).toEqual([]);
     expect(st.inserts).toEqual([]);
+    expect(recordsMock.updateRecord).not.toHaveBeenCalled();
   });
 });

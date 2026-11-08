@@ -24,7 +24,7 @@
  * to read.
  */
 
-import { and, desc, eq, gte } from "drizzle-orm";
+import { and, desc, eq, gte, sql } from "drizzle-orm";
 import nodemailer from "nodemailer";
 
 import { db } from "@/db";
@@ -39,9 +39,12 @@ import {
   reviewEvents,
   statuses,
 } from "@/db/schema";
+import { zeilen } from "@/lib/db-werte";
+import { markeAusFirmenname } from "@/lib/bewertungen-kunden";
 import { scanCustomerReply } from "@/lib/reviews/valve";
 import { renderTemplateC, type Brand } from "@/lib/reviews/templates";
 import { sendSms, MessagingSendError } from "@/lib/messaging";
+import { updateRecord } from "@/services/records";
 
 const REPLY_WINDOW_DAYS = 7;
 const CEO_FORWARD_EMAIL = "darioush.kottke@tum.de";
@@ -85,7 +88,7 @@ export async function scanInboundReply(
   const valve = scanCustomerReply(args.body);
   if (!valve.matched) return { triggered: false, reason: "no_keyword_match" };
 
-  // Resolve the deal via contact.crmRecordId, fall back to conversation.dealRecordId.
+  // Deal nur aus dem Gespräch. inbox_contacts.crm_record_id ist eine Person, nie ein Deal.
   const [contact] = await db
     .select()
     .from(inboxContacts)
@@ -94,9 +97,11 @@ export async function scanInboundReply(
   const [conv] = await db
     .select()
     .from(inboxConversations)
-    .where(eq(inboxConversations.id, args.conversationId))
+    .where(
+      and(eq(inboxConversations.id, args.conversationId), eq(inboxConversations.workspaceId, args.workspaceId))
+    )
     .limit(1);
-  const dealId = contact?.crmRecordId ?? conv?.dealRecordId ?? null;
+  const dealId = conv?.dealRecordId ?? null;
   if (!dealId) {
     return { triggered: false, reason: "no_deal_link", hits: valve.hits };
   }
@@ -140,7 +145,6 @@ export async function scanInboundReply(
   const attrBySlug = new Map(attrRows.map((a) => [a.slug, a] as const));
   const reviewStatusAttr = attrBySlug.get("review_request_status");
   const complaintHitsAttr = attrBySlug.get("complaint_keywords_hit");
-  const brandAttr = attrBySlug.get("brand");
   const firstNameAttr = attrBySlug.get("name");
   const moveCompletedAttr = attrBySlug.get("move_completed_at");
   if (!reviewStatusAttr || !complaintHitsAttr) {
@@ -168,11 +172,9 @@ export async function scanInboundReply(
     .where(eq(recordValues.recordId, dealId));
   const valByAttr = new Map(values.map((v) => [v.attributeId, v] as const));
 
-  // Idempotency: stay out of the way once the deal is already routed or won.
-  const currentStatusRef = valByAttr.get(reviewStatusAttr.id)?.referencedRecordId;
-  const currentStatusTitle = currentStatusRef
-    ? statusById.get(currentStatusRef)?.title ?? null
-    : null;
+  // Status steht in text_value (die Status-ID), nie in referenced_record_id.
+  const currentStatusId = valByAttr.get(reviewStatusAttr.id)?.textValue ?? null;
+  const currentStatusTitle = currentStatusId ? (statusById.get(currentStatusId)?.title ?? null) : null;
   if (currentStatusTitle === "complaint_routed" || currentStatusTitle === "review_left") {
     return {
       triggered: false,
@@ -184,11 +186,9 @@ export async function scanInboundReply(
 
   // Flip status → complaint_routed (suppresses the cron's retry path).
   const routedStatus = statusByTitle.get("complaint_routed");
-  if (routedStatus) {
-    await upsertReferenceValue(dealId, reviewStatusAttr.id, routedStatus.id);
-  }
-  // Stamp matched keywords for later reporting.
-  await upsertTextValue(dealId, complaintHitsAttr.id, valve.hits.join(","));
+  const schreibe: Record<string, unknown> = { complaint_keywords_hit: valve.hits.join(",") };
+  if (routedStatus) schreibe.review_request_status = routedStatus.id;
+  await updateRecord(dealObj.id, dealId, schreibe, null);
 
   // Audit row.
   const replyExcerpt = args.body.trim().slice(0, REPLY_EXCERPT_MAX_CHARS);
@@ -206,9 +206,8 @@ export async function scanInboundReply(
     },
   });
 
-  // Pull brand + first name for Template C and the CEO forward.
-  const brandRaw = brandAttr ? valByAttr.get(brandAttr.id)?.textValue ?? null : null;
-  const brand: Brand = brandRaw === "ceylan" ? "ceylan" : "kottke";
+  // Marke aus dem Firmennamen. Ohne erkennbare Firma bleibt Kottke, wie bisher bei leerem brand.
+  const brand = await markeDesDeals(dealId);
   const firstName = firstNameAttr
     ? valByAttr.get(firstNameAttr.id)?.textValue?.trim().split(/\s+/)[0] ?? "Kunde"
     : "Kunde";
@@ -253,25 +252,26 @@ export async function scanInboundReply(
   return { triggered: true, dealRecordId: dealId, hits: valve.hits };
 }
 
-// ─── OAV write helpers (mirrors cron/reviews-send pattern) ────────────────────
-
-async function upsertSingleValue(
-  recordId: string,
-  attributeId: string,
-  patch: Partial<typeof recordValues.$inferInsert>
-) {
-  await db
-    .delete(recordValues)
-    .where(and(eq(recordValues.recordId, recordId), eq(recordValues.attributeId, attributeId)));
-  await db.insert(recordValues).values({ recordId, attributeId, ...patch });
-}
-
-async function upsertTextValue(recordId: string, attributeId: string, value: string) {
-  await upsertSingleValue(recordId, attributeId, { textValue: value });
-}
-
-async function upsertReferenceValue(recordId: string, attributeId: string, refId: string) {
-  await upsertSingleValue(recordId, attributeId, { referencedRecordId: refId });
+/**
+ * Marke der Betriebsfirma des Deals. `null` (kein Name, kein Kottke/Ceylan)
+ * fällt auf Kottke zurück, dieselbe Vorgabe wie der alte Vergleich
+ * `brand === "ceylan" ? "ceylan" : "kottke"`.
+ */
+async function markeDesDeals(dealId: string): Promise<Brand> {
+  const [row] = zeilen<{ name: string | null }>(
+    await db.execute(sql`
+      SELECT n.text_value AS name
+      FROM record_values v
+      INNER JOIN attributes a ON a.id = v.attribute_id AND a.slug = 'operating_company'
+      INNER JOIN records oc ON oc.id = v.referenced_record_id AND oc.deleted_at IS NULL
+      INNER JOIN record_values n ON n.record_id = oc.id
+      INNER JOIN attributes na ON na.id = n.attribute_id AND na.slug = 'name'
+      WHERE v.record_id = ${dealId} AND coalesce(n.text_value, '') <> ''
+      ORDER BY v.sort_order, v.created_at, n.sort_order, n.created_at
+      LIMIT 1
+    `)
+  );
+  return markeAusFirmenname(row?.name) ?? "kottke";
 }
 
 // ─── CEO forward ──────────────────────────────────────────────────────────────
