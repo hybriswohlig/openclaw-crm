@@ -1,0 +1,378 @@
+/*
+ * Kunden in der neuen Oberfläche (Plan 11): Seite /app/kunden und die
+ * Kundenakte /app/kunden/[id] (.kd-). Alles unter [data-neu]; nur Tokens aus
+ * neu.css, Text nur in --ink, --ink-2 oder --*-ink. Glas nur auf Panels,
+ * Zeilen auf --fill-3.
+ */
+
+[data-neu] .kd {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+[data-neu] .kd-kopf {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px 20px;
+}
+
+[data-neu] .kd-reiter {
+  flex: 0 1 460px;
+  min-width: 0;
+}
+
+[data-neu] .kd-suche {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+}
+
+[data-neu] .kd-suche > :first-child {
+  flex: 1 1 320px;
+  max-width: 560px;
+}
+
+[data-neu] .kd-suche-art {
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+[data-neu] .kd-panel {
+  --lg-panel-radius: 22px;
+
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  min-width: 0;
+}
+
+[data-neu] .kd-panel-titel {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+[data-neu] .kd-leer {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+[data-neu] .kd-laden {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+[data-neu] .kd-skelett {
+  height: 52px;
+  border-radius: 14px;
+}
+
+[data-neu] .kd-skelett-kopf {
+  height: 96px;
+  border-radius: 22px;
+}
+
+[data-neu] .kd-skelett-gross {
+  height: 320px;
+  border-radius: 22px;
+}
+
+[data-neu] .kd-hinweis {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  color: var(--ink);
+}
+
+[data-neu] .kd-hinweis p {
+  margin: 0;
+}
+
+[data-neu] .kd-hinweis a {
+  color: var(--blue-ink);
+}
+
+[data-neu] .kd-mehr {
+  display: flex;
+  justify-content: center;
+}
+
+/* ── Zeilen ──────────────────────────────────────────── */
+
+[data-neu] .kd-zeilen {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+[data-neu] .kd-zeile {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 9px 12px;
+  border-radius: 14px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--rim);
+  font-size: 13px;
+  color: var(--ink);
+}
+
+[data-neu] .kd-zeile-haupt {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+[data-neu] .kd-zeile-name {
+  font-weight: 600;
+  color: var(--ink);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+[data-neu] .kd-zeile-name:hover {
+  text-decoration: underline;
+}
+
+[data-neu] .kd-zeile-meta {
+  font-size: 12px;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+
+[data-neu] .kd-zeile-text {
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+[data-neu] .kd-zeile-betrag {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--ink-2);
+}
+
+[data-neu] .kd-zeile-betrag small {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--ink-2);
+}
+
+[data-neu] .kd-zeile-betrag[data-offen] {
+  color: var(--gold-ink);
+}
+
+[data-neu] .kd-umzug .kd-zeile-betrag {
+  color: var(--ink);
+}
+
+[data-neu] .kd-umzug .kd-zeile-betrag[data-offen] small {
+  color: var(--gold-ink);
+}
+
+/* ── Chips und Merkmale ──────────────────────────────── */
+
+[data-neu] .kd-chips {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+[data-neu] .kd-chip,
+[data-neu] .kd-merkmal {
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--fill-2);
+  box-shadow: inset 0 0 0 1px var(--rim);
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+
+[data-neu] .kd-chip[data-marke="kottke"] {
+  background: color-mix(in srgb, var(--blue) 12%, var(--fill-3));
+  color: var(--blue-ink);
+}
+
+[data-neu] .kd-chip[data-marke="ceylan"] {
+  background: color-mix(in srgb, var(--violet) 12%, var(--fill-3));
+  color: var(--violet-ink);
+}
+
+[data-neu] .kd-merkmal {
+  font-weight: 500;
+}
+
+[data-neu] .kd-merkmal[data-ton="rose"] {
+  background: color-mix(in srgb, var(--rose) 10%, var(--fill-3));
+  color: var(--rose-ink);
+}
+
+/* ── Kundenakte ──────────────────────────────────────── */
+
+[data-neu] .kd-akte-kontakt {
+  overflow-wrap: anywhere;
+}
+
+[data-neu] .kd-akte-merkmale {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+[data-neu] .kd-akte-offen {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  padding: 10px 14px;
+  border-radius: 16px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--rim);
+}
+
+[data-neu] .kd-akte-offen span {
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+[data-neu] .kd-akte-offen b {
+  font-size: 18px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+[data-neu] .kd-akte-offen[data-offen] b {
+  color: var(--gold-ink);
+}
+
+[data-neu] .kd-dublette {
+  padding: 10px 14px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--gold) 12%, var(--fill-3));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gold) 35%, var(--fill-3));
+  font-size: 13px;
+  color: var(--gold-ink);
+}
+
+[data-neu] .kd-dublette a {
+  font-weight: 600;
+  color: var(--gold-ink);
+}
+
+[data-neu] .kd-akte-raster {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+  align-items: start;
+  gap: 14px;
+}
+
+[data-neu] .kd-gespraeche {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+[data-neu] .kd-gespraech-gruppe {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+[data-neu] .kd-gespraech-firma {
+  margin: 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+[data-neu] .kd-gespraech-firma[data-marke="kottke"] {
+  color: var(--blue-ink);
+}
+
+[data-neu] .kd-gespraech-firma[data-marke="ceylan"] {
+  color: var(--violet-ink);
+}
+
+[data-neu] .kd-gespraech {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--rim);
+  font-size: 13px;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+[data-neu] .kd-gespraech:hover {
+  background: var(--fill-2);
+}
+
+[data-neu] .kd-gespraech:focus-visible {
+  outline: 2px solid var(--blue-ink);
+  outline-offset: 2px;
+}
+
+[data-neu] .kd-gespraech-kanal {
+  font-weight: 600;
+}
+
+[data-neu] .kd-gespraech-konto {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-2);
+}
+
+[data-neu] .kd-gespraech-zeit {
+  font-size: 12px;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 1100px) {
+  [data-neu] .kd-akte-raster {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 760px) {
+  [data-neu] .kd-zeile {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  [data-neu] .kd-zeile-text {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  [data-neu] .kd-akte-offen {
+    align-items: flex-start;
+  }
+}

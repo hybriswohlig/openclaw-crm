@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import type { BewertungZeile } from "@/lib/bewertungen-kunden";
+import { firmaKurz } from "@/components/neu/kunden/kunden-logik";
 import { AKTION_TEXT, zeileAktionen, zeileText, type ZeilenAktion } from "./bewertungen-logik";
 
 /** Eine Zeile der Arbeitsliste: Kunde, Deal, Firma, Zeit oder Grund, Aktionen. */
@@ -33,7 +34,7 @@ export function BewertungZeileAnsicht({
       </div>
       {z.firma ? (
         <span className="bew-chip" data-marke={z.firma.marke ?? undefined}>
-          {z.firma.name.trim().split(/\s+/)[0]}
+          {firmaKurz(z.firma.name)}
         </span>
       ) : (
         <span />
