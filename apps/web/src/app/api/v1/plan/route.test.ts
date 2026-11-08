@@ -59,6 +59,24 @@ describe("GET /plan", () => {
     });
   });
 
+  it("gibt die Kapazität durch, einen Tag je Tag des Fensters", async () => {
+    const tage = ["2026-11-02", "2026-11-03", "2026-11-04", "2026-11-05", "2026-11-06", "2026-11-07", "2026-11-08"];
+    const kapazitaet = tage.map((tag) => ({
+      tag,
+      frei: [{ id: "e1", name: "Ali", kuerzel: "AL" }],
+      belegt: [],
+      abwesend: [],
+      freiZahl: 1,
+      ton: "gold" as const,
+      text: "1 frei",
+    }));
+    mocks.ladePlan.mockResolvedValue({ ...ANTWORT, kapazitaet });
+    const data = (await (await GET(get("?von=2026-11-02&bis=2026-11-08"))).json()).data;
+    expect(data.kapazitaet).toHaveLength(tage.length);
+    expect(data.kapazitaet.map((k: { tag: string }) => k.tag)).toEqual(tage);
+    expect(data.kapazitaet[0]).toMatchObject({ tag: "2026-11-02", text: "1 frei", ton: "gold", freiZahl: 1 });
+  });
+
   it("Leads-Kalender: Leads-Filter ohne Monat", async () => {
     await GET(get("?leads=1&von=2026-10-26&bis=2026-12-06&chip=warten&q=weber&monat=2026-11&nur=uns"));
     expect(mocks.ladePlan).toHaveBeenCalledWith("ws_1", {

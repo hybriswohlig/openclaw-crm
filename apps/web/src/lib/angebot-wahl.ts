@@ -13,7 +13,7 @@
  * Annahme sind Cent.
  */
 
-import type { BuchungsAnteil } from "@/lib/einsatz";
+import type { BuchungsAnteil, KapazitaetTon } from "@/lib/einsatz";
 import type { Uebersteuerung } from "@/lib/kalkulation-versionen";
 import type { HebelArt, KvPosten } from "@/services/rechner/kv-posten";
 
@@ -460,6 +460,8 @@ export interface TagesRasterZelle {
   gruende: { text: string; punkte: number }[];
   auftraege: { dealId: string; name: string }[];
   vergangen: boolean;
+  /** Freie Namen, nur wenn an dem Tag jemand aktiv ist. Nie Geldbeträge. */
+  kapazitaet?: { text: string; ton: KapazitaetTon; frei: string[] };
 }
 
 export interface TagesRaster {

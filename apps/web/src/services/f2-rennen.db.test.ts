@@ -138,7 +138,7 @@ describe.skipIf(!url)("F2: Rennen um Versionen, Tage und Kundenwahl (DB)", { tim
       nachSperren: async () => {},
       ladeSchalter: async () => ({ angebotAusKalkulation: true, tagespreise: true }),
       istKottke: async () => false,
-      ladeAuftraege: async () => [],
+      ladeBelegung: async () => ({ auftraege: [], kapazitaet: [] }),
       ladeWunschtermine: async () => [],
     };
   }

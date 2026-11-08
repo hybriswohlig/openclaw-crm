@@ -128,7 +128,7 @@ function aufbau(start = "2026-11-05T09:00:00Z") {
     ladeSchalter: vi.fn(async (): Promise<Plan5Schalter> => ({ angebotAusKalkulation: false, tagespreise: false })),
     ladePaketOptionen: vi.fn(async (): Promise<PaketOption[]> => []),
     istKottke: vi.fn(async () => false),
-    ladeAuftraege: vi.fn(async (): Promise<{ datum: string; dealId: string; name: string }[]> => []),
+    ladeBelegung: vi.fn(async () => ({ auftraege: [] as { datum: string; dealId: string; name: string }[], kapazitaet: [] })),
     ladeWunschtermine: vi.fn(async (): Promise<string[]> => []),
   };
 

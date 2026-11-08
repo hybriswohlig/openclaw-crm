@@ -661,7 +661,7 @@ describe("Hilfen für die Fakten", () => {
     expect(halteverbotText(false, false)).toBeNull();
   });
 
-  it("einsatzAus: Empfehlung, Fahrtzeit, Arbeitszeit je Person, Sätze und Fahrzeugbetrag", () => {
+  it("einsatzAus: Empfehlung, Fahrtzeit, Arbeitszeit je Person, Sätze; Fahrzeugzeilen werden summiert", () => {
     expect(
       einsatzAus({
         fahrzeugoptionen: [
@@ -677,7 +677,9 @@ describe("Hilfen für die Fakten", () => {
           posten: [
             { key: "personal.fahrt", bezeichnung: "Fahrt", menge: 3.6, einheit: "h", satz: 15, betrag: 54 },
             { key: "personal.arbeit", bezeichnung: "Arbeit", menge: 16.5, einheit: "h", satz: 20, betrag: 330 },
-            { key: "fahrzeug", bezeichnung: "Fahrzeug", menge: 1, einheit: null, satz: null, betrag: 150 },
+            { key: "fahrzeug", bezeichnung: "Fahrzeug", menge: 1, einheit: null, satz: null, betrag: 999 },
+            { key: "fahrzeug.sprinter_l@sixt_feuerbach.miete", bezeichnung: "Miete", menge: 1, einheit: null, satz: null, betrag: 120 },
+            { key: "fahrzeug.sprinter_l@sixt_feuerbach.kraftstoff", bezeichnung: "Kraftstoff", menge: 1, einheit: null, satz: null, betrag: 30 },
           ],
         },
       })

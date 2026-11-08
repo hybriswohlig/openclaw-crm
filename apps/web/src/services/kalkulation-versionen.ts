@@ -33,6 +33,7 @@ import {
   type TagesSlot,
   type VersionsPreise,
 } from "@/lib/angebot-wahl";
+import type { KapazitaetTag } from "@/lib/einsatz";
 import { after } from "next/server";
 import type { DealCalculationVersionRow } from "@/db/schema/deal-calculation-versions";
 import {
@@ -247,8 +248,13 @@ export interface VersionsOptionen {
   ladePaketOptionen?: (deal: string) => Promise<PaketOption[]>;
   /** Plan 5b: Betriebsfirma Kottke (VPS-Renderer, F12). */
   istKottke?: (ws: string, deal: string) => Promise<boolean>;
-  /** Plan 5b: Aufträge je Tag im Fenster (aus dem Plan, nur lesen). */
-  ladeAuftraege?: (ws: string, von: string, bis: string) => Promise<{ datum: string; dealId: string; name: string }[]>;
+  /** Plan 12a: feste Aufträge und Kapazität im Fenster (aus dem Plan, nur lesen). */
+  ladeBelegung?: (
+    ws: string,
+    von: string,
+    bis: string,
+    ohneDeal?: string | null,
+  ) => Promise<{ auftraege: { datum: string; dealId: string; name: string }[]; kapazitaet: KapazitaetTag[] }>;
   /** Plan 5b: Wunschtermine aus dem Portal (neueste Anfrage). */
   ladeWunschtermine?: (ws: string, deal: string) => Promise<string[]>;
 }
@@ -272,7 +278,9 @@ async function abhaengigkeiten(o: VersionsOptionen = {}): Promise<Abh> {
     ladeSchalter: o.ladeSchalter ?? (async (ws, deal) => (await import("./plan5-schalter")).plan5Schalter(ws, deal)),
     ladePaketOptionen: o.ladePaketOptionen ?? (async (deal) => (await import("./kalkulation-versionen-speicher")).ladePaketOptionen(deal)),
     istKottke: o.istKottke ?? (async (ws, deal) => (await import("@/lib/kottke-crm-renderer-deal")).dealBlocksInRepoCrmRenderer(ws, deal)),
-    ladeAuftraege: o.ladeAuftraege ?? (async (ws, von, bis) => (await import("./kalkulation-versionen-speicher")).ladeAuftraegeJeTag(ws, von, bis)),
+    ladeBelegung:
+      o.ladeBelegung ??
+      (async (ws, von, bis, ohneDeal) => (await import("./kalkulation-versionen-speicher")).ladeTagesBelegung(ws, von, bis, ohneDeal)),
     ladeWunschtermine: o.ladeWunschtermine ?? (async (ws, deal) => (await import("./kalkulation-versionen-speicher")).ladeWunschtermine(ws, deal)),
   };
 }
@@ -1285,8 +1293,9 @@ const STUNDEN_OHNE_TAGE = "Im Stundenmodus gibt es keine Tagespreise.";
  * Monatsraster des Termin-Dialogs (`POST …/versions/[v]/tage`). Speichert nichts:
  * eine Rechner-Anfrage mit allen Tagen von `von` bis `bis` (höchstens 42), je Tag
  * der Preis des empfohlenen Pakets (sonst der Hauptpreis, mit Tagespreis-Anpassung
- * der Version), die Gründe der Marge, die Aufträge an dem Tag (Plan, ohne diesen
- * Deal) und ob der Tag vorbei ist. Dazu der Wunschtermin (Deal, sonst Portal).
+ * der Version), die Gründe der Marge, die festen Aufträge an dem Tag (Plan, ohne
+ * diesen Deal), die Kapazität (Namen, nur wenn jemand aktiv ist) und ob der Tag
+ * vorbei ist. Dazu der Wunschtermin (Deal, sonst Portal).
  */
 export async function tagesRaster(
   ws: string,
@@ -1309,9 +1318,9 @@ export async function tagesRaster(
   const heute = heuteBerlin(d.jetzt());
 
   const anfrage = anfrageFuer(rechnerAnfrageAus(lead), v.overrides, heute, k, tage);
-  const [antwort, auftraege, wunsch] = await Promise.all([
+  const [antwort, belegung, wunsch] = await Promise.all([
     d.rechner(anfrage),
-    d.ladeAuftraege(ws, von, bis),
+    d.ladeBelegung(ws, von, bis, deal),
     d.ladeWunschtermine(ws, deal),
   ]);
   if (!antwort.ok) throw new VersionsFehler("RECHNER_FEHLER", antwort.fehler);
@@ -1323,16 +1332,20 @@ export async function tagesRaster(
     v.overrides,
     k.schalter.angebotAusKalkulation ? antwort.ergebnis.paketpreise ?? null : null
   );
+  const kapNachTag = new Map(belegung.kapazitaet.map((tag) => [tag.tag, tag]));
   const zellen = preise.map((t) => {
     const paket = empf && t.paketpreise ? t.paketpreise.find((p) => p.slug === empf) ?? null : null;
     const eur = paket ? paket.festpreis : t.festpreis;
+    const kap = kapNachTag.get(t.datum);
+    const hatPerson = kap !== undefined && kap.frei.length + kap.belegt.length + kap.abwesend.length > 0;
     return {
       datum: t.datum,
       wochentag: t.wochentag,
       feiertag: t.feiertag,
       preisCent: eur === null ? null : Math.round(eur * 100),
       gruende: t.gruende,
-      auftraege: auftraege.filter((a) => a.datum === t.datum && a.dealId !== deal).map((a) => ({ dealId: a.dealId, name: a.name })),
+      auftraege: belegung.auftraege.filter((a) => a.datum === t.datum && a.dealId !== deal).map((a) => ({ dealId: a.dealId, name: a.name })),
+      ...(hatPerson && kap ? { kapazitaet: { text: kap.text, ton: kap.ton, frei: kap.frei.map((p) => p.name) } } : {}),
       vergangen: t.datum < heute,
     };
   });

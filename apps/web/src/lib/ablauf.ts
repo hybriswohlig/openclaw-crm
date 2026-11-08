@@ -10,6 +10,7 @@
  * Anzeige deutsch in Europe/Berlin, Trenner „·“, keine Gedankenstriche.
  */
 import { berlinDateString } from "@/lib/berlin-date";
+import { fahrzeugEurAus } from "@/lib/einsatz";
 import { berlinTag, datumKurz, euroText, tagKurz, uhrzeitKurz, volumenText } from "@/lib/anzeige";
 import { KEIN_LEAD_STAGE_CATEGORY } from "@/lib/kontaktart";
 import type { NachfassModus, NachfassRegelStand } from "@/lib/nachfass-schalter";
@@ -187,8 +188,10 @@ function endlich(n: unknown): number | null {
 /**
  * Einsatz aus dem Rechner-Ergebnis: empfohlenes Fahrzeug aus `fahrzeugoptionen`,
  * Fahrtzeit aus `zeiten.fahrtMin`, Arbeitszeit je Person aus `kosten.personenH ÷
- * team.groesse`, Sätze und Fahrzeugbetrag aus den Kostenzeilen `personal.fahrt`,
- * `personal.arbeit` und `fahrzeug`. Ohne verwertbare Angabe null.
+ * team.groesse`, Sätze aus den Kostenzeilen `personal.fahrt` und
+ * `personal.arbeit`, Fahrzeugbetrag als Summe aller Zeilen
+ * `fahrzeug.<id>.<teil>` (Miete, Mehr-km, Kraftstoff, Tagespauschale,
+ * Verschleiß). Ohne verwertbare Angabe null.
  */
 export function einsatzAus(ergebnis: RechnerErgebnis | null): AblaufFakten["einsatz"] {
   if (!ergebnis) return null;
@@ -206,7 +209,7 @@ export function einsatzAus(ergebnis: RechnerErgebnis | null): AblaufFakten["eins
     arbeitH: personenH !== null && groesse !== null && groesse > 0 ? personenH / groesse : null,
     satzFahrtEur: endlich(zeile("personal.fahrt")?.satz),
     satzArbeitEur: endlich(zeile("personal.arbeit")?.satz),
-    fahrzeugEur: endlich(zeile("fahrzeug")?.betrag),
+    fahrzeugEur: fahrzeugEurAus(posten),
   };
   return Object.values(einsatz).every((v) => v === null) ? null : einsatz;
 }

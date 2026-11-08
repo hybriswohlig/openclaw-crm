@@ -17,8 +17,9 @@ import { tageSetzen, tagesRaster } from "@/services/kalkulation-versionen";
  *
  * POST { von, bis } → `TagesRaster` für den Monatsraster, nichts gespeichert.
  * Höchstens 42 Tage (Grenze des Rechners). Die Antwort trägt nur die Felder
- * des Vertrags (Preis, Wochentag, Feiertag, Gründe, Aufträge), nie
- * Selbstkosten oder Marge, auch wenn der Dienst mehr liefert.
+ * des Vertrags (Preis, Wochentag, Feiertag, Gründe, Aufträge, Kapazität als
+ * Text, Ton und freie Namen), nie Selbstkosten, Marge oder andere Zahlen,
+ * auch wenn der Dienst mehr liefert.
  *
  * PUT `TageAnbieten` → schreibt die angebotenen Tage nur in einen Entwurf
  * (aus einer gesperrten Version legt der Dienst den nächsten Entwurf an):
@@ -75,6 +76,9 @@ function rasterFuerAntwort(r: TagesRaster): TagesRaster {
       preisCent: z.preisCent,
       gruende: z.gruende.map((g) => ({ text: g.text, punkte: g.punkte })),
       auftraege: z.auftraege.map((a) => ({ dealId: a.dealId, name: a.name })),
+      ...(z.kapazitaet
+        ? { kapazitaet: { text: z.kapazitaet.text, ton: z.kapazitaet.ton, frei: [...z.kapazitaet.frei] } }
+        : {}),
       vergangen: z.vergangen,
     })),
     wunschtermin: {

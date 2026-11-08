@@ -51,6 +51,27 @@ const RASTER_MIT_INTERNEM = {
       selbstkosten: 66000,
       margeProzent: 40,
       rechnerFestpreis: 1100,
+      kapazitaet: {
+        text: "1 frei",
+        ton: "gold",
+        frei: ["Ali Bulut"],
+        freiZahl: 1,
+        kuerzel: "AB",
+        belegt: [{ person: { id: "e9", name: "Max" } }],
+        abwesend: [],
+        tag: "2026-12-01",
+        betragCent: 44000,
+      },
+    },
+    {
+      datum: "2026-12-02",
+      wochentag: "mi",
+      feiertag: false,
+      preisCent: 120000,
+      gruende: [],
+      auftraege: [],
+      vergangen: false,
+      lohnCent: 8800,
     },
   ],
   wunschtermin: { datum: "2026-12-05", quelle: "deal", weitere: ["2026-12-06"], marge: 1 },
@@ -115,8 +136,12 @@ describe("POST /calculation/versions/[version]/tage (Raster)", () => {
     expect(res.status).toBe(200);
     expect(mocks.tagesRaster).toHaveBeenCalledWith("ws_1", "deal_1", 2, "2026-12-01", "2027-01-11");
     const text = await res.text();
-    for (const intern of ["selbstkosten", "margeProzent", "rechnerFestpreis", "marge"]) expect(text).not.toContain(intern);
-    expect(JSON.parse(text).data).toEqual({
+    for (const intern of ["selbstkosten", "margeProzent", "rechnerFestpreis", "marge", "freiZahl", "betragCent", "kuerzel", "lohnCent", "belegt", "abwesend"]) {
+      expect(text, intern).not.toContain(intern);
+    }
+    const data = JSON.parse(text).data;
+    expect(Object.keys(data).sort()).toEqual(["bis", "hinweis", "von", "wunschtermin", "zellen"]);
+    expect(data).toEqual({
       von: "2026-12-01",
       bis: "2026-12-02",
       zellen: [
@@ -127,12 +152,27 @@ describe("POST /calculation/versions/[version]/tage (Raster)", () => {
           preisCent: 110000,
           gruende: [{ text: "Eilauftrag", punkte: 5 }],
           auftraege: [{ dealId: "deal_9", name: "Müller" }],
+          kapazitaet: { text: "1 frei", ton: "gold", frei: ["Ali Bulut"] },
+          vergangen: false,
+        },
+        {
+          datum: "2026-12-02",
+          wochentag: "mi",
+          feiertag: false,
+          preisCent: 120000,
+          gruende: [],
+          auftraege: [],
           vergangen: false,
         },
       ],
       wunschtermin: { datum: "2026-12-05", quelle: "deal", weitere: ["2026-12-06"] },
       hinweis: null,
     });
+    expect(Object.keys(data.zellen[0]).sort()).toEqual(
+      ["auftraege", "datum", "feiertag", "gruende", "kapazitaet", "preisCent", "vergangen", "wochentag"].sort(),
+    );
+    expect(Object.keys(data.zellen[0].kapazitaet).sort()).toEqual(["frei", "text", "ton"]);
+    expect(data.zellen[1]).not.toHaveProperty("kapazitaet");
   });
 
   it("speichert nichts: tageSetzen wird nie aufgerufen", async () => {

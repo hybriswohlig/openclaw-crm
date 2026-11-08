@@ -11,6 +11,10 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/db", () => ({ db: { execute: mocks.execute } }));
 vi.mock("@/services/calendar/load-events", () => ({ listCalendarEvents: mocks.listCalendarEvents }));
 vi.mock("@/services/leads-board", () => ({ ladeLeadsRoh: mocks.ladeLeadsRoh }));
+vi.mock("@/services/einsatz-personen", () => ({
+  ladePersonen: vi.fn(async () => []),
+  ladeAbwesenheiten: vi.fn(async () => []),
+}));
 
 import { LEERER_FILTER } from "@/lib/leads-board";
 import { PLAN_HEUTE, PLAN_JETZT, kalenderEreignis, leadEintrag } from "@/lib/plan-bauen.fixture";
@@ -131,8 +135,18 @@ describe("ladePlan", () => {
       besichtigungFeld: { slug: "besichtigung_am", typ: "timestamp" },
       stand: PLAN_JETZT.toISOString(),
     });
-    // Ohne Mitarbeiter-Filter keine Team-Abfrage.
-    expect(abfrageMit("FROM deal_employees")).toBeUndefined();
+    expect(p.kapazitaet.map((k) => k.tag)).toEqual([
+      "2026-11-02",
+      "2026-11-03",
+      "2026-11-04",
+      "2026-11-05",
+      "2026-11-06",
+      "2026-11-07",
+      "2026-11-08",
+    ]);
+    expect(p.buchungen).toEqual([]);
+    // Kapazität liest die Teams der festen Umzüge, auch ohne Mitarbeiter-Filter.
+    expect(abfrageMit("FROM deal_employees")?.params.filter((id) => id !== "ws_1")).toEqual(["d1", "d2"]);
     // Fahrzeug nur für Umzugs-Deals.
     expect(abfrageMit("FROM objects ao")?.params).toEqual(expect.arrayContaining(["d1", "d2", "d3"]));
     expect(abfrageMit("FROM objects ao")?.params).not.toContain("d_lost");

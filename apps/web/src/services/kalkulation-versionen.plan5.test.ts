@@ -10,6 +10,15 @@ vi.mock("@/db", () => ({
   db: new Proxy({}, { get(_t, p) { if (p === "then" || typeof p === "symbol") return undefined; throw new Error(`@/db im Test (${String(p)})`); } }),
 }));
 
+const planMocks = vi.hoisted(() => ({
+  ladePlanEintraege: vi.fn(),
+  kapazitaetFuer: vi.fn(),
+}));
+vi.mock("./plan", () => ({
+  ladePlanEintraege: planMocks.ladePlanEintraege,
+  kapazitaetFuer: planMocks.kapazitaetFuer,
+}));
+
 const posten = vi.hoisted(() => ({
   /** Kern-Posten je Wahl; überschreibbar je Test (z. B. negativer Kern). */
   jeWahl: (preis: number, wo: string) => [{ description: `Kern ${wo}`, quantity: 1, unitRate: preis }],
@@ -172,10 +181,13 @@ function aufbau(o: { schalter?: Plan5Schalter; optionen?: PaketOption[]; hebel?:
     ladeSchalter: vi.fn(async () => o.schalter ?? AN),
     ladePaketOptionen: vi.fn(async () => optionen),
     istKottke: vi.fn(async () => o.kottke ?? false),
-    ladeAuftraege: vi.fn(async () => [
-      { datum: "2026-11-20", dealId: "deal_x", name: "Familie Nowak" },
-      { datum: "2026-11-20", dealId: "deal1", name: "Dieser Deal" },
-    ]),
+    ladeBelegung: vi.fn(async (_ws: string, _von: string, _bis: string, _ohneDeal?: string | null) => ({
+      auftraege: [
+        { datum: "2026-11-20", dealId: "deal_x", name: "Familie Nowak" },
+        { datum: "2026-11-20", dealId: "deal1", name: "Dieser Deal" },
+      ],
+      kapazitaet: [] as import("@/lib/einsatz").KapazitaetTag[],
+    })),
     ladeWunschtermine: vi.fn(async () => ["2026-11-28", "2026-11-21"]),
   };
   const sperrAufruf = () => vi.mocked(speicher.sperrenUndAngebot).mock.calls.at(-1)!;
@@ -404,9 +416,72 @@ describe("Sperren mit Tagespreisen", () => {
     expect(r.zellen.find((z) => z.datum === "2026-11-21")).toMatchObject({ preisCent: 159000, gruende: [{ text: "Samstag", punkte: 5 }], vergangen: false });
     expect(r.zellen[0]).toMatchObject({ datum: "2026-11-06", vergangen: true });
     expect(r.zellen.find((z) => z.datum === "2026-11-20")!.auftraege).toEqual([{ dealId: "deal_x", name: "Familie Nowak" }]);
+    expect(r.zellen[0]).not.toHaveProperty("kapazitaet");
+    expect(t.deps.ladeBelegung).toHaveBeenCalledWith("ws", "2026-11-06", "2026-11-21", "deal1");
     expect(r.wunschtermin).toEqual({ datum: "2026-11-21", quelle: "deal", weitere: ["2026-11-28"] });
     expect(r.hinweis).toMatch(/45 % gesetzt und gilt an allen Tagen/);
     await expect(tagesRaster("ws", "deal1", 1, "2026-11-01", "2026-12-20", t.deps)).rejects.toMatchObject({ code: "UNGUELTIG" });
+  });
+
+  it("Raster: gestrichelte Einträge fehlen, Kapazität trägt Namen, ohne aktive Person kein Feld", async () => {
+    const alle = [
+      { art: "umzug", ton: "jade", tag: "2026-11-20", bisTag: "2026-11-21", dealId: "deal_x", titel: "Familie Nowak" },
+      { art: "umzug", ton: "gestrichelt", tag: "2026-11-20", bisTag: "2026-11-20", dealId: "deal_wunsch", titel: "Wunsch?" },
+      { art: "besichtigung", ton: "violett", tag: "2026-11-21", bisTag: "2026-11-21", dealId: "deal_bes", titel: "Besichtigung Meier" },
+      { art: "umzug", ton: "grau", tag: "2026-11-20", bisTag: "2026-11-20", dealId: "deal_grau", titel: "Erledigt" },
+      { art: "umzug", ton: "gold", tag: "2026-11-21", bisTag: "2026-11-21", dealId: "deal1", titel: "Dieser Deal" },
+    ];
+    planMocks.ladePlanEintraege.mockResolvedValue({ eintraege: [], alle, roh: {} });
+    planMocks.kapazitaetFuer.mockResolvedValue({
+      einsaetze: [],
+      kapazitaet: [
+        {
+          tag: "2026-11-20",
+          text: "2 frei",
+          ton: "gruen",
+          freiZahl: 2,
+          frei: [
+            { id: "e1", name: "Ali Bulut", kuerzel: "AB" },
+            { id: "e2", name: "Cem Yilmaz", kuerzel: "CY" },
+          ],
+          belegt: [{ person: { id: "e9", name: "Max Kottke", kuerzel: "MK" }, deals: [{ dealId: "deal_x", titel: "Familie Nowak" }] }],
+          abwesend: [],
+        },
+        { tag: "2026-11-21", text: "0 frei", ton: "rot", freiZahl: 0, frei: [], belegt: [], abwesend: [] },
+      ],
+    });
+    const { ladeTagesBelegung } = await import("./kalkulation-versionen-speicher");
+    const t = aufbau();
+    t.deps.ladeBelegung.mockImplementation((ws, von, bis, ohneDeal) => ladeTagesBelegung(ws, von, bis, ohneDeal));
+    await entwurfHolenOderAnlegen("ws", "deal1", MENSCH, t.deps);
+    const r = await tagesRaster("ws", "deal1", 1, "2026-11-20", "2026-11-21", t.deps);
+
+    expect(planMocks.ladePlanEintraege).toHaveBeenCalledTimes(1);
+    expect(planMocks.ladePlanEintraege).toHaveBeenCalledWith("ws", {
+      von: "2026-11-20",
+      bis: "2026-11-21",
+      firmaId: null,
+      mitarbeiterId: null,
+      leads: null,
+    });
+    expect(planMocks.kapazitaetFuer).toHaveBeenCalledWith("ws", "2026-11-20", "2026-11-21", alle, "deal1");
+
+    const tag20 = r.zellen.find((z) => z.datum === "2026-11-20")!;
+    const tag21 = r.zellen.find((z) => z.datum === "2026-11-21")!;
+    expect(tag20.auftraege).toEqual([{ dealId: "deal_x", name: "Familie Nowak" }]);
+    expect(tag21.auftraege).toEqual([{ dealId: "deal_x", name: "Familie Nowak" }]);
+    const text = JSON.stringify(r.zellen);
+    for (const fremd of ["Wunsch", "Besichtigung", "Erledigt", "Dieser Deal", "kuerzel", "Max Kottke"]) {
+      expect(text, fremd).not.toContain(fremd);
+    }
+    expect(tag20.kapazitaet).toEqual({ text: "2 frei", ton: "gruen", frei: ["Ali Bulut", "Cem Yilmaz"] });
+    expect("kapazitaet" in tag21).toBe(false);
+    expect(Object.keys(tag20).sort()).toEqual(
+      ["auftraege", "datum", "feiertag", "gruende", "kapazitaet", "preisCent", "vergangen", "wochentag"].sort(),
+    );
+    expect(Object.keys(tag21).sort()).toEqual(
+      ["auftraege", "datum", "feiertag", "gruende", "preisCent", "vergangen", "wochentag"].sort(),
+    );
   });
 });
 

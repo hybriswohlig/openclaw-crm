@@ -24,6 +24,7 @@ import { db } from "@/db";
 import { kuerzelAus } from "@/lib/akte";
 import { berlinDateString } from "@/lib/berlin-date";
 import { zeilen } from "@/lib/db-werte";
+import { festeEinsaetzeAus, istFest, kapazitaetAus, tageZwischen, type FesterEinsatz, type KapazitaetTag } from "@/lib/einsatz";
 import { filtern, type LeadEintrag } from "@/lib/leads-board-bauen";
 import { eintragAus, planFiltern, planSortieren } from "@/lib/plan-bauen";
 import {
@@ -36,6 +37,7 @@ import {
 } from "@/lib/plan-heute";
 import { listCalendarEvents } from "@/services/calendar/load-events";
 import { classifyDealDateAttribute } from "@/services/calendar/map-events";
+import { ladeAbwesenheiten, ladePersonen } from "@/services/einsatz-personen";
 import { ladeLeadsRoh } from "@/services/leads-board";
 
 type LeadsRoh = Awaited<ReturnType<typeof ladeLeadsRoh>>;
@@ -149,16 +151,17 @@ export async function besichtigungFeldLesen(ws: string): Promise<PlanBesichtigun
 // ─── Laden ───────────────────────────────────────────────────────────────────
 
 /**
- * Einträge des Fensters, gefiltert und sortiert, dazu die Leads-Daten (für
- * Stammdaten und „Heute“). `vorgeladen` darf auch ein laufendes Versprechen
- * sein, damit „Heute“ Leads und Kalender parallel lädt.
+ * Einträge des Fensters, gefiltert und sortiert, dazu `alle` (dieselben
+ * Ereignisse vor Firmen-, Lead- und Mitarbeiter-Filter, sortiert) und die
+ * Leads-Daten (für Stammdaten und „Heute“). `vorgeladen` darf auch ein
+ * laufendes Versprechen sein, damit „Heute“ Leads und Kalender parallel lädt.
  */
 export async function ladePlanEintraege(
   ws: string,
   a: PlanAbfrage,
   jetzt: Date = new Date(),
   vorgeladen?: LeadsRoh | Promise<LeadsRoh>,
-): Promise<{ eintraege: PlanEintrag[]; roh: LeadsRoh }> {
+): Promise<{ eintraege: PlanEintrag[]; alle: PlanEintrag[]; roh: LeadsRoh }> {
   const heute = berlinDateString(jetzt);
   const [bundle, roh] = await Promise.all([
     listCalendarEvents(
@@ -193,10 +196,35 @@ export async function ladePlanEintraege(
     dealIds = dealIds ? new Set([...dealIds].filter((id) => mit.has(id))) : mit;
   }
 
-  const eintraege = events.map((ev) =>
+  const gebaut = events.map((ev) =>
     eintragAus(ev, leads.get(ev.dealId) ?? null, { transporter: transporter.get(ev.dealId) ?? null }, heute),
   );
-  return { eintraege: planSortieren(planFiltern(eintraege, { firmaId: a.firmaId, dealIds })), roh };
+  const alle = planSortieren(gebaut);
+  return { eintraege: planFiltern(alle, { firmaId: a.firmaId, dealIds }), alle, roh };
+}
+
+/**
+ * Kapazität des Fensters über alle Firmen (Plan 12a). `alle` sind die
+ * ungefilterten Einträge. `ohneDeal` zählt nicht als belegt (Termin-Dialog
+ * des eigenen Auftrags). Genau drei Abfragen: Teams der festen Umzüge,
+ * Personen, Ausnahmen. Kein zweites Laden der Einträge.
+ */
+export async function kapazitaetFuer(
+  ws: string,
+  von: string,
+  bis: string,
+  alle: readonly PlanEintrag[],
+  ohneDeal?: string | null,
+): Promise<{ einsaetze: FesterEinsatz[]; kapazitaet: KapazitaetTag[] }> {
+  const festeIds = [...new Set(alle.filter(istFest).map((e) => e.dealId))];
+  const [teamIds, personen, abwesenheiten] = await Promise.all([
+    teamIdsLesen(ws, festeIds),
+    ladePersonen(ws),
+    ladeAbwesenheiten(ws, von, bis),
+  ]);
+  const einsaetze = festeEinsaetzeAus(alle, teamIds).filter((e) => e.dealId !== ohneDeal);
+  const kapazitaet = kapazitaetAus({ tage: tageZwischen(von, bis), personen, abwesenheiten, einsaetze });
+  return { einsaetze, kapazitaet };
 }
 
 /** `GET /api/v1/plan`: Einträge, „Im Blick“, Stammdaten für Leiste und Menüs. */
@@ -207,11 +235,12 @@ export async function ladePlan(
   vorgeladen?: LeadsRoh | Promise<LeadsRoh>,
 ): Promise<PlanAntwort> {
   const heute = berlinDateString(jetzt);
-  const [{ eintraege, roh }, mitarbeiter, besichtigungFeld] = await Promise.all([
+  const [{ eintraege, alle, roh }, mitarbeiter, besichtigungFeld] = await Promise.all([
     ladePlanEintraege(ws, a, jetzt, vorgeladen),
     mitarbeiterLesen(ws),
     besichtigungFeldLesen(ws),
   ]);
+  const { kapazitaet } = await kapazitaetFuer(ws, a.von, a.bis, alle);
   return {
     von: a.von,
     bis: a.bis,
@@ -222,7 +251,7 @@ export async function ladePlan(
     mitarbeiter,
     stufen: roh.stamm.stufen,
     besichtigungFeld,
-    kapazitaet: [],
+    kapazitaet,
     buchungen: [],
     stand: jetzt.toISOString(),
   };

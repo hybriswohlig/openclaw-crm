@@ -15,6 +15,7 @@ import {
 } from "@/db/schema/customer-portal";
 import { dealCalculationVersions } from "@/db/schema/deal-calculation-versions";
 import { quotations } from "@/db/schema/quotations";
+import { istFest, naechsterTag, type KapazitaetTag } from "@/lib/einsatz";
 import { sperrWahl } from "@/lib/kalkulation-versionen";
 import { wahlPaketSlug } from "@openclaw-crm/customer-portal-core";
 import { resolveDealOperatingCompany } from "./financial";
@@ -332,25 +333,28 @@ export async function ladePaketOptionen(deal: string): Promise<PaketOption[]> {
 }
 
 /**
- * Aufträge (Umzug, Entrümpelung, Küche; keine Besichtigung) je Tag im Fenster,
- * aus dem Plan-Dienst (nur lesen). Mehrtägige Aufträge zählen an jedem ihrer Tage.
+ * Feste Aufträge (Umzug im Ton jade oder gold) je Tag im Fenster und die
+ * Kapazität über alle Firmen. Mehrtägige Aufträge zählen an jedem Tag im
+ * Fenster. `ohneDeal` bleibt in `auftraege` und zählt in der Kapazität nicht
+ * als belegt. Eine Plan-Abfrage, danach die Kapazität ohne zweites Laden.
  */
-export async function ladeAuftraegeJeTag(ws: string, von: string, bis: string): Promise<{ datum: string; dealId: string; name: string }[]> {
-  const { ladePlanEintraege } = await import("./plan");
-  const { eintraege } = await ladePlanEintraege(ws, { von, bis, firmaId: null, mitarbeiterId: null, leads: null });
-  const aus: { datum: string; dealId: string; name: string }[] = [];
-  for (const e of eintraege) {
-    if (e.art !== "umzug") continue;
+export async function ladeTagesBelegung(
+  ws: string,
+  von: string,
+  bis: string,
+  ohneDeal?: string | null,
+): Promise<{ auftraege: { datum: string; dealId: string; name: string }[]; kapazitaet: KapazitaetTag[] }> {
+  const { ladePlanEintraege, kapazitaetFuer } = await import("./plan");
+  const { alle } = await ladePlanEintraege(ws, { von, bis, firmaId: null, mitarbeiterId: null, leads: null });
+  const auftraege: { datum: string; dealId: string; name: string }[] = [];
+  for (const e of alle) {
+    if (!istFest(e)) continue;
     for (let t = e.tag < von ? von : e.tag; t <= e.bisTag && t <= bis; t = naechsterTag(t)) {
-      aus.push({ datum: t, dealId: e.dealId, name: e.titel });
+      auftraege.push({ datum: t, dealId: e.dealId, name: e.titel });
     }
   }
-  return aus;
-}
-
-function naechsterTag(t: string): string {
-  const [j, m, d] = t.split("-").map(Number);
-  return new Date(Date.UTC(j, m - 1, d + 1)).toISOString().slice(0, 10);
+  const { kapazitaet } = await kapazitaetFuer(ws, von, bis, alle, ohneDeal);
+  return { auftraege, kapazitaet };
 }
 
 const WUNSCH_EREIGNISSE = ["customer.reschedule_requested", "customer.question", "customer.damage_reported"];
