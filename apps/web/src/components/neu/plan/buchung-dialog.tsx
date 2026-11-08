@@ -298,7 +298,7 @@ export function BuchungDialog({
                     {s.name}
                   </option>
                 ))}
-                {b && !stationen.some((s) => s.id === b.stationId) ? <option value={b.stationId}>{b.stationName} (nicht mehr im Rechner)</option> : null}
+                {b && !stationen.some((s) => s.id === b.stationId) ? <option value={b.stationId}>{b.stationName}{stamm && "stationen" in stamm ? " (nicht mehr im Rechner)" : ""}</option> : null}
               </select>
             </label>
             <label className="ma-feld">
@@ -310,7 +310,7 @@ export function BuchungDialog({
                     {k.name}
                   </option>
                 ))}
-                {b && !klassen.some((k) => k.id === b.klasseId) ? <option value={b.klasseId}>{b.klasseName} (nicht mehr im Rechner)</option> : null}
+                {b && !klassen.some((k) => k.id === b.klasseId) ? <option value={b.klasseId}>{b.klasseName}{stamm && "klassen" in stamm ? " (nicht mehr im Rechner)" : ""}</option> : null}
               </select>
             </label>
             <label className="ma-feld">

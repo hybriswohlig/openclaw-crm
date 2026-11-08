@@ -1537,3 +1537,7 @@
 [data-neu] .ez-fahrwahl-form .ma-knoepfe {
   margin-top: 4px;
 }
+
+[data-neu] .ez-zahl small {
+  white-space: normal;
+}

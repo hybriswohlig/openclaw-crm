@@ -41,9 +41,14 @@ export function EinsatzListe({
     return <p className="ez-leer">Noch keine aktiven Mitarbeiter. Anlegen unter Mitarbeiter.</p>;
   }
   const reihenfolge = { frei: 0, belegt: 1, abwesend: 2 } as const;
+  // Team in seiner Reihenfolge (Lead zuerst), dann Vorschlag, dann frei vor belegt vor abwesend.
+  const platz = (id: string) => {
+    const i = team.findIndex((t) => t.employeeId === id);
+    return i < 0 ? Number.POSITIVE_INFINITY : team[i]!.role === "lead" ? -1 : i;
+  };
   const sortiert = [...personen].sort(
     (a, b) =>
-      Number(team.some((t) => t.employeeId === b.id)) - Number(team.some((t) => t.employeeId === a.id)) ||
+      (platz(a.id) === platz(b.id) ? 0 : platz(a.id) < platz(b.id) ? -1 : 1) ||
       Number(vorschlag.includes(b.id)) - Number(vorschlag.includes(a.id)) ||
       reihenfolge[a.lage] - reihenfolge[b.lage] ||
       a.name.localeCompare(b.name, "de"),
@@ -106,7 +111,7 @@ export function EinsatzListe({
               ) : !ort || !an ? (
                 <>
                   {ort ? "unbekannt" : "Ort fehlt"}
-                  <small>{ort ? "keine Fahrzeit" : "PLZ und Ort unter Mitarbeiter eintragen"}</small>
+                  <small>{ort ? "keine Fahrzeit" : "unter Mitarbeiter eintragen"}</small>
                 </>
               ) : (
                 <>

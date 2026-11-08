@@ -94,7 +94,7 @@ export function MitarbeiterSeite({ transporter }: { transporter?: React.ReactNod
             <b>{p.name}</b>
             <small>{[ort ?? "Ort fehlt", p.kannSprinter ? "Sprinter" : null, p.eigenerPkw ? "eigener PKW" : null].filter(Boolean).join(" · ")}</small>
           </span>
-          {lage && p.aktiv ? (
+          {lage && lage !== "frei" && p.aktiv ? (
             <span className="ez-lage" data-lage={lage}>
               heute {lage}
             </span>
