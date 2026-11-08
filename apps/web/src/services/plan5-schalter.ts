@@ -31,3 +31,26 @@ export async function plan5Schalter(ws: string, dealId: string, ex: Ausfuehrer =
   if (!z) return SCHALTER_AUS;
   return { angebotAusKalkulation: z.angebot === true, tagespreise: z.tage === true };
 }
+
+/**
+ * Plan 12b: Mietanteil einer Transporter-Buchung im Preis, je Betriebsfirma
+ * des Deals (`company_settings.buchung_im_preis`). Ohne Firma oder ohne Zeile aus.
+ */
+export async function einsatzSchalter(
+  ws: string,
+  dealId: string,
+  ex: Ausfuehrer = db,
+): Promise<{ buchungImPreis: boolean }> {
+  const res = await ex.execute(sql`
+    SELECT s.buchung_im_preis AS buchung
+    FROM record_values v
+    INNER JOIN attributes a ON a.id = v.attribute_id AND a.slug = 'operating_company'
+    INNER JOIN objects o ON o.id = a.object_id AND o.slug = 'deals' AND o.workspace_id = ${ws}
+    INNER JOIN company_settings s
+      ON s.operating_company_record_id = v.referenced_record_id AND s.workspace_id = ${ws}
+    WHERE v.record_id = ${dealId}
+    LIMIT 1
+  `);
+  const [z] = zeilen<{ buchung: boolean | null }>(res);
+  return { buchungImPreis: z?.buchung === true };
+}
