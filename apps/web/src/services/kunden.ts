@@ -16,6 +16,8 @@ import { alsIso, alsJson, alsZahl, zeilen } from "@/lib/db-werte";
 import { nameAusWert } from "@/lib/personen-name";
 import type { OffenEingabe, RechnungStatus } from "@/lib/geld";
 import {
+  BEWERTUNG_STUFEN,
+  bewertungLage,
   KUNDEN_SEITE,
   kundenSuche,
   markeAusFirmenname,
@@ -23,7 +25,15 @@ import {
   type KundenAkte,
   type KundenGespraech,
   type KundenListeAntwort,
+  type BewertungListe,
+  type TokenQuelle,
+  type TokenZustand,
+  type VormerkungArt,
+  type VormerkungStatus,
 } from "@/lib/bewertungen-kunden";
+import { normalizeKontaktart } from "@/lib/kontaktart";
+import { parseReviewUrl } from "@/lib/reviews/review-url";
+import type { StageCategory } from "@/lib/wartet";
 import {
   dealOhneAusZeile,
   dealsOhneKundeZeilen,
@@ -556,13 +566,122 @@ export async function ladeKundenAkte(ws: string, personId: string): Promise<Kund
     const g = gespraechAus(z);
     return g ? [g] : [];
   });
-  return kundenAkteBauen({
+  const akte = kundenAkteBauen({
     person,
     geld,
     gespraeche,
     vorschlaege: namenAus(vorschlagRes),
     namenMitDeal: namenAus(namenRes),
   });
+  const lagen = await bewertungsLagen(ws, akte.umzuege.map((u) => u.dealId), person.kontaktart ?? null);
+  return { ...akte, umzuege: akte.umzuege.map((u) => ({ ...u, bewertung: lagen.get(u.dealId) ?? null })) };
+}
+
+/**
+ * Bewertungsstand je Umzug (Plan 11): dieselbe Regel wie die Arbeitsliste
+ * (`bewertungLage`), eine Abfrage für alle Deals der Person. Nur Deals in
+ * Durchgeführt oder Bezahlt oder mit Token oder Vormerkung haben einen Stand.
+ */
+async function bewertungsLagen(
+  ws: string,
+  dealIds: string[],
+  kontaktart: string | null,
+  jetzt: Date = new Date(),
+): Promise<Map<string, BewertungListe>> {
+  const out = new Map<string, BewertungListe>();
+  if (dealIds.length === 0) return out;
+  const rows = zeilen<{
+    deal_id: string;
+    stufe: string | null;
+    status_titel: string | null;
+    dnc: boolean | null;
+    dnc_seit: unknown;
+    google_url: string | null;
+    t_zustand: string | null;
+    t_angelegt: unknown;
+    t_geklickt: unknown;
+    t_quelle: string | null;
+    v_art: string | null;
+    v_status: string | null;
+    v_faellig: unknown;
+    v_sperre: string | null;
+  }>(
+    await db.execute(sql`
+      SELECT
+        d.id AS deal_id,
+        (SELECT s.stage_category FROM record_values v
+           INNER JOIN attributes a ON a.id = v.attribute_id AND a.slug = 'stage'
+           INNER JOIN statuses s ON s.id = v.text_value
+          WHERE v.record_id = d.id LIMIT 1) AS stufe,
+        (SELECT s.title FROM record_values v
+           INNER JOIN attributes a ON a.id = v.attribute_id AND a.slug = 'review_request_status'
+           INNER JOIN statuses s ON s.id = v.text_value
+          WHERE v.record_id = d.id LIMIT 1) AS status_titel,
+        (SELECT bool_or(v.boolean_value) FROM record_values v
+           INNER JOIN attributes a ON a.id = v.attribute_id AND a.slug = 'do_not_contact_review'
+          WHERE v.record_id = d.id) AS dnc,
+        (SELECT min(v.created_at) FROM record_values v
+           INNER JOIN attributes a ON a.id = v.attribute_id AND a.slug = 'do_not_contact_review'
+          WHERE v.record_id = d.id AND v.boolean_value = true) AS dnc_seit,
+        (SELECT ps.google_review_url FROM record_values v
+           INNER JOIN attributes a ON a.id = v.attribute_id AND a.slug = 'operating_company'
+           INNER JOIN operating_company_portal_settings ps
+             ON ps.operating_company_record_id = v.referenced_record_id AND ps.workspace_id = ${ws}
+          WHERE v.record_id = d.id LIMIT 1) AS google_url,
+        t.zustand AS t_zustand, t.created_at AS t_angelegt, t.clicked_at AS t_geklickt, t.quelle AS t_quelle,
+        m.art AS v_art, m.status AS v_status, m.faellig_ab AS v_faellig, m.sperre AS v_sperre
+      FROM records d
+      INNER JOIN objects o ON o.id = d.object_id AND o.workspace_id = ${ws} AND o.slug = 'deals'
+      LEFT JOIN LATERAL (
+        SELECT * FROM review_tokens rt WHERE rt.workspace_id = ${ws} AND rt.deal_record_id = d.id
+        ORDER BY rt.created_at DESC LIMIT 1
+      ) t ON true
+      LEFT JOIN LATERAL (
+        SELECT * FROM review_vormerkungen rv WHERE rv.workspace_id = ${ws} AND rv.deal_record_id = d.id
+        ORDER BY (rv.status = 'offen') DESC, rv.created_at DESC LIMIT 1
+      ) m ON true
+      WHERE d.id IN (${idListe(dealIds)}) AND d.deleted_at IS NULL
+    `),
+  );
+  for (const r of rows) {
+    const stufe = (r.stufe as StageCategory | null) ?? null;
+    if (!r.t_zustand && !r.v_art && !(stufe && BEWERTUNG_STUFEN.includes(stufe))) continue;
+    const zeit = (v: unknown) => {
+      const iso = alsIso(v);
+      return iso ? new Date(iso) : null;
+    };
+    const lage = bewertungLage(
+      {
+        dealId: r.deal_id,
+        stufe,
+        statusTitel: r.status_titel,
+        nichtKontaktieren: r.dnc === true,
+        nichtKontaktierenSeit: zeit(r.dnc_seit),
+        token: r.t_zustand
+          ? {
+              zustand: r.t_zustand as TokenZustand,
+              createdAt: zeit(r.t_angelegt) ?? jetzt,
+              clickedAt: zeit(r.t_geklickt),
+              quelle: (r.t_quelle as TokenQuelle | null) ?? null,
+            }
+          : null,
+        vormerkung: r.v_art
+          ? {
+              art: r.v_art as VormerkungArt,
+              status: r.v_status as VormerkungStatus,
+              faelligAb: zeit(r.v_faellig) ?? jetzt,
+              sperre: r.v_sperre,
+            }
+          : null,
+        hatPerson: true,
+        hatGoogleLink: parseReviewUrl(r.google_url).ok,
+        kontaktart: normalizeKontaktart(kontaktart),
+      },
+      jetzt,
+    );
+    out.set(r.deal_id, lage.liste);
+  }
+  return out;
 }
 
 /**

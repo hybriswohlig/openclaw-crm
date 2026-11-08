@@ -121,7 +121,7 @@
 
 [data-neu] .kd-zeile {
   display: grid;
-  grid-template-columns: minmax(0, 1.5fr) auto minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1.5fr) 150px minmax(0, 1fr) 150px;
   align-items: center;
   gap: 8px 12px;
   padding: 9px 12px;
@@ -158,6 +158,10 @@
 [data-neu] .kd-zeile-text {
   font-size: 12.5px;
   color: var(--ink-2);
+}
+
+[data-neu] .kd-zeile > .kd-chips {
+  justify-self: start;
 }
 
 [data-neu] .kd-zeile-betrag {
@@ -368,7 +372,12 @@
   }
 
   [data-neu] .kd-zeile-text {
-    grid-column: 1 / -1;
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  [data-neu] .kd-zeile-betrag {
+    grid-column: 2;
     grid-row: 2;
   }
 

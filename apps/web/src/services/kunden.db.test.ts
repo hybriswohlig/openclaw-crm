@@ -451,12 +451,15 @@ describe.skipIf(!url)("Kunden gegen Postgres", () => {
   });
 
   it("führt die Kundenakte mit beiden Firmen und Dubletten", async () => {
+    // Plan 11: Bewertungsstand je Umzug wie in der Arbeitsliste.
+    await sql!`insert into review_tokens (token, workspace_id, deal_record_id, destination_url, zustand, quelle)
+      values (${`tok-${D.wandaK}`.slice(0, 40)}, ${ws}, ${D.wandaK}, 'https://g.page/x', 'gesendet', 'hand')`;
     const akte = await ladeKundenAkte(ws, P.wanda);
     expect(akte?.mehrfachFirma).toBe(true);
     expect(akte?.bewertungGesperrt).toBe(true);
     expect(akte?.wiederkehrer).toBe(true);
     expect(akte?.umzuege.map((u) => u.dealId)).toEqual([D.wandaC, D.wandaK]);
-    expect(akte?.umzuege.every((u) => u.bewertung === null)).toBe(true);
+    expect(akte?.umzuege.find((u) => u.dealId === D.wandaK)?.bewertung).toBe("angefragt");
     expect(akte?.gespraeche.map((g) => g.firma?.name)).toEqual(["Ceylan Transporte", "Kottke Umzüge GmbH"]);
     expect(akte?.gespraeche.find((g) => g.firma?.marke === "kottke")?.liste[0]).toMatchObject({
       kanal: "whatsapp",

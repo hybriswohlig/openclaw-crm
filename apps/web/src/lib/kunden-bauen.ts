@@ -2,8 +2,8 @@
  * Kundenliste und Kundenakte aus Pivot-Zeilen (Plan 11, Task E). Rein, ohne
  * Datenbank. Der offene Rest je Deal kommt aus `offenAus`.
  *
- * `KundenUmzug.bewertung` bleibt null: die Lage brauchte Token, Vormerkung,
- * Status und Google-Link je Deal, und die Akte zeigt den Stand dort nicht.
+ * `KundenUmzug.bewertung` setzt `ladeKundenAkte` danach in einer eigenen
+ * Abfrage (Liste bleibt ohne Stand).
  */
 import { canonicalizePhone } from "@/lib/identity/canonical";
 import { normalizeKontaktart, type Kontaktart } from "@/lib/kontaktart";
