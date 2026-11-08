@@ -12,7 +12,7 @@ import { activityEvents } from "@/db/schema";
 import { ALT_AUFRUF_EVENT, type AltAufruf } from "@/lib/dunkel-abschaltung";
 
 /** Spiegel-Cookie der Oberflächenwahl (Plan 10, `UI_COOKIE` in `@/lib/handy-links`). */
-export const UI_COOKIE_NAME = "crm_ui";
+export { UI_COOKIE as UI_COOKIE_NAME } from "@/lib/handy-links";
 export const PFAD_MAX = 200;
 
 /**
