@@ -76,6 +76,53 @@ function tagPlus(tag: string, n: number): string {
   return new Date(Date.UTC(j, m - 1, d + n)).toISOString().slice(0, 10);
 }
 
+
+/**
+ * Heutiger Termin des Deals (Review I1): Datumswahl im Portal, sonst
+ * `move_date`; null ohne beides. Die Version ist nur Ersatz beim Aufrufer.
+ */
+export async function dealTerminLesen(ws: string, deal: string, ex: DbExecutor = db): Promise<string | null> {
+  const res = await ex.execute(sql`
+    SELECT
+      (SELECT s.selected_date::text FROM customer_date_selections s
+        WHERE s.workspace_id = ${ws} AND s.deal_record_id = ${deal}
+        ORDER BY s.created_at DESC LIMIT 1) AS wahl,
+      (SELECT v.date_value::text FROM record_values v
+        INNER JOIN attributes a ON a.id = v.attribute_id AND a.slug = 'move_date'
+        INNER JOIN objects o ON o.id = a.object_id AND o.slug = 'deals' AND o.workspace_id = ${ws}
+        WHERE v.record_id = ${deal} AND v.date_value IS NOT NULL
+        ORDER BY v.sort_order, v.id LIMIT 1) AS feld
+  `);
+  const [z] = (Array.isArray(res) ? res : ((res as { rows?: unknown[] }).rows ?? [])) as Array<{ wahl: string | null; feld: string | null }>;
+  const tag = (x: string | null | undefined) => (typeof x === "string" && /^\d{4}-\d{2}-\d{2}/.test(x) ? x.slice(0, 10) : null);
+  return tag(z?.wahl) ?? tag(z?.feld);
+}
+
+/**
+ * Fenster für Tage, Kapazität und Doppelbelegung (Review I1): um den heutigen
+ * Termin (Portal-Wahl, `move_date`, sonst Datum der Version). Findet der Plan
+ * dort keinen Eintrag des Deals (Termin umgeplant), ein zweiter Blick über
+ * heute − 30 bis heute + 365 Tage, damit der Schutz nie still wegfällt.
+ */
+export async function einsatzFenster(
+  ws: string,
+  deal: string,
+  versionDatum: string | null,
+  heute: string,
+): Promise<{ tage: string[]; einsaetze: FesterEinsatz[]; eintraege: PlanEintrag[]; termin: string | null }> {
+  const termin = (await dealTerminLesen(ws, deal).catch(() => null)) ?? versionDatum;
+  const fenster: Array<[string, string]> = [];
+  if (termin) fenster.push([tagPlus(termin, -7), tagPlus(termin, 21)]);
+  fenster.push([tagPlus(heute, -30), tagPlus(heute, 365)]);
+  let letzte: { einsaetze: FesterEinsatz[]; eintraege: PlanEintrag[] } = { einsaetze: [], eintraege: [] };
+  for (const [von, bis] of fenster) {
+    letzte = await festeEinsaetze(ws, von, bis);
+    const tage = dealTage(letzte.eintraege, deal);
+    if (tage.length > 0) return { tage, ...letzte, termin };
+  }
+  return { tage: [], ...letzte, termin };
+}
+
 // ─── Laden ───────────────────────────────────────────────────────────────────
 
 type VersionRoh = {
@@ -149,7 +196,8 @@ export function rechnerDatenAus(anfrage: RechnerAnfrage | null, e: RechnerErgebn
     festpreisEur: endlich(e.preis?.festpreis),
     selbstkostenEur: endlich(e.preis?.selbstkosten ?? e.kosten?.selbstkosten),
     // 12b: steckt eine Buchung im Preis, ist die Fahrzeugzeile ihr Anteil.
-    fahrzeugName: opt?.name?.trim() ? `${opt.name.trim()}${typeof anfrage?.buchung === "string" && anfrage.buchung !== "" ? ", Anteil Buchung" : ""}` : null,
+    // Review M3: nur wenn die Buchung am Hauptdatum gilt (sonst rechnet der Rechner die Tagesmiete).
+    fahrzeugName: opt?.name?.trim() ? `${opt.name.trim()}${e.buchung?.hauptdatum === true ? ", Anteil Buchung" : ""}` : null,
     fahrzeugEur: fahrzeugEurAus(posten),
     station: e.mietstation?.name ?? null,
     empfehlung: opt ? { id: opt.id, name: opt.name, fahrten: opt.fahrten, km: opt.km } : null,
@@ -185,10 +233,7 @@ export async function ladeEinsatz(ws: string, deal: string, o: EinsatzLadeOption
     datum = text(lead?.umzugsdatum);
   }
 
-  const von = datum ? tagPlus(datum, -7) : heute;
-  const bis = datum ? tagPlus(datum, 21) : tagPlus(heute, 120);
-  const { einsaetze, eintraege } = await festeEinsaetze(ws, von, bis);
-  const tage = dealTage(eintraege, deal);
+  const { einsaetze, eintraege, tage, termin } = await einsatzFenster(ws, deal, datum, heute);
   const fest = eintraege.some((e) => e.dealId === deal && istFest(e));
   const abwesenheiten: Abwesenheit[] = tage.length > 0 ? await ladeAbwesenheiten(ws, tage[0]!, tage[tage.length - 1]!) : [];
   const andere = einsaetze.filter((e) => e.dealId !== deal);
@@ -235,7 +280,7 @@ export async function ladeEinsatz(ws: string, deal: string, o: EinsatzLadeOption
     einsaetze,
   });
 
-  const tag = tage[0] ?? datum;
+  const tag = tage[0] ?? termin ?? datum;
   const fuerAnfahrt = personenLage.filter((p) => p.abwesend === null);
   const anfahrten = beladen
     ? await anfahrtenLaden(ws, { personen: fuerAnfahrt, beladen, entladen, tag }, { dealId: deal, frisch: o.frisch, jetzt })
@@ -288,6 +333,12 @@ export async function ladeEinsatz(ws: string, deal: string, o: EinsatzLadeOption
   const hinweise: string[] = [];
   if (!v) hinweise.push("Noch keine Kalkulation: Minuten und Lohn fehlen.");
   if (!beladen) hinweise.push("Keine Beladeadresse: Anfahrt nicht berechnet.");
+  // Review M8: Buchung im Preis geht nicht (Station oder Klasse passen im Rechner nicht mehr): sagen, warum.
+  if (buchungImPreis && buchung) {
+    const { einsatzPreisKontext } = await import("./einsatz-preis");
+    const k = await einsatzPreisKontext(ws, deal).catch(() => null);
+    if (k && k.anfrage.buchung === null && k.hinweis) hinweise.push(k.hinweis);
+  }
 
   return {
     dealId: deal,
@@ -392,10 +443,7 @@ export async function einsatzBestaetigen(
   const v = await massgeblicheVersion(ws, deal);
   const datum = text((v?.rechnerRequest as RechnerAnfrage | null)?.umzugsdatum);
   const heute = berlinDateString(jetzt);
-  const von = datum ? tagPlus(datum, -7) : heute;
-  const bis = datum ? tagPlus(datum, 21) : tagPlus(heute, 120);
-  const { einsaetze, eintraege } = await festeEinsaetze(ws, von, bis);
-  const tage = dealTage(eintraege, deal);
+  const { einsaetze, tage } = await einsatzFenster(ws, deal, datum, heute);
   const neuIds = e.team.map((t) => t.employeeId);
 
   try {

@@ -67,3 +67,19 @@ describe("imBlickAus mit Buchungen", () => {
     expect(imBlickAus([], "2026-11-18")).toEqual([]);
   });
 });
+
+describe("Review M4: leere inklusive km = Kilometer der Klasse", () => {
+  it("Speichern trägt den Klassenwert ein, Leiste nennt die offene Grenze", async () => {
+    const { inklusivKmZumSpeichern } = await import("./buchung-logik");
+    const { buchungsLeisteText } = await import("@/lib/einsatz");
+    expect(inklusivKmZumSpeichern(null, { inklusivKmProTag: 100 }, "2026-11-20", "2026-11-22")).toBe(300);
+    expect(inklusivKmZumSpeichern(500, { inklusivKmProTag: 100 }, "2026-11-20", "2026-11-22")).toBe(500);
+    expect(inklusivKmZumSpeichern(null, null, "2026-11-20", "2026-11-22")).toBeNull();
+    const b0 = {
+      id: "b", firmaId: "f", von: "2026-11-16", bis: "2026-11-16", stationId: "s", stationName: "Sixt", stationAnbieter: null,
+      klasseId: "k", klasseName: "Sprinter L", mieteCent: 45000, inklusivKm: null, mehrkmSatzCent: null, geplanteAuftraege: 2,
+      status: "geplant" as const, notiz: null,
+    };
+    expect(buchungsLeisteText(b0, [])).toContain("km wie Klasse");
+  });
+});

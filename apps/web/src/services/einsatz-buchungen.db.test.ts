@@ -44,6 +44,7 @@ import {
   buchungAnlegen,
   buchungenMitWarnungen,
   dealBuchung,
+  eingefroreneAnteile,
   ladeBuchungen,
   loesen,
   zuordnen,
@@ -272,6 +273,18 @@ describe.skipIf(!url)("Transporter-Buchungen (Datenbank)", () => {
     expect(geaendert && "warnungen" in geaendert && geaendert.warnungen).toEqual([
       "1 gesendete Preise beruhen auf dem alten Stand der Buchung (Schmidt). Die Preise bleiben.",
     ]);
+  });
+
+  it("Review M5: eine neuere gesperrte Version ohne Buchung beendet die Warnung", async () => {
+    const b = await buchungAnlegen(ws, eingabe(kottke), "u1");
+    const feld = rechnerBuchungFeld(b, buchungsAnteil(b));
+    await sql`insert into deal_calculation_versions (id, workspace_id, deal_record_id, version, status, reference_date, rechner_request, vehicle_booking_id) values
+      (${randomUUID()}, ${ws}, ${yilmaz}, 1, 'gesperrt', '2026-11-19', ${sql.json({ umzugsdatum: "2026-11-19", buchung: feld })}, ${b.id})`;
+    expect((await eingefroreneAnteile(ws, b.id)).map((e) => e.dealId)).toEqual([yilmaz]);
+    await sql`insert into deal_calculation_versions (id, workspace_id, deal_record_id, version, status, reference_date, rechner_request) values
+      (${randomUUID()}, ${ws}, ${yilmaz}, 2, 'gesperrt', '2026-11-19', ${sql.json({ umzugsdatum: "2026-11-19" })})`;
+    expect(await eingefroreneAnteile(ws, b.id)).toEqual([]);
+    await sql`delete from deal_calculation_versions where deal_record_id = ${yilmaz}`;
   });
 
   it("einsatzSchalter ist aus ohne Zeile und an nach dem PUT", async () => {

@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { getAuthContext, unauthorized, badRequest, success } from "@/lib/api-utils";
-import { centAusHourlyRate } from "@/lib/einsatz";
+import { centAusHourlyRate, SATZ_CENT_MAX, SATZ_CENT_MIN } from "@/lib/einsatz";
 import { listEmployees, createEmployee } from "@/services/employees";
 
 export async function GET(req: NextRequest) {
@@ -24,8 +24,10 @@ export async function POST(req: NextRequest) {
   if (hourlyRate === undefined || hourlyRate === null || hourlyRate === "") {
     return badRequest("hourlyRate is required and must be a number");
   }
-  if (centAusHourlyRate(hourlyRate) === null) {
-    return badRequest("hourlyRate ungültig");
+  const cent = centAusHourlyRate(hourlyRate);
+  // Review M7: dieselben Grenzen wie die neue Oberfläche (1 € bis 200 € je Stunde).
+  if (cent === null || cent < SATZ_CENT_MIN || cent > SATZ_CENT_MAX) {
+    return badRequest("hourlyRate ungültig (1 bis 200 € je Stunde)");
   }
 
   try {

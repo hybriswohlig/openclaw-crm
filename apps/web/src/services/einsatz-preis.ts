@@ -18,6 +18,8 @@ export interface EinsatzPreisKontext {
 
 export const HINWEIS_AUS_BUCHUNG = "Station und Fahrzeug kommen aus der Buchung.";
 export const HINWEIS_BUCHUNG_FEHLT_IM_RECHNER = "Station oder Klasse der Buchung gibt es im Rechner nicht mehr.";
+export const HINWEIS_ANBIETER_PASST_NICHT =
+  "Klasse und Station der Buchung gehören im Rechner zu verschiedenen Anbietern. Die Kalkulation rechnet ohne Buchung, bis die Buchung oder der Rechner angepasst ist.";
 
 type Schalter = (ws: string, deal: string) => Promise<{ buchungImPreis: boolean }>;
 
@@ -31,9 +33,13 @@ export async function einsatzPreisKontext(ws: string, deal: string, schalter?: S
   try {
     const { rechnerKlassen, rechnerStationen } = await import("@/services/rechner/stammdaten");
     const [stationen, klassen] = await Promise.all([rechnerStationen(), rechnerKlassen()]);
-    const station = stationen.some((s) => s.id === b.stationId && s.aktiv);
-    const klasse = klassen.some((k) => k.id === b.klasseId && k.aktiv);
+    const station = stationen.find((s) => s.id === b.stationId && s.aktiv);
+    const klasse = klassen.find((k) => k.id === b.klasseId && k.aktiv);
     if (!station || !klasse) return { anfrage: { station: null, klasse: null, buchung: null }, hinweis: HINWEIS_BUCHUNG_FEHLT_IM_RECHNER };
+    // Review M8: sonst antwortet der Rechner nur „Keine aktive Mietstation …“.
+    if (station.anbieter !== klasse.anbieter) {
+      return { anfrage: { station: null, klasse: null, buchung: null }, hinweis: HINWEIS_ANBIETER_PASST_NICHT };
+    }
   } catch {
     // Stammdaten nicht erreichbar: der Rechner prüft Station und Klasse selbst.
   }

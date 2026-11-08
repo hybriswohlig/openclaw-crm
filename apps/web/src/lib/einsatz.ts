@@ -854,7 +854,7 @@ export interface EingefrorenerAnteil {
   anteil: BuchungsAnteil;
 }
 
-/** Rest-Kilometer der Buchung; null, wenn unbegrenzt oder eine Schätzung fehlt. */
+/** Rest-Kilometer der Buchung; null, wenn die Grenze offen ist (Klassenwert, Review M4) oder eine Schätzung fehlt. */
 export function restKm(b: Pick<TransporterBuchung, "inklusivKm">, zuordnungen: readonly BuchungZuordnung[]): number | null {
   if (b.inklusivKm === null || zuordnungen.some((z) => z.geschaetzteKm === null)) return null;
   return b.inklusivKm - zuordnungen.reduce((s, z) => s + (z.geschaetzteKm ?? 0), 0);
@@ -916,7 +916,8 @@ export function buchungsLeisteText(b: TransporterBuchung, zuordnungen: readonly 
     b.stationName,
     zeitraum,
     euro(b.mieteCent).replace(",00 €", " €"),
-    b.inklusivKm === null ? null : `${b.inklusivKm} km inkl.`,
+    // Review M4: leer heißt wie im Rechner „Kilometer der Klasse“, nicht unbegrenzt.
+    b.inklusivKm === null ? "km wie Klasse" : `${b.inklusivKm} km inkl.`,
     `${zuordnungen.length} von ${b.geplanteAuftraege} ${b.geplanteAuftraege === 1 ? "Auftrag" : "Aufträgen"}`,
     rest === null ? null : `Rest ${rest} km`,
     b.status === "storniert" ? "storniert" : null,

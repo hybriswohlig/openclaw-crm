@@ -55,7 +55,7 @@ describe("hourlyRate an den alten Mitarbeiter-Routen", () => {
   it("POST ungültig → 400, nichts angelegt", async () => {
     const res = await POST(post({ name: "Ada", hourlyRate: "x" }));
     expect(res.status).toBe(400);
-    expect(await res.json()).toEqual({ error: { code: "BAD_REQUEST", message: "hourlyRate ungültig" } });
+    expect(await res.json()).toEqual({ error: { code: "BAD_REQUEST", message: "hourlyRate ungültig (1 bis 200 € je Stunde)" } });
     expect(mocks.createEmployee).not.toHaveBeenCalled();
   });
 
@@ -74,7 +74,17 @@ describe("hourlyRate an den alten Mitarbeiter-Routen", () => {
   it("PATCH ungültig → 400, nichts geschrieben", async () => {
     const res = await PATCH(patch({ hourlyRate: "abc" }), { params: Promise.resolve({ employeeId: "e1" }) });
     expect(res.status).toBe(400);
-    expect((await res.json()).error.message).toBe("hourlyRate ungültig");
+    expect((await res.json()).error.message).toBe("hourlyRate ungültig (1 bis 200 € je Stunde)");
     expect(mocks.updateEmployee).not.toHaveBeenCalled();
+  });
+
+  it("Review M7: 0 € und zu große Sätze → 400 an POST und PATCH", async () => {
+    for (const hourlyRate of [0, "0", "200,01", 30000000]) {
+      expect((await POST(post({ name: "Ada", hourlyRate }))).status).toBe(400);
+      expect((await PATCH(patch({ hourlyRate }), { params: Promise.resolve({ employeeId: "e1" }) })).status).toBe(400);
+    }
+    expect(mocks.createEmployee).not.toHaveBeenCalled();
+    expect(mocks.updateEmployee).not.toHaveBeenCalled();
+    expect((await POST(post({ name: "Ada", hourlyRate: "200" }))).status).toBe(201);
   });
 });

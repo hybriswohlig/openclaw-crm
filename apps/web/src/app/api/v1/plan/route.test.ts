@@ -30,6 +30,8 @@ const ANTWORT = {
   mitarbeiter: [],
   stufen: [],
   besichtigungFeld: null,
+  kapazitaet: [],
+  buchungen: [],
   stand: "2026-11-06T11:00:00.000Z",
 };
 
@@ -75,6 +77,22 @@ describe("GET /plan", () => {
     expect(data.kapazitaet).toHaveLength(tage.length);
     expect(data.kapazitaet.map((k: { tag: string }) => k.tag)).toEqual(tage);
     expect(data.kapazitaet[0]).toMatchObject({ tag: "2026-11-02", text: "1 frei", ton: "gold", freiZahl: 1 });
+  });
+
+  it("Review M2: API-Schlüssel sehen Abwesenheit ohne Art und keine Buchungen; Sitzung sieht alles", async () => {
+    const kap = [{ tag: "2026-11-02", frei: [], belegt: [], abwesend: [{ person: { id: "e1", name: "Ali", kuerzel: "AL" }, art: "krank" }], freiZahl: 0, ton: "rot", text: "0 frei" }];
+    const buchungen = [{ id: "b1", firmaId: "f", von: "2026-11-02", bis: "2026-11-03", text: "Sprinter L · 450 €", status: "geplant", zugeordnet: 0, geplant: 2, warnungen: [], dealIds: [], klasseName: "Sprinter L" }];
+    const imBlick = [{ key: "buchung:b1", art: "buchung", ton: "gold", fett: "Sprinter L", text: "x", tag: "2026-11-02" }];
+    mocks.ladePlan.mockResolvedValue({ ...ANTWORT, kapazitaet: kap, buchungen, imBlick });
+    const schluessel = (await (await GET(get("?von=2026-11-02&bis=2026-11-08"))).json()).data;
+    expect(JSON.stringify(schluessel)).not.toContain("krank");
+    expect(schluessel.kapazitaet[0].abwesend).toEqual([{ person: { id: "e1", name: "Ali", kuerzel: "AL" } }]);
+    expect(schluessel.buchungen).toEqual([]);
+    expect(schluessel.imBlick).toEqual([]);
+    mocks.getAuthContext.mockResolvedValue({ ...CTX, authMethod: "cookie" });
+    const mensch = (await (await GET(get("?von=2026-11-02&bis=2026-11-08"))).json()).data;
+    expect(mensch.kapazitaet[0].abwesend[0].art).toBe("krank");
+    expect(mensch.buchungen).toHaveLength(1);
   });
 
   it("Leads-Kalender: Leads-Filter ohne Monat", async () => {

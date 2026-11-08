@@ -22,7 +22,11 @@ vi.mock("@/db", async () => {
 });
 vi.mock("./plan", async (orig) => ({
   ...(await orig<typeof import("./plan")>()),
-  ladePlanEintraege: async () => ({ eintraege: h.eintraege, roh: {} }),
+  // Wie der echte Kalender: nur Einträge, die das Fenster schneiden.
+  ladePlanEintraege: async (_ws: string, a: { von: string; bis: string }) => {
+    const e = (h.eintraege as PlanEintrag[]).filter((x) => x.tag <= a.bis && x.bisTag >= a.von);
+    return { eintraege: e, alle: e, roh: {} };
+  },
 }));
 vi.mock("./einsatz-geo", () => ({ anfahrtenLaden: async () => [] }));
 
@@ -136,6 +140,27 @@ describe.skipIf(!url)("Team bestätigen (DB)", { timeout: 20_000 }, () => {
     const spy = vi.spyOn(db, "transaction").mockRejectedValueOnce(fehler);
     expect(await svc.einsatzBestaetigen(ws, dealA, { team: [wunsch(x)] }, "u1")).toEqual({ ok: false, code: "DOPPELTE_PERSON" });
     spy.mockRestore();
+  });
+
+  it("Review I1: Version sagt 01.12., der Plan steht am 08.01.: Schutz greift trotzdem", async () => {
+    const [d1, d2] = [randomUUID(), randomUUID()];
+    for (const d of [d1, d2]) await sql`insert into records (id, object_id) values (${d}, ${obj})`;
+    await sql`insert into deal_calculation_versions (id, workspace_id, deal_record_id, version, status, reference_date, rechner_request)
+      values (${randomUUID()}, ${ws}, ${d1}, 1, 'gesperrt', '2026-11-08', ${sql.json({ umzugsdatum: "2026-12-01" })})`;
+    await sql`insert into deal_employees (id, deal_record_id, employee_id, role) values (${randomUUID()}, ${d2}, ${y}, 'helper')`;
+    const vorher = h.eintraege;
+    h.eintraege = [...vorher, eintrag(d1, "Neu", "2027-01-08"), eintrag(d2, "Alt", "2027-01-08")];
+    try {
+      const jetzt = new Date("2026-11-10T10:00:00Z");
+      const ansicht = await svc.ladeEinsatz(ws, d1, { jetzt });
+      expect(ansicht.tage).toEqual(["2027-01-08"]);
+      expect(ansicht.personen.find((p) => p.id === y)?.lage).toBe("belegt");
+      const r = await svc.einsatzBestaetigen(ws, d1, { team: [wunsch(y)] }, "u1", { jetzt });
+      expect(r).toMatchObject({ ok: false, code: "DOPPELT_AM_TAG" });
+    } finally {
+      h.eintraege = vorher;
+      await sql`delete from deal_employees where deal_record_id in (${d1}, ${d2})`;
+    }
   });
 
   it("GET schreibt nichts", async () => {

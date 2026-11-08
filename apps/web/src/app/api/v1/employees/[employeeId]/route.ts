@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { getAuthContext, unauthorized, notFound, badRequest, success } from "@/lib/api-utils";
-import { centAusHourlyRate } from "@/lib/einsatz";
+import { centAusHourlyRate, SATZ_CENT_MAX, SATZ_CENT_MIN } from "@/lib/einsatz";
 import {
   getEmployee,
   updateEmployee,
@@ -37,8 +37,10 @@ export async function PATCH(
   const { employeeId } = await params;
   const body = await req.json();
   const rate = body && typeof body === "object" ? (body as { hourlyRate?: unknown }).hourlyRate : undefined;
-  if (rate !== undefined && centAusHourlyRate(rate as string | number | null) === null) {
-    return badRequest("hourlyRate ungültig");
+  if (rate !== undefined) {
+    const cent = centAusHourlyRate(rate as string | number | null);
+    // Review M7: 0 € und zu große Sätze (int-Überlauf) gibt es nicht.
+    if (cent === null || cent < SATZ_CENT_MIN || cent > SATZ_CENT_MAX) return badRequest("hourlyRate ungültig (1 bis 200 € je Stunde)");
   }
 
   try {

@@ -554,6 +554,23 @@ export interface PlanAntwort {
   stand: string;
 }
 
+/**
+ * Review M2: Was ein API-Schlüssel vom Plan sieht. Abwesenheit nur als
+ * „abwesend“ ohne Art (Urlaub, krank, gesperrt sind Personaldaten), keine
+ * Transporter-Buchungen (Miete, Anteile). Menschen mit Sitzung sehen alles.
+ */
+export function planFuerApiSchluessel(a: PlanAntwort): PlanAntwort {
+  return {
+    ...a,
+    kapazitaet: (a.kapazitaet ?? []).map((k) => ({
+      ...k,
+      abwesend: k.abwesend.map((x) => ({ person: x.person }) as (typeof k.abwesend)[number]),
+    })),
+    buchungen: [],
+    imBlick: (a.imBlick ?? []).filter((c) => c.art !== "buchung"),
+  };
+}
+
 /** Einträge eines Tages, Reihenfolge der Antwort; mehrtägige an jedem ihrer Tage. */
 export function eintraegeAm(eintraege: readonly PlanEintrag[], tag: string): PlanEintrag[] {
   return eintraege.filter((e) => e.tag <= tag && e.bisTag >= tag);

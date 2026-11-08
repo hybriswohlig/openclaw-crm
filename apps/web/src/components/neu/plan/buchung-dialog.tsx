@@ -28,7 +28,7 @@ import {
   type RechnerKlasse,
   type RechnerStation,
 } from "./buchung-api";
-import { kmVorschlag, mieteVorschlag } from "./buchung-logik";
+import { inklusivKmZumSpeichern, kmVorschlag, mieteVorschlag } from "./buchung-logik";
 
 const centAus = (t: string): number | null => {
   const s = t.trim().replace(/\./g, "").replace(",", ".");
@@ -156,7 +156,7 @@ export function BuchungDialog({
     klasseId: f.klasseId,
     klasseName: klasse?.name ?? (voll && voll !== "laedt" ? voll.klasseName : ""),
     mieteCent: centAus(f.miete) ?? Number.NaN,
-    inklusivKm: ganzAus(f.inklusivKm),
+    inklusivKm: inklusivKmZumSpeichern(ganzAus(f.inklusivKm), klasse, f.von, f.bis),
     mehrkmSatzCent: centAus(f.mehrkm),
     geplanteAuftraege: Number(f.geplant),
     notiz: f.notiz.trim() || null,
@@ -323,7 +323,7 @@ export function BuchungDialog({
             </label>
             <label className="ma-feld">
               <span>Kilometer inklusive</span>
-              <input type="text" inputMode="numeric" placeholder="leer = unbegrenzt" {...feld("inklusivKm", "kmVonHand")} />
+              <input type="text" inputMode="numeric" placeholder="leer = Kilometer der Klasse" {...feld("inklusivKm", "kmVonHand")} />
             </label>
             <label className="ma-feld">
               <span>Mehr-km je km in €</span>

@@ -400,39 +400,48 @@ export async function dealBuchung(ws: string, deal: string, ex: DbExecutor = db)
 }
 
 /**
- * Je Deal die höchste gesperrte Version, die diese Buchung nennt
- * (`vehicle_booking_id` oder ein Tag in `day_prices`). Anteil und Datum aus
- * der gespeicherten Rechner-Anfrage; ohne beides entfällt der Deal.
+ * Review M5: je Deal nur die neueste gesperrte Version (die gilt beim Kunden).
+ * Nennt sie die Buchung (`vehicle_booking_id` oder ein Tag in `day_prices`),
+ * zählt ihr Anteil aus der gespeicherten Anfrage; Datum = Umzugsdatum, wenn
+ * die Buchung am Hauptdatum gilt, sonst der erste Tag mit dieser Buchung.
+ * Eine neuere gesperrte Version ohne Buchung beendet die Warnung.
  */
 export async function eingefroreneAnteile(ws: string, buchungId: string): Promise<EingefrorenerAnteil[]> {
   const res = await db.execute(sql`
-    SELECT DISTINCT ON (v.deal_record_id)
-      v.deal_record_id AS deal_id,
-      v.rechner_request->>'buchung' AS buchung,
-      v.rechner_request->>'umzugsdatum' AS datum,
-      COALESCE(NULLIF(btrim((
-        SELECT rv.text_value FROM record_values rv
-        INNER JOIN attributes a ON a.id = rv.attribute_id AND a.object_id = r.object_id AND a.slug = 'name'
-        WHERE rv.record_id = r.id
-        ORDER BY rv.sort_order, rv.id
-        LIMIT 1
-      )), ''), 'Ohne Namen') AS titel
-    FROM deal_calculation_versions v
-    INNER JOIN records r ON r.id = v.deal_record_id
-    INNER JOIN objects o ON o.id = r.object_id AND o.workspace_id = ${ws} AND o.slug = 'deals'
-    WHERE v.workspace_id = ${ws}
-      AND v.status = 'gesperrt'
-      AND (
-        v.vehicle_booking_id = ${buchungId}
-        OR v.day_prices @> ${JSON.stringify([{ vehicleBookingId: buchungId }])}::jsonb
-      )
-    ORDER BY v.deal_record_id, v.version DESC
+    SELECT * FROM (
+      SELECT DISTINCT ON (v.deal_record_id)
+        v.deal_record_id AS deal_id,
+        v.vehicle_booking_id AS haupt,
+        v.day_prices AS tage,
+        v.rechner_request->>'buchung' AS buchung,
+        v.rechner_request->>'umzugsdatum' AS datum,
+        COALESCE(NULLIF(btrim((
+          SELECT rv.text_value FROM record_values rv
+          INNER JOIN attributes a ON a.id = rv.attribute_id AND a.object_id = r.object_id AND a.slug = 'name'
+          WHERE rv.record_id = r.id
+          ORDER BY rv.sort_order, rv.id
+          LIMIT 1
+        )), ''), 'Ohne Namen') AS titel
+      FROM deal_calculation_versions v
+      INNER JOIN records r ON r.id = v.deal_record_id
+      INNER JOIN objects o ON o.id = r.object_id AND o.workspace_id = ${ws} AND o.slug = 'deals'
+      WHERE v.workspace_id = ${ws} AND v.status = 'gesperrt'
+      ORDER BY v.deal_record_id, v.version DESC
+    ) neueste
+    WHERE neueste.haupt = ${buchungId}
+       OR neueste.tage @> ${JSON.stringify([{ vehicleBookingId: buchungId }])}::jsonb
   `);
   const aus: EingefrorenerAnteil[] = [];
-  for (const z of zeilen<{ deal_id: string; buchung: string | null; datum: string | null; titel: string | null }>(res)) {
+  for (const z of zeilen<{ deal_id: string; haupt: string | null; tage: unknown; buchung: string | null; datum: string | null; titel: string | null }>(res)) {
     const anteil = anteilAusRechnerFeld(z.buchung);
-    const datum = typeof z.datum === "string" ? z.datum.trim() : "";
-    if (!anteil || datum === "") continue;
+    if (!anteil) continue;
+    const tage = alsJson(z.tage);
+    const tagMitBuchung = Array.isArray(tage)
+      ? (tage as Array<{ vehicleBookingId?: unknown; datum?: unknown }>).find((t) => t?.vehicleBookingId === buchungId && typeof t.datum === "string")?.datum
+      : undefined;
+    const umzug = typeof z.datum === "string" ? z.datum.trim() : "";
+    const datum = z.haupt === buchungId && umzug !== "" ? umzug : typeof tagMitBuchung === "string" ? tagMitBuchung : umzug;
+    if (datum === "") continue;
     aus.push({ dealId: z.deal_id, titel: z.titel?.trim() || "Ohne Namen", datum, anteil });
   }
   return aus;

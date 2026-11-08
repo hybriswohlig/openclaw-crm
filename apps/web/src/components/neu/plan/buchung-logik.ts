@@ -83,3 +83,17 @@ export function kmVorschlag(klasse: { inklusivKmProTag: number | null } | null, 
   if (!klasse || klasse.inklusivKmProTag === null || bis < von) return null;
   return klasse.inklusivKmProTag * tageZwischen(von, bis, 31).length;
 }
+
+/**
+ * Review M4: Leere inklusive Kilometer bedeuten im Rechner „Kilometer der
+ * Klasse“. Beim Speichern trägt das CRM diesen Wert ein (Klasse × Tage), damit
+ * Leiste und Rest-km ihn zeigen; ohne Klassenwert bleibt das Feld leer.
+ */
+export function inklusivKmZumSpeichern(
+  eingabe: number | null,
+  klasse: { inklusivKmProTag: number | null } | null,
+  von: string,
+  bis: string,
+): number | null {
+  return eingabe ?? kmVorschlag(klasse, von, bis);
+}
