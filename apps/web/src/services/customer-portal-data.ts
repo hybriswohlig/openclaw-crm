@@ -604,7 +604,8 @@ export async function loadContextByToken(
     // Umzugs-Standards (Decken, Kartons …) gehören nicht zu Küche oder Entrümpelung.
     inclusions: leistungsWorte(leistung, branding.firmaSlug).standardleistungen ? inclusions : { included: [], optional: [] },
     fruehereAnnahmeAufgehoben,
-    bewertungHaken,
+    // Nur gesetzt, wenn der Haken erscheint: ohne Schalter bleibt der Kontext wie vor Plan 11.
+    ...(bewertungHaken ? { bewertungHaken } : {}),
     widerruf,
     documents: {
       quotationUrl: quotationDocShown ? `/api/public/${token}/documents/${quotationDocShown.id}` : null,

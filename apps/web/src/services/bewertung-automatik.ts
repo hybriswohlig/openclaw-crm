@@ -372,9 +372,12 @@ export async function bewertungAutomatikLauf(
           speicher
         );
       }
-      // bewertungAnfragen schließt die offene Vormerkung schon; hier nur zur Sicherheit diese eine.
-      await speicher.vormerkungAbschliessen(v.workspace_id, v.deal_record_id, { status: "gesendet", nurId: v.id });
       erg.gesendet += 1;
+      // bewertungAnfragen schließt die offene Vormerkung schon; hier nur zur Sicherheit diese eine.
+      // Ein Fehler hier ändert nichts mehr: der Token sperrt jeden weiteren Versand.
+      await speicher
+        .vormerkungAbschliessen(v.workspace_id, v.deal_record_id, { status: "gesendet", nurId: v.id })
+        .catch((err) => console.error("[bewertung-automatik] Vormerkung nach dem Senden nicht geschlossen:", v.id, err));
     } catch (err) {
       if (err instanceof BewertungFehler) {
         if (err.code === "RUHEZEIT") {
