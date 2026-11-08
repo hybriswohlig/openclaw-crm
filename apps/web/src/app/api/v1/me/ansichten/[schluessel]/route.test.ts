@@ -216,3 +216,44 @@ describe("PUT /api/v1/me/ansichten/[schluessel]", () => {
     });
   });
 });
+
+describe("PUT /api/v1/me/ansichten/darstellung (Plan 13)", () => {
+  it.each(["hell", "dunkel", "system"])("speichert %s", async (wert) => {
+    const res = await put("darstellung", wert);
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.data).toBe(wert);
+    expect(mocks.setAnsicht).toHaveBeenCalledWith("usr_jonas", "darstellung", wert);
+  });
+
+  it.each([["Hell"], ["nacht"], [1], [{ modus: "hell" }], [null]])("antwortet 400 bei %j und schreibt nichts", async (wert) => {
+    const res = await put("darstellung", wert);
+
+    expect(res.status).toBe(400);
+    expect(mocks.setAnsicht).not.toHaveBeenCalled();
+  });
+
+  it("antwortet 403 für einen Nur-Lesen-Schlüssel und schreibt nichts", async () => {
+    mocks.getAuthContext.mockResolvedValue({ ...NUTZER, authMethod: "api_key", apiKeyAccess: "read" });
+
+    const res = await put("darstellung", "dunkel");
+
+    expect(res.status).toBe(403);
+    expect(mocks.setAnsicht).not.toHaveBeenCalled();
+  });
+
+  it("lässt andere Ansichten unverändert", async () => {
+    await put("plan", { modus: "tag" });
+    await put("darstellung", "dunkel");
+
+    const gelesen = await leseEinstellungen(new NextRequest("https://crm.test/api/v1/me/settings"));
+    const einstellungen = await gelesen.json();
+
+    expect(einstellungen.data.ansichten).toEqual({
+      inbox: { filter: "offen" },
+      plan: { modus: "tag" },
+      darstellung: "dunkel",
+    });
+  });
+});

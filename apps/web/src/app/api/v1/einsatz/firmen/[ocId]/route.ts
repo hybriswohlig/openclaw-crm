@@ -1,12 +1,13 @@
 /**
  * Schalter `buchung_im_preis` je Betriebsfirma (Plan 12b).
  * GET liest, PUT setzt (legt die Zeile an, überschreibt nur diesen Schalter).
+ * PUT nur für Admins (Plan 13: Firmen-Einstellungen wie `company-settings`).
  */
 import { and, eq } from "drizzle-orm";
 import type { NextRequest } from "next/server";
 import { db } from "@/db";
 import { companySettings } from "@/db/schema/company-settings";
-import { badRequest, notFound, success } from "@/lib/api-utils";
+import { badRequest, notFound, requireAdmin, success } from "@/lib/api-utils";
 import { einsatzVorlauf } from "@/lib/einsatz-route";
 import { operatingCompanyInWorkspace } from "@/services/customer-portal-config";
 
@@ -28,6 +29,8 @@ export async function GET(req: NextRequest, { params }: Params) {
 export async function PUT(req: NextRequest, { params }: Params) {
   const vor = await einsatzVorlauf(req);
   if (vor.antwort) return vor.antwort;
+  const denied = requireAdmin(vor.ctx);
+  if (denied) return denied;
   let body: unknown;
   try {
     body = await req.json();

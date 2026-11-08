@@ -57,4 +57,10 @@ describe("GET/PUT /api/v1/einsatz/firmen/[ocId]", () => {
     expect((await PUT(anfrage("PUT", "kein json"), p)).status).toBe(400);
     expect(mocks.operatingCompanyInWorkspace).not.toHaveBeenCalled();
   });
+
+  it("PUT als Member → 403, GET bleibt erlaubt", async () => {
+    mocks.getAuthContext.mockResolvedValue({ ...CTX, workspaceRole: "member" });
+    expect((await PUT(anfrage("PUT", { buchungImPreis: true }), p)).status).toBe(403);
+    expect(mocks.operatingCompanyInWorkspace).not.toHaveBeenCalled();
+  });
 });

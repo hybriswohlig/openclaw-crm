@@ -8,6 +8,7 @@ import {
   success,
   unauthorized,
 } from "@/lib/api-utils";
+import { DARSTELLUNG_SCHLUESSEL, darstellungPruefen } from "@/lib/einstellungen-uebersicht";
 import { LEADS_ANSICHT_SCHLUESSEL, leadsAnsichtPruefen } from "@/lib/leads-board";
 import { PLAN_ANSICHT_SCHLUESSEL, planAnsichtPruefen } from "@/lib/plan-heute";
 import { setAnsicht } from "@/services/user-settings";
@@ -18,6 +19,8 @@ const ANSICHT_MAX_BYTES = 4 * 1024;
 const ANSICHT_PRUEFER = new Map<string, (roh: unknown) => unknown | null>([
   [LEADS_ANSICHT_SCHLUESSEL, leadsAnsichtPruefen],
   [PLAN_ANSICHT_SCHLUESSEL, planAnsichtPruefen],
+  // Plan 13: Hell, Dunkel, Wie das Gerät. Wirksam wird der Wert mit Plan 14.
+  [DARSTELLUNG_SCHLUESSEL, darstellungPruefen],
 ]);
 
 /** Speichert eine geprüfte Ansicht unter ihrem Schlüssel. Andere Schlüssel bleiben. */
