@@ -13,7 +13,7 @@ vi.mock("@/db", async () => {
   const pg = (await import("postgres")).default;
   const schema = await import("@/db/schema");
   const client = pg(process.env.LEAD_ANLEGEN_TEST_DATABASE_URL ?? "postgres://ungenutzt@127.0.0.1:1/x", { max: 5 });
-  return { db: drizzle(client, { schema }) };
+  return { db: drizzle(client, { schema }), testClient: client };
 });
 
 describe.skipIf(!url)("neuenLeadAnlegen", { timeout: 20_000 }, () => {
@@ -78,6 +78,9 @@ describe.skipIf(!url)("neuenLeadAnlegen", { timeout: 20_000 }, () => {
   afterAll(async () => {
     await sql`delete from workspaces where id in (${ws}, ${wsFremd})`;
     await sql.end();
+    // Den Pool des gemockten `@/db` schließen, sonst bleiben seine Verbindungen offen.
+    const gemockt = (await import("@/db")) as unknown as { testClient: postgres.Sql };
+    await gemockt.testClient.end();
   });
 
   it("Firma aus einem anderen Workspace wird abgelehnt", async () => {
