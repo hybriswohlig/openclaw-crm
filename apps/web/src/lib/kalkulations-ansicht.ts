@@ -444,6 +444,7 @@ const GRUNDLAGE_LABEL: Record<GrundlageKey, string> = {
   kartons: "Kartons",
   team: "Team",
   termin: "Termin",
+  anfahrt_team: "Anfahrt Team",
 };
 
 /** Anzeigewert eines Grundlage-Feldes („2. OG“, „kein Aufzug“, „25 m“, „ja“). */
@@ -480,6 +481,10 @@ function grundlageWertText(key: GrundlageKey, wert: unknown): string {
     }
     case "termin":
       return typeof wert === "string" && /^\d{4}-\d{2}-\d{2}$/.test(wert) ? tagKurz(wert) : String(wert);
+    case "anfahrt_team": {
+      const n = zahl(wert);
+      return n === null ? String(wert) : euroText(cent(n));
+    }
   }
 }
 
@@ -661,6 +666,20 @@ function grundlageAnsicht(v: VersionsZeile, rest: AnsichtRest): GrundlageAnsicht
       felder: [feld("termin", "Termin", "datum", k)],
     },
   ];
+  // Plan 12a (E7): „Anfahrt Team“ steht nur da, wenn sie aus dem Einsatz übernommen wurde.
+  const anfahrtHerkunft = k.herkunft("anfahrt_team").art;
+  if (anfahrtHerkunft === "MANUELL" || anfahrtHerkunft === "BOT") {
+    const anfahrt = k.wert("anfahrt_team");
+    zeilen.push({
+      key: "anfahrt_team",
+      label: "Anfahrt Team",
+      wert: grundlageWertText("anfahrt_team", anfahrt),
+      herkunft: [k.herkunft("anfahrt_team")],
+      warum: "aus dem Einsatz übernommen, eigene PKW",
+      bearbeitet: k.bearbeitet(["anfahrt_team"]),
+      felder: [feld("anfahrt_team", "Anfahrt Team in €", "zahl", k)],
+    });
+  }
 
   const zeit = (d: Date | string) => (typeof d === "string" ? new Date(d) : d).getTime();
   const bilder = rest.fotos

@@ -170,6 +170,21 @@ describe("ansichtAus: Grundlage", () => {
     });
   });
 
+  it("Plan 12a: Anfahrt Team erscheint nur, wenn sie übersteuert ist", () => {
+    expect(a.grundlage.zeilen.find((x) => x.key === "anfahrt_team")).toBeUndefined();
+    const mit = ansichtAus(
+      weberVersion({
+        overrides: [
+          ...weberUebersteuerungen(),
+          { id: "u_an", art: "eingabe", key: "anfahrt_team", rechnerwert: null, wert: 38.4, grund: "aus dem Einsatz",
+            autor: { userId: DARIO, quelle: "mensch" }, zeit: "2026-11-05T14:30:00.000Z", fotoRef: null },
+        ],
+      }),
+      rest()
+    );
+    expect(zeile(mit, "anfahrt_team")).toMatchObject({ label: "Anfahrt Team", wert: "38,40 €", herkunft: [{ art: "MANUELL" }] });
+  });
+
   it("Fotos: nur Bilder, neueste zuerst, Treffer aus dem Inventar", () => {
     expect(a.grundlage.fotosGesamt).toBe(3);
     expect(a.grundlage.fotos).toEqual([

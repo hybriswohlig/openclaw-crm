@@ -258,3 +258,57 @@ async function fetchDepotBatch(
     return { depotId: d.id, meters, seconds, status: "OK" };
   });
 }
+
+// ─── Matrix Wohnorte → Kundenadressen (Plan 12a, Entscheidung 11) ───────────
+
+export type MatrixZelle = { meter: number; sekunden: number } | null;
+
+/**
+ * Eine Distance-Matrix je höchstens 25 Ursprünge: `orte` als Text
+ * („70176 Stuttgart, Deutschland“, nie mit Namen), `ziele` Kundenadressen.
+ * `abfahrt` (Unix-Sekunden) holt Verkehrsminuten (`duration_in_traffic`),
+ * ohne Abfahrt nur die normale Fahrzeit. Ergebnis `[ort][ziel]`, null für
+ * nicht routbare Paare. Wirft DriveTimeConfigError ohne Schlüssel und
+ * DriveTimeAPIError bei HTTP- oder Statusfehler.
+ */
+export async function matrixVonOrten(
+  orte: string[],
+  ziele: string[],
+  abfahrt: number | null,
+  abruf: (url: string) => Promise<Response> = (u) => fetch(u, { headers: { "User-Agent": "openclaw-crm/einsatz" } }),
+): Promise<MatrixZelle[][]> {
+  const apiKey = process.env.GOOGLE_MAPS_API_KEY;
+  if (!apiKey) throw new DriveTimeConfigError("GOOGLE_MAPS_API_KEY is not configured.");
+  if (orte.length === 0 || ziele.length === 0) return orte.map(() => ziele.map(() => null));
+  const teile: string[][] = [];
+  for (let i = 0; i < orte.length; i += DISTANCE_MATRIX_MAX_ORIGINS) teile.push(orte.slice(i, i + DISTANCE_MATRIX_MAX_ORIGINS));
+  const ergebnisse = await Promise.all(
+    teile.map(async (teil) => {
+      const url = new URL("https://maps.googleapis.com/maps/api/distancematrix/json");
+      url.searchParams.set("origins", teil.join("|"));
+      url.searchParams.set("destinations", ziele.join("|"));
+      url.searchParams.set("mode", "driving");
+      if (abfahrt !== null) {
+        url.searchParams.set("departure_time", String(Math.round(abfahrt)));
+        url.searchParams.set("traffic_model", "best_guess");
+      }
+      url.searchParams.set("language", "de");
+      url.searchParams.set("region", "de");
+      url.searchParams.set("key", apiKey);
+      const resp = await abruf(url.toString());
+      if (!resp.ok) throw new DriveTimeAPIError(`Distance Matrix HTTP ${resp.status}`);
+      const data = (await resp.json()) as GoogleResponse;
+      if (data.status !== "OK") throw new DriveTimeAPIError(`Distance Matrix status ${data.status}`);
+      return teil.map((_, i) =>
+        ziele.map((__, j): MatrixZelle => {
+          const el = data.rows[i]?.elements[j];
+          const meter = el?.distance?.value;
+          const sekunden = el?.duration_in_traffic?.value ?? el?.duration?.value;
+          if (!el || el.status !== "OK" || typeof meter !== "number" || typeof sekunden !== "number") return null;
+          return { meter, sekunden };
+        }),
+      );
+    }),
+  );
+  return ergebnisse.flat();
+}

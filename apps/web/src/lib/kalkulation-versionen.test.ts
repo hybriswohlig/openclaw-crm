@@ -6,6 +6,7 @@ import {
   grundlageAus,
   kostenzeilenAus,
   pruefeUebersteuerung,
+  GRUNDLAGE_FELDER,
   rechnerwertFuer,
   UebersteuerungFehler,
   wirksameUebersteuerungen,
@@ -294,7 +295,16 @@ describe("grundlageAus", () => {
       "kartons",
       "team",
       "termin",
+      "anfahrt_team",
     ]);
+  });
+
+  it("Plan 12a: Anfahrt Team nur als Übersteuerung, 0 bis 1.000 Euro, geht als anfahrtsgeld_team an den Rechner", () => {
+    expect(grundlageAus(lead(), null, []).find((z) => z.key === "anfahrt_team")).toMatchObject({ wert: null, herkunft: "STANDARD" });
+    expect(pruefeUebersteuerung({ art: "eingabe", key: "anfahrt_team", wert: "38,40", grund: "Einsatz" }).wert).toBe(38.4);
+    expect(() => pruefeUebersteuerung({ art: "eingabe", key: "anfahrt_team", wert: 1000.01, grund: "x" })).toThrow(/1.000 Euro/);
+    expect(() => pruefeUebersteuerung({ art: "eingabe", key: "anfahrt_team", wert: -1, grund: "x" })).toThrow();
+    expect(GRUNDLAGE_FELDER.anfahrt_team).toBe("anfahrtsgeld_team");
   });
 });
 

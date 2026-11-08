@@ -40,6 +40,8 @@ export const GRUNDLAGE_FELDER = {
   kartons: "einpack_kartons",
   team: "teamgroesse",
   termin: "umzugsdatum",
+  /** Plan 12a (E7): „Anfahrt Team“ aus dem Einsatz, nur als Übersteuerung mit Grund, Euro. */
+  anfahrt_team: "anfahrtsgeld_team",
 } as const;
 
 export type GrundlageKey = keyof typeof GRUNDLAGE_FELDER;
@@ -192,6 +194,11 @@ function pruefeEingabe(key: GrundlageKey, wert: unknown): number | string | bool
       const s = typeof wert === "string" ? wert.trim() : wert;
       if (!istDatum(s)) throw new UebersteuerungFehler("Termin muss ein Datum JJJJ-MM-TT sein");
       return s;
+    }
+    case "anfahrt_team": {
+      const n = zahl(wert);
+      if (n === null || n < 0 || n > 1000) throw new UebersteuerungFehler("Anfahrt Team muss zwischen 0 und 1.000 Euro liegen");
+      return Math.round(n * 100) / 100;
     }
   }
 }
@@ -454,6 +461,7 @@ export function grundlageAus(lead: LeadDaten, ergebnis: RechnerErgebnis | null, 
     kartons: ausLead(lead.packService && lead.kartons ? lead.kartons : null),
     team: { wert: team, herkunft: team === null ? "STANDARD" : "REGEL" },
     termin: ausLead(lead.umzugsdatum),
+    anfahrt_team: { wert: null, herkunft: "STANDARD" },
   };
 
   return GRUNDLAGE_KEYS.map((key) => {
