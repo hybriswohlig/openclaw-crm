@@ -39,11 +39,13 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   }
 
   const ziel = weiterZielAus(req.nextUrl.searchParams);
-  let version: UiVersion = "alt";
+  // Lesefehler: Ziel alt, aber kein Cookie, sonst bliebe ein kurzer DB-Fehler ein Jahr
+  // lang als „alt“ stehen (wie /start).
+  let version: UiVersion | null = null;
   try {
     version = (await getUserSettings(ctx.userId)).uiVersion;
   } catch {
-    version = "alt";
+    version = null;
   }
 
   const pfad =

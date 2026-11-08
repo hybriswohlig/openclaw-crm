@@ -69,6 +69,15 @@ export function altesZiel(z: WeiterZiel): string {
   return "/inbox";
 }
 
+/** Kaputte Prozent-Kodierung (`%E0%A4`) ergibt null statt einer Ausnahme. */
+function sicherDekodiert(teil: string): string | null {
+  try {
+    return decodeURIComponent(teil);
+  } catch {
+    return null;
+  }
+}
+
 /** Hängt `alt=1` an einen Pfad der alten Oberfläche (idempotent). */
 export function mitAlt(url: string): string {
   const [pfad, abfrage = ""] = url.split("?", 2);
@@ -94,7 +103,7 @@ export function altUmleitung(
   const deal = /^\/objects\/deals\/([^/]+)\/?$/.exec(pathname);
   if (deal) {
     if ([...params.keys()].length > 0) return null;
-    const id = decodeURIComponent(deal[1]);
+    const id = sicherDekodiert(deal[1]);
     return istId(id) ? weiterLink({ art: "deal", id }) : null;
   }
   if (pathname === "/inbox" || pathname === "/inbox/") {
@@ -109,7 +118,7 @@ export function altUmleitung(
 export function akteLinkAusHref(href: string): string {
   const deal = /^\/objects\/deals\/([^/?#]+)$/.exec(href);
   if (!deal) return href;
-  const id = decodeURIComponent(deal[1]);
+  const id = sicherDekodiert(deal[1]);
   return istId(id) ? weiterLink({ art: "deal", id }) : href;
 }
 

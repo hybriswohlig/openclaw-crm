@@ -294,7 +294,13 @@ export async function neuenLeadAnlegen(
     });
 
     if (angelegt.art === "rueckfrage") return { ok: false, code: "RUECKFRAGE", treffer: angelegt.treffer };
-    await assignDealNumber(workspaceId, angelegt.dealId);
+    try {
+      await assignDealNumber(workspaceId, angelegt.dealId);
+    } catch (err) {
+      // Person und Deal stehen schon. Ein 500 würde zum erneuten Absenden und damit zu
+      // einem zweiten Deal verleiten; die Nummer lässt sich nachziehen.
+      console.error("[neuer-lead] Dealnummer fehlt", angelegt.dealId, err instanceof Error ? err.message : "fehler");
+    }
     return { ok: true, dealRecordId: angelegt.dealId, personRecordId: angelegt.personId };
   } catch (err) {
     if (err instanceof NummerBelegt && e164) {

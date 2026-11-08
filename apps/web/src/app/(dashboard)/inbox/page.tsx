@@ -80,6 +80,7 @@ import {
   type ChannelAccount,
   type ChannelType,
 } from "@/components/inbox/compose-whatsapp-modal";
+import { mitAlt } from "@/lib/handy-links";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -2019,11 +2020,15 @@ export default function InboxPage() {
   // landet. replace statt push: kein History-Eintrag pro Auswahl. merged=1
   // steht für die Gesamtansicht der Person.
   const lastSyncedUrlRef = useRef<string | null>(null);
+  // Kam die Seite mit alt=1 (bewusst alt aus der neuen Oberfläche, Plan 10), bleibt
+  // das in der URL, damit ein Neuladen nicht in die neue Inbox umleitet.
+  const altBehaltenRef = useRef(searchParams.get("alt") === "1");
   useEffect(() => {
     if (!restoreDoneRef.current) return; // erst nach dem einmaligen Restore
-    const url = selected
+    const basis = selected
       ? `/inbox?conv=${selected.id}${merged ? `&merged=1&moc=${encodeURIComponent(mergedOc)}` : ""}`
       : "/inbox";
+    const url = altBehaltenRef.current ? mitAlt(basis) : basis;
     // Poll-Reconcile tauscht das selected-Objekt aus, ohne dass sich die URL
     // ändert — identische Replaces überspringen.
     if (lastSyncedUrlRef.current === url) return;

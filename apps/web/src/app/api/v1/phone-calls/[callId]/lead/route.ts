@@ -25,6 +25,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ cal
   if (raw.dealId != null && typeof raw.dealId !== "string") return badRequest("Lead muss eine Kennung sein");
   if (raw.neuerLead != null && typeof raw.neuerLead !== "boolean") return badRequest("Neuer Lead muss ja oder nein sein");
   if (raw.personId != null && typeof raw.personId !== "string") return badRequest("Person muss eine Kennung sein");
+  // Die Wahl unter mehreren Kunden trifft nur ein Mensch in der Oberfläche (Plan 10).
+  if (raw.personId != null && ctx.authMethod !== "cookie") {
+    return forbidden("Den Kunden wählt nur ein Mensch in der Oberfläche.");
+  }
 
   const koerper: AnrufLeadKoerper = {};
   if (typeof raw.name === "string") koerper.name = raw.name;

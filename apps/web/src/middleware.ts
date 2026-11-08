@@ -193,7 +193,12 @@ export function middleware(req: NextRequest) {
 
   // Zwei alte Handy-Ziele zur Weiche, nur bei Spiegel-Cookie neu. /api/ passt
   // auf keines der Muster; die Regel sieht diese Pfade gar nicht.
-  if (!pathname.startsWith("/api/") && process.env.ALT_UMLEITUNG !== "aus") {
+  // Nur echte Seitenaufrufe (Push, Lesezeichen, getippter Link). Client-Navigationen
+  // und RSC-Abrufe der alten Oberfläche (etwa router.replace("/inbox?conv=…")) tragen
+  // sec-fetch-mode "cors" und bleiben alt. Ohne den Kopf (alte Browser) wie bisher.
+  const fetchModus = req.headers.get("sec-fetch-mode");
+  const seitenaufruf = fetchModus === null || fetchModus === "navigate";
+  if (seitenaufruf && !pathname.startsWith("/api/") && process.env.ALT_UMLEITUNG !== "aus") {
     const ziel = altUmleitung(pathname, req.nextUrl.searchParams, req.cookies.get(UI_COOKIE)?.value);
     if (ziel) return NextResponse.redirect(new URL(ziel, req.url), 307);
   }

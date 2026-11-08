@@ -137,13 +137,14 @@ describe("GET /weiter", () => {
     expect(mocks.limit).not.toHaveBeenCalled();
   });
 
-  it("ein Fehler beim Lesen der Einstellungen gilt als alt", async () => {
+  it("ein Fehler beim Lesen der Einstellungen gilt als alt und setzt kein Cookie (Review M2)", async () => {
     mocks.getUserSettings.mockRejectedValue(new Error("db weg"));
 
     const res = await GET(anfrage("?conv=c1"));
 
     expect(ziel(res).pathname + ziel(res).search).toBe("/inbox?conv=c1&alt=1");
-    expect(cookie(res)).toBe("alt");
+    expect(cookie(res)).toBeNull();
+    expect(res.headers.get("cache-control")).toBe("no-store");
     expect(mocks.limit).not.toHaveBeenCalled();
   });
 

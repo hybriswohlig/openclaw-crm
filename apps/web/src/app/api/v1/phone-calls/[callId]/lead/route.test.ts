@@ -54,6 +54,17 @@ describe("POST /phone-calls/[callId]/lead", () => {
     });
   });
 
+  it("personId mit API-Schlüssel 403, ohne personId bleibt der Schlüssel erlaubt (Review I1)", async () => {
+    mocks.getAuthContext.mockResolvedValue({ ...CTX, authMethod: "api_key", apiKeyAccess: "write" });
+    const verboten = await POST(post({ personId: "person_1" }), { params });
+    expect(verboten.status).toBe(403);
+    expect(mocks.leadAusAnruf).not.toHaveBeenCalled();
+
+    const erlaubt = await POST(post({ name: "Ada Lovelace" }), { params });
+    expect(erlaubt.status).toBe(200);
+    expect(mocks.leadAusAnruf).toHaveBeenCalledWith(expect.objectContaining({ personId: null }));
+  });
+
   it("personId muss Text sein", async () => {
     const res = await POST(post({ personId: 12 }), { params });
     expect(res.status).toBe(400);

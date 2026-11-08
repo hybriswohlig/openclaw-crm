@@ -6,9 +6,10 @@ const anfrage = (url: string, host: string) => new NextRequest(url, { headers: {
 
 const SITZUNG = "better-auth.session_token=sitzung";
 
-function crm(pfad: string, cookie: string | null, host = "darioushkottke.online") {
+function crm(pfad: string, cookie: string | null, host = "darioushkottke.online", modus?: string) {
   const headers = new Headers({ host });
   if (cookie) headers.set("cookie", cookie);
+  if (modus) headers.set("sec-fetch-mode", modus);
   return new NextRequest(`https://${host}${pfad}`, { headers });
 }
 
@@ -70,6 +71,24 @@ describe("middleware: alte Handy-Links", () => {
     const gespraech = middleware(crm("/inbox?conv=c", neu));
     expect(gespraech.status).toBe(307);
     expect(weiter(gespraech)).toBe("/weiter?conv=c");
+  });
+
+  it("leitet echte Seitenaufrufe um, Client-Navigation und RSC-Abrufe nicht (Review C1)", () => {
+    const seite = middleware(crm("/inbox?conv=c", neu, undefined, "navigate"));
+    expect(weiter(seite)).toBe("/weiter?conv=c");
+    // router.replace("/inbox?conv=…") der alten Inbox: fetch mit sec-fetch-mode cors.
+    for (const modus of ["cors", "same-origin", "no-cors"]) {
+      const res = middleware(crm("/inbox?conv=c", neu, undefined, modus));
+      expect(res.headers.get("location")).toBeNull();
+      expect(res.headers.get("x-middleware-next")).toBe("1");
+      expect(weiter(middleware(crm("/objects/deals/d1", neu, undefined, modus)))).toBeNull();
+    }
+  });
+
+  it("kaputte Prozent-Kodierung reicht durch statt 500 (Review M1)", () => {
+    const res = middleware(crm("/objects/deals/%E0%A4", neu));
+    expect(res.headers.get("location")).toBeNull();
+    expect(res.headers.get("x-middleware-next")).toBe("1");
   });
 
   it("lässt Abfragen, Listen, altes Cookie und fehlendes Cookie stehen", () => {

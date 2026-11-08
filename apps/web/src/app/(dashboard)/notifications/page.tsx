@@ -133,7 +133,8 @@ export default function NotificationsPage() {
               {/* Actions */}
               <div className="flex items-center gap-1 shrink-0">
                 {notif.url && (
-                  <Link href={notif.url}>
+                  // Die Weiche (/weiter) liest bei jedem Aufruf die Datenbank: kein Vorabladen.
+                  <Link href={notif.url} prefetch={notif.url.startsWith("/weiter") ? false : undefined}>
                     <Button variant="ghost" size="icon" className="h-7 w-7">
                       <ExternalLink className="h-3.5 w-3.5" />
                     </Button>

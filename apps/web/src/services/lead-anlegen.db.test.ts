@@ -16,6 +16,18 @@ vi.mock("@/db", async () => {
   return { db: drizzle(client, { schema }), testClient: client };
 });
 
+const nummer = vi.hoisted(() => ({ fehler: false }));
+vi.mock("@/services/financial", async (orig) => {
+  const echt = await orig<typeof import("@/services/financial")>();
+  return {
+    ...echt,
+    assignDealNumber: async (ws: string, deal: string) => {
+      if (nummer.fehler) throw new Error("nummernkreis weg");
+      return echt.assignDealNumber(ws, deal);
+    },
+  };
+});
+
 describe.skipIf(!url)("neuenLeadAnlegen", { timeout: 20_000 }, () => {
   let sql: postgres.Sql;
   let anlegen: typeof import("./lead-anlegen").neuenLeadAnlegen;
@@ -159,5 +171,21 @@ describe.skipIf(!url)("neuenLeadAnlegen", { timeout: 20_000 }, () => {
     expect(ohneWahl.treffer.map((t) => t.id).sort()).toEqual(
       [neu.personRecordId, (await sql`select person_record_id from person_identifiers limit 1`)[0].person_record_id].sort()
     );
+  });
+
+  it("scheitert die Dealnummer nach dem Commit, gilt der Lead trotzdem als angelegt (Review M5)", async () => {
+    nummer.fehler = true;
+    const fehler = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const r = await anlegen(ws, { ...eingabe, telefon: null, email: "ohne-nummer@example.com", personWahl: null }, null);
+      expect(r.ok).toBe(true);
+      if (!r.ok) return;
+      expect((await sql`select id from records where id = ${r.dealRecordId}`)).toHaveLength(1);
+      expect((await sql`select id from deal_numbers where deal_record_id = ${r.dealRecordId}`)).toHaveLength(0);
+      expect(fehler).toHaveBeenCalledWith("[neuer-lead] Dealnummer fehlt", r.dealRecordId, "nummernkreis weg");
+    } finally {
+      nummer.fehler = false;
+      fehler.mockRestore();
+    }
   });
 });

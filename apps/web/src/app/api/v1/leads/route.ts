@@ -11,6 +11,8 @@ export async function POST(req: NextRequest) {
   const ctx = await getAuthContext(req);
   if (!ctx) return unauthorized(req);
   if (isReadOnlyApiKey(ctx)) return forbidden("Nur-lesen-Schlüssel können keinen Lead anlegen.");
+  // Mensch entscheidet (Plan 10): Die Wahl unter Treffern trifft nie ein Bot.
+  if (ctx.authMethod !== "cookie") return forbidden("Einen Lead von Hand legt nur ein Mensch in der Oberfläche an.");
 
   let body: unknown;
   try {
@@ -45,7 +47,8 @@ export async function POST(req: NextRequest) {
       );
     }
     if (!ergebnis.ok) {
-      return NextResponse.json({ error: { code: "INTERNAL", message: ergebnis.meldung } }, { status: 500 });
+      // Fehlende Einrichtung (Objekte, Felder, Stufe „Neue Anfrage“), kein Serverfehler.
+      return NextResponse.json({ error: { code: "EINRICHTUNG", message: ergebnis.meldung } }, { status: 409 });
     }
     return NextResponse.json(
       { data: { ok: true, dealRecordId: ergebnis.dealRecordId, personRecordId: ergebnis.personRecordId } },

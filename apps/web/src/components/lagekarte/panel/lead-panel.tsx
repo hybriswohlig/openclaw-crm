@@ -821,7 +821,7 @@ export default function LeadPanel({
                     KV ansehen
                   </button>
                 )}
-                <Link href={weiterLink({ art: "deal", id: lead.id })} className={AKTION}>
+                <Link href={weiterLink({ art: "deal", id: lead.id })} prefetch={false} className={AKTION}>
                   <ExternalLink className="h-4 w-4" aria-hidden="true" />
                   Lead öffnen
                 </Link>

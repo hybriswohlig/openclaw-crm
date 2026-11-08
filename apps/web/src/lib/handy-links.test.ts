@@ -65,6 +65,11 @@ describe("altUmleitung", () => {
   it("lehnt eine ungültige Deal-Kennung ab", () => {
     expect(altUmleitung("/objects/deals/a%2Fb", p(""), "neu")).toBeNull();
   });
+
+  it("wirft bei kaputter Prozent-Kodierung nicht", () => {
+    expect(altUmleitung("/objects/deals/%E0%A4", p(""), "neu")).toBeNull();
+    expect(akteLinkAusHref("/objects/deals/%E0%A4")).toBe("/objects/deals/%E0%A4");
+  });
 });
 
 describe("Weiche: Ziele", () => {

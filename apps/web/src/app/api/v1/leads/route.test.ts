@@ -54,6 +54,19 @@ describe("POST /leads", () => {
     expect(mocks.neuenLeadAnlegen).not.toHaveBeenCalled();
   });
 
+  it("Schreib-API-Schlüssel 403, nur ein Mensch legt an (Review I1)", async () => {
+    mocks.getAuthContext.mockResolvedValue({ ...CTX, authMethod: "api_key", apiKeyAccess: "write" });
+    expect((await POST(post({ ...GUT, personWahl: { art: "neu" } }))).status).toBe(403);
+    expect(mocks.neuenLeadAnlegen).not.toHaveBeenCalled();
+  });
+
+  it("fehlende Einrichtung 409 mit Klartext statt 500 (Review M7)", async () => {
+    mocks.neuenLeadAnlegen.mockResolvedValue({ ok: false, code: "FEHLER", meldung: "Die Stufe Neue Anfrage fehlt." });
+    const res = await POST(post(GUT));
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: { code: "EINRICHTUNG", message: "Die Stufe Neue Anfrage fehlt." } });
+  });
+
   it("ungültiges JSON 400", async () => {
     expect((await POST(post("{kaputt"))).status).toBe(400);
     expect(mocks.neuenLeadAnlegen).not.toHaveBeenCalled();
