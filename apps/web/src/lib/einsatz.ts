@@ -142,6 +142,27 @@ export interface FesterEinsatz {
   employeeIds: string[];
 }
 
+/**
+ * Feste Einsätze aus geladenen Plan-Einträgen (ungefiltert, alle Firmen) und
+ * den Team-IDs je Deal (`teamIdsLesen`). Ein Eintrag je Deal und Zeitraum;
+ * Plan und Einsatz-Dialog nutzen dieselbe Regel (Koordinator, 12a-9).
+ */
+export function festeEinsaetzeAus(
+  eintraege: ReadonlyArray<{ dealId: string; art: string; ton: string; tag: string; bisTag: string; titel: string }>,
+  teamIds: ReadonlyMap<string, readonly string[]>,
+): FesterEinsatz[] {
+  const aus: FesterEinsatz[] = [];
+  const gesehen = new Set<string>();
+  for (const e of eintraege) {
+    if (!istFest(e)) continue;
+    const schluessel = `${e.dealId}|${e.tag}|${e.bisTag}`;
+    if (gesehen.has(schluessel)) continue;
+    gesehen.add(schluessel);
+    aus.push({ dealId: e.dealId, titel: e.titel, tag: e.tag, bisTag: e.bisTag, employeeIds: [...(teamIds.get(e.dealId) ?? [])] });
+  }
+  return aus;
+}
+
 export type KapazitaetTon = "gruen" | "gold" | "rot";
 /** Ab so vielen freien Personen grün; 1 gold, 0 rot (Spec 3.5: „4 frei“ grün, „1 frei“ gold, „0 frei“ rot). */
 export const KAPAZITAET_GRUEN_AB = 2;
