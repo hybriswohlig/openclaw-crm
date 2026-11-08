@@ -111,6 +111,7 @@ function akteAus(f: AblaufFakten): AkteDaten {
       ],
       verlustGruende: [],
       verlustGrund: null,
+      kunde: null,
     },
     kacheln: zahlenreiheAus(f, { waitingOn: "uns", waitingSince: "2026-11-05T08:25:00.000Z", waitingReason: null }, null, JETZT),
     ablauf: berechneAblauf(f, JETZT),

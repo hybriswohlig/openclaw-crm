@@ -132,6 +132,7 @@ type Antworten = {
   gruende?: unknown[];
   entwurf?: EntwurfFixture[];
   geld?: unknown[];
+  kunde?: unknown[];
 };
 
 const followup = (id: string, conversation_id: string): EntwurfFixture => ({ id, conversation_id, message_class: "followup", gespraech_deal: DEAL });
@@ -152,6 +153,7 @@ function dbAntwortet(a: Antworten = {}) {
     if (text.includes("FROM select_options so")) return a.gruende ?? GRUENDE;
     if (text.includes("FROM quotation_package_options")) return [{ hat: a.paket ?? false }];
     if (text.includes("deal_invoices")) return a.geld ?? [];
+    if (text.includes("kunde_person_id")) return a.kunde ?? [];
     if (text.includes("FROM records r")) return a.kopf ?? [KOPF];
     throw new Error(`unerwartete Abfrage: ${text}`);
   });
@@ -200,6 +202,7 @@ describe("ladeAkte", () => {
         { id: "lr_sonst", label: "Sonstiges" },
       ],
       verlustGrund: null,
+      kunde: null,
     });
     expect(akte.kacheln.map((k) => [k.key, k.wert, k.zeile])).toEqual([
       ["kv", "2.480 €", "v2 · gesendet Mi 04.11."],
@@ -231,6 +234,17 @@ describe("ladeAkte", () => {
     expect(akte.altLink).toBe("/objects/deals/deal_1?alt=1");
     expect(akte.kalkulationLink).toBe("/app/leads/deal_1/kalkulation");
     expect(akte.kvLink).toBe("/app/leads/deal_1/kalkulation");
+  });
+
+  it("nennt die erste verknüpfte Person im Kopf", async () => {
+    dbAntwortet({ kunde: [{ kunde_person_id: "p_1", name_text: "Erika Sommer", name_json: null }] });
+    const akte = await ladeAkte(WS, DEAL, JETZT);
+    expect(akte.kopf.kunde).toEqual({ personId: "p_1", name: "Erika Sommer" });
+    const q = abfrage("kunde_person_id");
+    expect(q.params).toEqual(expect.arrayContaining([WS, DEAL]));
+    expect(q.text).toContain("associated_people");
+    expect(q.text).toContain("deleted_at IS NULL");
+    expect(q.text).toContain("op.slug = 'people'");
   });
 
   it("Paketoptionen: KV-Link bleibt auf dem alten Angebots-Tab, Kalkulation öffnet die neue Seite", async () => {
@@ -383,6 +397,7 @@ describe("ladeAkte", () => {
       stufen: [],
       verlustGruende: [],
       verlustGrund: null,
+      kunde: null,
     });
     expect(akte.kacheln[5]).toEqual({ key: "wartet", label: "Läuft", wert: "–", zeile: "", ton: "jade" });
     expect(akte.firma).toEqual({ id: null, name: null });

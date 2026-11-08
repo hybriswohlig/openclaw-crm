@@ -59,6 +59,7 @@ import { ZAHLUNGSARTEN, type Zahlungsart } from "@/lib/zahlungsart";
 import { ladeAblaufGrundlage } from "@/services/ablauf-fakten";
 import { dealGespraeche } from "@/services/gespraech";
 import { stufenKategorie } from "@/services/lagekarte/status";
+import { kundeZuDeal } from "@/services/kunden";
 
 interface KopfZeile {
   name: string | null;
@@ -428,7 +429,7 @@ export async function ladeAkteMitFakten(
   deal: string,
   jetzt: Date = new Date()
 ): Promise<{ akte: AkteDaten; fakten: AblaufFakten }> {
-  const [grundlage, kopfRes, stufenRes, gruendeRes, entwurfRes, gespraeche, paketRes, schalter, geldRes] = await Promise.all([
+  const [grundlage, kopfRes, stufenRes, gruendeRes, entwurfRes, gespraeche, paketRes, schalter, geldRes, kunde] = await Promise.all([
     ladeAblaufGrundlage(ws, deal),
     kopfLesen(ws, deal),
     stufenLesen(ws),
@@ -438,6 +439,7 @@ export async function ladeAkteMitFakten(
     paketOptionenLesen(ws, deal),
     plan5Schalter(ws, deal),
     geldLesen(ws, deal),
+    kundeZuDeal(ws, deal),
   ]);
   const [k] = zeilen<KopfZeile>(kopfRes);
   if (!k) throw new Error("Deal nicht gefunden");
@@ -481,6 +483,7 @@ export async function ladeAkteMitFakten(
       })),
       verlustGruende: zeilen<{ id: string; title: string }>(gruendeRes).map((g) => ({ id: g.id, label: g.title })),
       verlustGrund: k.verlust_grund?.trim() ? k.verlust_grund : null,
+      kunde,
     },
     kacheln: zahlenreiheAus(f, wartet, volumenHerkunftAus(grundlage.volumen, f.fotos), jetzt),
     ablauf: berechneAblauf(f, jetzt),

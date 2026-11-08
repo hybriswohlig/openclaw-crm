@@ -70,6 +70,8 @@ export interface AkteDaten {
     verlustGruende: { id: string; label: string }[];
     /** Gespeicherter Verlustgrund (Options-ID), damit Verloren nicht erneut fragt. */
     verlustGrund: string | null;
+    /** Erste verknüpfte Person, Link in die Kundenakte. Null ohne lebende Person. */
+    kunde: { personId: string; name: string } | null;
   };
   kacheln: Kachel[];
   ablauf: { schritte: AblaufSchritt[]; position: number };

@@ -243,6 +243,7 @@ describe("kurzfassungAus", () => {
       ],
       verlustGruende: [],
       verlustGrund: null,
+      kunde: null,
     },
     kacheln: kacheln(f) as Kachel[],
     ablauf: berechneAblauf(f, JETZT),
