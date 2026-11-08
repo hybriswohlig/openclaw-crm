@@ -19,14 +19,17 @@ export interface EinsatzPreisKontext {
 export const HINWEIS_AUS_BUCHUNG = "Station und Fahrzeug kommen aus der Buchung.";
 export const HINWEIS_BUCHUNG_FEHLT_IM_RECHNER = "Station oder Klasse der Buchung gibt es im Rechner nicht mehr.";
 
-export async function einsatzPreisKontext(ws: string, deal: string): Promise<EinsatzPreisKontext | null> {
-  const { einsatzSchalter } = await import("./plan5-schalter");
-  if (!(await einsatzSchalter(ws, deal)).buchungImPreis) return null;
-  const { dealBuchung } = await import("./einsatz-buchungen");
+type Schalter = (ws: string, deal: string) => Promise<{ buchungImPreis: boolean }>;
+
+/** `schalter`: Leser des Firmen-Schalters (Vorgabe `einsatzSchalter`); fehlt er, ist die Buchung im Preis aus. */
+export async function einsatzPreisKontext(ws: string, deal: string, schalter?: Schalter | null): Promise<EinsatzPreisKontext | null> {
+  const lesen = schalter === undefined ? (await import("@/services/plan5-schalter")).einsatzSchalter : schalter;
+  if (typeof lesen !== "function" || !(await lesen(ws, deal)).buchungImPreis) return null;
+  const { dealBuchung } = await import("@/services/einsatz-buchungen");
   const b = await dealBuchung(ws, deal);
   if (!b || b.status === "storniert") return null;
   try {
-    const { rechnerKlassen, rechnerStationen } = await import("./rechner/stammdaten");
+    const { rechnerKlassen, rechnerStationen } = await import("@/services/rechner/stammdaten");
     const [stationen, klassen] = await Promise.all([rechnerStationen(), rechnerKlassen()]);
     const station = stationen.some((s) => s.id === b.stationId && s.aktiv);
     const klasse = klassen.some((k) => k.id === b.klasseId && k.aktiv);

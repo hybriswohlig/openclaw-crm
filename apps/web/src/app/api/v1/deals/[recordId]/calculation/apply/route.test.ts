@@ -37,7 +37,10 @@ vi.mock("@/lib/api-utils", async (importOriginal) => ({
 }));
 vi.mock("@/services/rechner/pakete", () => ({ hatPaketoptionen: mocks.hatPaketoptionen }));
 // Plan 5b: Firma ohne Schalter (die alte Karte bleibt wie sie ist).
-vi.mock("@/services/plan5-schalter", () => ({ plan5Schalter: async () => ({ angebotAusKalkulation: false, tagespreise: false }) }));
+vi.mock("@/services/plan5-schalter", () => ({
+  plan5Schalter: async () => ({ angebotAusKalkulation: false, tagespreise: false }),
+  einsatzSchalter: async () => ({ buchungImPreis: false }),
+}));
 vi.mock("@/services/rechner/lead-daten", () => ({ ladeLeadDaten: mocks.ladeLeadDaten }));
 vi.mock("@/services/rechner/client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/services/rechner/client")>()),

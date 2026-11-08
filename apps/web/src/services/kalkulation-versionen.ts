@@ -297,7 +297,9 @@ async function abhaengigkeiten(o: VersionsOptionen = {}): Promise<Abh> {
     // Vorgabe auch keine Buchung im Preis: der Buchungs-Schalter hängt an derselben Firma.
     ladeEinsatz:
       o.ladeEinsatz ??
-      (o.ladeSchalter ? async () => null : async (ws, deal) => (await import("./einsatz-preis")).einsatzPreisKontext(ws, deal)),
+      (o.ladeSchalter
+        ? async () => null
+        : async (ws, deal) => (await import("./einsatz-preis")).einsatzPreisKontext(ws, deal, (await import("./plan5-schalter")).einsatzSchalter ?? null)),
   };
 }
 

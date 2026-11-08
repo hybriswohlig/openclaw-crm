@@ -229,7 +229,7 @@ describe("ladeAblaufFakten", () => {
               posten: [
                 { key: "personal.fahrt", bezeichnung: "Fahrt", menge: 3.6, einheit: "h", satz: 15, betrag: 54 },
                 { key: "personal.arbeit", bezeichnung: "Arbeit", menge: 16.5, einheit: "h", satz: 20, betrag: 330 },
-                { key: "fahrzeug", bezeichnung: "Fahrzeug", menge: 1, einheit: null, satz: null, betrag: 150 },
+                { key: "fahrzeug.sprinter_l@sixt.miete", bezeichnung: "Fahrzeug", menge: 1, einheit: null, satz: null, betrag: 150 },
               ],
             },
           },

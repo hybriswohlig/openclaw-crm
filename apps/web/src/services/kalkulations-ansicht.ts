@@ -138,7 +138,9 @@ async function abhaengigkeiten(o: AnsichtOptionen): Promise<Required<AnsichtOpti
     // Wie in kalkulation-versionen.ts: mit eigener Schalter-Vorgabe ohne Buchung im Preis.
     ladeEinsatz:
       o.ladeEinsatz ??
-      (o.ladeSchalter ? async () => null : async (ws, deal) => (await import("./einsatz-preis")).einsatzPreisKontext(ws, deal)),
+      (o.ladeSchalter
+        ? async () => null
+        : async (ws, deal) => (await import("./einsatz-preis")).einsatzPreisKontext(ws, deal, (await import("./plan5-schalter")).einsatzSchalter ?? null)),
     ladePaketOptionen:
       o.ladePaketOptionen ?? (async (deal) => (await import("./kalkulation-versionen-speicher")).ladePaketOptionen(deal)),
     jetzt: o.jetzt ?? (() => new Date()),

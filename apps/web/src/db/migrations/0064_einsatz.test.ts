@@ -28,7 +28,7 @@ describe("Migration 0064 Einsatz (Text)", () => {
       "deal_calculation_versions_vehicle_booking_fk",
       "quotation_date_offers_vehicle_booking_fk",
     ]) {
-      expect(kompakt).toContain(`WHERE conname = '${c}'`);
+      expect(kompakt).toMatch(new RegExp(`WHERE conname = '${c}' AND conrelid = '"[a-z_]+"'::regclass`));
     }
   });
 

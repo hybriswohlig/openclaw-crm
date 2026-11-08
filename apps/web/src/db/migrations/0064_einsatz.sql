@@ -27,11 +27,11 @@ ALTER TABLE "employees" ADD COLUMN IF NOT EXISTS "active" boolean NOT NULL DEFAU
 ALTER TABLE "employees" ADD COLUMN IF NOT EXISTS "deactivated_at" timestamptz;
 --> statement-breakpoint
 DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'employees_home_plz_format') THEN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'employees_home_plz_format' AND conrelid = '"employees"'::regclass) THEN
     ALTER TABLE "employees" ADD CONSTRAINT "employees_home_plz_format"
       CHECK ("home_plz" IS NULL OR "home_plz" ~ '^[0-9]{5}$');
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'employees_satz_abgeleitet') THEN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'employees_satz_abgeleitet' AND conrelid = '"employees"'::regclass) THEN
     ALTER TABLE "employees" ADD CONSTRAINT "employees_satz_abgeleitet"
       CHECK ("hourly_rate" = "rate_work_cents" / 100.0);
   END IF;
@@ -83,11 +83,11 @@ CREATE TABLE IF NOT EXISTS "employee_absences" (
 );
 --> statement-breakpoint
 DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'employee_absences_art_check') THEN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'employee_absences_art_check' AND conrelid = '"employee_absences"'::regclass) THEN
     ALTER TABLE "employee_absences" ADD CONSTRAINT "employee_absences_art_check"
       CHECK ("art" IN ('urlaub', 'krank', 'gesperrt'));
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'employee_absences_zeitraum_check') THEN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'employee_absences_zeitraum_check' AND conrelid = '"employee_absences"'::regclass) THEN
     ALTER TABLE "employee_absences" ADD CONSTRAINT "employee_absences_zeitraum_check" CHECK ("bis" >= "von");
   END IF;
 END $$;
@@ -108,7 +108,7 @@ CREATE TABLE IF NOT EXISTS "einsatz_wege" (
 );
 --> statement-breakpoint
 DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'einsatz_wege_km_check') THEN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'einsatz_wege_km_check' AND conrelid = '"einsatz_wege"'::regclass) THEN
     ALTER TABLE "einsatz_wege" ADD CONSTRAINT "einsatz_wege_km_check" CHECK ("km" >= 0);
   END IF;
 END $$;
@@ -149,18 +149,18 @@ CREATE TABLE IF NOT EXISTS "vehicle_bookings" (
 );
 --> statement-breakpoint
 DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'vehicle_bookings_miete_check') THEN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'vehicle_bookings_miete_check' AND conrelid = '"vehicle_bookings"'::regclass) THEN
     ALTER TABLE "vehicle_bookings" ADD CONSTRAINT "vehicle_bookings_miete_check" CHECK ("miete_cents" >= 0);
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'vehicle_bookings_auftraege_check') THEN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'vehicle_bookings_auftraege_check' AND conrelid = '"vehicle_bookings"'::regclass) THEN
     ALTER TABLE "vehicle_bookings" ADD CONSTRAINT "vehicle_bookings_auftraege_check"
       CHECK ("geplante_auftraege" BETWEEN 1 AND 20);
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'vehicle_bookings_status_check') THEN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'vehicle_bookings_status_check' AND conrelid = '"vehicle_bookings"'::regclass) THEN
     ALTER TABLE "vehicle_bookings" ADD CONSTRAINT "vehicle_bookings_status_check"
       CHECK ("status" IN ('geplant', 'bestaetigt', 'storniert'));
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'vehicle_bookings_zeitraum_check') THEN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'vehicle_bookings_zeitraum_check' AND conrelid = '"vehicle_bookings"'::regclass) THEN
     ALTER TABLE "vehicle_bookings" ADD CONSTRAINT "vehicle_bookings_zeitraum_check" CHECK ("bis" >= "von");
   END IF;
 END $$;
@@ -182,11 +182,11 @@ CREATE INDEX IF NOT EXISTS "deal_vehicle_bookings_booking_idx" ON "deal_vehicle_
 -- Live-Skript zählt vorher Werte ungleich null; gibt es welche, scheitert der
 -- Fremdschlüssel sichtbar statt still.
 DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'deal_calculation_versions_vehicle_booking_fk') THEN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'deal_calculation_versions_vehicle_booking_fk' AND conrelid = '"deal_calculation_versions"'::regclass) THEN
     ALTER TABLE "deal_calculation_versions" ADD CONSTRAINT "deal_calculation_versions_vehicle_booking_fk"
       FOREIGN KEY ("vehicle_booking_id") REFERENCES "vehicle_bookings"("id") ON DELETE SET NULL;
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'quotation_date_offers_vehicle_booking_fk') THEN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'quotation_date_offers_vehicle_booking_fk' AND conrelid = '"quotation_date_offers"'::regclass) THEN
     ALTER TABLE "quotation_date_offers" ADD CONSTRAINT "quotation_date_offers_vehicle_booking_fk"
       FOREIGN KEY ("vehicle_booking_id") REFERENCES "vehicle_bookings"("id") ON DELETE SET NULL;
   END IF;
