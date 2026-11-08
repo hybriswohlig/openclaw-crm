@@ -534,6 +534,8 @@ export interface BewertungFirma extends FirmaKurz {
   modus: BewertungModus;
   modusSeit: string | null;
   googleLink: boolean;
+  /** `company_settings.bewertung_haken_portal` (additiv in Plan 11 Task D). */
+  hakenPortal?: boolean;
 }
 
 /** GET /api/v1/bewertungen?firma=&liste= */
