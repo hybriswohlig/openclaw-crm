@@ -196,7 +196,8 @@ describe("ladeLeadsBoard", () => {
     ]);
     expect(board.verlustGruende).toEqual([{ id: "g_preis", label: "Zu teuer" }]);
     expect(board.stufen.map((s) => s.id)).toEqual(["s_neu", "s_angebot", "s_geplant", "s_durch", "s_verloren", "s_kein"]);
-    expect(board.chips).toEqual({ warten: 2, kv_ungesehen: 1, ohne_team: 1, rechnung_offen: 1, ohne_ab: 1, diese_woche: 1 });
+    // Fix-Welle I3: „Rechnung offen“ zählt nur Rechnungsdatensätze (wie die Kasse); das Fixture hat nur ein altes PDF.
+    expect(board.chips).toEqual({ warten: 2, kv_ungesehen: 1, ohne_team: 1, rechnung_offen: 0, ohne_ab: 1, diese_woche: 1 });
 
     expect(board.spalten.map((s) => [s.stufeId, s.anzahl, s.eingeklappt, s.karten.map((k) => k.id)])).toEqual([
       ["_ohne", 1, false, ["d_ohne"]],
@@ -325,6 +326,11 @@ describe("ladeLeadsBoard", () => {
         "value",
         "besichtigung_am",
         "loss_reason",
+        "move_end",
+        "move_date_end",
+        "umzug_ende",
+        "einsatz_ende",
+        "service_end",
         "customer.marked_paid",
         "payment.meldung_bestaetigt",
         "payment.meldung_verworfen",
