@@ -42,6 +42,7 @@ import {
 import { BestaetigenDialog } from "./bestaetigen-dialog";
 import { EintragPopover } from "./eintrag-popover";
 import { KundeInformieren } from "./kunde-informieren";
+import { hatKapazitaet, kapazitaetGemerkt, kapazitaetMerken } from "./kapazitaet-chip";
 import { Legende } from "./legende";
 import { EintragInhalt } from "./plan-eintrag";
 import { PlanImBlick } from "./plan-im-blick";
@@ -115,6 +116,9 @@ export function PlanAnsicht({
 }) {
   const breit = useBreit();
   const kompakt = breit === false;
+  // Plan 12a: „Kapazität anzeigen“, gemerkt je Browser (erst nach dem Einhängen gelesen).
+  const [kapAn, setKapAn] = useState(true);
+  useEffect(() => setKapAn(kapazitaetGemerkt()), []);
   const portalZiel = usePortalZiel();
   const z: PlanSeitenZustand = kompakt && zustand.modus !== "tag" ? { ...zustand, modus: "tag" } : zustand;
   const abfrage = useMemo(() => abfrageFuer(z, leads), [z.modus, z.anker, z.firmaId, z.mitarbeiterId, leads]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -273,7 +277,9 @@ export function PlanAnsicht({
     </div>
   ) : null;
 
+  const kapAktiv = kapAn && hatKapazitaet(antwort?.kapazitaet);
   const raster: Omit<RasterProps, "ziehend" | "klickErlaubt"> = {
+    kapazitaet: kapAktiv && antwort ? new Map(antwort.kapazitaet.map((k) => [k.tag, k])) : null,
     anker: z.anker,
     heute,
     eintraege: sichtbar,
@@ -314,7 +320,20 @@ export function PlanAnsicht({
               ) : (
                 <PlanWoche {...raster} ziehend={ziehend} klickErlaubt={klickErlaubt} />
               )}
-              <Legende abo={!leads} />
+              <Legende
+                abo={!leads}
+                kapazitaet={
+                  hatKapazitaet(antwort?.kapazitaet)
+                    ? {
+                        an: kapAn,
+                        onUmschalten: (an) => {
+                          setKapAn(an);
+                          kapazitaetMerken(an);
+                        },
+                      }
+                    : null
+                }
+              />
             </GlassPanel>
           )}
         </Ziehflaeche>

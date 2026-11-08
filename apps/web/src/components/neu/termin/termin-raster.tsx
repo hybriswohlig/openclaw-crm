@@ -1,5 +1,7 @@
 "use client";
 
+import "@/styles/neu-einsatz.css";
+
 import type { TagesRasterZelle } from "@/lib/angebot-wahl";
 import { tagKurz } from "@/lib/anzeige";
 import { planTitel, WOCHENTAGE_KURZ } from "@/lib/plan-heute";
@@ -23,7 +25,9 @@ export type MonatsStand = { art: "laedt" } | { art: "fertig" } | { art: "fehler"
  * (empfohlenes Paket, sonst Hauptpreis), die Margenpunkte für Wochentag,
  * Feiertag und Eile, die Zahl der Aufträge (Klick: Namen) und der
  * Wunschtermin. Vergangene Tage sind gesperrt, Tage des Nachbarmonats leer.
- * Ohne Kapazität (Meilenstein 3). Ein Klick auf einen Tag wählt ihn an oder ab.
+ * Kapazität je Tag (Plan 12a): „N frei“ nach festen Umzügen und Abwesenheiten,
+ * Klick zeigt die Namen; ohne aktive Mitarbeiter fehlt der Chip. Ein Klick auf
+ * einen Tag wählt ihn an oder ab.
  */
 export function TerminRaster({
   monat,
@@ -155,6 +159,20 @@ export function TerminRaster({
                       {istWunsch ? <span className="termin-tag-wunsch">Wunsch</span> : null}
                     </span>
                   </button>
+                  {zelle?.kapazitaet && !vergangen ? (
+                    <button
+                      type="button"
+                      className="termin-kapazitaet"
+                      data-ton={zelle.kapazitaet.ton}
+                      aria-expanded={offenerTag === datum}
+                      aria-label={`${zelle.kapazitaet.text} am ${tagKurz(datum)}, Namen zeigen`}
+                      onClick={() => onAuftraege(offenerTag === datum ? null : datum)}
+                    >
+                      <i aria-hidden="true" />
+                      {zelle.kapazitaet.text.replace(" frei", "")}
+                      <span className="termin-kapazitaet-wort"> frei</span>
+                    </button>
+                  ) : null}
                   {anzahl > 0 ? (
                     <button
                       type="button"
@@ -181,15 +199,24 @@ export function TerminRaster({
               Schließen
             </button>
           </div>
-          <ul>
-            {offen.auftraege.map((a) => (
-              <li key={a.dealId}>
-                <a href={`/app/leads/${encodeURIComponent(a.dealId)}`} target="_blank" rel="noreferrer">
-                  {a.name}
-                </a>
-              </li>
-            ))}
-          </ul>
+          {offen.auftraege.length > 0 ? (
+            <ul>
+              {offen.auftraege.map((a) => (
+                <li key={a.dealId}>
+                  <a href={`/app/leads/${encodeURIComponent(a.dealId)}`} target="_blank" rel="noreferrer">
+                    {a.name}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="termin-kapazitaet-namen">Keine festen Aufträge.</p>
+          )}
+          {offen.kapazitaet ? (
+            <p className="termin-kapazitaet-namen">
+              <b>{offen.kapazitaet.text}:</b> {offen.kapazitaet.frei.length > 0 ? offen.kapazitaet.frei.join(", ") : "niemand"}
+            </p>
+          ) : null}
         </div>
       ) : null}
 
@@ -207,8 +234,16 @@ export function TerminRaster({
           <b className="termin-legende-punkte">+5 %</b> Aufschlag der Marge
         </li>
         <li>
-          <b className="termin-legende-zahl">2</b> Aufträge am Tag
+          <b className="termin-legende-zahl">2</b> feste Aufträge am Tag
         </li>
+        {Object.values(zellen).some((z) => z.kapazitaet) ? (
+          <li>
+            <span className="termin-kapazitaet termin-kapazitaet-legende" data-ton="gruen">
+              <i aria-hidden="true" />3 frei
+            </span>{" "}
+            Personen ohne festen Umzug und ohne Abwesenheit
+          </li>
+        ) : null}
       </ul>
     </section>
   );

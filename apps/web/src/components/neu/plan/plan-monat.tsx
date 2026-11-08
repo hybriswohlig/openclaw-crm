@@ -1,7 +1,9 @@
 "use client";
 
 import { useDroppable } from "@dnd-kit/core";
+import type { KapazitaetTag } from "@/lib/einsatz";
 import { WOCHENTAGE_KURZ, monatsRaster, planTitel, type PlanEintrag } from "@/lib/plan-heute";
+import { KapazitaetChip } from "./kapazitaet-chip";
 import { EintragVorschau, PlanEintragKnopf, type EintragWahl } from "./plan-eintrag";
 import { ablageId, mehrText, zelleArt, zelleEintraege, zelleLabel, zelleZusatz } from "./plan-logik";
 
@@ -18,6 +20,8 @@ export interface RasterProps {
   klickErlaubt: () => boolean;
   onWaehlen: EintragWahl;
   onTag: (tag: string) => void;
+  /** Plan 12a: Kapazität je Tag; null = Schalter aus oder keine aktiven Mitarbeiter. */
+  kapazitaet?: ReadonlyMap<string, KapazitaetTag> | null;
 }
 
 /**
@@ -49,7 +53,7 @@ export function PlanMonat(p: RasterProps) {
   );
 }
 
-function MonatZelle({ tag, anker, heute, eintraege, ziehen, ziehend, schwebend, klickErlaubt, onWaehlen, onTag }: RasterProps & { tag: string }) {
+function MonatZelle({ tag, anker, heute, eintraege, ziehen, ziehend, schwebend, klickErlaubt, onWaehlen, onTag, kapazitaet }: RasterProps & { tag: string }) {
   const art = zelleArt(tag, anker, heute);
   const ablage = ziehend && !art.vergangen;
   const { setNodeRef, isOver } = useDroppable({ id: ablageId(tag), disabled: !ablage });
@@ -57,6 +61,7 @@ function MonatZelle({ tag, anker, heute, eintraege, ziehen, ziehend, schwebend, 
   const zusatz = zelleZusatz(tag, heute);
   const vorschau = schwebend && schwebend.ziel === tag ? schwebend.eintrag : null;
   const anzahl = sichtbar.length + mehr;
+  const kap = !art.nachbar && !art.vergangen ? kapazitaet?.get(tag) ?? null : null;
 
   return (
     <div
@@ -75,6 +80,7 @@ function MonatZelle({ tag, anker, heute, eintraege, ziehen, ziehend, schwebend, 
         {Number(tag.slice(8))}
         {zusatz ? <small>{zusatz}</small> : null}
       </button>
+      {kap ? <KapazitaetChip k={kap} /> : null}
       {sichtbar.map((e) => (
         <PlanEintragKnopf
           key={e.id}

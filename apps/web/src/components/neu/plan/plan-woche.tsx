@@ -3,6 +3,7 @@
 import { useDroppable } from "@dnd-kit/core";
 import { tagKurz } from "@/lib/anzeige";
 import { eintraegeAm, planTitel, wochenTage } from "@/lib/plan-heute";
+import { KapazitaetChip } from "./kapazitaet-chip";
 import { EintragVorschau, PlanEintragKnopf } from "./plan-eintrag";
 import type { RasterProps } from "./plan-monat";
 import { ablageId, zelleArt, zelleLabel } from "./plan-logik";
@@ -11,7 +12,7 @@ import { ablageId, zelleArt, zelleLabel } from "./plan-logik";
  * Woche (Entscheidung 16): sieben Spalten als Liste ohne Stundenraster; je
  * Eintrag Uhrzeit („07:30 Beladen · ca. 13:00 fertig“), Titel, Zeile, Team mit
  * Namen und Fahrzeugtyp. Spaltenkopf öffnet den Tag; jede Spalte ab heute ist
- * während des Ziehens eine Ablage. Keine Fahrzeiten (Meilenstein 3).
+ * während des Ziehens eine Ablage. Unter dem Kopf die Kapazität (Plan 12a).
  */
 export function PlanWoche(p: RasterProps) {
   const tage = wochenTage(p.anker);
@@ -26,12 +27,13 @@ export function PlanWoche(p: RasterProps) {
   );
 }
 
-function WochenSpalte({ tag, anker, heute, eintraege, ziehen, ziehend, schwebend, klickErlaubt, onWaehlen, onTag }: RasterProps & { tag: string }) {
+function WochenSpalte({ tag, anker, heute, eintraege, ziehen, ziehend, schwebend, klickErlaubt, onWaehlen, onTag, kapazitaet }: RasterProps & { tag: string }) {
   const art = zelleArt(tag, anker, heute);
   const ablage = ziehend && !art.vergangen;
   const { setNodeRef, isOver } = useDroppable({ id: ablageId(tag), disabled: !ablage });
   const liste = eintraegeAm(eintraege, tag);
   const vorschau = schwebend && schwebend.ziel === tag ? schwebend.eintrag : null;
+  const kap = !art.vergangen ? kapazitaet?.get(tag) ?? null : null;
 
   return (
     <div
@@ -49,6 +51,7 @@ function WochenSpalte({ tag, anker, heute, eintraege, ziehen, ziehend, schwebend
         <b>{tagKurz(tag)}</b>
         {art.heute ? <small>heute</small> : null}
       </button>
+      {kap ? <KapazitaetChip k={kap} /> : null}
       {liste.map((e) => (
         <PlanEintragKnopf
           key={e.id}

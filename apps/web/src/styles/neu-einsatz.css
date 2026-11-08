@@ -1161,3 +1161,178 @@
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
+
+/* ─── Termin-Raster: Kapazität je Tag ────────────────────────────────────── */
+
+[data-neu] .termin-kapazitaet {
+  position: absolute;
+  left: 5px;
+  bottom: 5px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 18px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 999px;
+  font: inherit;
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 18px;
+  color: var(--jade-ink);
+  background: color-mix(in srgb, var(--jade) 14%, transparent);
+  cursor: pointer;
+}
+
+[data-neu] .termin-kapazitaet i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--jade);
+}
+
+[data-neu] .termin-kapazitaet[data-ton="gold"] {
+  color: var(--gold-ink);
+  background: color-mix(in srgb, var(--gold) 16%, transparent);
+}
+
+[data-neu] .termin-kapazitaet[data-ton="gold"] i {
+  background: var(--gold);
+}
+
+[data-neu] .termin-kapazitaet[data-ton="rot"] {
+  color: var(--rose-ink);
+  background: color-mix(in srgb, var(--rose) 13%, transparent);
+}
+
+[data-neu] .termin-kapazitaet[data-ton="rot"] i {
+  background: var(--rose);
+}
+
+[data-neu] .termin-kapazitaet:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 1px;
+}
+
+[data-neu] .termin-kapazitaet-legende {
+  position: static;
+  cursor: default;
+}
+
+[data-neu] .termin-kapazitaet-namen {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: var(--ink);
+}
+
+@media (max-width: 640px) {
+  [data-neu] .termin-kapazitaet-wort {
+    display: none;
+  }
+}
+
+/* ─── Plan: Kapazitäts-Chip je Tag ───────────────────────────────────────── */
+
+[data-neu] .plan-kap {
+  position: relative;
+  display: inline-flex;
+  align-self: flex-start;
+}
+
+[data-neu] .plan-kap-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 8px;
+  border: 0;
+  border-radius: 999px;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  white-space: nowrap;
+  color: var(--jade-ink);
+  background: color-mix(in srgb, var(--jade) 14%, transparent);
+  cursor: pointer;
+}
+
+[data-neu] .plan-kap-chip i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--jade);
+}
+
+[data-neu] .plan-kap-chip[data-ton="gold"] {
+  color: var(--gold-ink);
+  background: color-mix(in srgb, var(--gold) 16%, transparent);
+}
+
+[data-neu] .plan-kap-chip[data-ton="gold"] i {
+  background: var(--gold);
+}
+
+[data-neu] .plan-kap-chip[data-ton="rot"] {
+  color: var(--rose-ink);
+  background: color-mix(in srgb, var(--rose) 13%, transparent);
+}
+
+[data-neu] .plan-kap-chip[data-ton="rot"] i {
+  background: var(--rose);
+}
+
+[data-neu] .plan-kap-chip:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 1px;
+}
+
+[data-neu] .plan-kap-legende {
+  margin-right: 6px;
+  cursor: default;
+}
+
+[data-neu] .plan-kap-pop {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 4px);
+  left: 0;
+  width: 240px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  font-size: 12.5px;
+  color: var(--ink);
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--rim), var(--shadow-raised);
+  backdrop-filter: blur(16px) saturate(1.6);
+}
+
+[data-neu] .plan-kap-gruppe {
+  display: block;
+}
+
+[data-neu] .plan-kap-titel {
+  display: block;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+[data-neu] .plan-kap-zeile {
+  display: block;
+}
+
+[data-neu] .plan-kap-pop a {
+  color: var(--blue-ink);
+}
+
+[data-neu] .plan-kap-schalter {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
