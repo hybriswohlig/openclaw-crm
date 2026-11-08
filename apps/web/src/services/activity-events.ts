@@ -49,6 +49,9 @@ export type ActivityEventType =
   // Einwilligung von Hand eingetragen (Bewertung anfragen); actor_id = Autor,
   // payload { consentId, purpose, channel }. consent_ledger hat keine Autorenspalte.
   | "consent.eingetragen"
+  // Bewertungs-Modus oder Portal-Haken einer Firma geändert (Plan 11); record_id = Firma,
+  // payload { vorher, nachher }.
+  | "bewertung.modus_geaendert"
   | "person.merge"
   | "person.unmerge"
   | "agent.action"

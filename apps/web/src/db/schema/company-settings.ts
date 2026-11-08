@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { check, integer, jsonb, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import { boolean, check, integer, jsonb, pgTable, text, timestamp } from "drizzle-orm/pg-core";
 import { records } from "./records";
 
 /**
@@ -24,6 +24,12 @@ export const companySettings = pgTable(
     erinnerung2Tage: integer("erinnerung2_tage").notNull().default(14),
     /** Steuernummer für die Rechnung (leer zulässig; Ceylan-PDF druckt sie nur, wenn gesetzt). */
     steuernummer: text("steuernummer"),
+    /** Bewertungs-Automatik (Migration 0063, Plan 11). Ohne Zeile gilt „aus“. */
+    bewertungModus: text("bewertung_modus").$type<"aus" | "entwurf" | "senden">().notNull().default("aus"),
+    /** Zuletzt von „aus“ weg geschaltet; Anker davor zählen nie (Altaufträge). */
+    bewertungModusSeit: timestamp("bewertung_modus_seit", { withTimezone: true }),
+    /** Einwilligungs-Haken bei der Annahme im Portal (kundensichtbar, Standard aus). */
+    bewertungHakenPortal: boolean("bewertung_haken_portal").notNull().default(false),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
   (table) => [
@@ -33,6 +39,7 @@ export const companySettings = pgTable(
     check("company_settings_erinnerung_modus_check", sql`${table.erinnerungModus} IN ('aus', 'entwurf')`),
     check("company_settings_erinnerung_tage_check", sql`${table.erinnerungTage} BETWEEN 1 AND 60`),
     check("company_settings_erinnerung2_tage_check", sql`${table.erinnerung2Tage} BETWEEN 1 AND 60`),
+    check("company_settings_bewertung_modus_check", sql`${table.bewertungModus} IN ('aus', 'entwurf', 'senden')`),
   ]
 );
 
