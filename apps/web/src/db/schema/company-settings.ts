@@ -30,6 +30,8 @@ export const companySettings = pgTable(
     bewertungModusSeit: timestamp("bewertung_modus_seit", { withTimezone: true }),
     /** Einwilligungs-Haken bei der Annahme im Portal (kundensichtbar, Standard aus). */
     bewertungHakenPortal: boolean("bewertung_haken_portal").notNull().default(false),
+    /** Plan 12b (0064): Mietanteil einer Transporter-Buchung im Preis; Standard aus. */
+    buchungImPreis: boolean("buchung_im_preis").notNull().default(false),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
   (table) => [

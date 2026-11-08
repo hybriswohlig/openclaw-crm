@@ -12,6 +12,8 @@
  * `kv_items` und `package_prices` heute), Beträge an Quotation, Portal und
  * Annahme sind Cent.
  */
+
+import type { BuchungsAnteil } from "@/lib/einsatz";
 import type { Uebersteuerung } from "@/lib/kalkulation-versionen";
 import type { HebelArt, KvPosten } from "@/services/rechner/kv-posten";
 
@@ -191,6 +193,8 @@ export interface RechnerTagespreis {
   gruende: { text: string; punkte: number }[];
   /** Nur mit `paket_hebel`. */
   paketpreise: RechnerPaketpreisPlan5[] | null;
+  /** Plan 12b: Buchung, deren Anteil an diesem Tag die Miete ersetzt; nur mit Anfragefeld `buchung`. */
+  buchungId?: string | null;
 }
 
 export interface RechnerStunden {
@@ -244,8 +248,10 @@ export interface Tagespreis {
   slots: TagesSlot[];
   note: string | null;
   empfohlen: boolean;
-  /** Meilenstein 3, bis dahin immer null. */
-  vehicleBookingId: null;
+  /** Plan 12b: Buchung, deren Anteil beim Sperren eingefroren wurde; sonst null. Nie im Portal. */
+  vehicleBookingId: string | null;
+  /** Plan 12b: eingefrorener Anteil der Buchung an diesem Tag (E6). Nie im Portal. */
+  buchungsanteil?: BuchungsAnteil | null;
 }
 
 /** Stunden-Angaben in `quotations.document_details.stunden` (kein neues Feld, `quantity` bleibt ganzzahlig). */

@@ -38,6 +38,7 @@ export const dealCalculationVersions = pgTable(
     dayPrices: jsonb("day_prices").$type<unknown[]>().notNull().default([]),
     kvItems: jsonb("kv_items").$type<unknown[]>().notNull().default([]),
     tariff: jsonb("tariff"),
+    /** Plan 12b (0064): FK auf `vehicle_bookings(id)` ON DELETE SET NULL (nur in der Migration). */
     vehicleBookingId: text("vehicle_booking_id"),
     createdBy: text("created_by"),
     createdAt: timestamp("created_at").notNull().defaultNow(),

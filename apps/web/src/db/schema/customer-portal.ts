@@ -525,7 +525,7 @@ export const quotationDateOffers = pgTable(
     calculationVersionId: text("calculation_version_id").references(() => dealCalculationVersions.id, {
       onDelete: "set null",
     }),
-    /** Meilenstein 3, bis dahin leer. */
+    /** Plan 12b (0064): Buchung des Tagespreises; FK `vehicle_bookings(id)` ON DELETE SET NULL (nur in der Migration). */
     vehicleBookingId: text("vehicle_booking_id"),
     createdBy: text("created_by").references(() => users.id, {
       onDelete: "set null",

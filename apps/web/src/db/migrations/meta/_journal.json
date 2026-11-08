@@ -379,6 +379,13 @@
       "when": 1793664000000,
       "tag": "0063_bewertungen_kunden",
       "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1793750400000,
+      "tag": "0064_einsatz",
+      "breakpoints": true
     }
   ]
 }

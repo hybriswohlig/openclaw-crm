@@ -11,6 +11,7 @@
  * Schlüsseln. Anzeige deutsch, Europe/Berlin, Trenner „·“, keine Gedankenstriche.
  */
 import { datumKurz, tagKurz, uhrzeitKurz } from "./anzeige";
+import type { KapazitaetTag, PlanBuchung } from "./einsatz";
 import { berlinDateString } from "./berlin-date";
 import type { TagesabschlussKarte } from "./geld";
 import type { InboxChips } from "./inbox-neu";
@@ -536,6 +537,10 @@ export interface PlanAntwort {
   /** Aktive Stufen (für „Durchführung bestätigen“: erste Stufe der Kategorie done_unpaid). */
   stufen: { id: string; label: string; kategorie: LeadKategorie | null }[];
   besichtigungFeld: PlanBesichtigungFeld | null;
+  /** Plan 12a: Kapazität je Tag des Fensters (aktive Personen ohne Ausnahme minus feste Umzüge). */
+  kapazitaet: KapazitaetTag[];
+  /** Plan 12b: Transporter-Buchungen, die das Fenster schneiden (Firmenfilter wie die Einträge). */
+  buchungen: PlanBuchung[];
   stand: string;
 }
 

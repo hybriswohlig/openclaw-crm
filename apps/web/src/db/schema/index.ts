@@ -40,3 +40,4 @@ export * from "./phone-calls";
 export * from "./intern";
 export * from "./user-settings";
 export * from "./deal-workflow-state";
+export * from "./einsatz";

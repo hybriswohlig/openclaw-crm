@@ -222,6 +222,8 @@ export async function ladePlan(
     mitarbeiter,
     stufen: roh.stamm.stufen,
     besichtigungFeld,
+    kapazitaet: [],
+    buchungen: [],
     stand: jetzt.toISOString(),
   };
 }
