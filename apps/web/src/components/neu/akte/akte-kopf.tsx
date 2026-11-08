@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useId, useState } from "react";
 import { toast } from "sonner";
 import { GlassSwitch } from "@/components/glassyui/glass-switch";
