@@ -8,7 +8,11 @@
 
 import { db } from "@/db";
 import { currencyAmount } from "@/lib/currency-value";
-import { and, eq, gte, lt, inArray, notInArray, sum, sql } from "drizzle-orm";
+import { and, eq, gte, lt, inArray, isNull, notInArray, sum, sql } from "drizzle-orm";
+import { dealInvoices } from "@/db/schema/deal-invoices";
+import { kvaConfirmations } from "@/db/schema/customer-portal";
+import { quotations } from "@/db/schema/quotations";
+import { offenAus } from "@/lib/geld";
 import { objects, attributes, statuses, selectOptions } from "@/db/schema/objects";
 import { records, recordValues } from "@/db/schema/records";
 import { payments, expenses } from "@/db/schema/financial";
@@ -328,30 +332,9 @@ export async function getOverviewStats(workspaceId: string): Promise<OverviewSta
       winRate90dPct = paid + lost > 0 ? Math.round((paid / (paid + lost)) * 100) : null;
     }
 
-    // Outstanding: sum(value) − sum(payments) for deals in `Done` stage
-    const doneStageId = meta.stageByLowerTitle.get("done") ?? meta.stageByLowerTitle.get("durchgeführt");
-    if (stageAttr && valueAttr && doneStageId) {
-      const doneDealRows = await db
-        .select({ recordId: recordValues.recordId })
-        .from(recordValues)
-        .where(and(eq(recordValues.attributeId, stageAttr.id), eq(recordValues.textValue, doneStageId)));
-      const doneDealIds = doneDealRows.map((r) => r.recordId);
-      if (doneDealIds.length > 0) {
-        const valueRows = await db
-          .select({ recordId: recordValues.recordId, num: recordValues.numberValue, json: recordValues.jsonValue })
-          .from(recordValues)
-          .where(and(eq(recordValues.attributeId, valueAttr.id), inArray(recordValues.recordId, doneDealIds)));
-        const valueSum = valueRows.reduce((s, r) => s + (currencyAmount(r.json ?? r.num) ?? 0), 0);
-
-        // Kaution und durchlaufende Posten zählen nicht gegen den Auftragswert.
-        const paidRows = await db
-          .select({ amount: payments.amount, taxTreatment: payments.taxTreatment })
-          .from(payments)
-          .where(and(eq(payments.workspaceId, workspaceId), inArray(payments.dealRecordId, doneDealIds)));
-        const paidSum = preisZahlungenCent(paidRows) / 100;
-        outstandingAmount = Math.max(0, valueSum - paidSum);
-      }
-    }
+    // Outstanding (Plan 9, Entscheidung 3): Summe der offenen Reste aller Deals mit
+    // gestellter Rechnung, aus dem einen „offen“ (`offenAus`), nicht mehr Titel „done“.
+    outstandingAmount = (await offeneResteMitRechnung(workspaceId)) / 100;
 
     // Moves scheduled this ISO week (deals.move_date)
     if (moveDateAttr) {
@@ -1458,4 +1441,41 @@ export async function getCompanyComparison(
 
   out.sort((a, b) => b.score - a.score);
   return out;
+}
+
+/** Summe `restCent` über Deals mit gestellter Rechnung (Stunden ohne Betrag zählen nicht). */
+export async function offeneResteMitRechnung(workspaceId: string): Promise<number> {
+  const rechnungen = await db
+    .select({ deal: dealInvoices.dealRecordId, bruttoCent: dealInvoices.bruttoCent })
+    .from(dealInvoices)
+    .where(and(eq(dealInvoices.workspaceId, workspaceId), eq(dealInvoices.status, "gestellt")));
+  if (rechnungen.length === 0) return 0;
+  const ids = [...new Set(rechnungen.map((r) => r.deal))];
+  const [zahlungen, annahmen, angebote] = await Promise.all([
+    db
+      .select({ deal: payments.dealRecordId, amount: payments.amount, taxTreatment: payments.taxTreatment })
+      .from(payments)
+      .where(and(eq(payments.workspaceId, workspaceId), inArray(payments.dealRecordId, ids))),
+    db
+      .select({ deal: kvaConfirmations.dealRecordId, cent: kvaConfirmations.confirmedTotalCents })
+      .from(kvaConfirmations)
+      .where(and(eq(kvaConfirmations.workspaceId, workspaceId), inArray(kvaConfirmations.dealRecordId, ids), isNull(kvaConfirmations.supersededAt))),
+    db
+      .select({ deal: quotations.dealRecordId, fixedPrice: quotations.fixedPrice, isVariable: quotations.isVariable })
+      .from(quotations)
+      .where(inArray(quotations.dealRecordId, ids)),
+  ]);
+  let summe = 0;
+  for (const r of rechnungen) {
+    const angebot = angebote.find((a) => a.deal === r.deal);
+    const o = offenAus({
+      rechnung: { status: "gestellt", bruttoCent: r.bruttoCent },
+      annahmeCent: annahmen.find((a) => a.deal === r.deal)?.cent ?? null,
+      festpreis: angebot?.fixedPrice ?? null,
+      istStunden: angebot?.isVariable ?? false,
+      zahlungen: zahlungen.filter((z) => z.deal === r.deal),
+    });
+    summe += o.restCent ?? 0;
+  }
+  return summe;
 }

@@ -19,6 +19,16 @@ import {
 } from "@/lib/expense-categories";
 import { berlinYear } from "@/lib/berlin-date";
 import { aktualisiereWartet } from "./wartet";
+import {
+  GeldFehler,
+  berlinTag,
+  stornierbar,
+  zahlungAenderung,
+  zahlungStornoWerte,
+  type ZahlungKorrektur,
+  type ZahlungQuelle,
+} from "@/lib/geld";
+import { emitEvent } from "./activity-events";
 
 export type PaymentMethod = "cash" | "bank_transfer" | "other";
 export type ExpenseCategory =
@@ -363,6 +373,11 @@ export interface CreatePaymentInput {
   taxTreatment?: IncomeTaxTreatment;
   /** Snapshot der Betriebsgesellschaft. Fehlt das Feld (undefined) → aus dem Auftrag abgeleitet; null heißt „keine Firma“. */
   operatingCompanyId?: string | null;
+  /** Herkunft (Plan 9): hand, meldung, mitarbeiter, api, storno. */
+  quelle?: ZahlungQuelle | null;
+  /** Mitarbeiter-App: wer kassiert hat. */
+  employeeId?: string | null;
+  createdBy?: string | null;
 }
 
 export async function createPayment(
@@ -431,37 +446,52 @@ export type UpdatePaymentInput = Partial<{
   operatingCompanyId: string | null;
 }>;
 
+export type PaymentRow = typeof payments.$inferSelect;
+
+/**
+ * Zahlung bearbeiten (Plan 9, Entscheidung 8): Datum, Art, Zahler, Notiz,
+ * Referenz. Betrag und Kaution nur über `zahlungKorrigieren` (`NUR_KORREKTUR`).
+ * Eine fehlende Belegnummer wird in derselben Transaktion vergeben; jede
+ * Änderung schreibt `payment.geaendert` (vorher, nachher, wer).
+ * `dealRecordId` gesetzt: die Zahlung muss zu diesem Deal gehören (sonst null).
+ */
 export async function updatePayment(
   id: string,
   workspaceId: string,
-  input: UpdatePaymentInput
+  input: UpdatePaymentInput,
+  opts: { dealRecordId?: string; userId?: string | null } = {}
 ) {
-  const set: Partial<typeof payments.$inferInsert> = {
-    ...input,
-    updatedAt: new Date(),
-  };
-
-  // Transition into the numbered state: assign a Belegnummer once when the
-  // row has none yet. Numbers are never cleared or reused.
-  if (input.taxTreatment === "betriebseinnahme") {
-    const [existing] = await db
-      .select({
-        receiptNumber: payments.receiptNumber,
-        operatingCompanyId: payments.operatingCompanyId,
-        dealRecordId: payments.dealRecordId,
-        date: payments.date,
-      })
+  const ergebnis = await db.transaction(async (tx) => {
+    const [existing] = await tx
+      .select()
       .from(payments)
-      .where(and(eq(payments.id, id), eq(payments.workspaceId, workspaceId)))
+      .where(
+        and(
+          eq(payments.id, id),
+          eq(payments.workspaceId, workspaceId),
+          opts.dealRecordId ? eq(payments.dealRecordId, opts.dealRecordId) : undefined
+        )
+      )
+      .for("update")
       .limit(1);
-    if (existing && existing.receiptNumber === null) {
+    if (!existing) return null;
+    const pruefung = zahlungAenderung(
+      { amount: String(existing.amount), taxTreatment: existing.taxTreatment },
+      input as Record<string, unknown>
+    );
+    if (pruefung.code) throw new GeldFehler(pruefung.code);
+
+    const set: Partial<typeof payments.$inferInsert> = { ...input, updatedAt: new Date() };
+    delete set.amount;
+    delete set.taxTreatment;
+
+    // Belegnummer einmal vergeben, wenn die Zeile noch keine hat (nie neu, nie geleert).
+    if (existing.receiptNumber === null && existing.taxTreatment === "betriebseinnahme") {
       const companyId =
         input.operatingCompanyId ??
         existing.operatingCompanyId ??
-        (existing.dealRecordId
-          ? await resolveDealOperatingCompany(workspaceId, existing.dealRecordId)
-          : null);
-      const receiptNumber = await assignReceiptNumber(db, {
+        (existing.dealRecordId ? await resolveDealOperatingCompany(workspaceId, existing.dealRecordId) : null);
+      const receiptNumber = await assignReceiptNumber(tx, {
         workspaceId,
         operatingCompanyId: companyId,
         year: yearOfDate(input.date ?? existing.date),
@@ -469,13 +499,28 @@ export async function updatePayment(
       });
       if (receiptNumber) set.receiptNumber = receiptNumber;
     }
-  }
 
-  const [row] = await db
-    .update(payments)
-    .set(set)
-    .where(and(eq(payments.id, id), eq(payments.workspaceId, workspaceId)))
-    .returning();
+    const [row] = await tx.update(payments).set(set).where(eq(payments.id, id)).returning();
+    return { vorher: existing, row };
+  });
+  if (!ergebnis) return null;
+  const { vorher, row } = ergebnis;
+  const felder = ["date", "payer", "paymentMethod", "reference", "notes", "operatingCompanyId", "receiptNumber"] as const;
+  const geaendert = felder.filter((f) => String(vorher[f] ?? "") !== String(row[f] ?? ""));
+  if (geaendert.length > 0) {
+    await emitEvent({
+      workspaceId,
+      recordId: row.dealRecordId,
+      objectSlug: row.dealRecordId ? "deals" : null,
+      eventType: "payment.geaendert",
+      payload: {
+        paymentId: id,
+        vorher: Object.fromEntries(geaendert.map((f) => [f, vorher[f] ?? null])),
+        nachher: Object.fromEntries(geaendert.map((f) => [f, row[f] ?? null])),
+      },
+      actorId: opts.userId ?? null,
+    });
+  }
   if (row) {
     try {
       await aktualisiereWartet(workspaceId, row.dealRecordId);
@@ -486,11 +531,39 @@ export async function updatePayment(
   return row ?? null;
 }
 
-export async function deletePayment(id: string, workspaceId: string) {
-  const [row] = await db
-    .delete(payments)
-    .where(and(eq(payments.id, id), eq(payments.workspaceId, workspaceId)))
-    .returning({ id: payments.id, dealRecordId: payments.dealRecordId });
+/**
+ * Harter Delete nur ohne Belegnummer (Altbestand, Kaution ohne Nummer) und nie
+ * für Storno-Zeilen oder stornierte Zahlungen: sonst `NUR_STORNO` (G4).
+ */
+export async function deletePayment(id: string, workspaceId: string, dealRecordId?: string) {
+  const row = await db.transaction(async (tx) => {
+    const [z] = await tx
+      .select()
+      .from(payments)
+      .where(
+        and(
+          eq(payments.id, id),
+          eq(payments.workspaceId, workspaceId),
+          dealRecordId ? eq(payments.dealRecordId, dealRecordId) : undefined
+        )
+      )
+      .for("update")
+      .limit(1);
+    if (!z) return null;
+    const [gegen] = await tx
+      .select({ id: payments.id })
+      .from(payments)
+      .where(eq(payments.stornoVonPaymentId, id))
+      .limit(1);
+    if (z.receiptNumber || z.stornoVonPaymentId || z.quelle === "storno" || gegen) {
+      throw new GeldFehler("NUR_STORNO");
+    }
+    const [geloescht] = await tx
+      .delete(payments)
+      .where(eq(payments.id, id))
+      .returning({ id: payments.id, dealRecordId: payments.dealRecordId });
+    return geloescht ?? null;
+  });
   if (row) {
     try {
       await aktualisiereWartet(workspaceId, row.dealRecordId);
@@ -499,6 +572,211 @@ export async function deletePayment(id: string, workspaceId: string) {
     }
   }
   return row ?? null;
+}
+
+function istStornoKonflikt(err: unknown): boolean {
+  const e = err as { code?: string; constraint_name?: string; cause?: { code?: string; constraint_name?: string } };
+  return (e?.code ?? e?.cause?.code) === "23505" && (e?.constraint_name ?? e?.cause?.constraint_name ?? "payments_storno_von_uniq") === "payments_storno_von_uniq";
+}
+
+/** Gegenbuchung in `tx` (Belegnummer, Quelle storno); wirft `GeldFehler`. */
+async function stornoInTx(
+  tx: DbExecutor,
+  ws: string,
+  deal: string,
+  paymentId: string,
+  grund: string,
+  userId: string,
+  jetzt: Date
+): Promise<PaymentRow> {
+  const [z] = await tx
+    .select()
+    .from(payments)
+    .where(and(eq(payments.id, paymentId), eq(payments.workspaceId, ws), eq(payments.dealRecordId, deal)))
+    .for("update")
+    .limit(1);
+  if (!z) throw Object.assign(new Error("Zahlung nicht gefunden."), { status: 404 });
+  const [gegen] = await tx
+    .select({ id: payments.id })
+    .from(payments)
+    .where(eq(payments.stornoVonPaymentId, paymentId))
+    .limit(1);
+  const sperre = stornierbar(
+    {
+      id: z.id,
+      dealRecordId: z.dealRecordId,
+      operatingCompanyId: z.operatingCompanyId,
+      amount: String(z.amount),
+      paymentMethod: z.paymentMethod,
+      taxTreatment: z.taxTreatment,
+      quelle: z.quelle ?? null,
+      stornoVonPaymentId: z.stornoVonPaymentId,
+    },
+    !!gegen
+  );
+  if (sperre) throw new GeldFehler(sperre);
+  const werte = zahlungStornoWerte(
+    {
+      id: z.id,
+      dealRecordId: z.dealRecordId,
+      operatingCompanyId: z.operatingCompanyId,
+      amount: String(z.amount),
+      paymentMethod: z.paymentMethod,
+      taxTreatment: z.taxTreatment,
+      quelle: z.quelle ?? null,
+      stornoVonPaymentId: z.stornoVonPaymentId,
+    },
+    grund,
+    berlinTag(jetzt)
+  );
+  const receiptNumber =
+    werte.taxTreatment === "betriebseinnahme"
+      ? await assignReceiptNumber(tx, {
+          workspaceId: ws,
+          operatingCompanyId: werte.operatingCompanyId,
+          year: yearOfDate(werte.date),
+          kind: "income",
+        })
+      : null;
+  try {
+    const [row] = await tx
+      .insert(payments)
+      .values({
+        workspaceId: ws,
+        dealRecordId: werte.dealRecordId,
+        operatingCompanyId: werte.operatingCompanyId,
+        date: werte.date,
+        amount: werte.amount,
+        paymentMethod: werte.paymentMethod,
+        taxTreatment: werte.taxTreatment as IncomeTaxTreatment,
+        quelle: "storno",
+        stornoVonPaymentId: werte.stornoVonPaymentId,
+        stornoGrund: werte.stornoGrund,
+        notes: werte.notes,
+        receiptNumber,
+        createdBy: userId,
+      })
+      .returning();
+    return row;
+  } catch (err) {
+    if (istStornoKonflikt(err)) throw new GeldFehler("SCHON_STORNIERT");
+    throw err;
+  }
+}
+
+async function nachZahlungsAenderung(ws: string, deal: string, userId: string | null): Promise<void> {
+  try {
+    await aktualisiereWartet(ws, deal);
+  } catch (err) {
+    console.error("[wartet] nach Storno fehlgeschlagen:", err);
+  }
+  try {
+    const { nachZahlung } = await import("./nach-zahlung");
+    await nachZahlung(ws, deal, userId);
+  } catch (err) {
+    console.error("[nach-zahlung] nach Storno fehlgeschlagen:", err);
+  }
+  try {
+    const { erinnerungenStoppen } = await import("./rechnungen");
+    await erinnerungenStoppen(ws, deal, "zahlung_geaendert");
+  } catch (err) {
+    console.error("[zahlungserinnerung] stoppen fehlgeschlagen:", err);
+  }
+}
+
+/** Storno als Gegenbuchung (G4): gleicher Deal, Firma, Steuerbehandlung, Betrag negativ. */
+export async function stornierePayment(
+  ws: string,
+  deal: string,
+  paymentId: string,
+  grund: string,
+  userId: string
+): Promise<PaymentRow> {
+  const jetzt = new Date();
+  const row = await db.transaction((tx) => stornoInTx(tx, ws, deal, paymentId, grund, userId, jetzt));
+  await emitEvent({
+    workspaceId: ws,
+    recordId: deal,
+    objectSlug: "deals",
+    eventType: "payment.storniert",
+    payload: { paymentId, stornoPaymentId: row.id, grund: row.stornoGrund, amount: row.amount },
+    actorId: userId,
+  });
+  await nachZahlungsAenderung(ws, deal, userId);
+  return row;
+}
+
+/** Betrag oder Kaution ändern: Storno plus neue Zahlung in EINER Transaktion. */
+export async function zahlungKorrigieren(
+  ws: string,
+  deal: string,
+  paymentId: string,
+  neu: ZahlungKorrektur,
+  userId: string
+): Promise<{ storno: PaymentRow; neu: PaymentRow }> {
+  if (!Number.isInteger(neu.amountCent) || neu.amountCent <= 0) throw new GeldFehler("BETRAG_FEHLT", "Betrag muss größer 0 sein.");
+  const jetzt = new Date();
+  const ergebnis = await db.transaction(async (tx) => {
+    const storno = await stornoInTx(tx, ws, deal, paymentId, neu.grund, userId, jetzt);
+    const [alt] = await tx.select().from(payments).where(eq(payments.id, paymentId)).limit(1);
+    const neueZeile = await createPayment(
+      ws,
+      deal,
+      {
+        date: neu.date,
+        amount: (neu.amountCent / 100).toFixed(2),
+        paymentMethod: neu.paymentMethod,
+        payer: alt?.payer ?? undefined,
+        notes: neu.notes ?? undefined,
+        taxTreatment: neu.kaution ? "nicht_steuerbar" : "betriebseinnahme",
+        operatingCompanyId: alt?.operatingCompanyId ?? null,
+        quelle: "hand",
+        createdBy: userId,
+      },
+      tx
+    );
+    return { storno, neu: neueZeile };
+  });
+  await emitEvent({
+    workspaceId: ws,
+    recordId: deal,
+    objectSlug: "deals",
+    eventType: "payment.storniert",
+    payload: { paymentId, stornoPaymentId: ergebnis.storno.id, korrekturPaymentId: ergebnis.neu.id, grund: ergebnis.storno.stornoGrund },
+    actorId: userId,
+  });
+  await nachZahlungsAenderung(ws, deal, userId);
+  return ergebnis;
+}
+
+/** „Bar erhalten“ (Tagesabschluss): Bargeld des Teams ist bei den Inhabern. Liefert die Zahl der Zeilen. */
+export async function barErhalten(ws: string, deal: string, paymentIds: string[], userId: string): Promise<number> {
+  if (paymentIds.length === 0) return 0;
+  const jetzt = new Date();
+  const rows = await db
+    .update(payments)
+    .set({ barErhaltenAm: jetzt, barErhaltenVon: userId, updatedAt: jetzt })
+    .where(
+      and(
+        eq(payments.workspaceId, ws),
+        eq(payments.dealRecordId, deal),
+        inArray(payments.id, paymentIds),
+        eq(payments.quelle, "mitarbeiter"),
+        isNull(payments.barErhaltenAm)
+      )
+    )
+    .returning({ id: payments.id });
+  if (rows.length > 0) {
+    await emitEvent({
+      workspaceId: ws,
+      recordId: deal,
+      objectSlug: "deals",
+      eventType: "payment.bar_erhalten",
+      payload: { paymentIds: rows.map((r) => r.id) },
+      actorId: userId,
+    });
+  }
+  return rows.length;
 }
 
 // ─── Expenses ─────────────────────────────────────────────────────────────────

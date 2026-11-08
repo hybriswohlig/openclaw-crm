@@ -1,5 +1,7 @@
 import { NextRequest } from "next/server";
-import { getAuthContext, unauthorized, badRequest, success } from "@/lib/api-utils";
+import { getAuthContext, unauthorized, badRequest, forbidden, isReadOnlyApiKey, success } from "@/lib/api-utils";
+import { dealImWorkspace, dealNichtGefunden } from "@/lib/kalkulation-versionen-antwort";
+import { erinnerungenStoppen } from "@/services/rechnungen";
 import { ZAHLUNGSART_FEHLER, zahlungsartAus } from "@/lib/zahlungsart";
 import {
   listPayments,
@@ -25,7 +27,8 @@ export async function GET(
   if (!ctx) return unauthorized(req);
 
   const { recordId } = await params;
-  const data = await listPayments(recordId);
+  if (!(await dealImWorkspace(ctx.workspaceId, recordId))) return dealNichtGefunden();
+  const data = (await listPayments(recordId)).filter((z) => z.workspaceId === ctx.workspaceId);
   return success(data);
 }
 
@@ -36,7 +39,11 @@ export async function POST(
   const ctx = await getAuthContext(req);
   if (!ctx) return unauthorized(req);
 
+  // Plan 9, Entscheidung 9: Agent nur lesen, Nur-Lese-Schlüssel 403, fremder Deal 404.
+  if (isReadOnlyApiKey(ctx)) return forbidden("Nur-Lese-Schlüssel darf keine Zahlung erfassen.");
+  if (ctx.authMethod === "api_key") return forbidden("Zahlungen erfasst nur ein Mensch.");
   const { recordId } = await params;
+  if (!(await dealImWorkspace(ctx.workspaceId, recordId))) return dealNichtGefunden();
   const body = await req.json();
   const { date, amount, payer, paymentMethod, reference, notes, taxTreatment } = body;
 
@@ -64,6 +71,8 @@ export async function POST(
     notes,
     operatingCompanyId,
     taxTreatment: (taxTreatment as IncomeTreatment) ?? "betriebseinnahme",
+    quelle: "hand",
+    createdBy: ctx.userId,
   });
 
   // Fire-and-forget: notify the customer once the deposit is fully covered.
@@ -77,6 +86,10 @@ export async function POST(
   } catch (err) {
     console.error("[nach-zahlung] nach Zahlung fehlgeschlagen:", err);
   }
+  // Eine Zahlung stoppt offene Erinnerungs-Entwürfe (Betrag darin ist überholt).
+  await erinnerungenStoppen(ctx.workspaceId, recordId, "zahlung").catch((err) =>
+    console.error("[zahlungserinnerung] stoppen fehlgeschlagen:", err)
+  );
 
   return success(row, 201);
 }

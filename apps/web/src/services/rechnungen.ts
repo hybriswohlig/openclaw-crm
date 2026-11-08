@@ -549,3 +549,23 @@ export async function rechnungHochladen(
   await nachRechnung(dokument.workspaceId, dokument.dealRecordId, e.userId);
   return ergebnis;
 }
+
+/**
+ * Offene Erinnerungs-Entwürfe eines Deals stoppen (Zahlung, Meldung, Storno;
+ * Entscheidung 19). Nur die eigenen Entwürfe dieser Erinnerungen.
+ */
+export async function erinnerungenStoppen(ws: string, deal: string, grund: string): Promise<number> {
+  const offen = await db
+    .update(paymentReminders)
+    .set({ status: "gestoppt", stoppGrund: grund, updatedAt: new Date() })
+    .where(
+      and(
+        eq(paymentReminders.workspaceId, ws),
+        eq(paymentReminders.dealRecordId, deal),
+        eq(paymentReminders.status, "entwurf")
+      )
+    )
+    .returning({ draftId: paymentReminders.draftId });
+  await entwuerfeSchliessen(db, ws, offen.map((o) => o.draftId));
+  return offen.length;
+}

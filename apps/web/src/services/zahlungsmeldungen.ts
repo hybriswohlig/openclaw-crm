@@ -23,6 +23,12 @@ import { maybeNotifyDepositReceived } from "./customer-portal-notifications";
 import { createPayment, resolveDealOperatingCompany } from "./financial";
 import { nachZahlung } from "./nach-zahlung";
 import { aktualisiereWartet } from "./wartet";
+import { dealNumbers } from "@/db/schema/financial";
+import { attributes, objects } from "@/db/schema/objects";
+import { recordValues } from "@/db/schema/records";
+import { MELDUNG_ALARM, meldungsAlarmFaellig, meldungsAlarmText } from "@/lib/geld";
+import { sendeAnInterne } from "./intern/intern-senden";
+import { erinnerungenStoppen } from "./rechnungen";
 
 export type { Zahlungsmeldung } from "@/lib/zahlungsmeldungen";
 
@@ -137,6 +143,8 @@ export async function bestaetigeZahlungsmeldung(
         notes: "Kunde meldete „bezahlt“ im Link",
         taxTreatment: "betriebseinnahme",
         operatingCompanyId,
+        quelle: "meldung",
+        createdBy: userId,
       },
       tx,
     );
@@ -168,4 +176,101 @@ export async function verwerfeZahlungsmeldung(
     ergebnis: undefined,
     payload: {},
   }));
+}
+
+/**
+ * Alarm „Kunde meldet bezahlt“ (Plan 9, G7): genau eine WhatsApp an beide
+ * Inhaber je Meldung. Unter `pg_advisory_xact_lock` je Deal und Variante prüft
+ * `meldungsAlarmFaellig`, ob seit der letzten Erledigung schon ein Alarm liegt;
+ * nur sonst wird `payment.meldung_alarm` geschrieben und nach dem Commit
+ * gesendet. Wiederholtes Tippen schickt nichts mehr. Liefert, ob gesendet wurde.
+ */
+export async function meldungsAlarm(ws: string, deal: string, eventId: string): Promise<boolean> {
+  const [meldung] = await db
+    .select(SPALTEN)
+    .from(activityEvents)
+    .where(
+      and(
+        eq(activityEvents.id, eventId),
+        eq(activityEvents.workspaceId, ws),
+        eq(activityEvents.recordId, deal),
+        eq(activityEvents.eventType, MELDUNG_GEMELDET),
+      ),
+    )
+    .limit(1);
+  const variante = (meldung?.payload as { variant?: unknown } | null)?.variant;
+  if (!meldung || (variante !== "deposit" && variante !== "final")) return false;
+  const betragCent = Number((meldung.payload as { amountCents?: unknown }).amountCents) || 0;
+
+  const faellig = await db.transaction(async (tx) => {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtext('zahlungsmeldung-alarm:' || ${deal}::text || ':' || ${variante}::text))`,
+    );
+    // Eigene Abfrage nach der Sperre (READ COMMITTED): der Alarm des Vorgängers ist sichtbar.
+    const ereignisse = await tx
+      .select(SPALTEN)
+      .from(activityEvents)
+      .where(
+        and(
+          eq(activityEvents.workspaceId, ws),
+          eq(activityEvents.recordId, deal),
+          inArray(activityEvents.eventType, [...MELDUNG_EREIGNISTYPEN, MELDUNG_ALARM]),
+        ),
+      );
+    if (!meldungsAlarmFaellig(ereignisse, eventId)) return false;
+    await tx.insert(activityEvents).values({
+      workspaceId: ws,
+      recordId: deal,
+      objectSlug: "deals",
+      eventType: MELDUNG_ALARM,
+      payload: { eventId, variante, betragCent },
+    });
+    return true;
+  });
+  if (!faellig) return false;
+
+  const [nummer, name] = await Promise.all([
+    db.select({ n: dealNumbers.dealNumber }).from(dealNumbers).where(eq(dealNumbers.dealRecordId, deal)).limit(1),
+    db
+      .select({ t: recordValues.textValue })
+      .from(recordValues)
+      .innerJoin(attributes, eq(attributes.id, recordValues.attributeId))
+      .innerJoin(objects, eq(objects.id, attributes.objectId))
+      .where(and(eq(recordValues.recordId, deal), eq(attributes.slug, "name"), eq(objects.workspaceId, ws)))
+      .limit(1),
+  ]);
+  const text = meldungsAlarmText({
+    name: name[0]?.t?.trim() || "Kunde",
+    nummer: nummer[0]?.n ?? null,
+    betragCent,
+    variante,
+  });
+  try {
+    await sendeAnInterne(ws, text, { nachholen: true });
+  } catch (err) {
+    console.error("[zahlungsmeldung] Alarm senden fehlgeschlagen:", err);
+  }
+  return true;
+}
+
+/** Nach einer neuen Meldung (öffentlicher Link): Alarm und Erinnerungen stoppen. Fehler brechen nie. */
+export async function nachMeldung(ws: string, deal: string): Promise<void> {
+  try {
+    const [neueste] = await db
+      .select({ id: activityEvents.id })
+      .from(activityEvents)
+      .where(
+        and(
+          eq(activityEvents.workspaceId, ws),
+          eq(activityEvents.recordId, deal),
+          eq(activityEvents.eventType, MELDUNG_GEMELDET),
+        ),
+      )
+      .orderBy(sql`${activityEvents.createdAt} desc`)
+      .limit(1);
+    if (neueste) await meldungsAlarm(ws, deal, neueste.id);
+  } catch (err) {
+    console.error("[zahlungsmeldung] Alarm fehlgeschlagen:", err);
+  }
+  await erinnerungenStoppen(ws, deal, "meldung").catch(() => {});
 }

@@ -977,6 +977,14 @@ export async function recordMarkedPaid(
     },
   });
 
+  // Plan 9 (G7): einmal je Meldung ein Alarm an beide Inhaber; Fehler brechen nie.
+  try {
+    const { nachMeldung } = await import("./zahlungsmeldungen");
+    await nachMeldung(link.workspaceId, link.dealRecordId);
+  } catch (err) {
+    console.error("[marked-paid] Alarm fehlgeschlagen:", err);
+  }
+
   return { ok: true };
 }
 

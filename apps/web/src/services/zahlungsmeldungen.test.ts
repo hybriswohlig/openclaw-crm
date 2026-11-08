@@ -178,6 +178,8 @@ describe("bestaetigeZahlungsmeldung", () => {
       notes: "Kunde meldete „bezahlt“ im Link",
       taxTreatment: "betriebseinnahme",
       operatingCompanyId: "oc_1",
+      quelle: "meldung",
+      createdBy: "usr_1",
     });
     expect(tx).toBeDefined();
     expect(mocks.resolveDealOperatingCompany).toHaveBeenCalledWith("ws_1", "deal_1");

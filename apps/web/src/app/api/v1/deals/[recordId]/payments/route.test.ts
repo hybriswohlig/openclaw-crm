@@ -9,7 +9,15 @@ const mocks = vi.hoisted(() => ({
   listPayments: vi.fn(),
   maybeNotifyDepositReceived: vi.fn(),
   nachZahlung: vi.fn(),
+  dealImWorkspace: vi.fn(),
+  erinnerungenStoppen: vi.fn(),
 }));
+
+vi.mock("@/lib/kalkulation-versionen-antwort", async (orig) => ({
+  ...(await orig<typeof import("@/lib/kalkulation-versionen-antwort")>()),
+  dealImWorkspace: mocks.dealImWorkspace,
+}));
+vi.mock("@/services/rechnungen", () => ({ erinnerungenStoppen: mocks.erinnerungenStoppen }));
 
 vi.mock("@/lib/api-utils", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api-utils")>();
@@ -30,7 +38,7 @@ vi.mock("@/services/nach-zahlung", () => ({
   nachZahlung: mocks.nachZahlung,
 }));
 
-import { POST } from "./route";
+import { GET, POST } from "./route";
 
 const WORKSPACE_ID = "ws-1";
 const DEAL_ID = "deal-1";
@@ -60,6 +68,8 @@ beforeEach(() => {
   mocks.createPayment.mockResolvedValue({ id: "pay-1", paymentMethod: "bank_transfer" });
   mocks.maybeNotifyDepositReceived.mockResolvedValue(undefined);
   mocks.nachZahlung.mockResolvedValue({ stufeGesetzt: false });
+  mocks.dealImWorkspace.mockResolvedValue(true);
+  mocks.erinnerungenStoppen.mockResolvedValue(0);
 });
 
 describe("POST /api/v1/deals/[recordId]/payments", () => {
@@ -70,9 +80,10 @@ describe("POST /api/v1/deals/[recordId]/payments", () => {
     expect(mocks.createPayment).toHaveBeenCalledWith(
       WORKSPACE_ID,
       DEAL_ID,
-      expect.objectContaining({ paymentMethod: "bank_transfer", amount: "500.00", date: "2026-11-06" }),
+      expect.objectContaining({ paymentMethod: "bank_transfer", amount: "500.00", date: "2026-11-06", quelle: "hand", createdBy: "usr-1" }),
     );
     expect(mocks.nachZahlung).toHaveBeenCalledWith(WORKSPACE_ID, DEAL_ID, "usr-1");
+    expect(mocks.erinnerungenStoppen).toHaveBeenCalledWith(WORKSPACE_ID, DEAL_ID, "zahlung");
   });
 
   it("lehnt „Scheck“ ab und speichert nichts", async () => {
@@ -98,5 +109,37 @@ describe("POST /api/v1/deals/[recordId]/payments", () => {
       expect.objectContaining({ paymentMethod: "cash" }),
     );
     fehler.mockRestore();
+  });
+});
+
+describe("Zahlungsrouten: Workspace und Rechte (Plan 9, Entscheidung 9)", () => {
+  it("fremder Deal: GET und POST 404, nichts gelesen oder geschrieben", async () => {
+    mocks.dealImWorkspace.mockResolvedValue(false);
+    const get = await GET(new NextRequest(`https://crm.test/api/v1/deals/${DEAL_ID}/payments`), {
+      params: Promise.resolve({ recordId: DEAL_ID }),
+    });
+    expect(get.status).toBe(404);
+    expect(mocks.listPayments).not.toHaveBeenCalled();
+    expect((await post({ date: "2026-11-06", amount: "5" })).status).toBe(404);
+    expect(mocks.createPayment).not.toHaveBeenCalled();
+  });
+
+  it("GET filtert fremde Workspaces heraus", async () => {
+    mocks.listPayments.mockResolvedValue([
+      { id: "a", workspaceId: WORKSPACE_ID },
+      { id: "b", workspaceId: "ws-fremd" },
+    ]);
+    const res = await GET(new NextRequest(`https://crm.test/api/v1/deals/${DEAL_ID}/payments`), {
+      params: Promise.resolve({ recordId: DEAL_ID }),
+    });
+    expect((await res.json()).data.map((z: { id: string }) => z.id)).toEqual(["a"]);
+  });
+
+  it("Nur-Lese-Schlüssel und Agent dürfen nicht erfassen (403)", async () => {
+    mocks.getAuthContext.mockResolvedValue({ ...AUTH, authMethod: "api_key", apiKeyAccess: "read" });
+    expect((await post({ date: "2026-11-06", amount: "5" })).status).toBe(403);
+    mocks.getAuthContext.mockResolvedValue({ ...AUTH, authMethod: "api_key", apiKeyAccess: "full" });
+    expect((await post({ date: "2026-11-06", amount: "5" })).status).toBe(403);
+    expect(mocks.createPayment).not.toHaveBeenCalled();
   });
 });
