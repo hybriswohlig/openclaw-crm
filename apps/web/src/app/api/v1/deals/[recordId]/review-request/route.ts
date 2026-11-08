@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   apiKeyScopeForbidden,
   badRequest,
+  forbidden,
   getAuthContext,
   isReadOnlyApiKey,
   notFound,
@@ -14,12 +15,16 @@ import {
   BewertungKonfigFehler,
   BewertungVersandFehler,
   bewertungAnfragen,
+  bewertungVormerken,
   bewertungsVorschau,
 } from "@/services/bewertung-anfragen";
 
 type Params = { params: Promise<{ recordId: string }> };
 
-/** GET → `{ text, kanal, einwilligung, sperre }`: Vorschau der Bewertungsanfrage, schreibt nichts. */
+/**
+ * GET → `{ text, kanal, einwilligung, sperre, naechstesFenster, vormerkung }`:
+ * Vorschau der Bewertungsanfrage, schreibt nichts.
+ */
 export async function GET(req: NextRequest, { params }: Params) {
   const ctx = await getAuthContext(req);
   if (!ctx) return unauthorized(req);
@@ -29,7 +34,11 @@ export async function GET(req: NextRequest, { params }: Params) {
 }
 
 /**
- * POST `{ text?, einwilligung? }` → `{ gesendet, gespraechId }`. Fehler einer
+ * POST `{ text?, einwilligung?, vormerken? }` → `{ gesendet, gespraechId }`, mit
+ * `vormerken: true` außerhalb der Sendezeit `{ vorgemerkt: true, faelligAb }`
+ * (ohne Sperre wird auch dann sofort gesendet). Vormerken nur mit Sitzung
+ * (der Treiber sendet später im Namen des Nutzers); offene Vormerkung → 409
+ * `SCHON_VORGEMERKT`. Fehler einer
  * Hürde → 409 mit `code` und deutschem Text, `TEXT` → 400, fehlende
  * Konfiguration (NEXT_PUBLIC_APP_URL) → 500 `KONFIGURATION`, nichts gesendet.
  * Senden gescheitert → 502 `NICHT_GESENDET` (neuer Versuch möglich) oder
@@ -52,18 +61,23 @@ export async function POST(req: NextRequest, { params }: Params) {
     }
   }
   if (!body || typeof body !== "object" || Array.isArray(body)) return badRequest("Body muss ein Objekt sein.");
-  const { text, einwilligung } = body as { text?: unknown; einwilligung?: unknown };
+  const { text, einwilligung, vormerken } = body as { text?: unknown; einwilligung?: unknown; vormerken?: unknown };
   if (text !== undefined && typeof text !== "string") return badRequest("text muss ein Text sein.");
   if (einwilligung !== undefined && typeof einwilligung !== "string") return badRequest("einwilligung muss ein Text sein.");
+  if (vormerken !== undefined && typeof vormerken !== "boolean") return badRequest("vormerken muss wahr oder falsch sein.");
+  if (vormerken === true && ctx.authMethod !== "cookie") return forbidden("Vormerken geht nur in der Oberfläche.");
 
+  const eingabe = {
+    userId: ctx.userId,
+    ...(text !== undefined ? { text } : {}),
+    ...(einwilligung !== undefined ? { einwilligung } : {}),
+  };
   try {
-    return success(
-      await bewertungAnfragen(ctx.workspaceId, recordId, {
-        userId: ctx.userId,
-        ...(text !== undefined ? { text } : {}),
-        ...(einwilligung !== undefined ? { einwilligung } : {}),
-      })
-    );
+    if (vormerken === true) {
+      const r = await bewertungVormerken(ctx.workspaceId, recordId, eingabe);
+      return success("vorgemerkt" in r ? { vorgemerkt: true, faelligAb: r.faelligAb.toISOString() } : r);
+    }
+    return success(await bewertungAnfragen(ctx.workspaceId, recordId, eingabe));
   } catch (err) {
     if (err instanceof BewertungFehler) {
       return NextResponse.json(

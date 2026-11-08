@@ -60,6 +60,7 @@ import {
   bewertungAnfragen,
   nichtsGesendet,
   bewertungsVorschau,
+  bewertungVormerken,
   dbBewertungSpeicher,
   type BewertungRoh,
   type BewertungSpeicher,
@@ -104,6 +105,7 @@ function roh(teil: Partial<BewertungRoh> = {}): BewertungRoh {
     firmaName: "Kottke Umzüge",
     googleUrl: GOOGLE,
     personId: "person_1",
+    firmaId: "oc_kottke",
     vorname: "Anna",
     leistung: "move",
     ...teil,
@@ -128,7 +130,8 @@ function fake(start: {
   anspruchStatus?: string | null;
 } = {}) {
   const st = {
-    tokens: [] as { token: string }[],
+    tokens: [] as { token: string; quelle?: string; zustand?: string }[],
+    vormerkungen: [] as { id: string; art: string; status: string; faelligAb: Date; text?: string | null; einwilligung?: string | null; erstelltVon?: string | null }[],
     einwilligungen: [] as unknown[],
     sperre: Promise.resolve(),
     inTransaktion: false,
@@ -151,7 +154,28 @@ function fake(start: {
     tokenLoeschen: vi.fn(async (_ws: string, _deal: string, token: string) => {
       st.tokens = st.tokens.filter((t) => t.token !== token);
     }),
-    tokenAnlegen: vi.fn(async (z) => void st.tokens.push(z)),
+    tokenAnlegen: vi.fn(async (z) => void st.tokens.push({ ...z, zustand: "anspruch" })),
+    tokenZustand: vi.fn(async (_ws: string, _deal: string, token: string, zustand: string) => {
+      for (const t of st.tokens) if (t.token === token) t.zustand = zustand;
+    }),
+    vormerkungAnlegen: vi.fn(async (z) => {
+      const offen = st.vormerkungen.find((v) => v.status === "offen");
+      if (offen) {
+        if (offen.art !== "entwurf" || z.art !== "hand") return null;
+        Object.assign(offen, { art: "hand", faelligAb: z.faelligAb, text: z.text, einwilligung: z.einwilligung, erstelltVon: z.erstelltVon });
+        return offen.id;
+      }
+      const id = `vm_${st.vormerkungen.length + 1}`;
+      st.vormerkungen.push({ id, art: z.art, status: "offen", faelligAb: z.faelligAb, text: z.text, einwilligung: z.einwilligung, erstelltVon: z.erstelltVon });
+      return id;
+    }),
+    offeneVormerkung: vi.fn(async () => {
+      const v = st.vormerkungen.find((x) => x.status === "offen");
+      return v ? { id: v.id, art: v.art as "hand", faelligAb: v.faelligAb } : null;
+    }),
+    vormerkungAbschliessen: vi.fn(async (_ws: string, _deal: string, e: { status: string; nurId?: string }) => {
+      for (const v of st.vormerkungen) if (v.status === "offen" && (!e.nurId || v.id === e.nurId)) v.status = e.status;
+    }),
     einwilligungSpeichern: vi.fn(async (z) => {
       st.einwilligungen.push(z);
       return "consent_1";
@@ -375,7 +399,9 @@ describe("Erfolg", () => {
     // Token in review_tokens
     expect(s.tokenAnlegen).toHaveBeenCalledTimes(1);
     const tokenZeile = vi.mocked(s.tokenAnlegen).mock.calls[0]![0];
-    expect(tokenZeile).toEqual({ token: expect.stringMatching(/^[a-z2-7]{16}$/), workspaceId: WS, dealRecordId: DEAL, destinationUrl: GOOGLE });
+    expect(tokenZeile).toEqual({ token: expect.stringMatching(/^[a-z2-7]{16}$/), workspaceId: WS, dealRecordId: DEAL, destinationUrl: GOOGLE, quelle: "hand" });
+    expect(s.tokenZustand).toHaveBeenCalledWith(WS, DEAL, tokenZeile.token, "gesendet");
+    expect(s.st.tokens[0]!.zustand).toBe("gesendet");
 
     // Senden über sendeAntwort mit dem echten Link, dann nachEigenerNachricht
     expect(mocks.sendeAntwort).toHaveBeenCalledTimes(1);
@@ -418,7 +444,7 @@ describe("Erfolg", () => {
         dealRecordId: DEAL,
         eventType: "sent_whatsapp",
         channel: "whatsapp",
-        meta: expect.objectContaining({ manuell: true, einwilligung: "ledger", token: tokenZeile.token, gespraech_id: "conv_waba" }),
+        meta: expect.objectContaining({ manuell: true, quelle: "hand", einwilligung: "ledger", token: tokenZeile.token, gespraech_id: "conv_waba" }),
       })
     );
     expect(s.einwilligungSpeichern).not.toHaveBeenCalled();
@@ -843,7 +869,7 @@ describe("dbBewertungSpeicher", () => {
   const dialect = new PgDialect();
   const sqlText = (q: SQL) => dialect.sqlToQuery(q);
 
-  it("lesen: alles auf Workspace und Deal gefiltert, Status über text_value oder referenced_record_id", async () => {
+  it("lesen: alles auf Workspace und Deal gefiltert, Status über text_value", async () => {
     mocks.execute.mockResolvedValue({
       rows: [
         {
@@ -853,6 +879,7 @@ describe("dbBewertungSpeicher", () => {
           versuche: "2",
           marke: "kottke",
           firma: "Kottke Umzüge",
+          firma_id: "oc_kottke",
           google_url: GOOGLE,
           person_id: "person_1",
           person_text: null,
@@ -870,6 +897,7 @@ describe("dbBewertungSpeicher", () => {
       versuche: 2,
       markeTitel: "kottke",
       firmaName: "Kottke Umzüge",
+      firmaId: "oc_kottke",
       googleUrl: GOOGLE,
       personId: "person_1",
       vorname: "Anna",
@@ -880,7 +908,9 @@ describe("dbBewertungSpeicher", () => {
     expect(q.params).toContain(DEAL);
     expect(q.sql).toContain("o.workspace_id");
     expect(q.sql).toContain("ps.workspace_id");
-    expect(q.sql).toMatch(/s\.id = v\.text_value OR s\.id = v\.referenced_record_id/);
+    // Plan 11, Entscheidung 9: Status nur über text_value.
+    expect(q.sql).toMatch(/s\.id = v\.text_value\)/);
+    expect(q.sql).not.toContain("referenced_record_id)");
   });
 
   it("lesen: Deal fehlt → null; Vorname mit Anredeform → null", async () => {
@@ -943,7 +973,9 @@ describe("dbBewertungSpeicher", () => {
     expect(await dbBewertungSpeicher.anspruch(WS, DEAL)).toEqual({ tokenDa: false, statusTitel: "sent_whatsapp" });
     const q = sqlText(mocks.execute.mock.calls[0]![0]);
     expect(q.sql).toContain("FROM review_tokens WHERE workspace_id = $1 AND deal_record_id = $2");
-    expect(q.sql).toMatch(/s\.id = v\.text_value OR s\.id = v\.referenced_record_id/);
+    // Plan 11, Entscheidung 9: Status nur über text_value.
+    expect(q.sql).toMatch(/s\.id = v\.text_value\)/);
+    expect(q.sql).not.toContain("referenced_record_id)");
     expect(q.sql).toContain("o.workspace_id");
     expect(q.params).toEqual(expect.arrayContaining([WS, DEAL]));
   });
@@ -1008,7 +1040,7 @@ describe("dbBewertungSpeicher", () => {
       fn({ execute: mocks.txExecute, insert: mocks.txInsert })
     );
     const id = await dbBewertungSpeicher.gesperrt(WS, DEAL, async (tx) => {
-      await tx.tokenAnlegen({ token: "tok_1", workspaceId: WS, dealRecordId: DEAL, destinationUrl: GOOGLE });
+      await tx.tokenAnlegen({ token: "tok_1", workspaceId: WS, dealRecordId: DEAL, destinationUrl: GOOGLE, quelle: "hand" });
       return tx.einwilligungSpeichern({
         workspaceId: WS,
         dealRecordId: DEAL,
@@ -1084,5 +1116,143 @@ describe("dbBewertungSpeicher", () => {
     const q = sqlText(mocks.execute.mock.calls[0]![0]);
     expect(q.sql).toContain("direction = 'inbound'");
     expect(q.params).toEqual(expect.arrayContaining([WS, "conv_waba"]));
+  });
+});
+
+// ─── Plan 11: Quelle, Token-Zustand, Vormerken ───────────────────────────────
+
+// So 15.11.2026, 12:00 Berlin: Ruhezeit
+const SONNTAG = new Date("2026-11-15T11:00:00Z");
+const MONTAG_9 = "2026-11-16T08:00:00.000Z";
+
+describe("Plan 11: Token-Zustand", () => {
+  it("VERSAND_UNKLAR setzt den Token auf unklar, er bleibt", async () => {
+    mocks.sendeAntwort.mockRejectedValue(new Error("socket hang up"));
+    const s = fake();
+    const err = await bewertungAnfragen(WS, DEAL, ANFRAGE, s).catch((e) => e);
+    expect(err.code).toBe("VERSAND_UNKLAR");
+    expect(s.st.tokens).toHaveLength(1);
+    expect(s.st.tokens[0]!.zustand).toBe("unklar");
+  });
+
+  it("nichtsGesendet löscht den Token, kein Zustand", async () => {
+    mocks.sendeAntwort.mockRejectedValue(new BaileysBridgeError(400, "invalid_body"));
+    const s = fake();
+    await bewertungAnfragen(WS, DEAL, ANFRAGE, s).catch(() => {});
+    expect(s.st.tokens).toHaveLength(0);
+    expect(s.tokenZustand).not.toHaveBeenCalled();
+  });
+
+  it("Handversand schließt eine offene Vormerkung des Deals als gesendet", async () => {
+    const s = fake();
+    s.st.vormerkungen.push({ id: "vm_x", art: "entwurf", status: "offen", faelligAb: WERKTAG });
+    await bewertungAnfragen(WS, DEAL, ANFRAGE, s);
+    expect(s.st.vormerkungen[0]!.status).toBe("gesendet");
+    expect(s.vormerkungAbschliessen).toHaveBeenCalledWith(WS, DEAL, { status: "gesendet", userId: "usr_1" });
+  });
+});
+
+describe("Plan 11: Automatik über die Handstrecke", () => {
+  it("ohne Ledger-Einwilligung → EINWILLIGUNG, auch mit Eintrag; nichts angelegt", async () => {
+    const s = fake({ einwilligung: false });
+    expect(
+      await fehlerCode(bewertungAnfragen(WS, DEAL, { userId: null, quelle: "automatik", einwilligung: "erfunden" }, s))
+    ).toBe("EINWILLIGUNG");
+    expect(s.einwilligungSpeichern).not.toHaveBeenCalled();
+    expect(s.tokenAnlegen).not.toHaveBeenCalled();
+    expect(mocks.sendeAntwort).not.toHaveBeenCalled();
+  });
+
+  it("mit Ledger: Vorlage statt Freitext, Felder ohne Nutzer, meta manuell false und quelle", async () => {
+    const s = fake();
+    await bewertungAnfragen(WS, DEAL, { userId: null, quelle: "automatik", text: "frei ohne Link" }, s);
+    expect(mocks.sendeAntwort.mock.calls[0]![0].body.startsWith("Hallo Anna,")).toBe(true);
+    expect(vi.mocked(s.tokenAnlegen).mock.calls[0]![0].quelle).toBe("automatik");
+    expect(mocks.updateRecord.mock.calls[0]![3]).toBeNull();
+    expect(mocks.nachEigenerNachricht).toHaveBeenCalledWith(expect.objectContaining({ userId: null }));
+    expect(s.ereignis).toHaveBeenCalledWith(
+      expect.objectContaining({ meta: expect.objectContaining({ manuell: false, quelle: "automatik", user_id: null }) })
+    );
+  });
+
+  it("vorgemerkt: Text und Einwilligung des Inhabers, Autor im Ledger", async () => {
+    const s = fake({ einwilligung: false });
+    await bewertungAnfragen(WS, DEAL, { userId: "usr_2", quelle: "vorgemerkt", einwilligung: "Am Telefon" }, s);
+    expect(s.einwilligungSpeichern).toHaveBeenCalledWith(expect.objectContaining({ userId: "usr_2", exactWording: "Am Telefon" }));
+    expect(vi.mocked(s.tokenAnlegen).mock.calls[0]![0].quelle).toBe("vorgemerkt");
+    expect(s.ereignis).toHaveBeenCalledWith(expect.objectContaining({ meta: expect.objectContaining({ manuell: true, quelle: "vorgemerkt" }) }));
+  });
+});
+
+describe("Plan 11: bewertungVormerken", () => {
+  it("nur bei RUHEZEIT: Vormerkung für Montag 9 Uhr, Frist 48 Stunden, nichts gesendet oder gespeichert", async () => {
+    vi.setSystemTime(SONNTAG);
+    const s = fake({ einwilligung: false });
+    const r = await bewertungVormerken(WS, DEAL, { userId: "usr_1", einwilligung: "Beim Besichtigungstermin" }, s, SONNTAG);
+    expect(r).toEqual({ vorgemerkt: true, faelligAb: new Date(MONTAG_9), vormerkungId: "vm_1" });
+    expect(s.vormerkungAnlegen).toHaveBeenCalledWith({
+      workspaceId: WS,
+      dealRecordId: DEAL,
+      operatingCompanyRecordId: "oc_kottke",
+      art: "hand",
+      faelligAb: new Date(MONTAG_9),
+      fristBis: new Date(Date.parse(MONTAG_9) + 48 * 3600 * 1000),
+      text: null,
+      einwilligung: "Beim Besichtigungstermin",
+      erstelltVon: "usr_1",
+    });
+    expect(mocks.sendeAntwort).not.toHaveBeenCalled();
+    expect(s.tokenAnlegen).not.toHaveBeenCalled();
+    expect(s.einwilligungSpeichern).not.toHaveBeenCalled();
+  });
+
+  it("ohne Sperre wird sofort gesendet", async () => {
+    const s = fake();
+    expect(await bewertungVormerken(WS, DEAL, { userId: "usr_1" }, s)).toEqual({ gesendet: true, gespraechId: "conv_waba" });
+    expect(s.vormerkungAnlegen).not.toHaveBeenCalled();
+  });
+
+  it("andere Sperren werfen wie heute", async () => {
+    vi.setSystemTime(SONNTAG);
+    mocks.getDealStageCategory.mockResolvedValue({ statusId: null, title: null, category: "booked", isTerminal: false });
+    const s = fake();
+    expect(await fehlerCode(bewertungVormerken(WS, DEAL, { userId: "usr_1" }, s, SONNTAG))).toBe("STUFE");
+    expect(s.vormerkungAnlegen).not.toHaveBeenCalled();
+  });
+
+  it("Einwilligung und Text werden wie beim Senden geprüft", async () => {
+    vi.setSystemTime(SONNTAG);
+    const s = fake({ einwilligung: false });
+    expect(await fehlerCode(bewertungVormerken(WS, DEAL, { userId: "usr_1" }, s, SONNTAG))).toBe("EINWILLIGUNG");
+    const t = fake();
+    expect(await fehlerCode(bewertungVormerken(WS, DEAL, { userId: "usr_1", text: "ohne Link" }, t, SONNTAG))).toBe("TEXT");
+    expect(s.vormerkungAnlegen).not.toHaveBeenCalled();
+    expect(t.vormerkungAnlegen).not.toHaveBeenCalled();
+  });
+
+  it("zweite Vormerkung → SCHON_VORGEMERKT; ein Entwurf wird zur Vormerkung von Hand", async () => {
+    vi.setSystemTime(SONNTAG);
+    const s = fake();
+    await bewertungVormerken(WS, DEAL, { userId: "usr_1" }, s, SONNTAG);
+    expect(await fehlerCode(bewertungVormerken(WS, DEAL, { userId: "usr_1" }, s, SONNTAG))).toBe("SCHON_VORGEMERKT");
+    const e = fake();
+    e.st.vormerkungen.push({ id: "vm_e", art: "entwurf", status: "offen", faelligAb: WERKTAG });
+    const r = await bewertungVormerken(WS, DEAL, { userId: "usr_1" }, e, SONNTAG);
+    expect(r).toMatchObject({ vorgemerkt: true, vormerkungId: "vm_e" });
+    expect(e.st.vormerkungen[0]).toMatchObject({ art: "hand", erstelltVon: "usr_1" });
+  });
+
+  it("Vorschau nennt bei Ruhezeit das nächste Fenster und eine offene Vormerkung", async () => {
+    vi.setSystemTime(SONNTAG);
+    const s = fake();
+    s.st.vormerkungen.push({ id: "vm_1", art: "hand", status: "offen", faelligAb: new Date(MONTAG_9) });
+    const v = await bewertungsVorschau(WS, DEAL, s, SONNTAG);
+    expect(v.sperre).toBe("RUHEZEIT");
+    expect(v.naechstesFenster).toBe(MONTAG_9);
+    expect(v.vormerkung).toEqual({ id: "vm_1", art: "hand", faelligAb: MONTAG_9 });
+    vi.setSystemTime(WERKTAG);
+    const w = await bewertungsVorschau(WS, DEAL, fake(), WERKTAG);
+    expect(w.naechstesFenster).toBeNull();
+    expect(w.vormerkung).toBeNull();
   });
 });

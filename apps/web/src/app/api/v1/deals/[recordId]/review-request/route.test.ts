@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   dealImWorkspace: vi.fn(),
   bewertungsVorschau: vi.fn(),
   bewertungAnfragen: vi.fn(),
+  bewertungVormerken: vi.fn(),
 }));
 
 // Kein Zugriff auf die Datenbank: jeder Zugriff auf `db` lässt den Test scheitern.
@@ -22,7 +23,12 @@ vi.mock("@/lib/kalkulation-versionen-antwort", async (importOriginal) => {
 });
 vi.mock("@/services/bewertung-anfragen", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/services/bewertung-anfragen")>();
-  return { ...actual, bewertungsVorschau: mocks.bewertungsVorschau, bewertungAnfragen: mocks.bewertungAnfragen };
+  return {
+    ...actual,
+    bewertungsVorschau: mocks.bewertungsVorschau,
+    bewertungAnfragen: mocks.bewertungAnfragen,
+    bewertungVormerken: mocks.bewertungVormerken,
+  };
 });
 
 import { GET, POST } from "./route";
@@ -168,5 +174,43 @@ describe("POST /deals/[recordId]/review-request", () => {
   it("unbekannter Fehler wird weitergeworfen", async () => {
     mocks.bewertungAnfragen.mockRejectedValue(new Error("Bridge weg"));
     await expect(POST(post({}), p())).rejects.toThrow("Bridge weg");
+  });
+});
+
+describe("POST vormerken (Plan 11)", () => {
+  it("vormerken: true ruft bewertungVormerken und antwortet mit ISO-Zeit", async () => {
+    mocks.bewertungVormerken.mockResolvedValue({ vorgemerkt: true, faelligAb: new Date("2026-11-16T08:00:00Z"), vormerkungId: "vm_1" });
+    const res = await POST(post({ vormerken: true, einwilligung: "Am Telefon" }), p());
+    expect(res.status).toBe(200);
+    expect(mocks.bewertungVormerken).toHaveBeenCalledWith("ws_1", "deal_1", { userId: "usr_1", einwilligung: "Am Telefon" });
+    expect(mocks.bewertungAnfragen).not.toHaveBeenCalled();
+  });
+
+  it("Antwort: vorgemerkt und faelligAb", async () => {
+    mocks.bewertungVormerken.mockResolvedValue({ vorgemerkt: true, faelligAb: new Date("2026-11-16T08:00:00Z"), vormerkungId: "vm_1" });
+    const body = await (await POST(post({ vormerken: true }), p())).json();
+    expect(JSON.stringify(body)).toContain('"vorgemerkt":true');
+    expect(JSON.stringify(body)).toContain('"faelligAb":"2026-11-16T08:00:00.000Z"');
+  });
+
+  it("ohne Sperre gesendet: Antwort wie heute", async () => {
+    mocks.bewertungVormerken.mockResolvedValue({ gesendet: true, gespraechId: "conv_1" });
+    const body = await (await POST(post({ vormerken: true }), p())).json();
+    expect(JSON.stringify(body)).toContain('"gespraechId":"conv_1"');
+  });
+
+  it("SCHON_VORGEMERKT → 409", async () => {
+    mocks.bewertungVormerken.mockRejectedValue(new BewertungFehler("SCHON_VORGEMERKT"));
+    const res = await POST(post({ vormerken: true }), p());
+    expect(res.status).toBe(409);
+    expect((await res.json()).error.code).toBe("SCHON_VORGEMERKT");
+  });
+
+  it("API-Schlüssel darf nicht vormerken (403), vormerken kein Boolean → 400", async () => {
+    mocks.getAuthContext.mockResolvedValue({ ...CTX, authMethod: "api_key", apiKeyAccess: "write" });
+    expect((await POST(post({ vormerken: true }), p())).status).toBe(403);
+    mocks.getAuthContext.mockResolvedValue(CTX);
+    expect((await POST(post({ vormerken: "ja" }), p())).status).toBe(400);
+    expect(mocks.bewertungVormerken).not.toHaveBeenCalled();
   });
 });

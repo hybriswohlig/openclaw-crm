@@ -98,7 +98,7 @@ describe("input guards", () => {
 });
 
 describe("routing safety — complaint-flagged notes must not mint review_tokens or call sendSms", () => {
-  // The cron pipeline (apps/web/src/app/api/cron/reviews-send/route.ts)
+  // The old cron pipeline (reviews-send, removed in Plan 11)
   // checks scanInternalNotes(internalNotes).matched BEFORE generating
   // a review_tokens row or invoking sendSms. This test pins the contract
   // at the library boundary: a flagged note returns matched=true with

@@ -48,6 +48,7 @@ import { randomBytes } from "node:crypto";
 import { sql } from "drizzle-orm";
 import { db } from "@/db";
 import { activityEvents, consentLedger, reviewEvents, reviewTokens } from "@/db/schema";
+import { naechstesFenster, type TokenZustand, type VormerkungArt } from "@/lib/bewertungen-kunden";
 import { kannSendenAus } from "@/lib/gespraech";
 import { canonicalizePhone } from "@/lib/identity/canonical";
 import { nameAusWert, vornameFuerAnrede } from "@/lib/personen-name";
@@ -89,7 +90,8 @@ export type BewertungCode =
   | "FENSTER"
   | "RUHEZEIT"
   | "SCHON_GESENDET"
-  | "TEXT";
+  | "TEXT"
+  | "SCHON_VORGEMERKT";
 
 const TEXTE: Record<BewertungCode, string> = {
   STUFE: "Eine Bewertung kann erst ab der Stufe Durchgeführt angefragt werden.",
@@ -103,7 +105,14 @@ const TEXTE: Record<BewertungCode, string> = {
   RUHEZEIT: "Bewertungsanfragen gehen nur Montag bis Samstag von 9 bis 19 Uhr raus.",
   SCHON_GESENDET: "Die Bewertung wurde für diesen Deal schon angefragt.",
   TEXT: "Der Text muss den Bewertungslink und den STOP-Hinweis enthalten.",
+  SCHON_VORGEMERKT: "Für diesen Deal ist schon eine Bewertungsanfrage vorgemerkt.",
 };
+
+/** Woher ein Versand kommt (Plan 11): Knopf, Vormerkung des Knopfs, Automatik. */
+export type BewertungQuelle = "hand" | "vorgemerkt" | "automatik";
+
+/** Eine Vormerkung von Hand darf so lange nach ihrem Fenster noch gesendet werden. */
+export const HAND_VORMERKUNG_FRIST_MS = 48 * 60 * 60 * 1000;
 
 export class BewertungFehler extends Error {
   constructor(
@@ -170,6 +179,8 @@ export interface BewertungRoh {
   googleUrl: string | null;
   /** Erste verknüpfte Person (associated_people). */
   personId: string | null;
+  /** Betriebsfirma des Deals (operating_company). */
+  firmaId: string | null;
   vorname: string | null;
   leistung: ManuellLeistung;
 }
@@ -205,7 +216,38 @@ export interface BewertungSpeicher {
   anrede(ws: string, deal: string, conversationId: string): Promise<ManuellAnrede>;
   /** Status-ID `sent_whatsapp` und Options-ID „manuell“, über ihren Titel aufgelöst. */
   optionen(objectId: string): Promise<{ statusGesendet: string | null; varianteManuell: string | null }>;
-  tokenAnlegen(z: { token: string; workspaceId: string; dealRecordId: string; destinationUrl: string }): Promise<void>;
+  tokenAnlegen(z: {
+    token: string;
+    workspaceId: string;
+    dealRecordId: string;
+    destinationUrl: string;
+    quelle: BewertungQuelle;
+  }): Promise<void>;
+  /** Zustand des Tokens nach dem Senden (gesendet) oder bei unklarem Ausgang (unklar). */
+  tokenZustand(ws: string, deal: string, token: string, zustand: TokenZustand): Promise<void>;
+  /**
+   * Legt eine offene Vormerkung an. Eine offene Vormerkung der Art „entwurf“
+   * wird dabei zur Vormerkung von Hand (Freigabe außerhalb der Sendezeit).
+   * `null`, wenn schon eine andere offene Vormerkung besteht.
+   */
+  vormerkungAnlegen(z: {
+    workspaceId: string;
+    dealRecordId: string;
+    operatingCompanyRecordId: string | null;
+    art: VormerkungArt;
+    faelligAb: Date;
+    fristBis: Date;
+    text?: string | null;
+    einwilligung?: string | null;
+    erstelltVon?: string | null;
+  }): Promise<string | null>;
+  offeneVormerkung(ws: string, deal: string): Promise<{ id: string; art: VormerkungArt; faelligAb: Date } | null>;
+  /** Schließt offene Vormerkungen des Deals (mit `nurId` nur diese). */
+  vormerkungAbschliessen(
+    ws: string,
+    deal: string,
+    e: { status: "gesendet" | "verworfen" | "gesperrt"; sperre?: string | null; userId?: string | null; nurId?: string }
+  ): Promise<void>;
   /** Ledger-Zeile und Ereignis `consent.eingetragen` mit Autor; liefert die ID der Ledger-Zeile. */
   einwilligungSpeichern(z: EinwilligungZeile): Promise<string>;
   ereignis(z: {
@@ -260,6 +302,7 @@ function speicherAuf(conn: Verbindung, gesperrt: BewertungSpeicher["gesperrt"] |
         versuche: unknown;
         marke: string | null;
         firma: string | null;
+        firma_id: string | null;
         google_url: string | null;
         person_id: string | null;
         person_text: string | null;
@@ -283,7 +326,7 @@ function speicherAuf(conn: Verbindung, gesperrt: BewertungSpeicher["gesperrt"] |
             (
               SELECT s.title FROM record_values v
               INNER JOIN attributes a ON a.id = v.attribute_id AND a.slug = 'review_request_status'
-              INNER JOIN statuses s ON s.attribute_id = a.id AND (s.id = v.text_value OR s.id = v.referenced_record_id)
+              INNER JOIN statuses s ON s.attribute_id = a.id AND (s.id = v.text_value)
               WHERE v.record_id = r.id
               LIMIT 1
             ) AS status_titel,
@@ -314,6 +357,12 @@ function speicherAuf(conn: Verbindung, gesperrt: BewertungSpeicher["gesperrt"] |
               WHERE v.record_id = r.id AND coalesce(n.text_value, '') <> ''
               LIMIT 1
             ) AS firma,
+            (
+              SELECT v.referenced_record_id FROM record_values v
+              INNER JOIN attributes a ON a.id = v.attribute_id AND a.slug = 'operating_company'
+              WHERE v.record_id = r.id AND v.referenced_record_id IS NOT NULL
+              LIMIT 1
+            ) AS firma_id,
             (
               SELECT ps.google_review_url FROM record_values v
               INNER JOIN attributes a ON a.id = v.attribute_id AND a.slug = 'operating_company'
@@ -361,6 +410,7 @@ function speicherAuf(conn: Verbindung, gesperrt: BewertungSpeicher["gesperrt"] |
         versuche: Number.isFinite(versuche) ? versuche : 0,
         markeTitel: r.marke ?? null,
         firmaName: r.firma ?? null,
+        firmaId: r.firma_id ?? null,
         googleUrl: r.google_url ?? null,
         personId: r.person_id ?? null,
         vorname: vornameFuerAnrede(nameAusWert(r.person_text ?? null, alsJson(r.person_json))),
@@ -390,7 +440,7 @@ function speicherAuf(conn: Verbindung, gesperrt: BewertungSpeicher["gesperrt"] |
             (
               SELECT s.title FROM record_values v
               INNER JOIN attributes a ON a.id = v.attribute_id AND a.slug = 'review_request_status'
-              INNER JOIN statuses s ON s.attribute_id = a.id AND (s.id = v.text_value OR s.id = v.referenced_record_id)
+              INNER JOIN statuses s ON s.attribute_id = a.id AND (s.id = v.text_value)
               INNER JOIN records r ON r.id = v.record_id
               INNER JOIN objects o ON o.id = r.object_id AND o.workspace_id = ${ws}
               WHERE v.record_id = ${deal}
@@ -513,7 +563,60 @@ function speicherAuf(conn: Verbindung, gesperrt: BewertungSpeicher["gesperrt"] |
     },
 
     async tokenAnlegen(z) {
-      await conn.insert(reviewTokens).values(z);
+      await conn.insert(reviewTokens).values({ ...z, zustand: "anspruch", zustandAt: new Date() });
+    },
+
+    async tokenZustand(ws, deal, token, zustand) {
+      // Ein Klick hat den Token schon auf „gesendet“ gesetzt; „unklar“ überschreibt das nie.
+      await conn.execute(sql`
+        UPDATE review_tokens SET zustand = ${zustand}, zustand_at = now()
+        WHERE workspace_id = ${ws} AND deal_record_id = ${deal} AND token = ${token}
+          AND (${zustand} = 'gesendet' OR clicked_at IS NULL)
+      `);
+    },
+
+    async vormerkungAnlegen(z) {
+      const [r] = zeilen<{ id: string }>(
+        await conn.execute(sql`
+          INSERT INTO review_vormerkungen (
+            id, workspace_id, deal_record_id, operating_company_record_id, art, status,
+            faellig_ab, frist_bis, text, einwilligung, erstellt_von
+          ) VALUES (
+            ${crypto.randomUUID()}, ${z.workspaceId}, ${z.dealRecordId}, ${z.operatingCompanyRecordId}, ${z.art}, 'offen',
+            ${z.faelligAb.toISOString()}::timestamptz, ${z.fristBis.toISOString()}::timestamptz,
+            ${z.text ?? null}, ${z.einwilligung ?? null}, ${z.erstelltVon ?? null}
+          )
+          ON CONFLICT (workspace_id, deal_record_id) WHERE status = 'offen'
+          DO UPDATE SET
+            art = EXCLUDED.art, faellig_ab = EXCLUDED.faellig_ab, frist_bis = EXCLUDED.frist_bis,
+            text = EXCLUDED.text, einwilligung = EXCLUDED.einwilligung, erstellt_von = EXCLUDED.erstellt_von,
+            versuche = 0, letzter_versuch_at = NULL, updated_at = now()
+          WHERE review_vormerkungen.art = 'entwurf' AND EXCLUDED.art = 'hand'
+          RETURNING id
+        `)
+      );
+      return r?.id ?? null;
+    },
+
+    async offeneVormerkung(ws, deal) {
+      const [r] = zeilen<{ id: string; art: VormerkungArt; faellig_ab: Date | string }>(
+        await conn.execute(sql`
+          SELECT id, art, faellig_ab FROM review_vormerkungen
+          WHERE workspace_id = ${ws} AND deal_record_id = ${deal} AND status = 'offen'
+          LIMIT 1
+        `)
+      );
+      return r ? { id: r.id, art: r.art, faelligAb: new Date(r.faellig_ab) } : null;
+    },
+
+    async vormerkungAbschliessen(ws, deal, e) {
+      await conn.execute(sql`
+        UPDATE review_vormerkungen
+        SET status = ${e.status}, sperre = ${e.sperre ?? null}, erledigt_at = now(),
+            erledigt_von = ${e.userId ?? null}, updated_at = now()
+        WHERE workspace_id = ${ws} AND deal_record_id = ${deal} AND status = 'offen'
+          ${e.nurId ? sql`AND id = ${e.nurId}` : sql``}
+      `);
     },
 
     async einwilligungSpeichern(z) {
@@ -681,18 +784,32 @@ async function vorlage(ws: string, deal: string, p: Pruefung, speicher: Bewertun
  * keine Sperre, solange der Inhaber sie eintragen kann (es gibt eine
  * Empfänger-Person). Schreibt nichts.
  */
+export interface BewertungsVorschau {
+  text: string;
+  kanal: string | null;
+  einwilligung: boolean;
+  sperre: BewertungCode | null;
+  /** Nur bei Sperre RUHEZEIT: frühester Sendezeitpunkt (ISO) zum Vormerken. */
+  naechstesFenster: string | null;
+  /** Offene Vormerkung des Deals (Knopf, Entwurf oder Automatik). */
+  vormerkung: { id: string; art: VormerkungArt; faelligAb: string } | null;
+}
+
 export async function bewertungsVorschau(
   ws: string,
   deal: string,
-  speicher: BewertungSpeicher = dbBewertungSpeicher
-): Promise<{ text: string; kanal: string | null; einwilligung: boolean; sperre: BewertungCode | null }> {
-  const p = await pruefen(ws, deal, speicher);
+  speicher: BewertungSpeicher = dbBewertungSpeicher,
+  jetzt: Date = new Date()
+): Promise<BewertungsVorschau> {
+  const [p, offen] = await Promise.all([pruefen(ws, deal, speicher), speicher.offeneVormerkung(ws, deal)]);
   const sperre = p.sperre ?? (!p.einwilligung && !p.empfaenger ? "EINWILLIGUNG" : null);
   return {
     text: await vorlage(ws, deal, p, speicher, BEWERTUNGSLINK_PLATZHALTER),
     kanal: p.gespraech?.name ?? null,
     einwilligung: p.einwilligung,
     sperre,
+    naechstesFenster: sperre === "RUHEZEIT" ? naechstesFenster(jetzt).toISOString() : null,
+    vormerkung: offen ? { id: offen.id, art: offen.art, faelligAb: offen.faelligAb.toISOString() } : null,
   };
 }
 
@@ -793,22 +910,33 @@ export function nichtsGesendet(err: unknown): boolean {
  * Nach dem Senden laufen Vermerk, Felder und Ereignis je für sich; ein Fehler
  * dort ändert das Ergebnis nicht.
  */
-export async function bewertungAnfragen(
+export interface BewertungEingabe {
+  /** Mensch, der sendet oder vorgemerkt hat; null nur bei der Automatik. */
+  userId: string | null;
+  text?: string;
+  einwilligung?: string;
+  /** Standard „hand“. */
+  quelle?: BewertungQuelle;
+}
+
+/**
+ * Einwilligung und Text wie beim Senden prüfen (ohne zu speichern). Die
+ * Automatik kennt keinen Freitext und keinen Eintrag: ohne Zeile im Ledger
+ * sperrt EINWILLIGUNG.
+ */
+async function eingabePruefen(
   ws: string,
   deal: string,
-  input: { userId: string; text?: string; einwilligung?: string },
-  speicher: BewertungSpeicher = dbBewertungSpeicher
-): Promise<{ gesendet: true; gespraechId: string }> {
-  const basisUrl = appUrl();
-
-  // ─ Phase 1a: Prüfen ohne Transaktion
-  const p = await pruefen(ws, deal, speicher);
-  if (p.sperre) throw new BewertungFehler(p.sperre);
-  const gespraech = p.gespraech!;
-  const ziel = p.ziel!;
-
-  const eintrag = input.einwilligung?.trim() ?? "";
+  p: Pruefung,
+  input: BewertungEingabe,
+  speicher: BewertungSpeicher
+): Promise<{ eintrag: string; entwurf: string }> {
+  const automatik = input.quelle === "automatik";
+  const eintrag = automatik ? "" : (input.einwilligung?.trim() ?? "");
   if (!p.einwilligung) {
+    if (automatik) {
+      throw new BewertungFehler("EINWILLIGUNG", "Keine Einwilligung des Kunden gespeichert: die Automatik sendet nicht.");
+    }
     if (!p.empfaenger) {
       throw new BewertungFehler("EINWILLIGUNG", "Am Deal hängt keine Person, für die die Einwilligung gespeichert werden kann.");
     }
@@ -816,11 +944,29 @@ export async function bewertungAnfragen(
     if (eintrag.length > MAX_EINWILLIGUNG) {
       throw new BewertungFehler("EINWILLIGUNG", `Der Eintrag zur Einwilligung ist zu lang (höchstens ${MAX_EINWILLIGUNG} Zeichen).`);
     }
+    if (!input.userId) throw new BewertungFehler("EINWILLIGUNG");
   }
-
-  const entwurf = input.text ?? (await vorlage(ws, deal, p, speicher, BEWERTUNGSLINK_PLATZHALTER));
+  const entwurf = (automatik ? undefined : input.text) ?? (await vorlage(ws, deal, p, speicher, BEWERTUNGSLINK_PLATZHALTER));
   const grund = textFehler(entwurf, BEWERTUNGSLINK_PLATZHALTER);
   if (grund) throw new BewertungFehler("TEXT", grund);
+  return { eintrag, entwurf };
+}
+
+export async function bewertungAnfragen(
+  ws: string,
+  deal: string,
+  input: BewertungEingabe,
+  speicher: BewertungSpeicher = dbBewertungSpeicher
+): Promise<{ gesendet: true; gespraechId: string }> {
+  const basisUrl = appUrl();
+  const quelle: BewertungQuelle = input.quelle ?? "hand";
+
+  // ─ Phase 1a: Prüfen ohne Transaktion
+  const p = await pruefen(ws, deal, speicher);
+  if (p.sperre) throw new BewertungFehler(p.sperre);
+  const gespraech = p.gespraech!;
+  const ziel = p.ziel!;
+  const { eintrag, entwurf } = await eingabePruefen(ws, deal, p, { ...input, quelle }, speicher);
 
   // ─ Phase 1b: Anspruch unter der Sperre
   const token = neuerToken();
@@ -841,10 +987,10 @@ export async function bewertungAnfragen(
         purpose: "review_request",
         exactWording: eintrag,
         sourceConversationId: gespraech.id,
-        userId: input.userId,
+        userId: input.userId!,
       });
     }
-    await tx.tokenAnlegen({ token, workspaceId: ws, dealRecordId: deal, destinationUrl: ziel.url });
+    await tx.tokenAnlegen({ token, workspaceId: ws, dealRecordId: deal, destinationUrl: ziel.url, quelle });
     return id;
   });
 
@@ -866,7 +1012,25 @@ export async function bewertungAnfragen(
       throw new BewertungVersandFehler("NICHT_GESENDET", err);
     }
     console.error("[bewertung-anfragen] Senden unklar, Token bleibt als Sperre:", err);
+    try {
+      await speicher.tokenZustand(ws, deal, token, "unklar");
+    } catch (zErr) {
+      // Der Token sperrt trotzdem; nach 10 Minuten zählt „anspruch“ ohnehin als unklar.
+      console.error("[bewertung-anfragen] Token-Zustand unklar nicht gesetzt:", zErr);
+    }
     throw new BewertungVersandFehler("VERSAND_UNKLAR", err);
+  }
+
+  try {
+    await speicher.tokenZustand(ws, deal, token, "gesendet");
+  } catch (err) {
+    console.error("[bewertung-anfragen] Token-Zustand gesendet nicht gesetzt:", err);
+  }
+  try {
+    // Jeder erfolgreiche Versand erledigt eine offene Vormerkung des Deals.
+    await speicher.vormerkungAbschliessen(ws, deal, { status: "gesendet", userId: input.userId });
+  } catch (err) {
+    console.error("[bewertung-anfragen] Vormerkung nach dem Senden nicht geschlossen:", err);
   }
 
   const jetzt = new Date();
@@ -894,7 +1058,7 @@ export async function bewertungAnfragen(
         review_request_sent_at: jetzt.toISOString(),
         review_request_attempt_count: p.roh.versuche + 1,
       },
-      input.userId
+      quelle === "automatik" ? null : input.userId
     );
   } catch (err) {
     console.error("[bewertung-anfragen] Felder nach dem Senden nicht gesetzt:", err);
@@ -907,7 +1071,8 @@ export async function bewertungAnfragen(
       channel: "whatsapp",
       variant: null,
       meta: {
-        manuell: true,
+        manuell: quelle !== "automatik",
+        quelle,
         einwilligung: einwilligungId ? "inhaber_eingetragen" : "ledger",
         ...(einwilligungId ? { einwilligung_id: einwilligungId, einwilligung_von: input.userId } : {}),
         token,
@@ -922,4 +1087,41 @@ export async function bewertungAnfragen(
   }
 
   return { gesendet: true, gespraechId: gespraech.id };
+}
+
+/**
+ * Knopf außerhalb der Sendezeit (Entscheidung 5): dieselbe Prüfung wie beim
+ * Senden. Nur bei der Sperre RUHEZEIT wird vorgemerkt (`faellig_ab` = nächstes
+ * Fenster, Frist 48 Stunden danach); ohne Sperre wird sofort gesendet, jede
+ * andere Sperre wirft wie heute. Text und Einwilligung werden wie beim Senden
+ * geprüft und erst beim Versand gespeichert (der Treiber sendet mit
+ * `quelle: "vorgemerkt"` und dem Nutzer als Autor). Eine offene Vormerkung der
+ * Art „entwurf“ wird dabei zur Vormerkung von Hand (Freigabe).
+ */
+export async function bewertungVormerken(
+  ws: string,
+  deal: string,
+  input: { userId: string; text?: string; einwilligung?: string },
+  speicher: BewertungSpeicher = dbBewertungSpeicher,
+  jetzt: Date = new Date()
+): Promise<{ vorgemerkt: true; faelligAb: Date; vormerkungId: string } | { gesendet: true; gespraechId: string }> {
+  const p = await pruefen(ws, deal, speicher);
+  if (!p.sperre) return bewertungAnfragen(ws, deal, { ...input, quelle: "hand" }, speicher);
+  if (p.sperre !== "RUHEZEIT") throw new BewertungFehler(p.sperre);
+  const { eintrag } = await eingabePruefen(ws, deal, p, { ...input, quelle: "hand" }, speicher);
+
+  const faelligAb = naechstesFenster(jetzt);
+  const id = await speicher.vormerkungAnlegen({
+    workspaceId: ws,
+    dealRecordId: deal,
+    operatingCompanyRecordId: p.roh.firmaId,
+    art: "hand",
+    faelligAb,
+    fristBis: new Date(faelligAb.getTime() + HAND_VORMERKUNG_FRIST_MS),
+    text: input.text ?? null,
+    einwilligung: p.einwilligung ? null : eintrag,
+    erstelltVon: input.userId,
+  });
+  if (!id) throw new BewertungFehler("SCHON_VORGEMERKT");
+  return { vorgemerkt: true, faelligAb, vormerkungId: id };
 }
