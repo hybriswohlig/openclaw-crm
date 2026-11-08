@@ -6,23 +6,46 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { GlassButton } from "@/components/glassyui/glass-button";
-import { GlassSegmentedControl, GlassSegmentedControlItem } from "@/components/glassyui/glass-segmented-control";
+import {
+  GlassSegmentedControl,
+  GlassSegmentedControlItem,
+} from "@/components/glassyui/glass-segmented-control";
 import { apiAufruf } from "@/components/neu/akte/api";
 import { RechnungFluss } from "@/components/neu/akte/rechnung-fluss";
 import { ZahlungDialog } from "@/components/neu/akte/zahlung-dialog";
 import { seitentitel } from "@/components/neu/nav-config";
 import { usePortalZiel } from "@/components/neu/portal-ziel";
-import type { KasseAntwort, KasseSchlange, KasseZeile, ZahlungAkte } from "@/lib/geld";
+import type {
+  KasseAntwort,
+  KasseSchlange,
+  KasseZeile,
+  ZahlungAkte,
+} from "@/lib/geld";
 import type { Zahlungsmeldung } from "@/lib/zahlungsmeldungen";
 import { kachelText, schlangenAus } from "./kasse-logik";
 import { KasseSchlangeAnsicht } from "./kasse-schlange";
 
-type Zustand = { art: "laden" } | { art: "fehler"; meldung: string } | { art: "fertig"; antwort: KasseAntwort };
-type Offen = { art: "zahlung"; dealId: string; zahlung: ZahlungAkte } | { art: "rechnung"; dealId: string };
+type Zustand =
+  | { art: "laden" }
+  | { art: "fehler"; meldung: string }
+  | { art: "fertig"; antwort: KasseAntwort };
+type Offen =
+  | { art: "zahlung"; dealId: string; zahlung: ZahlungAkte }
+  | { art: "rechnung"; dealId: string };
 
 /** Was der Zahlungsdialog braucht: Rest der Zeile und die offenen Meldungen. */
-function zahlungFuerDialog(restCent: number | null, meldungen: Zahlungsmeldung[]): ZahlungAkte {
-  return { restCent, gesamtCent: null, quelle: "keins", meldungen, rechnung: null, zahlungen: [] };
+function zahlungFuerDialog(
+  restCent: number | null,
+  meldungen: Zahlungsmeldung[],
+): ZahlungAkte {
+  return {
+    restCent,
+    gesamtCent: null,
+    quelle: "keins",
+    meldungen,
+    rechnung: null,
+    zahlungen: [],
+  };
 }
 
 /**
@@ -41,15 +64,23 @@ export function KasseSeite() {
   const [laeuft, setLaeuft] = useState<string | null>(null);
   const lauf = useRef(0);
 
-  const laden = useCallback(async (still = false) => {
-    const dieser = ++lauf.current;
-    if (!still) setZustand({ art: "laden" });
-    const r = await apiAufruf<KasseAntwort>(`/api/v1/kasse${firma !== "alle" ? `?firma=${encodeURIComponent(firma)}` : ""}`);
-    if (dieser !== lauf.current) return;
-    if (r.ok) setZustand({ art: "fertig", antwort: r.data });
-    else if (still) toast.error("Kasse konnte nicht neu geladen werden.", { description: r.message });
-    else setZustand({ art: "fehler", meldung: r.message });
-  }, [firma]);
+  const laden = useCallback(
+    async (still = false) => {
+      const dieser = ++lauf.current;
+      if (!still) setZustand({ art: "laden" });
+      const r = await apiAufruf<KasseAntwort>(
+        `/api/v1/kasse${firma !== "alle" ? `?firma=${encodeURIComponent(firma)}` : ""}`,
+      );
+      if (dieser !== lauf.current) return;
+      if (r.ok) setZustand({ art: "fertig", antwort: r.data });
+      else if (still)
+        toast.error("Kasse konnte nicht neu geladen werden.", {
+          description: r.message,
+        });
+      else setZustand({ art: "fehler", meldung: r.message });
+    },
+    [firma],
+  );
 
   useEffect(() => {
     void laden();
@@ -63,11 +94,16 @@ export function KasseSeite() {
       return;
     }
     setLaeuft(`${schlange}:${z.dealId}`);
-    const r = await apiAufruf<{ meldungen: Zahlungsmeldung[] }>(`/api/v1/deals/${z.dealId}/payment-reports`);
+    const r = await apiAufruf<{ meldungen: Zahlungsmeldung[] }>(
+      `/api/v1/deals/${z.dealId}/payment-reports`,
+    );
     setLaeuft(null);
     const meldungen = r.ok ? r.data.meldungen : [];
-    // Vorbelegung: offener Rest, fehlende Anzahlung oder gemeldeter Betrag der Zeile.
-    setOffen({ art: "zahlung", dealId: z.dealId, zahlung: zahlungFuerDialog(z.betragCent, meldungen) });
+    // Vorbelegung: offener Rest (Schlange „offen“) bzw. die fehlende Anzahlung. Bei einer
+    // Meldung ohne Zeile in „offen“ bleibt der Rest unbekannt; bestätigt wird oben im Dialog.
+    const ausOffen = zustand.art === "fertig" ? zustand.antwort.schlangen.offen.find((o) => o.dealId === z.dealId) : undefined;
+    const rest = schlange === "meldung" ? (ausOffen?.betragCent ?? null) : z.betragCent;
+    setOffen({ art: "zahlung", dealId: z.dealId, zahlung: zahlungFuerDialog(rest, meldungen) });
   }
 
   const a = zustand.art === "fertig" ? zustand.antwort : null;
@@ -87,19 +123,31 @@ export function KasseSeite() {
           <p className="neu-kopf-zweite">{zweite}</p>
         </div>
         {firmen.length > 1 ? (
-          <GlassSegmentedControl value={firma} onValueChange={(v) => setFirma(v)} aria-label="Firma">
-            <GlassSegmentedControlItem value="alle">Alle</GlassSegmentedControlItem>
-            {firmen.map((f) => (
-              <GlassSegmentedControlItem key={f.id} value={f.id}>
-                {f.name.replace(/\s+(Umzüge|Entrümpelung).*$/i, "")}
+          <div className="kasse-firmen">
+            <GlassSegmentedControl
+              value={firma}
+              onValueChange={(v) => setFirma(v)}
+              aria-label="Firma"
+            >
+              <GlassSegmentedControlItem value="alle">
+                Alle
               </GlassSegmentedControlItem>
-            ))}
-          </GlassSegmentedControl>
+              {firmen.map((f) => (
+                <GlassSegmentedControlItem key={f.id} value={f.id}>
+                  {f.name.trim().split(/\s+/)[0]}
+                </GlassSegmentedControlItem>
+              ))}
+            </GlassSegmentedControl>
+          </div>
         ) : null}
       </header>
 
       {zustand.art === "laden" ? (
-        <div className="kasse-raster" aria-busy="true" aria-label="Kasse wird geladen">
+        <div
+          className="kasse-raster"
+          aria-busy="true"
+          aria-label="Kasse wird geladen"
+        >
           {Array.from({ length: 4 }, (_, i) => (
             <span key={i} className="lg-skeleton kasse-skelett" />
           ))}
@@ -119,7 +167,11 @@ export function KasseSeite() {
         <>
           <ul className="kasse-kacheln" aria-label="Summen">
             {schlangen.map((s) => (
-              <li key={s.schlange} className="kasse-kachel" data-voll={s.summe.anzahl > 0 || undefined}>
+              <li
+                key={s.schlange}
+                className="kasse-kachel"
+                data-voll={s.summe.anzahl > 0 || undefined}
+              >
                 <span className="kasse-kachel-titel">{s.titel}</span>
                 <b className="kasse-kachel-wert">{kachelText(s.summe)}</b>
               </li>
@@ -139,7 +191,8 @@ export function KasseSeite() {
             ))}
           </div>
           <p className="kasse-fuss">
-            Ausgaben, Gesellschaften und Privatbewegungen: <Link href="/financial">alte Finanzseite</Link>
+            Ausgaben, Gesellschaften und Privatbewegungen:{" "}
+            <Link href="/financial">alte Finanzseite</Link>
           </p>
         </>
       ) : null}
@@ -153,8 +206,18 @@ export function KasseSeite() {
           onNeuLaden={async () => {
             await neuLaden();
             // Meldungen im offenen Dialog nachziehen.
-            const r = await apiAufruf<{ meldungen: Zahlungsmeldung[] }>(`/api/v1/deals/${offen.dealId}/payment-reports`);
-            if (r.ok) setOffen((o) => (o?.art === "zahlung" ? { ...o, zahlung: { ...o.zahlung, meldungen: r.data.meldungen } } : o));
+            const r = await apiAufruf<{ meldungen: Zahlungsmeldung[] }>(
+              `/api/v1/deals/${offen.dealId}/payment-reports`,
+            );
+            if (r.ok)
+              setOffen((o) =>
+                o?.art === "zahlung"
+                  ? {
+                      ...o,
+                      zahlung: { ...o.zahlung, meldungen: r.data.meldungen },
+                    }
+                  : o,
+              );
           }}
         />
       ) : null}

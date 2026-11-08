@@ -21,7 +21,6 @@ import { tasks } from "@/db/schema/tasks";
 import { inboxConversations, channelAccounts, inboxContacts } from "@/db/schema/inbox";
 import { bucketNonLeadsByMonth, isLeadKunde, type NonLeadMonthBucket } from "@/lib/kontaktart";
 import { loadNonLeadDealIds } from "@/services/kontaktart";
-import { preisZahlungenCent } from "@/lib/preis-zahlungen";
 
 // ─── Period helpers ──────────────────────────────────────────────────────────
 
@@ -301,7 +300,6 @@ export async function getOverviewStats(workspaceId: string): Promise<OverviewSta
     );
 
     const stageAttr = meta.attrBySlug.get("stage");
-    const valueAttr = meta.attrBySlug.get("value");
     const moveDateAttr = meta.attrBySlug.get("move_date");
 
     // Win-rate over deals whose stage is currently a terminal stage (Paid / Lost).

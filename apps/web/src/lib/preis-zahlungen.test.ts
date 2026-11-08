@@ -31,7 +31,6 @@ describe("Preisvergleiche nutzen preisZahlungenCent", () => {
   const src = join(__dirname, "..");
   const dateien = [
     "services/employee-portal-data.ts",
-    "app/api/v1/portal/deals/[dealId]/payment/route.ts",
     "services/deal-lifecycle.ts",
     "services/customer-portal-data.ts",
     "services/customer-portal-notifications.ts",
@@ -47,11 +46,16 @@ describe("Preisvergleiche nutzen preisZahlungenCent", () => {
     });
   }
 
-  // Umsatz (Monat, Jahr) zählt jede Einnahme; nur „offen“ vergleicht mit dem Wert.
-  it("services/statistics.ts: offen ohne Kaution", () => {
+  // Plan 9: „offen“ kommt aus offenAus (ohne Kaution, wie preisZahlungenCent).
+  it("services/statistics.ts: offen über offenAus", () => {
     const code = readFileSync(join(src, "services/statistics.ts"), "utf8");
-    const offen = code.slice(code.indexOf("// Outstanding:"), code.indexOf("outstandingAmount = Math.max"));
-    expect(offen).toContain("preisZahlungenCent(");
+    const offen = code.slice(code.indexOf("export async function offeneResteMitRechnung"));
+    expect(offen).toContain("offenAus(");
     expect(offen).not.toContain("sum(payments.amount)");
+  });
+
+  it("Kassieren im Team: Obergrenze aus dem einen „offen“", () => {
+    const code = readFileSync(join(src, "app/api/v1/portal/deals/[dealId]/payment/route.ts"), "utf8");
+    expect(code).toContain("offenerRest(");
   });
 });
