@@ -1,7 +1,11 @@
 /**
  * Stationen und Fahrzeugklassen aus dem Rechner (Plan 12b). Je Liste fünf
  * Minuten im Modul gespeichert. Nur `RECHNER_API_KEY`, nie ein Admin-Schlüssel.
+ *
+ * Plan 13: `ladeRechnerStammdaten` liest Tarife, Startorte und Fahrzeuge für
+ * die Einstellungsseite (nur lesen), über denselben Abruf.
  */
+import { stammdatenAus, type RechnerStammdatenAntwort } from "@/lib/einstellungen-uebersicht";
 import { rechnerBasisUrl, type Abruf } from "@/services/rechner/client";
 
 const ZEITLIMIT_MS = 10_000;
@@ -117,27 +121,46 @@ function klassenAus(body: unknown): RechnerKlasse[] {
   return aus;
 }
 
-async function abrufen(pfad: string, opts: { abruf?: Abruf }): Promise<unknown> {
-  const basis = rechnerBasisUrl();
-  const schluessel = process.env.RECHNER_API_KEY;
+const SCHLUESSEL_ABGELEHNT = "Rechner lehnt den API-Schlüssel ab (RECHNER_API_KEY prüfen).";
+
+interface AbrufOptionen {
+  abruf?: Abruf;
+  zeitlimitMs?: number;
+  /** Nur Tests; sonst `RECHNER_URL` und `RECHNER_API_KEY`. */
+  konfig?: { basis: string | null; schluessel: string | undefined };
+}
+
+/** Ein `GET` auf den Rechner mit dem CRM-Schlüssel. Wirft `RechnerStammdatenFehler`. */
+async function abrufen(pfad: string, opts: AbrufOptionen): Promise<unknown> {
+  const basis = opts.konfig ? opts.konfig.basis : rechnerBasisUrl();
+  const schluessel = opts.konfig ? opts.konfig.schluessel : process.env.RECHNER_API_KEY;
   if (!basis || !schluessel) throw new RechnerStammdatenFehler(NICHT_KONFIGURIERT);
   const abruf: Abruf = opts.abruf ?? ((u, init) => fetch(u, init));
-  let antwort: Response;
+  // setTimeout statt AbortSignal.timeout: in Tests mit falschen Timern prüfbar.
+  const steuerung = new AbortController();
+  const uhr = setTimeout(() => steuerung.abort(), opts.zeitlimitMs ?? ZEITLIMIT_MS);
   try {
-    antwort = await abruf(`${basis}${pfad}`, {
-      method: "GET",
-      headers: { authorization: `Bearer ${schluessel}` },
-      signal: AbortSignal.timeout(ZEITLIMIT_MS),
-    });
-  } catch (e) {
-    const zeit = e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError");
-    throw new RechnerStammdatenFehler(zeit ? "Rechner antwortet nicht (Zeitlimit)." : "Rechner nicht erreichbar.");
-  }
-  if (!antwort.ok) throw new RechnerStammdatenFehler(`Rechner-Fehler (HTTP ${antwort.status}).`);
-  try {
-    return await antwort.json();
-  } catch {
-    throw new RechnerStammdatenFehler("Rechner-Antwort ist kein JSON.");
+    let antwort: Response;
+    try {
+      antwort = await abruf(`${basis}${pfad}`, {
+        method: "GET",
+        headers: { authorization: `Bearer ${schluessel}` },
+        cache: "no-store",
+        signal: steuerung.signal,
+      });
+    } catch (e) {
+      const zeit = steuerung.signal.aborted || (e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError"));
+      throw new RechnerStammdatenFehler(zeit ? "Rechner antwortet nicht (Zeitlimit)." : "Rechner nicht erreichbar.");
+    }
+    if (antwort.status === 401) throw new RechnerStammdatenFehler(SCHLUESSEL_ABGELEHNT);
+    if (!antwort.ok) throw new RechnerStammdatenFehler(`Rechner-Fehler (HTTP ${antwort.status}).`);
+    try {
+      return await antwort.json();
+    } catch {
+      throw new RechnerStammdatenFehler("Rechner-Antwort ist kein JSON.");
+    }
+  } finally {
+    clearTimeout(uhr);
   }
 }
 
@@ -156,5 +179,47 @@ export async function rechnerKlassen(opts: { abruf?: Abruf } = {}): Promise<Rech
   if (klassenCache && klassenCache.ablauf > jetzt) return klassenCache.wert;
   const wert = klassenAus(await abrufen("/api/fahrzeuge", opts));
   klassenCache = { ablauf: Date.now() + CACHE_MS, wert };
+  return wert;
+}
+
+// ─── Plan 13: Einstellungen, Rechner nur lesen ──────────────────────────────
+
+const EINSTELLUNGEN_ZEITLIMIT_MS = 8_000;
+const EINSTELLUNGEN_CACHE_MS = 60_000;
+
+let einstellungenCache: { bis: number; wert: RechnerStammdatenAntwort } | null = null;
+
+/** Nur Tests. */
+export function rechnerStammdatenCacheLeeren(): void {
+  einstellungenCache = null;
+}
+
+/**
+ * `GET /api/tarife`, `/api/startorte`, `/api/fahrzeuge` parallel mit `RECHNER_API_KEY`,
+ * Abbruch nach 8 s, dann `stammdatenAus` (keine Teilwerte). Erfolg 60 s im Prozess,
+ * Fehler nie. Fehlertexte: nicht konfiguriert, 401 Schlüssel abgelehnt, sonst
+ * „Rechner nicht erreichbar.“
+ */
+export async function ladeRechnerStammdaten(
+  opts: { abruf?: Abruf; jetzt?: Date; konfig?: { basis: string | null; schluessel: string | undefined } } = {},
+): Promise<RechnerStammdatenAntwort> {
+  const jetzt = opts.jetzt ?? new Date();
+  if (einstellungenCache && einstellungenCache.bis > jetzt.getTime()) return einstellungenCache.wert;
+  const ab: AbrufOptionen = { abruf: opts.abruf, konfig: opts.konfig, zeitlimitMs: EINSTELLUNGEN_ZEITLIMIT_MS };
+  let roh: { tarife: unknown; startorte: unknown; fahrzeuge: unknown };
+  try {
+    const [tarife, startorte, fahrzeuge] = await Promise.all([
+      abrufen("/api/tarife", ab),
+      abrufen("/api/startorte", ab),
+      abrufen("/api/fahrzeuge", ab),
+    ]);
+    roh = { tarife, startorte, fahrzeuge };
+  } catch (e) {
+    const text = e instanceof RechnerStammdatenFehler ? e.message : "";
+    const fehler = text === NICHT_KONFIGURIERT || text === SCHLUESSEL_ABGELEHNT ? text : "Rechner nicht erreichbar.";
+    return { ok: false, fehler };
+  }
+  const wert = stammdatenAus(roh, jetzt.toISOString());
+  if (wert.ok) einstellungenCache = { bis: jetzt.getTime() + EINSTELLUNGEN_CACHE_MS, wert };
   return wert;
 }
