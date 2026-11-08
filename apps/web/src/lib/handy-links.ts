@@ -123,10 +123,10 @@ export function akteLinkAusHref(href: string): string {
 }
 
 /**
- * Kundenakte (Plan 11). Bis Plan 11 auf `main` ist, zeigt der Link auf die alte
- * Personenseite; der Koordinator stellt `KUNDENAKTE_NEU` nach dem Merge von Plan 11 um.
+ * Kundenakte (Plan 11). Seit Plan 11 zeigt der Link auf `/app/kunden/[id]`;
+ * `false` führte zurück auf die alte Personenseite.
  */
-export const KUNDENAKTE_NEU = false;
+export const KUNDENAKTE_NEU = true;
 export function kundeLink(personId: string): string {
   const id = encodeURIComponent(personId);
   return KUNDENAKTE_NEU ? `/app/kunden/${id}` : `/objects/people/${id}`;
