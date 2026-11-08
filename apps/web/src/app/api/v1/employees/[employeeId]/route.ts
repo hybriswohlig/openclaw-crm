@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
-import { getAuthContext, unauthorized, notFound, success } from "@/lib/api-utils";
+import { getAuthContext, unauthorized, notFound, badRequest, success } from "@/lib/api-utils";
+import { centAusHourlyRate } from "@/lib/einsatz";
 import {
   getEmployee,
   updateEmployee,
@@ -35,11 +36,19 @@ export async function PATCH(
 
   const { employeeId } = await params;
   const body = await req.json();
+  const rate = body && typeof body === "object" ? (body as { hourlyRate?: unknown }).hourlyRate : undefined;
+  if (rate !== undefined && centAusHourlyRate(rate as string | number | null) === null) {
+    return badRequest("hourlyRate ungültig");
+  }
 
-  const updated = await updateEmployee(ctx.workspaceId, employeeId, body);
-  if (!updated) return notFound("Employee not found");
-
-  return success(updated);
+  try {
+    const updated = await updateEmployee(ctx.workspaceId, employeeId, body);
+    if (!updated) return notFound("Employee not found");
+    return success(updated);
+  } catch (e) {
+    if (e instanceof Error && e.message === "hourlyRate ungültig") return badRequest("hourlyRate ungültig");
+    throw e;
+  }
 }
 
 export async function DELETE(

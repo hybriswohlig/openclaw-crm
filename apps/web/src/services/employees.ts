@@ -2,6 +2,15 @@ import { db } from "@/db";
 import { employees, dealEmployees, employeeLedger, dealNumbers, records, recordValues, attributes, objects, statuses, users, verifications } from "@/db/schema";
 import { eq, and, sql, inArray, desc, like } from "drizzle-orm";
 import { isLedgerDebit, ledgerDelta } from "@/lib/employee-ledger";
+import { centAusHourlyRate, hourlyRateAusCent } from "@/lib/einsatz";
+
+/** Wohnort bleibt in der Datenbank, geht aber nie an `/api/v1/employees*` (MCP liest `listEmployees`). */
+export function ohneWohnort<T extends object>(row: T): Omit<T, "homePlz" | "homeTown"> {
+  const kopie = { ...row } as Record<string, unknown>;
+  delete kopie.homePlz;
+  delete kopie.homeTown;
+  return kopie as Omit<T, "homePlz" | "homeTown">;
+}
 
 export async function listEmployees(workspaceId: string) {
   const rows = await db
@@ -11,6 +20,7 @@ export async function listEmployees(workspaceId: string) {
       experience: employees.experience,
       hourlyRate: employees.hourlyRate,
       photoBase64: employees.photoBase64,
+      active: employees.active,
       createdAt: employees.createdAt,
       updatedAt: employees.updatedAt,
       userId: employees.userId,
@@ -34,12 +44,14 @@ export async function listEmployees(workspaceId: string) {
     .where(like(verifications.value, "emp-setup:%"));
   const pendingUserIds = new Set(pending.map((p) => p.value.slice("emp-setup:".length)));
 
-  return rows.map((r) => ({
-    ...r,
-    saldoTotal: saldos.get(r.id) ?? 0,
-    hasAccount: !!r.userId,
-    hasPasswordSet: !!r.userId && !pendingUserIds.has(r.userId),
-  }));
+  return rows.map((r) =>
+    ohneWohnort({
+      ...r,
+      saldoTotal: saldos.get(r.id) ?? 0,
+      hasAccount: !!r.userId,
+      hasPasswordSet: !!r.userId && !pendingUserIds.has(r.userId),
+    })
+  );
 }
 
 export async function getEmployee(workspaceId: string, employeeId: string) {
@@ -48,24 +60,27 @@ export async function getEmployee(workspaceId: string, employeeId: string) {
     .from(employees)
     .where(and(eq(employees.id, employeeId), eq(employees.workspaceId, workspaceId)))
     .limit(1);
-  return row ?? null;
+  return row ? ohneWohnort(row) : null;
 }
 
 export async function createEmployee(
   workspaceId: string,
   input: { name: string; experience?: string; hourlyRate: string; photoBase64?: string | null }
 ) {
+  const cent = centAusHourlyRate(input.hourlyRate);
+  if (cent === null) throw new Error("hourlyRate ungültig");
   const [row] = await db
     .insert(employees)
     .values({
       workspaceId,
       name: input.name,
       experience: input.experience ?? null,
-      hourlyRate: input.hourlyRate,
+      rateWorkCents: cent,
+      hourlyRate: hourlyRateAusCent(cent),
       photoBase64: input.photoBase64 ?? null,
     })
     .returning();
-  return row;
+  return ohneWohnort(row);
 }
 
 export async function updateEmployee(
@@ -73,6 +88,13 @@ export async function updateEmployee(
   employeeId: string,
   input: { name?: string; experience?: string; hourlyRate?: string; photoBase64?: string | null }
 ) {
+  let rate: { rateWorkCents: number; hourlyRate: string } | undefined;
+  if (input.hourlyRate !== undefined) {
+    const cent = centAusHourlyRate(input.hourlyRate);
+    if (cent === null) throw new Error("hourlyRate ungültig");
+    rate = { rateWorkCents: cent, hourlyRate: hourlyRateAusCent(cent) };
+  }
+
   const existing = await getEmployee(workspaceId, employeeId);
   if (!existing) return null;
 
@@ -81,21 +103,23 @@ export async function updateEmployee(
     .set({
       ...(input.name !== undefined && { name: input.name }),
       ...(input.experience !== undefined && { experience: input.experience }),
-      ...(input.hourlyRate !== undefined && { hourlyRate: input.hourlyRate }),
+      ...rate,
       ...(input.photoBase64 !== undefined && { photoBase64: input.photoBase64 }),
       updatedAt: new Date(),
     })
-    .where(eq(employees.id, employeeId))
+    .where(and(eq(employees.id, employeeId), eq(employees.workspaceId, workspaceId)))
     .returning();
-  return updated;
+  return updated ? ohneWohnort(updated) : null;
 }
 
+/** Deaktivieren statt löschen (Plan 12a). Die Zeile bleibt, Wohnort geht nicht hinaus. */
 export async function deleteEmployee(workspaceId: string, employeeId: string) {
-  const existing = await getEmployee(workspaceId, employeeId);
-  if (!existing) return null;
-
-  await db.delete(employees).where(eq(employees.id, employeeId));
-  return existing;
+  const [updated] = await db
+    .update(employees)
+    .set({ active: false, deactivatedAt: new Date(), updatedAt: new Date() })
+    .where(and(eq(employees.id, employeeId), eq(employees.workspaceId, workspaceId)))
+    .returning();
+  return updated ? ohneWohnort(updated) : null;
 }
 
 export async function listDealEmployees(dealRecordId: string) {
@@ -120,23 +144,37 @@ export async function assignEmployeeToDeal(
   employeeId: string,
   role: string = "helper"
 ) {
-  const [row] = await db
+  const [inserted] = await db
     .insert(dealEmployees)
     .values({ dealRecordId, employeeId, role })
+    .onConflictDoNothing({ target: [dealEmployees.dealRecordId, dealEmployees.employeeId] })
     .returning();
-  return row;
-}
+  if (inserted) return inserted;
 
-export async function unassignEmployeeFromDeal(assignmentId: string) {
-  const [row] = await db
+  const [existing] = await db
     .select()
     .from(dealEmployees)
-    .where(eq(dealEmployees.id, assignmentId))
+    .where(and(eq(dealEmployees.dealRecordId, dealRecordId), eq(dealEmployees.employeeId, employeeId)))
     .limit(1);
-  if (!row) return null;
+  if (!existing) throw new Error("Zuweisung nicht gefunden");
+  return existing;
+}
 
-  await db.delete(dealEmployees).where(eq(dealEmployees.id, assignmentId));
-  return row;
+export async function updateDealEmployeeRole(dealRecordId: string, assignmentId: string, role: string) {
+  const [row] = await db
+    .update(dealEmployees)
+    .set({ role })
+    .where(and(eq(dealEmployees.id, assignmentId), eq(dealEmployees.dealRecordId, dealRecordId)))
+    .returning();
+  return row ?? null;
+}
+
+export async function unassignEmployeeFromDeal(assignmentId: string, dealRecordId: string) {
+  const [row] = await db
+    .delete(dealEmployees)
+    .where(and(eq(dealEmployees.id, assignmentId), eq(dealEmployees.dealRecordId, dealRecordId)))
+    .returning();
+  return row ?? null;
 }
 
 export async function getEmployeeContracts(workspaceId: string, employeeId: string) {
