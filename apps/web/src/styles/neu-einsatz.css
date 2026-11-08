@@ -801,3 +801,363 @@
     flex: 1;
   }
 }
+
+/* ─── Seite Mitarbeiter ──────────────────────────────────────────────────── */
+
+[data-neu] .ma-seite {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+[data-neu] .ma-reiter {
+  display: inline-flex;
+  align-self: flex-start;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 999px;
+  background: var(--hair);
+}
+
+[data-neu] .ma-reiter button {
+  border: 0;
+  background: transparent;
+  padding: 7px 16px;
+  border-radius: 999px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+[data-neu] .ma-reiter button[aria-selected="true"] {
+  background: var(--flaeche);
+  color: var(--ink);
+  font-weight: 600;
+  box-shadow: var(--shadow);
+}
+
+[data-neu] .ma-spalten {
+  display: grid;
+  grid-template-columns: minmax(280px, 380px) minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+
+[data-neu] .ma-liste-panel,
+[data-neu] .ma-panel-rahmen {
+  padding: 16px;
+  min-width: 0;
+}
+
+[data-neu] .ma-panel-titel {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+[data-neu] .ma-abschnitt-kopf {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+[data-neu] .ma-abschnitt-kopf h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+[data-neu] .ma-abschnitt {
+  margin-top: 18px;
+}
+
+[data-neu] .ma-liste {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+[data-neu] .ma-zeile {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 14px;
+  text-align: left;
+  font: inherit;
+  color: var(--ink);
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--rim);
+  cursor: pointer;
+}
+
+[data-neu] .ma-zeile[aria-current="true"] {
+  box-shadow: inset 0 0 0 1.5px var(--blue);
+}
+
+[data-neu] .ma-zeile:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+[data-neu] .ma-zeile-text {
+  flex: 1;
+  min-width: 0;
+}
+
+[data-neu] .ma-zeile-text b {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+[data-neu] .ma-zeile-text small {
+  display: block;
+  font-size: 12px;
+  color: var(--ink-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+[data-neu] .ma-deaktiviert {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+[data-neu] .ma-felder {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 14px;
+}
+
+[data-neu] .ma-feld {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+[data-neu] .ma-feld-breit {
+  grid-column: 1 / -1;
+}
+
+[data-neu] .ma-feld input,
+[data-neu] .ma-abw-form input,
+[data-neu] .ma-abw-form select {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--hair);
+  background: var(--flaeche);
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+}
+
+[data-neu] .ma-feld input:focus-visible,
+[data-neu] .ma-abw-form input:focus-visible,
+[data-neu] .ma-abw-form select:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 1px;
+}
+
+[data-neu] .ma-schalter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 24px;
+}
+
+[data-neu] .ma-schalter-zeile {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+  color: var(--ink);
+}
+
+[data-neu] .ma-hinweis,
+[data-neu] .ma-leer {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+[data-neu] .ma-alt {
+  margin-top: 18px;
+}
+
+[data-neu] .ma-alt a {
+  color: var(--blue-ink);
+}
+
+[data-neu] .ma-fehler {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--rose-ink);
+}
+
+[data-neu] .ma-knoepfe {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+[data-neu] .ma-streifen {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 6px;
+}
+
+[data-neu] .ma-tag {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 56px;
+  padding: 6px 8px;
+  border-radius: 12px;
+  font-size: 11.5px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--rim);
+  overflow: hidden;
+}
+
+[data-neu] .ma-tag-datum {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+[data-neu] .ma-tag-text {
+  color: var(--ink-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+[data-neu] .ma-tag[data-lage="frei"] .ma-tag-text {
+  color: var(--jade-ink);
+}
+
+[data-neu] .ma-tag[data-lage="belegt"] {
+  background: color-mix(in srgb, var(--gold) 12%, var(--fill-3));
+}
+
+[data-neu] .ma-tag-link {
+  color: var(--gold-ink);
+  font-weight: 600;
+}
+
+[data-neu] .ma-tag[data-lage="abwesend"] {
+  background: var(--hair);
+}
+
+[data-neu] .ma-abwesenheiten {
+  margin-top: 18px;
+}
+
+[data-neu] .ma-abw-form {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 10px 0;
+  padding: 12px;
+  border-radius: 14px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--rim);
+}
+
+[data-neu] .ma-abw-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+[data-neu] .ma-abw-notiz,
+[data-neu] .ma-abw-form .ma-fehler,
+[data-neu] .ma-abw-form .ma-knoepfe {
+  grid-column: 1 / -1;
+}
+
+[data-neu] .ma-abw-form .ma-knoepfe {
+  margin-top: 0;
+}
+
+[data-neu] .ma-abw-liste {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+[data-neu] .ma-abw {
+  display: grid;
+  grid-template-columns: 84px 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--rim);
+  font-size: 13px;
+  color: var(--ink);
+}
+
+[data-neu] .ma-abw[data-alt] {
+  color: var(--ink-2);
+}
+
+[data-neu] .ma-abw-art {
+  font-weight: 600;
+}
+
+[data-neu] .ma-abw-art[data-art="krank"] {
+  color: var(--rose-ink);
+}
+
+[data-neu] .ma-abw-art[data-art="gesperrt"] {
+  color: var(--ink-2);
+}
+
+[data-neu] .ma-abw-zeit small {
+  display: block;
+  font-size: 11.5px;
+  color: var(--ink-2);
+}
+
+@media (max-width: 900px) {
+  [data-neu] .ma-spalten {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  [data-neu] .ma-felder,
+  [data-neu] .ma-abw-form {
+    grid-template-columns: 1fr;
+  }
+
+  [data-neu] .ma-streifen {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
