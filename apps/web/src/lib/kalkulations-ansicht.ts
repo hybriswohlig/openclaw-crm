@@ -445,6 +445,8 @@ const GRUNDLAGE_LABEL: Record<GrundlageKey, string> = {
   team: "Team",
   termin: "Termin",
   anfahrt_team: "Anfahrt Team",
+  station: "Station",
+  fahrzeugklasse: "Fahrzeugklasse",
 };
 
 /** Anzeigewert eines Grundlage-Feldes („2. OG“, „kein Aufzug“, „25 m“, „ja“). */
@@ -485,6 +487,9 @@ function grundlageWertText(key: GrundlageKey, wert: unknown): string {
       const n = zahl(wert);
       return n === null ? String(wert) : euroText(cent(n));
     }
+    case "station":
+    case "fahrzeugklasse":
+      return String(wert);
   }
 }
 
@@ -678,6 +683,23 @@ function grundlageAnsicht(v: VersionsZeile, rest: AnsichtRest): GrundlageAnsicht
       warum: "aus dem Einsatz übernommen, eigene PKW",
       bearbeitet: k.bearbeitet(["anfahrt_team"]),
       felder: [feld("anfahrt_team", "Anfahrt Team in €", "zahl", k)],
+    });
+  }
+  // Plan 12b: Station und Klasse aus dem Einsatz (oder der Buchung) als eigene Zeile, nur wenn gesetzt.
+  const buchungImRequest = typeof anfrage.buchung === "string" && anfrage.buchung !== "";
+  const stationGesetzt = ["MANUELL", "BOT"].includes(k.herkunft("station").art);
+  const klasseGesetzt = ["MANUELL", "BOT"].includes(k.herkunft("fahrzeugklasse").art);
+  if (buchungImRequest || stationGesetzt || klasseGesetzt) {
+    const station = e?.mietstation?.name ?? null;
+    const empfohlen = option?.name ?? null;
+    zeilen.push({
+      key: "fahrzeugwahl",
+      label: "Station und Fahrzeug",
+      wert: [station, empfohlen].filter(Boolean).join(" · ") || "fest vorgegeben",
+      herkunft: buchungImRequest ? [{ art: "MANUELL", text: "BUCHUNG" }] : eindeutig([k.herkunft("station"), k.herkunft("fahrzeugklasse")]),
+      warum: buchungImRequest ? "Station und Fahrzeug kommen aus der Buchung." : "im Einsatz festgelegt",
+      bearbeitet: buchungImRequest ? null : k.bearbeitet(["station", "fahrzeugklasse"]),
+      felder: [],
     });
   }
 

@@ -161,6 +161,36 @@ describe.skipIf(!url)("Sperren mit Paketen und Tagen (DB)", { timeout: 15_000 },
     expect(nachher.calculation_version_id).toBeNull();
   });
 
+  it("Plan 12b: Buchung je Tag an Terminangebot und Version eingefroren; ein Sperren ohne Buchung löst sie", async () => {
+    const buchung = randomUUID();
+    await sql`insert into vehicle_bookings (id, workspace_id, operating_company_record_id, von, bis, station_id, station_name, klasse_id, klasse_name, miete_cents, geplante_auftraege)
+      values (${buchung}, ${ws}, ${firma}, '2026-11-17', '2026-11-20', 'st1', 'Sixt', 'kl1', 'Sprinter L', 45000, 3)`;
+    const anteil = { buchungId: buchung, mieteCent: 45000, geplanteAuftraege: 3, anteilCent: 15000, inklusivKmAnteil: null, mehrkmSatzCent: null };
+    const p = plan5();
+    p.preise.dayPrices[0] = { ...p.preise.dayPrices[0]!, vehicleBookingId: buchung, buchungsanteil: anteil };
+    const v1 = await entwurf(1);
+    await speicher.dbVersionsSpeicher.sperrenUndAngebot(ws, deal, v1, eingabe(), p.preise.kvItems, null, {
+      uebersteuerungen: 0,
+      plan5: p,
+      schnappschuss: {
+        referenceDate: "2026-11-07", rechnerRequest: {}, rechnerResult: {}, inputs: [], costLines: [], margin: null, packagePrices: [], tariff: null,
+        vehicleBookingId: buchung,
+      },
+    });
+    const [v] = await sql`select vehicle_booking_id, day_prices from deal_calculation_versions where id = ${v1}`;
+    expect(v.vehicle_booking_id).toBe(buchung);
+    expect(v.day_prices[0]).toMatchObject({ vehicleBookingId: buchung, buchungsanteil: { anteilCent: 15000 } });
+    const tage = await sql`select offer_date::text as d, vehicle_booking_id from quotation_date_offers where deal_record_id = ${deal} order by offer_date`;
+    expect(tage.map((t) => [t.d, t.vehicle_booking_id])).toEqual([["2026-11-20", buchung], ["2026-11-21", null]]);
+
+    const v2 = await entwurf(2);
+    await sperre(v2, plan5(100));
+    const nachher = await sql`select vehicle_booking_id from quotation_date_offers where deal_record_id = ${deal}`;
+    expect(nachher.every((t) => t.vehicle_booking_id === null)).toBe(true);
+    await sql`delete from deal_calculation_versions where deal_record_id = ${deal}`;
+    await sql`delete from vehicle_bookings where id = ${buchung}`;
+  });
+
   it("nach der Annahme schreibt das Sperren nichts (Annahme unter derselben Sperre)", async () => {
     const v1 = await entwurf(1);
     await sql`insert into kva_confirmations (id, workspace_id, deal_record_id, customer_link_id, quotation_snapshot, confirmed_total_cents, agb_version_accepted, ip_address, user_agent)

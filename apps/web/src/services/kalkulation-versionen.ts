@@ -33,7 +33,8 @@ import {
   type TagesSlot,
   type VersionsPreise,
 } from "@/lib/angebot-wahl";
-import type { KapazitaetTag } from "@/lib/einsatz";
+import { anteilAusRechnerFeld, type BuchungsAnteil, type KapazitaetTag } from "@/lib/einsatz";
+import type { EinsatzPreisKontext } from "./einsatz-preis";
 import { after } from "next/server";
 import type { DealCalculationVersionRow } from "@/db/schema/deal-calculation-versions";
 import {
@@ -62,7 +63,7 @@ import {
 } from "@/lib/kalkulation-versionen";
 import type { AngebotsEingabe, Quotation } from "@/services/quotations";
 import { meldeKorrektur, rufeRechner, type RechnerAntwort, type RechnerErgebnis } from "@/services/rechner/client";
-import { eingabeHash, mitPlan5Feldern, rechnerAnfrageAus, type LeadDaten, type RechnerAnfrage } from "@/services/rechner/eingabe";
+import { eingabeHash, mitEinsatzFeldern, mitPlan5Feldern, rechnerAnfrageAus, type LeadDaten, type RechnerAnfrage } from "@/services/rechner/eingabe";
 import { ergebnisVeraltet, type KalkulationsZeile } from "@/services/rechner/kalkulation";
 import { kvGueltigBis, type HebelArt, type KvPosten } from "@/services/rechner/kv-posten";
 import { MARGE_MIN_PROZENT, preisBeiMarge } from "@/services/rechner/marge";
@@ -118,7 +119,15 @@ export type VersionsZeile = Omit<DealCalculationVersionRow, JsonFelder> & {
 export type Schnappschuss = Pick<
   VersionsZeile,
   "referenceDate" | "rechnerRequest" | "rechnerResult" | "inputs" | "costLines" | "margin" | "packagePrices" | "tariff"
->;
+> &
+  Partial<Pick<VersionsZeile, "vehicleBookingId">>;
+
+/** Buchung, deren Anteil am Hauptdatum im Preis steckt; sonst null (alter Rechner, Tag außerhalb). */
+export function buchungDesHauptdatums(anfrage: RechnerAnfrage | null | undefined, ergebnis: RechnerErgebnis | null | undefined): string | null {
+  const a = anteilAusRechnerFeld(anfrage?.buchung);
+  const b = ergebnis?.buchung;
+  return a && b && b.hauptdatum === true && b.id === a.buchungId ? b.id : null;
+}
 
 export type Autor = { userId: string | null; quelle: "mensch" | "agent" };
 
@@ -257,6 +266,8 @@ export interface VersionsOptionen {
   ) => Promise<{ auftraege: { datum: string; dealId: string; name: string }[]; kapazitaet: KapazitaetTag[] }>;
   /** Plan 5b: Wunschtermine aus dem Portal (neueste Anfrage). */
   ladeWunschtermine?: (ws: string, deal: string) => Promise<string[]>;
+  /** Plan 12b: Buchung für den Preis (Firmen-Schalter, Zuordnung); null = nichts zusätzlich an den Rechner. */
+  ladeEinsatz?: (ws: string, deal: string) => Promise<EinsatzPreisKontext | null>;
 }
 
 type Abh = Required<VersionsOptionen>;
@@ -282,6 +293,11 @@ async function abhaengigkeiten(o: VersionsOptionen = {}): Promise<Abh> {
       o.ladeBelegung ??
       (async (ws, von, bis, ohneDeal) => (await import("./kalkulation-versionen-speicher")).ladeTagesBelegung(ws, von, bis, ohneDeal)),
     ladeWunschtermine: o.ladeWunschtermine ?? (async (ws, deal) => (await import("./kalkulation-versionen-speicher")).ladeWunschtermine(ws, deal)),
+    // Wer die Firmen-Schalter selbst vorgibt (Tests, eigene Aufrufer), bekommt ohne eigene
+    // Vorgabe auch keine Buchung im Preis: der Buchungs-Schalter hängt an derselben Firma.
+    ladeEinsatz:
+      o.ladeEinsatz ??
+      (o.ladeSchalter ? async () => null : async (ws, deal) => (await import("./einsatz-preis")).einsatzPreisKontext(ws, deal)),
   };
 }
 
@@ -326,6 +342,8 @@ export interface RechenKontext {
   /** Nur mit Schalter: Paketoptionen und Katalog-Hebel aller aktiven Pakete. */
   optionen: PaketOption[];
   katalogHebel: Record<string, HebelArt[]>;
+  /** Plan 12b: Buchung im Preis; null ohne Schalter oder ohne Zuordnung (Anfrage dann wie vorher). */
+  einsatz?: EinsatzPreisKontext | null;
 }
 
 /** Hebel an den Rechner: ohne Schalter alle Katalogpakete, mit Schalter nur die angebotenen. */
@@ -348,16 +366,16 @@ export function empfohlenesPaket(optionen: readonly PaketOption[]): string | nul
 }
 
 async function kontextLaden(ws: string, deal: string, d: Abh): Promise<RechenKontext> {
-  const schalter = await d.ladeSchalter(ws, deal);
+  const [schalter, einsatz] = await Promise.all([d.ladeSchalter(ws, deal), d.ladeEinsatz(ws, deal)]);
   if (!schalter.angebotAusKalkulation) {
     const hatPakete = await d.hatPakete(deal);
     const katalog = hatPakete ? await d.ladePaketHebel(ws, deal) : null;
-    return { schalter, hatPakete, paketHebel: rechenHebel(schalter, hatPakete, [], katalog), optionen: [], katalogHebel: katalog ?? {} };
+    return { schalter, hatPakete, paketHebel: rechenHebel(schalter, hatPakete, [], katalog), optionen: [], katalogHebel: katalog ?? {}, einsatz };
   }
   const optionen = await d.ladePaketOptionen(deal);
   const hatPakete = optionen.length > 0;
   const katalog = hatPakete ? await d.ladePaketHebel(ws, deal) : null;
-  return { schalter, hatPakete, paketHebel: rechenHebel(schalter, hatPakete, optionen, katalog), optionen, katalogHebel: katalog ?? {} };
+  return { schalter, hatPakete, paketHebel: rechenHebel(schalter, hatPakete, optionen, katalog), optionen, katalogHebel: katalog ?? {}, einsatz };
 }
 
 /** Angebotene Tage eines Entwurfs als „Tage anbieten“-Eingabe (ohne Preise). */
@@ -370,14 +388,30 @@ function anfrageFuer(
   basis: RechnerAnfrage,
   liste: Uebersteuerung[],
   referenceDate: string,
-  k: Pick<RechenKontext, "schalter" | "paketHebel">,
+  k: Pick<RechenKontext, "schalter" | "paketHebel" | "einsatz">,
   tage: readonly string[]
 ): RechnerAnfrage {
-  return mitPlan5Feldern(anfrageMitUebersteuerungen(basis, liste, { referenceDate, paketHebel: k.paketHebel }), {
+  const plan5 = mitPlan5Feldern(anfrageMitUebersteuerungen(basis, liste, { referenceDate, paketHebel: k.paketHebel }), {
     schalter: k.schalter,
     stunden: preisModusAus(liste) === "stunden",
     tage,
   });
+  // Plan 12b: ohne Buchung im Preis Zeichen für Zeichen wie vorher.
+  return mitEinsatzFeldern(plan5, k.einsatz?.anfrage);
+}
+
+/**
+ * Anteil der Buchung, der in `day_prices` eingefroren wird (E6): aus der
+ * gespeicherten Anfrage (`rechner_request.buchung`), mit Miete und geplanten
+ * Aufträgen aus dem Kontext, wenn er dieselbe Buchung zum selben Anteil nennt.
+ */
+export function anteilFuerAnfrage(anfrage: RechnerAnfrage | null | undefined, einsatz?: EinsatzPreisKontext | null): BuchungsAnteil | null {
+  const aus = anteilAusRechnerFeld(anfrage?.buchung);
+  if (!aus) return null;
+  const k = einsatz?.anfrage.buchung?.anteil;
+  return k && k.buchungId === aus.buchungId && k.anteilCent === aus.anteilCent && k.inklusivKmAnteil === aus.inklusivKmAnteil && k.mehrkmSatzCent === aus.mehrkmSatzCent
+    ? k
+    : aus;
 }
 
 /**
@@ -395,7 +429,7 @@ async function neuBerechnen(
   d: Abh,
   opts: {
     cacheErlaubt?: boolean;
-    kontext: Pick<RechenKontext, "schalter" | "paketHebel">;
+    kontext: Pick<RechenKontext, "schalter" | "paketHebel" | "einsatz">;
     tage?: TagKonfig[];
     referenceDate?: string;
     wiederverwenden?: VersionsZeile;
@@ -462,7 +496,7 @@ async function neuBerechnen(
       felder.priceCents = s ? Math.round(s.summeGeschaetztEur * 100) : null;
     }
   }
-  Object.assign(felder, abgeleitetePreise(ergebnis, liste, tage, k.schalter));
+  Object.assign(felder, abgeleitetePreise(ergebnis, liste, tage, k.schalter, anteilFuerAnfrage(anfrage, k.einsatz)));
   return felder;
 }
 
@@ -478,13 +512,14 @@ export function abgeleitetePreise(
   ergebnis: RechnerErgebnis,
   liste: Uebersteuerung[],
   tage: readonly TagKonfig[],
-  schalter: Plan5Schalter
+  schalter: Plan5Schalter,
+  anteil: BuchungsAnteil | null = null
 ): Pick<VersionsZeile, "packagePrices"> & Partial<Pick<VersionsZeile, "dayPrices">> {
   const aus: Pick<VersionsZeile, "packagePrices"> & Partial<Pick<VersionsZeile, "dayPrices">> = {
     packagePrices: schalter.angebotAusKalkulation ? paketpreiseAus(ergebnis.paketpreise, liste) : ergebnis.paketpreise ?? [],
   };
   if (schalter.tagespreise) {
-    aus.dayPrices = tagespreiseAus(ergebnis.tagespreise, tage, liste, schalter.angebotAusKalkulation ? ergebnis.paketpreise ?? null : null);
+    aus.dayPrices = tagespreiseAus(ergebnis.tagespreise, tage, liste, schalter.angebotAusKalkulation ? ergebnis.paketpreise ?? null : null, anteil);
   }
   return aus;
 }
@@ -514,12 +549,13 @@ function anfrageVeraltet(
   basis: RechnerAnfrage,
   heute: string,
   paketHebel: Record<string, HebelArt[]> | null,
-  schalter: Plan5Schalter
+  schalter: Plan5Schalter,
+  einsatz: EinsatzPreisKontext | null = null
 ): boolean {
   return (
     !v.rechnerRequest ||
     eingabeHash(
-      anfrageFuer(basis, v.overrides, heute, { schalter, paketHebel: paketHebel ?? undefined }, (v.dayPrices ?? []).map((t) => t.datum))
+      anfrageFuer(basis, v.overrides, heute, { schalter, paketHebel: paketHebel ?? undefined, einsatz }, (v.dayPrices ?? []).map((t) => t.datum))
     ) !== eingabeHash(v.rechnerRequest) ||
     v.referenceDate !== heute
   );
@@ -539,10 +575,11 @@ export function entwurfVeraltet(
   basis: RechnerAnfrage,
   heute: string,
   paketHebel: Record<string, HebelArt[]> | null,
-  schalter: Plan5Schalter = AUS
+  schalter: Plan5Schalter = AUS,
+  einsatz: EinsatzPreisKontext | null = null
 ): boolean {
   if (v.status !== "entwurf") return false;
-  return anfrageVeraltet(v, basis, heute, paketHebel, schalter) || ergebnisVeraltet(v.rechnerResult);
+  return anfrageVeraltet(v, basis, heute, paketHebel, schalter, einsatz) || ergebnisVeraltet(v.rechnerResult);
 }
 
 async function leadOderFehler(ws: string, deal: string, d: Abh): Promise<LeadDaten> {
@@ -883,7 +920,7 @@ export async function entwurfNeuRechnen(
   if (
     v.error === null &&
     v.rechnerResult &&
-    !entwurfVeraltet(v, rechnerAnfrageAus(lead), heute, kontext.paketHebel ?? null, kontext.schalter)
+    !entwurfVeraltet(v, rechnerAnfrageAus(lead), heute, kontext.paketHebel ?? null, kontext.schalter, kontext.einsatz ?? null)
   ) {
     return { version: v, gerechnet: false };
   }
@@ -983,11 +1020,11 @@ export async function sperren(
   const hebel = k.paketHebel ?? null;
   // Verglichen wird immer mit der aktuellen Liste der Version (auch nach einer Neuberechnung,
   // denn parallel kann eine Übersteuerung dazugekommen sein).
-  for (let versuch = 0; entwurfVeraltet(v, basis, heute, hebel, k.schalter) || v.error !== null; versuch++) {
+  for (let versuch = 0; entwurfVeraltet(v, basis, heute, hebel, k.schalter, k.einsatz ?? null) || v.error !== null; versuch++) {
     if (versuch > 0 && v.error !== null) break; // Rechnerfehler: unten abgelehnt
     // Frisch gerechnet, nur das Echo fehlt: der Rechner kennt Montage je Position noch nicht.
     // Sein Ergebnis gilt (sonst sperrte bis zu seinem Deploy niemand mehr).
-    if (versuch > 0 && !anfrageVeraltet(v, basis, heute, hebel, k.schalter)) break;
+    if (versuch > 0 && !anfrageVeraltet(v, basis, heute, hebel, k.schalter, k.einsatz ?? null)) break;
     if (versuch >= 3) throw new VersionsFehler("UNGUELTIG", "Die Kalkulation wird gerade geändert. Bitte erneut sperren.");
     v = await d.speicher.aktualisieren(
       v.id,
@@ -1000,7 +1037,7 @@ export async function sperren(
   // alte Preise neben der neuen Liste. Dass die Zeile bis zum Sperren gleich bleibt, prüft
   // `sperrenUndAngebot` über `updated_at`.
   if (plan5 && v.error === null && v.rechnerResult) {
-    v = { ...v, ...abgeleitetePreise(v.rechnerResult, v.overrides, tageKonfigAus(v.dayPrices), k.schalter) };
+    v = { ...v, ...abgeleitetePreise(v.rechnerResult, v.overrides, tageKonfigAus(v.dayPrices), k.schalter, anteilFuerAnfrage(v.rechnerRequest, k.einsatz)) };
     if (k.schalter.tagespreise) {
       pruefeUntergrenzeJeTag(v.dayPrices ?? [], v.overrides, v.rechnerResult, (t) => new VersionsFehler("UNGUELTIG", t));
     }
@@ -1116,6 +1153,8 @@ export async function sperren(
       margin: v.margin,
       packagePrices: v.packagePrices,
       tariff: v.tariff,
+      // Plan 12b (E6): Buchung des Hauptdatums einfrieren (nur wenn der Rechner sie dort angewandt hat).
+      vehicleBookingId: buchungDesHauptdatums(v.rechnerRequest, v.rechnerResult),
     },
     ...(plan5Sperre ? { plan5: plan5Sperre } : {}),
   });

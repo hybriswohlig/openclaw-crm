@@ -17,6 +17,7 @@ import type {
   Tagespreis,
   VersionsPreise,
 } from "@/lib/angebot-wahl";
+import type { BuchungsAnteil } from "./einsatz";
 import { paketOhneHebelSperrt, PLAN5_FEHLER_TEXT, standardWahl, wahlPreis } from "@/lib/angebot-wahl";
 import type { LeadDaten, RechnerAnfrage } from "@/services/rechner/eingabe";
 import type { KostenPosten, RechnerErgebnis } from "@/services/rechner/client";
@@ -42,6 +43,10 @@ export const GRUNDLAGE_FELDER = {
   termin: "umzugsdatum",
   /** Plan 12a (E7): „Anfahrt Team“ aus dem Einsatz, nur als Übersteuerung mit Grund, Euro. */
   anfahrt_team: "anfahrtsgeld_team",
+  /** Plan 12b: feste Mietstation (Rechner-ID aus `GET /api/startorte`), Übersteuerung aus dem Einsatz. */
+  station: "mietstation",
+  /** Plan 12b: feste Fahrzeugklasse (Rechner-ID aus `GET /api/fahrzeuge`), Übersteuerung aus dem Einsatz. */
+  fahrzeugklasse: "fahrzeugklasse",
 } as const;
 
 export type GrundlageKey = keyof typeof GRUNDLAGE_FELDER;
@@ -199,6 +204,14 @@ function pruefeEingabe(key: GrundlageKey, wert: unknown): number | string | bool
       const n = zahl(wert);
       if (n === null || n < 0 || n > 1000) throw new UebersteuerungFehler("Anfahrt Team muss zwischen 0 und 1.000 Euro liegen");
       return Math.round(n * 100) / 100;
+    }
+    case "station":
+    case "fahrzeugklasse": {
+      const t = typeof wert === "string" ? wert.trim() : "";
+      if (t === "" || t.length > 100 || t === "auto") {
+        throw new UebersteuerungFehler(key === "station" ? "Station: Rechner-ID fehlt" : "Fahrzeugklasse: Rechner-ID fehlt");
+      }
+      return t;
     }
   }
 }
@@ -462,6 +475,8 @@ export function grundlageAus(lead: LeadDaten, ergebnis: RechnerErgebnis | null, 
     team: { wert: team, herkunft: team === null ? "STANDARD" : "REGEL" },
     termin: ausLead(lead.umzugsdatum),
     anfahrt_team: { wert: null, herkunft: "STANDARD" },
+    station: { wert: null, herkunft: "STANDARD" },
+    fahrzeugklasse: { wert: null, herkunft: "STANDARD" },
   };
 
   return GRUNDLAGE_KEYS.map((key) => {
@@ -520,7 +535,9 @@ export function rechnerwertFuer(
       if (key === "halteverbot.beladen" || key === "halteverbot.entladen") return text(feld) === "on";
       if (key === "volumen") return ergebnis?.volumen?.nettoCbm ?? zahl(text(feld));
       if (key === "team") return ergebnis?.team?.groesse ?? zahl(text(feld));
-      if (key === "termin" || key === "beladen.aufzug" || key === "entladen.aufzug") return text(feld);
+      if (key === "termin" || key === "beladen.aufzug" || key === "entladen.aufzug" || key === "station" || key === "fahrzeugklasse") {
+        return text(feld);
+      }
       return zahl(text(feld));
     }
     case "zeile":
@@ -667,7 +684,8 @@ export function tagespreiseAus(
   rechner: readonly RechnerTagespreis[] | undefined,
   konfig: readonly TagKonfig[],
   liste: Uebersteuerung[],
-  basisPaketpreise: readonly RechnerPaketpreisPlan5[] | null = null
+  basisPaketpreise: readonly RechnerPaketpreisPlan5[] | null = null,
+  anteil: BuchungsAnteil | null = null
 ): Tagespreis[] {
   return [...konfig]
     .sort((a, b) => a.datum.localeCompare(b.datum))
@@ -689,7 +707,9 @@ export function tagespreiseAus(
         slots: k.slots,
         note: k.note,
         empfohlen: k.empfohlen,
-        vehicleBookingId: null,
+        // Plan 12b (E6): Buchung und Anteil des Tages einfrieren; ohne Buchung bleibt das Objekt wie vorher.
+        vehicleBookingId: r?.buchungId ?? null,
+        ...(r?.buchungId ? { buchungsanteil: anteil && anteil.buchungId === r.buchungId ? anteil : null } : {}),
       };
     });
 }

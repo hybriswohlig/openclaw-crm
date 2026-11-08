@@ -107,6 +107,8 @@ export interface RechnerErgebnis {
     teamgroesse: number; uhrzeitMin?: number; auslastung?: number;
   }>;
   empfehlungOptionId?: string | null;
+  /** Plan 12b: nur mit Anfragefeld `buchung` (neuer Rechner); `hauptdatum` = Umzugsdatum liegt in der Buchung. */
+  buchung?: { id: string; hauptdatum: boolean };
 }
 
 export type RechnerAntwort = { ok: true; ergebnis: RechnerErgebnis } | { ok: false; fehler: string };

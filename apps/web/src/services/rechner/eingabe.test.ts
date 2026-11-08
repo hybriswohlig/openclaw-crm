@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { eingabeHash, mitPlan5Feldern, rechnerAnfrageAus, type LeadDaten } from "./eingabe";
+import { buchungsAnteil, rechnerBuchungFeld } from "@/lib/einsatz";
+import { eingabeHash, mitEinsatzFeldern, mitPlan5Feldern, rechnerAnfrageAus, type LeadDaten } from "./eingabe";
 
 const leer: LeadDaten = {
   von: null, nach: null, etageVon: null, etageNach: null, zugangVon: null, zugangNach: null,
@@ -179,5 +180,26 @@ describe("mitPlan5Feldern (Plan 5b)", () => {
     expect(t.tage).toBe(JSON.stringify(["2026-11-21", "2026-11-22"]));
     expect(t).not.toHaveProperty("paket_uebersteuerungen");
     expect(mitPlan5Feldern(a, { schalter: { angebotAusKalkulation: false, tagespreise: true }, stunden: false, tage: [] })).toEqual(a);
+  });
+});
+
+describe("mitEinsatzFeldern (Plan 12b)", () => {
+  const basis = { von_adresse: "A", umzugsdatum: "2026-11-21", mietstation: "alt" } as Record<string, string>;
+  const b = { id: "b1", von: "2026-11-17", bis: "2026-11-23", stationId: "st1", klasseId: "kl1" };
+  const anteil = buchungsAnteil({ id: "b1", mieteCent: 45000, geplanteAuftraege: 4, inklusivKm: 800, mehrkmSatzCent: 38 });
+
+  it("ohne Vorgabe und ohne Buchung: dieselbe Anfrage, derselbe Hash", () => {
+    expect(mitEinsatzFeldern(basis, null)).toBe(basis);
+    expect(mitEinsatzFeldern(basis, { station: null, klasse: null, buchung: null })).toBe(basis);
+    expect(eingabeHash(mitEinsatzFeldern(basis, undefined))).toBe(eingabeHash(basis));
+  });
+
+  it("Station und Klasse als Vorgabe; Buchung gewinnt über beide und schickt das Feld buchung", () => {
+    expect(mitEinsatzFeldern(basis, { station: "st9", klasse: "kl9", buchung: null })).toMatchObject({ mietstation: "st9", fahrzeugklasse: "kl9" });
+    const mit = mitEinsatzFeldern(basis, { station: "st9", klasse: "kl9", buchung: { b, anteil } });
+    expect(mit).toMatchObject({ mietstation: "st1", fahrzeugklasse: "kl1", buchung: rechnerBuchungFeld(b, anteil) });
+    expect(JSON.parse(mit.buchung as string)).toEqual({ id: "b1", von: "2026-11-17", bis: "2026-11-23", station: "st1", klasse: "kl1", anteil_eur: 112.5, inklusiv_km: 200, mehrkm_satz_eur: 0.38 });
+    expect(eingabeHash(mit)).not.toBe(eingabeHash(basis));
+    expect(basis.mietstation).toBe("alt");
   });
 });

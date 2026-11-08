@@ -292,6 +292,32 @@ async function plan5Schreiben(
         };
       }),
     });
+    // Plan 12b (E6): Buchung je Tag eingefroren, wie in `day_prices` (nie im Portal-Kontext).
+    // Erst alte Werte lösen (meist keine Zeile), dann je Tag mit Buchung setzen.
+    await tx
+      .update(quotationDateOffers)
+      .set({ vehicleBookingId: null })
+      .where(
+        and(
+          eq(quotationDateOffers.workspaceId, ws),
+          eq(quotationDateOffers.dealRecordId, deal),
+          sql`${quotationDateOffers.vehicleBookingId} IS NOT NULL`
+        )
+      );
+    for (const t of tage) {
+      if (!t.vehicleBookingId) continue;
+      await tx
+        .update(quotationDateOffers)
+        .set({ vehicleBookingId: t.vehicleBookingId })
+        .where(
+          and(
+            eq(quotationDateOffers.workspaceId, ws),
+            eq(quotationDateOffers.dealRecordId, deal),
+            eq(quotationDateOffers.offerDate, t.datum),
+            eq(quotationDateOffers.calculationVersionId, versionId)
+          )
+        );
+    }
   }
 
   if (p.stunden) return { stunden: p.stunden };

@@ -296,6 +296,8 @@ describe("grundlageAus", () => {
       "team",
       "termin",
       "anfahrt_team",
+      "station",
+      "fahrzeugklasse",
     ]);
   });
 

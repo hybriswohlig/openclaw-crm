@@ -45,6 +45,8 @@ export interface AnsichtOptionen {
   istKottke?: (ws: string, deal: string) => Promise<boolean>;
   /** Plan 5b: Firmen-Schalter des Deals */
   ladeSchalter?: (ws: string, deal: string) => Promise<Plan5Schalter>;
+  /** Plan 12b: Buchung im Preis (für „veraltet“: eine geänderte Buchung macht den Entwurf veraltet). */
+  ladeEinsatz?: (ws: string, deal: string) => Promise<import("./einsatz-preis").EinsatzPreisKontext | null>;
   /** Plan 5b: Paketoptionen des Deals */
   ladePaketOptionen?: (deal: string) => Promise<PaketOption[]>;
   /** Plan 5a: letzter KV-Job (VPS) dieser Version aus `document_render_jobs` */
@@ -133,6 +135,10 @@ async function abhaengigkeiten(o: AnsichtOptionen): Promise<Required<AnsichtOpti
     istKottke: o.istKottke ?? (await import("@/lib/kottke-crm-renderer-deal")).dealBlocksInRepoCrmRenderer,
     ladeKvJob: o.ladeKvJob ?? (await import("./render-jobs")).letzterKvJob,
     ladeSchalter: o.ladeSchalter ?? (async (ws, deal) => (await import("./plan5-schalter")).plan5Schalter(ws, deal)),
+    // Wie in kalkulation-versionen.ts: mit eigener Schalter-Vorgabe ohne Buchung im Preis.
+    ladeEinsatz:
+      o.ladeEinsatz ??
+      (o.ladeSchalter ? async () => null : async (ws, deal) => (await import("./einsatz-preis")).einsatzPreisKontext(ws, deal)),
     ladePaketOptionen:
       o.ladePaketOptionen ?? (async (deal) => (await import("./kalkulation-versionen-speicher")).ladePaketOptionen(deal)),
     jetzt: o.jetzt ?? (() => new Date()),
@@ -147,11 +153,12 @@ export async function ladeKalkulationsAnsicht(
   opts: AnsichtOptionen = {}
 ): Promise<KalkulationsAnsicht> {
   const d = await abhaengigkeiten(opts);
-  const [v, alle, lead, schalter] = await Promise.all([
+  const [v, alle, lead, schalter, einsatz] = await Promise.all([
     d.speicher.lesen(ws, deal, version),
     d.speicher.liste(ws, deal),
     d.ladeLead(ws, deal),
     d.ladeSchalter(ws, deal),
+    d.ladeEinsatz(ws, deal),
   ]);
   // Mit Schalter zählen die Paketoptionen selbst (Slug, Empfehlung); ohne wie vorher.
   const paketOptionen = schalter.angebotAusKalkulation ? await d.ladePaketOptionen(deal) : [];
@@ -207,7 +214,8 @@ export async function ladeKalkulationsAnsicht(
       rechnerAnfrageAus(lead),
       heuteBerlin(jetzt),
       rechenHebel(schalter, hatPakete, paketOptionen, paketHebel) ?? null,
-      schalter
+      schalter,
+      einsatz
     ),
     kvDokument,
     jetzt,

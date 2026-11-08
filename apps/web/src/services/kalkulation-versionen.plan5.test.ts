@@ -57,10 +57,14 @@ import type { RechnerAnfrage } from "./rechner/eingabe";
 import type { RechnerErgebnis } from "./rechner/client";
 import type { KalkulationsZeile } from "./rechner/kalkulation";
 import type { HebelArt } from "./rechner/kv-posten";
+import { buchungsAnteil, rechnerBuchungFeld } from "@/lib/einsatz";
+import { rechnerAnfrageAus } from "./rechner/eingabe";
+import type { EinsatzPreisKontext } from "./einsatz-preis";
 import {
   centSumme,
   EntwurfExistiertError,
   entwurfHolenOderAnlegen,
+  entwurfVeraltet,
   sperren,
   tageSetzen,
   tagesRaster,
@@ -614,5 +618,91 @@ describe("ohne Schalter wie vorher", () => {
     await entwurfHolenOderAnlegen("ws", "deal1", MENSCH, p.deps);
     expect((await fehler(sperren("ws", "deal1", 1, MENSCH, {}, p.deps))).code).toBe("PAKETE");
     expect(p.deps.ladePaketOptionen).not.toHaveBeenCalled();
+  });
+});
+
+describe("Plan 12b: Buchung im Preis (Anfrage, Einfrieren, Sperren)", () => {
+  const b = { id: "b1", von: "2026-11-17", bis: "2026-11-20", stationId: "st1", klasseId: "kl1" };
+  const kontextMit = (geplanteAuftraege: number): EinsatzPreisKontext => ({
+    anfrage: { station: null, klasse: null, buchung: { b, anteil: buchungsAnteil({ id: "b1", mieteCent: 45000, geplanteAuftraege, inklusivKm: 600, mehrkmSatzCent: 38 }) } },
+    hinweis: "Station und Fahrzeug kommen aus der Buchung.",
+  });
+  /** Rechner mit Buchungsregel: Tage in von..bis tragen die Buchung, das Hauptdatum (21.11.) nicht. */
+  function mitBuchung(t: ReturnType<typeof aufbau>, hauptdatum = false) {
+    t.rechner.mockImplementation(async (a: RechnerAnfrage) => {
+      const e = rechnerAntwort(a);
+      if (typeof a.buchung === "string") {
+        e.buchung = { id: "b1", hauptdatum };
+        e.tagespreise = e.tagespreise?.map((x) => ({ ...x, buchungId: x.datum >= b.von && x.datum <= b.bis ? "b1" : null }));
+      }
+      return { ok: true as const, ergebnis: e };
+    });
+  }
+
+  it("ohne Buchung bleibt die Anfrage Zeichen für Zeichen wie vorher, Tage ohne Anteil", async () => {
+    const ohne = aufbau();
+    await entwurfHolenOderAnlegen("ws", "deal1", MENSCH, ohne.deps);
+    const v0 = await tageSetzen("ws", "deal1", 1, MENSCH, tageEingabe(), ohne.deps);
+    const mitNull = aufbau();
+    await entwurfHolenOderAnlegen("ws", "deal1", MENSCH, { ...mitNull.deps, ladeEinsatz: async () => null });
+    const v1 = await tageSetzen("ws", "deal1", 1, MENSCH, tageEingabe(), { ...mitNull.deps, ladeEinsatz: async () => null });
+    expect(JSON.stringify(v1.rechnerRequest)).toBe(JSON.stringify(v0.rechnerRequest));
+    expect(v0.rechnerRequest).not.toHaveProperty("buchung");
+    expect(v0.rechnerRequest).not.toHaveProperty("fahrzeugklasse");
+    expect(v0.dayPrices.every((d) => d.vehicleBookingId === null && !("buchungsanteil" in d))).toBe(true);
+  });
+
+  it("mit Buchung: Station, Klasse und Anteil an den Rechner, Anteil nur an Tagen in der Buchung eingefroren, beim Sperren an Version und Terminangebot", async () => {
+    const t = aufbau();
+    mitBuchung(t, true);
+    const deps = { ...t.deps, ladeEinsatz: vi.fn(async () => kontextMit(3)) };
+    await entwurfHolenOderAnlegen("ws", "deal1", MENSCH, deps);
+    const v = await tageSetzen("ws", "deal1", 1, MENSCH, tageEingabe(), deps);
+    expect(v.rechnerRequest).toMatchObject({ mietstation: "st1", fahrzeugklasse: "kl1", buchung: rechnerBuchungFeld(b, kontextMit(3).anfrage.buchung!.anteil) });
+    expect(v.dayPrices.map((d) => [d.datum, d.vehicleBookingId, d.buchungsanteil?.anteilCent ?? null, d.buchungsanteil?.mieteCent ?? null])).toEqual([
+      ["2026-11-20", "b1", 15000, 45000],
+      ["2026-11-21", null, null, null],
+    ]);
+    expect("buchungsanteil" in v.dayPrices[1]!).toBe(false);
+
+    await sperren("ws", "deal1", 1, MENSCH, {}, deps);
+    const aufruf = vi.mocked(t.speicher.sperrenUndAngebot).mock.calls.at(-1)!;
+    expect(aufruf[6]?.schnappschuss?.vehicleBookingId).toBe("b1");
+    expect(t.plan5()!.preise.dayPrices.map((d) => d.vehicleBookingId)).toEqual(["b1", null]);
+  });
+
+  it("Hauptdatum außerhalb der Buchung: keine Buchung an der Version", async () => {
+    const t = aufbau();
+    mitBuchung(t, false);
+    const deps = { ...t.deps, ladeEinsatz: vi.fn(async () => kontextMit(3)) };
+    await entwurfHolenOderAnlegen("ws", "deal1", MENSCH, deps);
+    await tageSetzen("ws", "deal1", 1, MENSCH, tageEingabe(), deps);
+    await sperren("ws", "deal1", 1, MENSCH, {}, deps);
+    expect(vi.mocked(t.speicher.sperrenUndAngebot).mock.calls.at(-1)![6]?.schnappschuss?.vehicleBookingId).toBeNull();
+  });
+
+  it("geänderte Buchung macht den Entwurf veraltet, eine gesperrte Version nie", async () => {
+    const t = aufbau();
+    mitBuchung(t, true);
+    const deps = { ...t.deps, ladeEinsatz: vi.fn(async () => kontextMit(3)) };
+    await entwurfHolenOderAnlegen("ws", "deal1", MENSCH, deps);
+    const v = await tageSetzen("ws", "deal1", 1, MENSCH, tageEingabe(), deps);
+    const basis = rechnerAnfrageAus(lead);
+    expect(entwurfVeraltet(v, basis, "2026-11-07", null, AN, kontextMit(3))).toBe(false);
+    expect(entwurfVeraltet(v, basis, "2026-11-07", null, AN, kontextMit(4))).toBe(true);
+    expect(entwurfVeraltet(v, basis, "2026-11-07", null, AN, null)).toBe(true);
+    await sperren("ws", "deal1", 1, MENSCH, {}, deps);
+    const gesperrt = t.zeilen.find((z) => z.version === 1)!;
+    expect(entwurfVeraltet(gesperrt, basis, "2026-11-07", null, AN, kontextMit(4))).toBe(false);
+  });
+
+  it("alter Rechner ohne buchungId und ohne buchung: kein Anteil, keine Buchung an der Version", async () => {
+    const t = aufbau();
+    const deps = { ...t.deps, ladeEinsatz: vi.fn(async () => kontextMit(3)) };
+    await entwurfHolenOderAnlegen("ws", "deal1", MENSCH, deps);
+    const v = await tageSetzen("ws", "deal1", 1, MENSCH, tageEingabe(), deps);
+    expect(v.dayPrices.every((d) => d.vehicleBookingId === null && !("buchungsanteil" in d))).toBe(true);
+    await sperren("ws", "deal1", 1, MENSCH, {}, deps);
+    expect(vi.mocked(t.speicher.sperrenUndAngebot).mock.calls.at(-1)![6]?.schnappschuss?.vehicleBookingId).toBeNull();
   });
 });

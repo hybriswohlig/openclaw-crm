@@ -6,6 +6,7 @@
  */
 import { createHash } from "node:crypto";
 import type { Auftragsart } from "@/lib/auftragsart";
+import { rechnerBuchungFeld, type BuchungsAnteil, type TransporterBuchung } from "@/lib/einsatz";
 import type { InventoryOwner } from "@/services/inventory-owner";
 import type { LeadQuelle, Marke } from "./quelle";
 import { zugangAusTitel } from "./zugang";
@@ -176,4 +177,33 @@ function stabil(wert: unknown): unknown {
 export function eingabeHash(anfrage: RechnerAnfrage): string {
   const { heute: _heute, ...ohneHeute } = anfrage;
   return createHash("sha256").update(JSON.stringify(stabil(ohneHeute))).digest("hex");
+}
+
+/** Plan 12b: Station, Klasse und Buchung für die Rechner-Anfrage (Entscheidung 5). */
+export interface EinsatzAnfrage {
+  /** Rechner-Stations-ID (Übersteuerung `station`); null = keine Vorgabe. */
+  station: string | null;
+  /** Rechner-Klassen-ID (Übersteuerung `fahrzeugklasse`); null = keine Vorgabe. */
+  klasse: string | null;
+  /** Nur mit Firmen-Schalter, zugeordneter, nicht stornierter Buchung, deren Station und Klasse der Rechner kennt. */
+  buchung: { b: Pick<TransporterBuchung, "von" | "bis" | "stationId" | "klasseId">; anteil: BuchungsAnteil } | null;
+}
+
+/**
+ * Additive Felder an den Rechner (Plan 12b, nach `anfrageMitUebersteuerungen`):
+ * `mietstation` und `fahrzeugklasse` aus Vorgaben; eine Buchung gewinnt über
+ * beide und schickt `buchung` (JSON fester Feldfolge, `rechnerBuchungFeld`).
+ * Ohne Vorgabe und ohne Buchung bleibt die Anfrage Zeichen für Zeichen gleich.
+ */
+export function mitEinsatzFeldern(a: RechnerAnfrage, e: EinsatzAnfrage | null | undefined): RechnerAnfrage {
+  if (!e || (e.station === null && e.klasse === null && e.buchung === null)) return a;
+  const aus: RechnerAnfrage = { ...a };
+  if (e.station !== null) aus.mietstation = e.station;
+  if (e.klasse !== null) aus.fahrzeugklasse = e.klasse;
+  if (e.buchung) {
+    aus.mietstation = e.buchung.b.stationId;
+    aus.fahrzeugklasse = e.buchung.b.klasseId;
+    aus.buchung = rechnerBuchungFeld(e.buchung.b, e.buchung.anteil);
+  }
+  return aus;
 }
