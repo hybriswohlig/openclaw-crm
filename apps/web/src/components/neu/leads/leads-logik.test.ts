@@ -215,7 +215,7 @@ describe("Spalten", () => {
   it("setzt längere Seiten ins frische Board ein", () => {
     const board: LeadsBoard = {
       spalten: [spalte({ stufeId: S_NEU, karten: [karte({ id: "a" })], weiter: 40, anzahl: 80 }), spalte({ stufeId: S_KONTAKT })],
-      chips: { warten: 0, kv_ungesehen: 0, ohne_team: 0, rechnung_offen: 0, diese_woche: 0 },
+      chips: { warten: 0, kv_ungesehen: 0, ohne_team: 0, rechnung_offen: 0, ohne_ab: 0, diese_woche: 0 },
       stand: "2026-11-06T10:00:00.000Z",
       firmen: [],
       quellen: [],
@@ -326,8 +326,8 @@ describe("Züge", () => {
 
 describe("Texte", () => {
   it("Unterzeile am Handy", () => {
-    expect(handyUnterzeile({ warten: 1, kv_ungesehen: 0, ohne_team: 0, rechnung_offen: 0, diese_woche: 0 })).toBe("1 wartet auf uns");
-    expect(handyUnterzeile({ warten: 4, kv_ungesehen: 0, ohne_team: 0, rechnung_offen: 0, diese_woche: 0 })).toBe("4 warten auf uns");
+    expect(handyUnterzeile({ warten: 1, kv_ungesehen: 0, ohne_team: 0, rechnung_offen: 0, ohne_ab: 0, diese_woche: 0 })).toBe("1 wartet auf uns");
+    expect(handyUnterzeile({ warten: 4, kv_ungesehen: 0, ohne_team: 0, rechnung_offen: 0, ohne_ab: 0, diese_woche: 0 })).toBe("4 warten auf uns");
   });
 
   it("Strecke und Zellen der Liste", () => {

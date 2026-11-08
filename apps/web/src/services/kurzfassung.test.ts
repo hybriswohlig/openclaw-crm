@@ -116,7 +116,7 @@ function akteAus(f: AblaufFakten): AkteDaten {
     ablauf: berechneAblauf(f, JETZT),
     nachfass: { an: false, modus: "aus", text: "aus" },
     dock: { primaer: { aktion: "nachricht_schreiben", label: "Nachricht schreiben" }, abErlaubt: false, rechnungErlaubt: false, bewertungErlaubt: false },
-    zahlung: { restCent: null, meldungen: [] },
+    zahlung: { restCent: null, gesamtCent: null, quelle: "keins", meldungen: [], rechnung: null, zahlungen: [] },
     firma: { id: "oc_1", name: "Kottke" },
     altLink: `/objects/deals/${DEAL}`,
     kalkulationLink: `/app/leads/${DEAL}/kalkulation`,

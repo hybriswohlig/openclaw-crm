@@ -96,6 +96,7 @@ export function Seitenleiste() {
     inbox: inboxUngelesen,
     heute: nav?.heute,
     leads: nav?.leads,
+    kasse: nav?.kasse,
   };
 
   return (

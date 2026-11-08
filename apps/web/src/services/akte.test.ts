@@ -125,7 +125,14 @@ const GRUENDE = [
 
 /** Entwurf mit Klasse und Deal seines Gesprächs; die Abfrage-Attrappe filtert wie das SQL, das sie bekommt. */
 type EntwurfFixture = { id: string; conversation_id: string; message_class: string; gespraech_deal: string | null };
-type Antworten = { paket?: boolean; kopf?: unknown[]; stufen?: unknown[]; gruende?: unknown[]; entwurf?: EntwurfFixture[] };
+type Antworten = {
+  paket?: boolean;
+  kopf?: unknown[];
+  stufen?: unknown[];
+  gruende?: unknown[];
+  entwurf?: EntwurfFixture[];
+  geld?: unknown[];
+};
 
 const followup = (id: string, conversation_id: string): EntwurfFixture => ({ id, conversation_id, message_class: "followup", gespraech_deal: DEAL });
 
@@ -144,6 +151,7 @@ function dbAntwortet(a: Antworten = {}) {
     if (text.includes("FROM statuses s")) return a.stufen ?? STUFEN;
     if (text.includes("FROM select_options so")) return a.gruende ?? GRUENDE;
     if (text.includes("FROM quotation_package_options")) return [{ hat: a.paket ?? false }];
+    if (text.includes("deal_invoices")) return a.geld ?? [];
     if (text.includes("FROM records r")) return a.kopf ?? [KOPF];
     throw new Error(`unerwartete Abfrage: ${text}`);
   });
@@ -211,7 +219,14 @@ describe("ladeAkte", () => {
       rechnungErlaubt: false,
       bewertungErlaubt: false,
     });
-    expect(akte.zahlung).toEqual({ restCent: 248000, meldungen: [] });
+    expect(akte.zahlung).toEqual({
+      restCent: 248000,
+      gesamtCent: 248000,
+      quelle: "angebot",
+      meldungen: [],
+      rechnung: null,
+      zahlungen: [],
+    });
     expect(akte.firma).toEqual({ id: "oc_kottke", name: "Kottke" });
     expect(akte.altLink).toBe("/objects/deals/deal_1?alt=1");
     expect(akte.kalkulationLink).toBe("/app/leads/deal_1/kalkulation");
@@ -306,7 +321,14 @@ describe("ladeAkte", () => {
     mocks.ladeAblaufGrundlage.mockResolvedValue(grundlage({ fakten: { offeneMeldungen: 1 }, meldungen: [MELDUNG] }));
     let akte = await ladeAkte(WS, DEAL, JETZT);
     expect(akte.dock.primaer).toEqual({ aktion: "zahlung_bestaetigen", label: "Zahlung bestätigen", ziel: "evt_1" });
-    expect(akte.zahlung).toEqual({ restCent: 248000, meldungen: [MELDUNG] });
+    expect(akte.zahlung).toEqual({
+      restCent: 248000,
+      gesamtCent: 248000,
+      quelle: "angebot",
+      meldungen: [MELDUNG],
+      rechnung: null,
+      zahlungen: [],
+    });
 
     const zweite = { ...MELDUNG, eventId: "evt_2", variante: "final" as const };
     mocks.ladeAblaufGrundlage.mockResolvedValue(grundlage({ fakten: { offeneMeldungen: 2 }, meldungen: [MELDUNG, zweite] }));
@@ -384,5 +406,67 @@ describe("ladeAkte", () => {
   it("fremder oder fehlender Deal: Fehler", async () => {
     dbAntwortet({ kopf: [] });
     await expect(ladeAkte(WS, DEAL, JETZT)).rejects.toThrow("Deal nicht gefunden");
+  });
+
+  it("stornierte Zahlung: Original storniert, Gegenbuchung ist Storno, Rest bleibt der Rechnungsbetrag", async () => {
+    dbAntwortet({
+      geld: [
+        {
+          rechnung: {
+            id: "inv_1",
+            nummer: "RE-2026-0004",
+            status: "gestellt",
+            bruttoCent: 100000,
+            rechnungstag: "2026-11-01",
+            faelligAm: "2026-11-01",
+            abweichungGrund: null,
+            stufe: null,
+            erinnerungStatus: null,
+            erinnerungAm: null,
+          },
+          zahlungen: [
+            {
+              id: "pay_alt",
+              date: "2026-11-02",
+              amount: "400.00",
+              paymentMethod: "bank_transfer",
+              taxTreatment: "betriebseinnahme",
+              quelle: "hand",
+              notes: null,
+              receiptNumber: "K-E-2026-0008",
+              stornoVonPaymentId: null,
+              barErhaltenAm: null,
+              createdAt: "2026-11-02T10:00:00.000Z",
+              employeeName: null,
+            },
+            {
+              id: "pay_storno",
+              date: "2026-11-03",
+              amount: "-400.00",
+              paymentMethod: "bank_transfer",
+              taxTreatment: "betriebseinnahme",
+              quelle: "storno",
+              notes: "doppelt erfasst",
+              receiptNumber: null,
+              stornoVonPaymentId: "pay_alt",
+              barErhaltenAm: null,
+              createdAt: "2026-11-03T10:00:00.000Z",
+              employeeName: null,
+            },
+          ],
+          festpreis: null,
+          ist_stunden: false,
+          annahme_cent: null,
+        },
+      ],
+    });
+    const akte = await ladeAkte(WS, DEAL, JETZT);
+    expect(akte.zahlung.restCent).toBe(100000);
+    expect(akte.zahlung.gesamtCent).toBe(100000);
+    expect(akte.zahlung.quelle).toBe("rechnung");
+    expect(akte.zahlung.zahlungen.map((z) => [z.id, z.storniert, z.istStorno, z.cent])).toEqual([
+      ["pay_storno", false, true, -40000],
+      ["pay_alt", true, false, 40000],
+    ]);
   });
 });

@@ -188,7 +188,7 @@ export interface LeadSpalte {
   eingeklappt: boolean;
 }
 
-export type LeadsChip = "warten" | "kv_ungesehen" | "ohne_team" | "rechnung_offen" | "diese_woche" | null;
+export type LeadsChip = "warten" | "kv_ungesehen" | "ohne_team" | "rechnung_offen" | "ohne_ab" | "diese_woche" | null;
 export type LeadsChipKey = Exclude<LeadsChip, null>;
 
 /** Zähler „Heute im Blick“; immer über alle Deals des Workspace, ungefiltert (Entscheidung 6). */
@@ -199,6 +199,7 @@ export const LEADS_CHIPS: readonly { key: LeadsChipKey; ton: "gold" | "grau" | "
   { key: "kv_ungesehen", ton: "gold" },
   { key: "ohne_team", ton: "gold" },
   { key: "rechnung_offen", ton: "grau" },
+  { key: "ohne_ab", ton: "gold" },
   { key: "diese_woche", ton: "jade" },
 ];
 
@@ -214,6 +215,8 @@ export function chipText(key: LeadsChipKey, zahl: number): string {
       return eins ? "Termin ohne Team" : "Termine ohne Team";
     case "rechnung_offen":
       return eins ? "Rechnung offen" : "Rechnungen offen";
+    case "ohne_ab":
+      return "angenommen, keine AB";
     case "diese_woche":
       return eins ? "Umzug diese Woche" : "Umzüge diese Woche";
   }

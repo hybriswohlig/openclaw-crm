@@ -21,7 +21,7 @@ const CTX = { userId: "usr_1", workspaceId: "ws_1", workspaceRole: "admin" as co
 const get = () => new NextRequest("http://localhost/api/v1/heute");
 const ANTWORT = {
   tag: "2026-11-06",
-  chips: { warten: 2, kv_ungesehen: 0, ohne_team: 1, rechnung_offen: 0, diese_woche: 3 },
+  chips: { warten: 2, kv_ungesehen: 0, ohne_team: 1, rechnung_offen: 0, ohne_ab: 0, diese_woche: 3 },
   inbox: { ungelesen: 1, wartenAufUns: 2, kiEntwuerfe: 0, infoKeinLead: 4 },
   inboxAbgeschnitten: false,
   heute: [],
@@ -30,6 +30,7 @@ const ANTWORT = {
   meldungen: [],
   meldungenGesamt: 0,
   freigaben: [],
+  tagesabschluss: [],
   stand: "2026-11-06T11:00:00.000Z",
 };
 

@@ -657,6 +657,7 @@ describe("chipText", () => {
       },
       ohne_team: { eins: "Termin ohne Team", viele: "Termine ohne Team" },
       rechnung_offen: { eins: "Rechnung offen", viele: "Rechnungen offen" },
+      ohne_ab: { eins: "angenommen, keine AB", viele: "angenommen, keine AB" },
       diese_woche: { eins: "Umzug diese Woche", viele: "Umzüge diese Woche" },
     };
     for (const [key, text] of Object.entries(faelle) as [LeadsChipKey, { eins: string; viele: string }][]) {

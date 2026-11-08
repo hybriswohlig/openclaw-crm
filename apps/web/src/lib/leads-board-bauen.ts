@@ -12,7 +12,7 @@
  * - „KV gesendet“ wie die Akte (`services/ablauf-fakten.ts`): `sent_at` der
  *   neuesten gesperrten Version, sonst der am Angebot verknüpften Version,
  *   sonst (nur Angebot ohne Versionsbezug) das erste KV-Dokument.
- * - Betrag über `leadWert` (mit `kalkCent`), Rest über `restAus`, offene
+ * - Betrag über `leadWert` (mit `kalkCent`), Rest über `offenAus`, offene
  *   Zahlungsmeldungen über `offeneMeldungen`, Leistung über `portalLeistung`.
  */
 import { portalLeistung } from "@openclaw-crm/customer-portal-core";
@@ -46,7 +46,14 @@ import {
   type LeadsFilter,
   type ListenSortierung,
 } from "@/lib/leads-board";
-import { restAus } from "@/lib/offener-rest";
+import {
+  berlinTag,
+  offenAus,
+  type BarBeiTeam,
+  type OffenErgebnis,
+  type RechnungKurz,
+  type ZahlungQuelle,
+} from "@/lib/geld";
 import { aktiveZielStufe } from "@/lib/stufen-ziel";
 import { offeneMeldungen } from "@/lib/zahlungsmeldungen";
 import { stufenKategorie } from "@/services/lagekarte/status";
@@ -109,9 +116,28 @@ export interface LeadRoh {
   };
   /** `deal_calculations.result`: nur Festpreis (Euro) und Teamgröße. */
   rechner: { festpreis: string | null; teamSoll: number | null } | null;
-  /** Erstes KV-Dokument, neueste Rechnung (`deal_documents.uploaded_at`). */
-  dokumente: { kvErstesAm: string | null; rechnungAm: string | null };
-  zahlungen: { amount: string; taxTreatment: string | null; date: string | null }[];
+  /** Aktive Rechnung (`entwurf` oder `gestellt`); null ohne Zeile. */
+  rechnung: RechnungKurz | null;
+  /** `deal_workflow_state.bezahlt_am`, ISO. */
+  bezahltAm: string | null;
+  /** `deal_workflow_state.stage_entered_at`, ISO. Für den Tag „Durchgeführt“ ohne Termin. */
+  stufeBetretenAm: string | null;
+  /** Bar beim Team, noch nicht bei den Inhabern. */
+  barBeiTeam: BarBeiTeam[];
+  /** `quotations.deposit_required_cents`. */
+  anzahlungCent: number | null;
+  /** `max(move_time_entries.finished_at)`, ISO. */
+  fertigAm: string | null;
+  /** Erstes KV-Dokument, neueste Rechnung, neueste Auftragsbestätigung (`deal_documents.uploaded_at`). */
+  dokumente: { kvErstesAm: string | null; rechnungAm: string | null; abAm: string | null };
+  zahlungen: {
+    amount: string;
+    taxTreatment: string | null;
+    date: string | null;
+    id?: string;
+    quelle?: ZahlungQuelle | null;
+    stornoVonPaymentId?: string | null;
+  }[];
   /** Namen des zugeteilten Teams in Zuteilungsreihenfolge. */
   team: string[];
   /** Summe `analysiert` aus `agent_events` `fotos_erledigt` (wie die Akte). */
@@ -257,13 +283,46 @@ export function laeuftGrund(roh: LeadRoh, kategorie: LeadKategorie | null, jetzt
   return null;
 }
 
-function restVon(roh: LeadRoh) {
-  return restAus({
+/** Der eine offene Rest (`offenAus`): gestellte Rechnung vor Annahme, Festpreis und Stunden-KV. */
+export function offenVonLead(roh: LeadRoh): OffenErgebnis {
+  return offenAus({
+    rechnung: roh.rechnung ? { status: roh.rechnung.status, bruttoCent: roh.rechnung.bruttoCent } : null,
     annahmeCent: roh.annahme?.cent ?? null,
     festpreis: roh.angebot?.festpreisEuro ?? null,
-    istStunden: roh.angebot?.istStunden === true,
-    zahlungen: roh.zahlungen.map((z) => ({ amount: z.amount, taxTreatment: z.taxTreatment })),
+    istStunden: roh.angebot?.istStunden ?? false,
+    zahlungen: roh.zahlungen,
   });
+}
+
+/** Letzter bekannter Umzugstag: das spätere von Attribut und Kundenauswahl. */
+export function letzterUmzugstag(roh: LeadRoh): string | null {
+  const tage = [roh.umzugAm, roh.terminAuswahl].filter((t): t is string => t != null && t !== "");
+  if (tage.length === 0) return null;
+  return tage.reduce((a, b) => (a > b ? a : b));
+}
+
+/** Erster fester Termin: Kundenauswahl, sonst das Umzugsdatum. */
+export function ersterTermin(roh: LeadRoh): string | null {
+  return roh.terminAuswahl ?? roh.umzugAm;
+}
+
+/**
+ * Tag „durchgeführt“: letzter Umzugstag, wenn bekannt. Sonst bei Durchgeführt
+ * der Berliner Tag von `wartet.seit`, sonst von `stage_entered_at`.
+ */
+export function durchgefuehrtAmAus(roh: LeadRoh, kategorie: string | null): string | null {
+  const letzter = letzterUmzugstag(roh);
+  if (letzter) return letzter;
+  if (kategorie !== "done_unpaid") return null;
+  const iso = roh.wartet?.seit ?? roh.stufeBetretenAm;
+  if (!iso || Number.isNaN(Date.parse(iso))) return null;
+  return berlinTag(iso);
+}
+
+/** Gestellte Rechnung. Ohne Rechnungszeile zählt das alte Rechnungsdokument. */
+export function rechnungGestellt(roh: LeadRoh): boolean {
+  if (roh.rechnung) return roh.rechnung.status === "gestellt";
+  return roh.dokumente.rechnungAm != null;
 }
 
 /** Letzter Zahlungstag der Preiszahlungen (ohne Kaution), YYYY-MM-DD. */
@@ -286,7 +345,7 @@ export function kontextAus(roh: LeadRoh, kategorie: LeadKategorie | null): strin
     case "quoted":
       return roh.angebot?.gueltigBis ? `gültig bis ${datumKurz(roh.angebot.gueltigBis)}` : null;
     case "done_unpaid": {
-      const rest = restVon(roh).restCent;
+      const rest = offenVonLead(roh).restCent;
       return rest !== null && rest > 0 ? `Rest ${euroText(rest)}` : null;
     }
     case "paid": {
@@ -307,7 +366,10 @@ const WOCHE_KATEGORIEN: ReadonlySet<string> = new Set<LeadKategorie>(["booked", 
  * kv_ungesehen = Angebot, KV gesendet, seitdem kein Portalaufruf, älter als
  * `KV_UNGESEHEN_TAGE` (live);
  * ohne_team = Geplant und `teamFehlt`;
- * rechnung_offen = Rechnung vorhanden und Rest > 0;
+ * rechnung_offen = wie die Kasse-Schlange „offen“: gestellte Rechnung
+ * (ohne Zeile: altes Rechnungsdokument), Rest > 0 oder Betrag unbekannt
+ * (Stunden-KV bzw. gestellte Rechnung ohne Betrag), nicht verloren;
+ * ohne_ab = Geplant, Annahme aktiv, keine Auftragsbestätigung;
  * diese_woche = Termin Montag bis Sonntag der laufenden Berliner Woche bei
  * Geplant, Durchgeführt oder Bezahlt.
  */
@@ -316,8 +378,12 @@ export function chipsAus(
     karte: Pick<LeadKarte, "wartet" | "termin" | "teamFehlt" | "stufe">;
     kvGesendetAm: string | null;
     portalZuletztGeoeffnet: string | null;
-    rechnungAm: string | null;
+    rechnungGestellt: boolean;
     restCent: number | null;
+    /** `restCent == null` zählt nur hier: Stunden-KV oder gestellte Rechnung ohne Betrag. */
+    restUnbekannt: boolean;
+    annahme: boolean;
+    abAm: string | null;
   },
   jetzt: Date,
   woche: { von: string; bis: string } = wocheGrenzen(jetzt),
@@ -331,7 +397,9 @@ export function chipsAus(
     if (!gesehen && jetzt.getTime() - gesendet > KV_UNGESEHEN_TAGE * TAG_MS) chips.push("kv_ungesehen");
   }
   if (k === "booked" && f.karte.teamFehlt) chips.push("ohne_team");
-  if (f.rechnungAm && f.restCent !== null && f.restCent > 0) chips.push("rechnung_offen");
+  const restOffen = f.restCent == null ? f.restUnbekannt : f.restCent > 0;
+  if (k !== "lost" && f.rechnungGestellt && restOffen) chips.push("rechnung_offen");
+  if (k === "booked" && f.annahme && !f.abAm) chips.push("ohne_ab");
   const t = f.karte.termin;
   if (t && k && WOCHE_KATEGORIEN.has(k) && t >= woche.von && t <= woche.bis) chips.push("diese_woche");
   return chips;
@@ -426,13 +494,17 @@ export function eintragAus(
     erstelltAm: roh.erstelltAm,
   };
 
+  const offen = offenVonLead(roh);
   const chips = chipsAus(
     {
       karte,
       kvGesendetAm,
       portalZuletztGeoeffnet: roh.portalZuletztGeoeffnet,
-      rechnungAm: roh.dokumente.rechnungAm,
-      restCent: restVon(roh).restCent,
+      rechnungGestellt: rechnungGestellt(roh),
+      restCent: offen.restCent,
+      restUnbekannt: offen.restCent == null && (roh.rechnung?.status === "gestellt" || roh.angebot?.istStunden === true),
+      annahme: roh.annahme != null,
+      abAm: roh.dokumente.abAm,
     },
     jetzt,
     woche,
@@ -493,7 +565,7 @@ export function filtern(eintraege: LeadEintrag[], f: LeadsFilter): LeadEintrag[]
 
 /** Zähler über die übergebenen (ungefilterten) Einträge. */
 export function chipsZaehlen(eintraege: LeadEintrag[]): LeadsChips {
-  const z: LeadsChips = { warten: 0, kv_ungesehen: 0, ohne_team: 0, rechnung_offen: 0, diese_woche: 0 };
+  const z: LeadsChips = { warten: 0, kv_ungesehen: 0, ohne_team: 0, rechnung_offen: 0, ohne_ab: 0, diese_woche: 0 };
   for (const e of eintraege) for (const c of e.chips) z[c]++;
   return z;
 }

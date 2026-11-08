@@ -92,6 +92,10 @@ function antworten(deals: DbZeile[]) {
       { id: "q_wa", title: "WhatsApp" },
     ])
     .mockResolvedValueOnce({ rows: [{ id: "g_preis", title: "Zu teuer" }] });
+  // Rechnung, AB, Workflow, Bar, Anzahlung, Fertig: eine Abfrage je Feld, hier leer.
+  if (deals.length > 0) {
+    for (let i = 0; i < 6; i++) mocks.execute.mockResolvedValueOnce([]);
+  }
 }
 
 const DEALS: DbZeile[] = [
@@ -179,7 +183,7 @@ describe("ladeLeadsBoard", () => {
     antworten(DEALS);
     const board = await ladeLeadsBoard("ws_1", { ...LEERER_FILTER }, JETZT);
 
-    expect(mocks.execute).toHaveBeenCalledTimes(4);
+    expect(mocks.execute).toHaveBeenCalledTimes(10);
     expect(mocks.ladeFirmen).toHaveBeenCalledWith("ws_1");
     expect(board.stand).toBe(JETZT.toISOString());
     expect(board.firmen).toEqual([
@@ -192,7 +196,7 @@ describe("ladeLeadsBoard", () => {
     ]);
     expect(board.verlustGruende).toEqual([{ id: "g_preis", label: "Zu teuer" }]);
     expect(board.stufen.map((s) => s.id)).toEqual(["s_neu", "s_angebot", "s_geplant", "s_durch", "s_verloren", "s_kein"]);
-    expect(board.chips).toEqual({ warten: 2, kv_ungesehen: 1, ohne_team: 1, rechnung_offen: 1, diese_woche: 1 });
+    expect(board.chips).toEqual({ warten: 2, kv_ungesehen: 1, ohne_team: 1, rechnung_offen: 1, ohne_ab: 1, diese_woche: 1 });
 
     expect(board.spalten.map((s) => [s.stufeId, s.anzahl, s.eingeklappt, s.karten.map((k) => k.id)])).toEqual([
       ["_ohne", 1, false, ["d_ohne"]],

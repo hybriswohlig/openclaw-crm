@@ -14,7 +14,7 @@ import { euroText, tagKurz, volumenText } from "@/lib/anzeige";
 import { alsIso } from "@/lib/db-werte";
 import { KEIN_LEAD_STAGE_CATEGORY } from "@/lib/kontaktart";
 import type { NachfassModus } from "@/lib/nachfass-schalter";
-import type { Zahlungsmeldung } from "@/lib/zahlungsmeldungen";
+import type { ZahlungAkte } from "@/lib/geld";
 
 // ─── Typen ────────────────────────────────────────────────────────────────────
 
@@ -75,7 +75,7 @@ export interface AkteDaten {
   ablauf: { schritte: AblaufSchritt[]; position: number };
   nachfass: { an: boolean; modus: NachfassModus; text: string };
   dock: Dock;
-  zahlung: { restCent: number | null; meldungen: Zahlungsmeldung[] };
+  zahlung: ZahlungAkte;
   firma: { id: string | null; name: string | null };
   altLink: string;
   /** Neue Kalkulationsseite des Deals (Plan 4, Entscheidung 1). */

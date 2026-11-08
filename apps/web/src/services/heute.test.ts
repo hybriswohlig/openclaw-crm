@@ -14,8 +14,10 @@ vi.mock("@/services/calendar/load-events", () => ({ listCalendarEvents: mocks.li
 vi.mock("@/services/leads-board", () => ({ ladeLeadsRoh: mocks.ladeLeadsRoh }));
 vi.mock("@/services/inbox-neu", () => ({ ladeInboxListe: mocks.ladeInboxListe }));
 
-import { chipsZaehlen } from "@/lib/leads-board-bauen";
+import type { RechnungKurz } from "@/lib/geld";
+import { chipsZaehlen, type LeadRoh, type StufeZeile } from "@/lib/leads-board-bauen";
 import { PLAN_HEUTE, PLAN_JETZT, inboxEintrag, inboxListe, kalenderEreignis, leadEintrag } from "@/lib/plan-bauen.fixture";
+import { kasseZaehlerCacheLeeren } from "./kasse";
 import { HEUTE_VORSCHAU_TAGE, ladeHeute, ladeNavZaehler, liveLesen, navZaehlerCacheLeeren } from "./heute";
 
 const dialect = new PgDialect();
@@ -41,7 +43,9 @@ function db(live: unknown[] = []) {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mocks.ladeLeadsRoh.mockResolvedValue({ eintraege: LEADS, stamm: STAMM, stufen: [] });
+  navZaehlerCacheLeeren();
+  kasseZaehlerCacheLeeren();
+  mocks.ladeLeadsRoh.mockResolvedValue({ eintraege: LEADS, stamm: STAMM, stufen: [], roh: [] });
   mocks.ladeInboxListe.mockResolvedValue(INBOX);
   mocks.listCalendarEvents.mockResolvedValue({
     events: [
@@ -96,6 +100,7 @@ describe("ladeHeute", () => {
     expect(h.meldungen).toEqual([{ dealId: "d2", name: "Vogel", text: "Kunde meldet bezahlt · 500 €", href: "/app/leads/d2" }]);
     expect(h.meldungenGesamt).toBe(1);
     expect(h.freigaben).toEqual([{ key: "deal:d1", name: "Familie Weber", text: "KI-Entwurf", href: "/app/inbox?e=deal%3Ad1" }]);
+    expect(h.tagesabschluss).toEqual([]);
   });
 
   it("ohne Umzug heute keine Live-Abfrage", async () => {
@@ -129,11 +134,118 @@ describe("liveLesen", () => {
 });
 
 describe("ladeNavZaehler", () => {
-  it("lädt nicht die volle Board-Last, sondern eine Zählabfrage", async () => {
-    navZaehlerCacheLeeren();
+  it("Heute und Leads aus der Zählabfrage, Kasse über ladeKasseZaehler", async () => {
     mocks.execute.mockResolvedValueOnce([{ stufe_id: "s_neu", titel: "Neue Anfrage", kategorie: "open_new", anzahl: "3", warten: "2" }]);
-    expect(await ladeNavZaehler("ws_1", PLAN_JETZT)).toEqual({ heute: 2, leads: 3 });
-    expect(mocks.ladeLeadsRoh).not.toHaveBeenCalled();
+    expect(await ladeNavZaehler("ws_1", PLAN_JETZT)).toEqual({ heute: 2, leads: 3, kasse: 0 });
+    expect(mocks.ladeLeadsRoh).toHaveBeenCalledTimes(1);
     expect(mocks.execute).toHaveBeenCalledTimes(1);
+  });
+});
+
+const GELD_STUFEN: StufeZeile[] = [
+  { id: "s_geplant", label: "Geplant", kategorie: "booked", reihenfolge: 3, aktiv: true },
+  { id: "s_durch", label: "Durchgeführt", kategorie: "done_unpaid", reihenfolge: 4, aktiv: true },
+  { id: "s_bezahlt", label: "Bezahlt", kategorie: "paid", reihenfolge: 5, aktiv: true },
+];
+
+const GESTELLT: RechnungKurz = {
+  id: "inv_1",
+  nummer: "RE-1",
+  status: "gestellt",
+  bruttoCent: 100000,
+  rechnungstag: "2026-11-05",
+  faelligAm: "2026-11-05",
+  abweichungGrund: null,
+  erinnerung: null,
+};
+
+function leadRoh(teil: Partial<LeadRoh> & Pick<LeadRoh, "id">): LeadRoh {
+  return {
+    erstelltAm: "2026-10-01T10:00:00.000Z",
+    nummer: null,
+    name: teil.id,
+    stufeId: null,
+    umzugAm: null,
+    terminAuswahl: null,
+    von: null,
+    nach: null,
+    firmaId: null,
+    quelleId: null,
+    wert: null,
+    besichtigungAm: null,
+    verlustGrund: null,
+    wartet: null,
+    angebot: null,
+    optionen: [],
+    annahme: null,
+    portalZuletztGeoeffnet: null,
+    versionen: { gesperrt: null, entwurf: null },
+    rechner: null,
+    rechnung: null,
+    bezahltAm: null,
+    stufeBetretenAm: null,
+    barBeiTeam: [],
+    anzahlungCent: null,
+    fertigAm: null,
+    dokumente: { kvErstesAm: null, rechnungAm: null, abAm: null },
+    zahlungen: [],
+    team: [],
+    fotos: 0,
+    telefone: [],
+    meldungsEreignisse: [],
+    letzteNachrichtAm: null,
+    ...teil,
+  };
+}
+
+describe("Tagesabschluss auf Heute", () => {
+  it("fertig vor dem Umzugstag, gestern, ohne Rechnung, nur Bar; erledigt ohne Karte", async () => {
+    mocks.ladeLeadsRoh.mockResolvedValue({
+      eintraege: [],
+      stamm: STAMM,
+      stufen: GELD_STUFEN,
+      roh: [
+        leadRoh({ id: "fertig", stufeId: "s_geplant", umzugAm: "2026-11-08", fertigAm: "2026-11-06T08:10:00.000Z" }),
+        leadRoh({ id: "gestern", stufeId: "s_geplant", umzugAm: "2026-11-05" }),
+        leadRoh({ id: "durch", stufeId: "s_durch", umzugAm: "2026-11-04" }),
+        leadRoh({
+          id: "bar",
+          stufeId: "s_bezahlt",
+          rechnung: GESTELLT,
+          barBeiTeam: [{ paymentId: "pay_1", mitarbeiter: "Hans", cent: 45000 }],
+        }),
+        leadRoh({ id: "erledigt", stufeId: "s_bezahlt", umzugAm: "2026-11-05", rechnung: GESTELLT }),
+      ],
+    });
+    const karten = (await ladeHeute("ws_1", PLAN_JETZT)).tagesabschluss;
+    expect(karten.map((k) => k.dealId)).toEqual(["durch", "gestern", "fertig", "bar"]);
+
+    const durch = karten[0];
+    expect(durch.hinweis).toBe("Termin war 04.11.2026");
+    expect(durch.schritte.map((s) => [s.art, s.status])).toEqual([
+      ["bestaetigen", "erledigt"],
+      ["rechnung", "jetzt"],
+    ]);
+
+    const gestern = karten[1];
+    expect(gestern.hinweis).toBe("Termin war 05.11.2026");
+    expect(gestern.schritte.map((s) => [s.art, s.status])).toEqual([
+      ["bestaetigen", "jetzt"],
+      ["rechnung", "spaeter"],
+    ]);
+
+    const fertig = karten[2];
+    expect(fertig.hinweis).toBe("Team meldet fertig 09:10");
+    expect(fertig.schritte[0]).toMatchObject({ art: "bestaetigen", status: "jetzt" });
+
+    const bar = karten[3];
+    expect(bar.hinweis).toBe("Bargeld beim Team");
+    expect(bar.schritte.map((s) => [s.art, s.status])).toEqual([
+      ["bestaetigen", "erledigt"],
+      ["rechnung", "erledigt"],
+      ["bar", "jetzt"],
+    ]);
+    expect(bar.schritte[2].text).toMatch(/Bar bei Hans: 450,00\s*€/);
+    expect(bar.schritte[2].paymentIds).toEqual(["pay_1"]);
   });
 });

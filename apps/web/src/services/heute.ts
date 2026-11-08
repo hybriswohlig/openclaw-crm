@@ -17,9 +17,12 @@ import { sql } from "drizzle-orm";
 import { db } from "@/db";
 import { berlinDateString } from "@/lib/berlin-date";
 import { alsIso, alsZahl, zeilen } from "@/lib/db-werte";
+import { berlinTag, tagesabschlussAus, type TagesabschlussKarte, type TagesabschlussRoh } from "@/lib/geld";
+import { letzterUmzugstag, offenVonLead, type LeadRoh, type StufeZeile } from "@/lib/leads-board-bauen";
 import { heuteAus, navZaehlerAusGruppen, type NavZaehlerGruppe } from "@/lib/plan-bauen";
 import { tagPlus, type HeuteAntwort, type NavZaehler, type PlanLive } from "@/lib/plan-heute";
 import { ladeInboxListe } from "@/services/inbox-neu";
+import { ladeKasseZaehler } from "@/services/kasse";
 import { ladeLeadsRoh } from "@/services/leads-board";
 import { ladePlanEintraege } from "@/services/plan";
 
@@ -71,7 +74,36 @@ export async function ladeHeute(ws: string, jetzt: Date = new Date()): Promise<H
     ...new Set(plan.eintraege.filter((e) => e.art === "umzug" && e.tag <= tag && e.bisTag >= tag).map((e) => e.dealId)),
   ];
   const live = await liveLesen(ws, heuteUmzuege);
-  return heuteAus({ plan: plan.eintraege, leads: roh.eintraege, inbox, live }, jetzt);
+  return {
+    ...heuteAus({ plan: plan.eintraege, leads: roh.eintraege, inbox, live }, jetzt),
+    tagesabschluss: tagesabschlussKarten(roh.roh ?? [], roh.stufen ?? [], jetzt),
+  };
+}
+
+/** Karten aus denselben Lead-Zeilen. `tagesabschlussAus` lässt Erledigtes weg; Sortierung nach letztem Termintag. */
+function tagesabschlussKarten(leads: readonly LeadRoh[], stufen: readonly StufeZeile[], jetzt: Date): TagesabschlussKarte[] {
+  const tag = berlinTag(jetzt);
+  const nachStufe = new Map(stufen.map((s) => [s.id, s.kategorie]));
+  const karten: { karte: TagesabschlussKarte; tag: string }[] = [];
+  for (const roh of leads) {
+    const kategorie = roh.stufeId ? nachStufe.get(roh.stufeId) ?? null : null;
+    const letzter = letzterUmzugstag(roh);
+    const eingabe: TagesabschlussRoh = {
+      dealId: roh.id,
+      name: roh.name?.trim() || "Ohne Namen",
+      nummer: roh.nummer,
+      kategorie,
+      letzterTermintag: letzter,
+      fertigAm: roh.fertigAm,
+      rechnung: roh.rechnung ? { status: roh.rechnung.status } : null,
+      restCent: offenVonLead(roh).restCent,
+      barBeiTeam: roh.barBeiTeam,
+    };
+    const karte = tagesabschlussAus(eingabe, tag);
+    if (karte) karten.push({ karte, tag: letzter ?? "9999-99-99" });
+  }
+  karten.sort((a, b) => a.tag.localeCompare(b.tag) || a.karte.name.localeCompare(b.karte.name, "de"));
+  return karten.map((k) => k.karte);
 }
 
 /**
@@ -134,7 +166,9 @@ export function ladeNavZaehler(ws: string, jetzt: Date = new Date()): Promise<Na
   const t = jetzt.getTime();
   const treffer = zaehlerCache.get(ws);
   if (treffer && treffer.bis > t) return treffer.wert;
-  const wert = zaehlerLesen(ws).then(navZaehlerAusGruppen);
+  const wert = Promise.all([zaehlerLesen(ws).then(navZaehlerAusGruppen), ladeKasseZaehler(ws, jetzt)]).then(
+    ([gruppen, kasse]) => ({ ...gruppen, kasse }),
+  );
   zaehlerCache.set(ws, { bis: t + NAV_ZAEHLER_CACHE_MS, wert });
   wert.catch(() => {
     if (zaehlerCache.get(ws)?.wert === wert) zaehlerCache.delete(ws);

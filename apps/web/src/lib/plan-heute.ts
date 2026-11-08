@@ -12,6 +12,7 @@
  */
 import { datumKurz, tagKurz, uhrzeitKurz } from "./anzeige";
 import { berlinDateString } from "./berlin-date";
+import type { TagesabschlussKarte } from "./geld";
 import type { InboxChips } from "./inbox-neu";
 import {
   LEERER_FILTER,
@@ -603,6 +604,8 @@ export interface HeuteAntwort {
   meldungen: HeuteMeldung[];
   meldungenGesamt: number;
   freigaben: HeuteFreigabe[];
+  /** Tagesabschluss der letzten Umzüge (Plan 9). */
+  tagesabschluss: TagesabschlussKarte[];
   stand: string;
 }
 
@@ -612,6 +615,8 @@ export interface NavZaehler {
   heute: number;
   /** Offene Leads: Kategorien in `OFFENE_LEAD_KATEGORIEN`. */
   leads: number;
+  /** Seitenleiste „Kasse“ (`kasseZaehler`). */
+  kasse: number;
 }
 
 export const OFFENE_LEAD_KATEGORIEN: ReadonlySet<LeadKategorie> = new Set<LeadKategorie>([

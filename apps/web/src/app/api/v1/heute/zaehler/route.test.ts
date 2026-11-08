@@ -23,7 +23,7 @@ const get = () => new NextRequest("http://localhost/api/v1/heute/zaehler");
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.getAuthContext.mockResolvedValue(CTX);
-  mocks.ladeNavZaehler.mockResolvedValue({ heute: 4, leads: 19 });
+  mocks.ladeNavZaehler.mockResolvedValue({ heute: 4, leads: 19, kasse: 0 });
 });
 
 describe("GET /heute/zaehler", () => {
@@ -36,7 +36,7 @@ describe("GET /heute/zaehler", () => {
   it("liefert { data: NavZaehler }", async () => {
     const res = await GET(get());
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ data: { heute: 4, leads: 19 } });
+    expect(await res.json()).toEqual({ data: { heute: 4, leads: 19, kasse: 0 } });
     expect(mocks.ladeNavZaehler).toHaveBeenCalledWith("ws_1");
   });
 });

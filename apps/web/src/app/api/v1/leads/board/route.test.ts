@@ -42,7 +42,7 @@ const BOARD = {
       eingeklappt: false,
     },
   ],
-  chips: { warten: 0, kv_ungesehen: 0, ohne_team: 0, rechnung_offen: 0, diese_woche: 0 },
+  chips: { warten: 0, kv_ungesehen: 0, ohne_team: 0, rechnung_offen: 0, ohne_ab: 0, diese_woche: 0 },
   stand: "2026-11-06T11:00:00.000Z",
 };
 

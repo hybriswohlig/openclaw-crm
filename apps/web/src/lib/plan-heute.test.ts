@@ -964,6 +964,7 @@ describe("leadsChipLink", () => {
     { key: "kv_ungesehen" },
     { key: "ohne_team" },
     { key: "rechnung_offen" },
+    { key: "ohne_ab" },
     { key: "diese_woche" },
   ])("öffnet das Board nur mit Chip $key", ({ key }) => {
     expect(leadsChipLink(key)).toBe(`/app/leads?chip=${key}`);

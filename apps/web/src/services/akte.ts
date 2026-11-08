@@ -43,7 +43,18 @@ import {
   type AkteDaten,
   type Wartet,
 } from "@/lib/akte";
-import { alsIso, alsZahl, zeilen } from "@/lib/db-werte";
+import { alsIso, alsJson, alsTag, alsZahl, zeilen } from "@/lib/db-werte";
+import {
+  offenAus,
+  type ErinnerungStand,
+  type ErinnerungStatus,
+  type RechnungKurz,
+  type RechnungStatus,
+  type ZahlungAkte,
+  type ZahlungQuelle,
+  type ZahlungZeileAkte,
+} from "@/lib/geld";
+import { ZAHLUNGSARTEN, type Zahlungsart } from "@/lib/zahlungsart";
 import { ladeAblaufGrundlage } from "@/services/ablauf-fakten";
 import { dealGespraeche } from "@/services/gespraech";
 import { stufenKategorie } from "@/services/lagekarte/status";
@@ -164,6 +175,227 @@ function paketOptionenLesen(ws: string, deal: string) {
 }
 
 const WARTET_WERTE = new Set(["uns", "kunde", "niemand"]);
+const RECHNUNG_STATUS = new Set<RechnungStatus>(["entwurf", "gestellt", "storniert", "verworfen"]);
+const ERINNERUNG_STATUS = new Set<ErinnerungStatus>(["entwurf", "gesendet", "verworfen", "gestoppt"]);
+const ZAHLUNG_QUELLEN = new Set<ZahlungQuelle>(["hand", "meldung", "mitarbeiter", "api", "storno"]);
+const ARTEN = new Set<string>(ZAHLUNGSARTEN);
+
+/**
+ * Aktive Rechnung, sonst die neueste stornierte (damit die Akte „storniert“
+ * zeigen kann). Zahlungen, Festpreis und Annahme für `offenAus`.
+ */
+function geldLesen(ws: string, deal: string) {
+  return db.execute(sql`
+    SELECT
+      (
+        SELECT json_build_object(
+          'id', di.id,
+          'nummer', di.nummer,
+          'status', di.status,
+          'bruttoCent', di.brutto_cent,
+          'rechnungstag', di.rechnungstag::text,
+          'faelligAm', di.faellig_am::text,
+          'abweichungGrund', di.abweichung_grund,
+          'stufe', pr.stufe,
+          'erinnerungStatus', pr.status,
+          'erinnerungAm', pr.am
+        )
+        FROM deal_invoices di
+        LEFT JOIN LATERAL (
+          SELECT r.stufe, r.status,
+                 CASE WHEN r.status = 'gesendet' THEN coalesce(r.gesendet_am, r.created_at) ELSE r.created_at END AS am
+          FROM payment_reminders r
+          WHERE r.invoice_id = di.id AND r.workspace_id = ${ws}
+          ORDER BY r.created_at DESC, r.id DESC
+          LIMIT 1
+        ) pr ON true
+        WHERE di.workspace_id = ${ws}
+          AND di.deal_record_id = ${deal}
+          AND (
+            di.status IN ('entwurf', 'gestellt')
+            OR (
+              di.status = 'storniert'
+              AND NOT EXISTS (
+                SELECT 1 FROM deal_invoices aktiv
+                WHERE aktiv.workspace_id = ${ws}
+                  AND aktiv.deal_record_id = ${deal}
+                  AND aktiv.status IN ('entwurf', 'gestellt')
+              )
+            )
+          )
+        ORDER BY CASE WHEN di.status IN ('entwurf', 'gestellt') THEN 0 ELSE 1 END,
+                 di.storniert_am DESC NULLS LAST,
+                 di.created_at DESC
+        LIMIT 1
+      ) AS rechnung,
+      (
+        SELECT coalesce(json_agg(json_build_object(
+          'id', p.id,
+          'date', p.date::text,
+          'amount', p.amount::text,
+          'paymentMethod', p.payment_method,
+          'taxTreatment', p.tax_treatment,
+          'quelle', p.quelle,
+          'notes', p.notes,
+          'receiptNumber', p.receipt_number,
+          'stornoVonPaymentId', p.storno_von_payment_id,
+          'barErhaltenAm', p.bar_erhalten_am,
+          'createdAt', p.created_at,
+          'employeeName', e.name
+        ) ORDER BY p.date DESC, p.created_at DESC), '[]'::json)
+        FROM payments p
+        LEFT JOIN employees e ON e.id = p.employee_id AND e.workspace_id = ${ws}
+        WHERE p.workspace_id = ${ws} AND p.deal_record_id = ${deal}
+      ) AS zahlungen,
+      (
+        SELECT q.fixed_price::text
+        FROM quotations q
+        INNER JOIN records rec ON rec.id = q.deal_record_id AND rec.deleted_at IS NULL
+        INNER JOIN objects oc ON oc.id = rec.object_id AND oc.workspace_id = ${ws} AND oc.slug = 'deals'
+        WHERE q.deal_record_id = ${deal}
+        LIMIT 1
+      ) AS festpreis,
+      (
+        SELECT q.is_variable
+        FROM quotations q
+        INNER JOIN records rec ON rec.id = q.deal_record_id AND rec.deleted_at IS NULL
+        INNER JOIN objects oc ON oc.id = rec.object_id AND oc.workspace_id = ${ws} AND oc.slug = 'deals'
+        WHERE q.deal_record_id = ${deal}
+        LIMIT 1
+      ) AS ist_stunden,
+      (
+        SELECT k.confirmed_total_cents
+        FROM kva_confirmations k
+        WHERE k.workspace_id = ${ws} AND k.deal_record_id = ${deal} AND k.superseded_at IS NULL
+        LIMIT 1
+      ) AS annahme_cent
+  `);
+}
+
+interface GeldZeile {
+  rechnung: unknown;
+  zahlungen: unknown;
+  festpreis: string | null;
+  ist_stunden: unknown;
+  annahme_cent: unknown;
+}
+
+function objekt(v: unknown): Record<string, unknown> {
+  const j = alsJson(v);
+  return j && typeof j === "object" && !Array.isArray(j) ? (j as Record<string, unknown>) : {};
+}
+
+function erinnerungAus(o: Record<string, unknown>): ErinnerungStand | null {
+  const stufe = alsZahl(o.stufe);
+  if (stufe !== 1 && stufe !== 2) return null;
+  const status = o.erinnerungStatus;
+  if (typeof status !== "string" || !ERINNERUNG_STATUS.has(status as ErinnerungStatus)) return null;
+  const am = alsIso(o.erinnerungAm);
+  if (!am) return null;
+  return { stufe, status: status as ErinnerungStatus, am };
+}
+
+function rechnungAus(v: unknown): RechnungKurz | null {
+  const o = objekt(v);
+  if (typeof o.id !== "string" || typeof o.status !== "string" || !RECHNUNG_STATUS.has(o.status as RechnungStatus)) return null;
+  return {
+    id: o.id,
+    nummer: typeof o.nummer === "string" ? o.nummer : null,
+    status: o.status as RechnungStatus,
+    bruttoCent: alsZahl(o.bruttoCent),
+    rechnungstag: alsTag(o.rechnungstag),
+    faelligAm: alsTag(o.faelligAm),
+    abweichungGrund: typeof o.abweichungGrund === "string" ? o.abweichungGrund : null,
+    erinnerung: erinnerungAus(o),
+  };
+}
+
+function zahlungsZeilen(v: unknown): { zeile: ZahlungZeileAkte; amount: string; taxTreatment: string | null }[] {
+  const roh = alsJson(v);
+  const liste = Array.isArray(roh) ? roh : [];
+  const geparst = liste.flatMap((eintrag) => {
+    const o = objekt(eintrag);
+    if (typeof o.id !== "string") return [];
+    const amount = typeof o.amount === "string" ? o.amount : typeof o.amount === "number" ? String(o.amount) : null;
+    if (amount == null) return [];
+    const cent = Math.round(Number(amount) * 100);
+    if (!Number.isFinite(cent)) return [];
+    const methode = typeof o.paymentMethod === "string" ? o.paymentMethod : null;
+    const quelle = typeof o.quelle === "string" && ZAHLUNG_QUELLEN.has(o.quelle as ZahlungQuelle) ? (o.quelle as ZahlungQuelle) : null;
+    const stornoVon = typeof o.stornoVonPaymentId === "string" ? o.stornoVonPaymentId : null;
+    return [{
+      id: o.id,
+      date: alsTag(o.date) ?? "",
+      cent,
+      art: methode && ARTEN.has(methode) ? (methode as Zahlungsart) : null,
+      kaution: o.taxTreatment === "nicht_steuerbar",
+      quelle,
+      employeeName: typeof o.employeeName === "string" && o.employeeName.trim() ? o.employeeName.trim() : null,
+      belegnummer: typeof o.receiptNumber === "string" ? o.receiptNumber : null,
+      notiz: typeof o.notes === "string" ? o.notes : null,
+      istStorno: stornoVon != null,
+      stornoVon,
+      barErhaltenAm: o.barErhaltenAm ?? null,
+      paymentMethod: methode,
+      amount,
+      taxTreatment: typeof o.taxTreatment === "string" ? o.taxTreatment : null,
+      createdAt: alsIso(o.createdAt) ?? "",
+    }];
+  });
+  geparst.sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id));
+  const storniertVon = new Set(geparst.flatMap((z) => (z.stornoVon ? [z.stornoVon] : [])));
+  return geparst.map((z) => {
+    const storniert = storniertVon.has(z.id);
+    const barOffen = z.quelle === "mitarbeiter" && z.paymentMethod === "cash" && z.barErhaltenAm == null && !storniert;
+    return {
+      zeile: {
+        id: z.id,
+        date: z.date,
+        cent: z.cent,
+        art: z.art,
+        kaution: z.kaution,
+        quelle: z.quelle,
+        kassiertVon: z.quelle === "mitarbeiter" ? z.employeeName : null,
+        belegnummer: z.belegnummer,
+        notiz: z.notiz,
+        storniert,
+        istStorno: z.istStorno,
+        barOffen,
+      },
+      amount: z.amount,
+      taxTreatment: z.taxTreatment,
+    };
+  });
+}
+
+function zahlungAus(
+  zeile: GeldZeile | undefined,
+  f: { kv: { istStunden: boolean; betragCent: number | null } | null },
+  meldungen: ZahlungAkte["meldungen"],
+): ZahlungAkte {
+  const rechnung = rechnungAus(zeile?.rechnung);
+  const zahlungen = zahlungsZeilen(zeile?.zahlungen);
+  const istStunden = zeile && zeile.ist_stunden != null ? zeile.ist_stunden === true || zeile.ist_stunden === "t" || zeile.ist_stunden === "true" : f.kv?.istStunden === true;
+  const festpreis =
+    zeile?.festpreis ?? (!istStunden && f.kv?.betragCent != null ? (f.kv.betragCent / 100).toFixed(2) : null);
+  const annahmeCent = zeile ? alsZahl(zeile.annahme_cent) : null;
+  const aktiv = rechnung && (rechnung.status === "entwurf" || rechnung.status === "gestellt") ? rechnung : null;
+  const offen = offenAus({
+    rechnung: aktiv ? { status: aktiv.status, bruttoCent: aktiv.bruttoCent } : null,
+    annahmeCent,
+    festpreis,
+    istStunden,
+    zahlungen: zahlungen.map((z) => ({ amount: z.amount, taxTreatment: z.taxTreatment })),
+  });
+  return {
+    restCent: offen.restCent,
+    gesamtCent: offen.gesamtCent,
+    quelle: offen.quelle,
+    meldungen,
+    rechnung,
+    zahlungen: zahlungen.map((z) => z.zeile),
+  };
+}
 
 /**
  * Adresse aus jsonb: je nach Treiber schon geparst (Objekt oder Freitext) oder
@@ -191,7 +423,7 @@ export async function ladeAkteMitFakten(
   deal: string,
   jetzt: Date = new Date()
 ): Promise<{ akte: AkteDaten; fakten: AblaufFakten }> {
-  const [grundlage, kopfRes, stufenRes, gruendeRes, entwurfRes, gespraeche, paketRes, schalter] = await Promise.all([
+  const [grundlage, kopfRes, stufenRes, gruendeRes, entwurfRes, gespraeche, paketRes, schalter, geldRes] = await Promise.all([
     ladeAblaufGrundlage(ws, deal),
     kopfLesen(ws, deal),
     stufenLesen(ws),
@@ -200,6 +432,7 @@ export async function ladeAkteMitFakten(
     dealGespraeche(ws, deal),
     paketOptionenLesen(ws, deal),
     plan5Schalter(ws, deal),
+    geldLesen(ws, deal),
   ]);
   const [k] = zeilen<KopfZeile>(kopfRes);
   if (!k) throw new Error("Deal nicht gefunden");
@@ -252,7 +485,7 @@ export async function ladeAkteMitFakten(
       einzigeMeldung: meldungen.length === 1 ? meldungen[0].eventId : null,
       hatKanal,
     }),
-    zahlung: { restCent: f.rest.restCent, meldungen },
+    zahlung: zahlungAus(zeilen<GeldZeile>(geldRes)[0], f, meldungen),
     firma: { id: k.firma_id ?? null, name: k.firma_name ?? null },
     altLink,
     ...kalkulationLinks(deal, altLink, {

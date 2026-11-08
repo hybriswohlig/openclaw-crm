@@ -11,11 +11,12 @@ export function navZaehlerLesen(roh: unknown): NavZaehler | null {
   if (typeof roh !== "object" || roh === null) return null;
   const data = (roh as { data?: unknown }).data;
   if (typeof data !== "object" || data === null) return null;
-  const { heute, leads } = data as { heute?: unknown; leads?: unknown };
+  const { heute, leads, kasse } = data as { heute?: unknown; leads?: unknown; kasse?: unknown };
   const zahl = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? Math.floor(v) : null);
   const h = zahl(heute);
   const l = zahl(leads);
-  return h === null || l === null ? null : { heute: h, leads: l };
+  const k = kasse === undefined ? 0 : zahl(kasse);
+  return h === null || l === null || k === null ? null : { heute: h, leads: l, kasse: k };
 }
 
 /**

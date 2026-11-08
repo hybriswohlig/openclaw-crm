@@ -53,7 +53,7 @@ function eintrag(teil: Partial<PlanEintrag> = {}): PlanEintrag {
 function antwort(teil: Partial<HeuteAntwort> = {}): HeuteAntwort {
   return {
     tag: "2026-11-06",
-    chips: { warten: 4, kv_ungesehen: 1, ohne_team: 1, rechnung_offen: 2, diese_woche: 3 },
+    chips: { warten: 4, kv_ungesehen: 1, ohne_team: 1, rechnung_offen: 2, ohne_ab: 0, diese_woche: 3 },
     inbox: { ungelesen: 7, wartenAufUns: 4, kiEntwuerfe: 3, infoKeinLead: 3 },
     inboxAbgeschnitten: false,
     heute: [],
@@ -62,6 +62,7 @@ function antwort(teil: Partial<HeuteAntwort> = {}): HeuteAntwort {
     meldungen: [],
     meldungenGesamt: 0,
     freigaben: [],
+    tagesabschluss: [],
     stand: "2026-11-06T09:00:00.000Z",
     ...teil,
   };

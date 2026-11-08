@@ -1,11 +1,16 @@
 import { describe, expect, it } from "vitest";
+import { ZAHLUNGSREGEL_STANDARD, kasseEintraege, type KasseDealRoh, type RechnungKurz } from "@/lib/geld";
+import { offeneMeldungen } from "@/lib/zahlungsmeldungen";
 import {
   chipsZaehlen,
+  durchgefuehrtAmAus,
   eintragAus,
+  ersterTermin,
   filtern,
   kontextAus,
   laeuftGrund,
   listeSortieren,
+  offenVonLead,
   passtSuche,
   seite,
   sortierenInSpalte,
@@ -70,7 +75,13 @@ function roh(teil: Partial<LeadRoh> = {}): LeadRoh {
     portalZuletztGeoeffnet: null,
     versionen: { gesperrt: null, entwurf: null },
     rechner: null,
-    dokumente: { kvErstesAm: null, rechnungAm: null },
+    rechnung: null,
+    bezahltAm: null,
+    stufeBetretenAm: null,
+    barBeiTeam: [],
+    anzahlungCent: null,
+    fertigAm: null,
+    dokumente: { kvErstesAm: null, rechnungAm: null, abAm: null },
     zahlungen: [],
     team: [],
     fotos: 0,
@@ -221,7 +232,7 @@ describe("Karte", () => {
       eintrag({
         annahme: { cent: 190000, am: vor(3 * TAG) },
         verlustGrund: "g_preis",
-        dokumente: { kvErstesAm: vor(5 * TAG), rechnungAm: null },
+        dokumente: { kvErstesAm: vor(5 * TAG), rechnungAm: null, abAm: null },
       }).karte.fakten,
     ).toEqual({ annahmeAm: vor(3 * TAG), kvVorhanden: true, verlustGrund: "g_preis" });
     expect(
@@ -362,11 +373,11 @@ describe("Chips „Heute im Blick“ (Entscheidung 6)", () => {
   it("KV ungesehen: Angebot, KV älter als 3 Tage, kein Portalaufruf seitdem (live gerechnet)", () => {
     const kv = (teil: Partial<LeadRoh>) =>
       eintrag({ stufeId: "s_angebot", angebot: angebot(), ...teil }).chips.includes("kv_ungesehen");
-    expect(kv({ dokumente: { kvErstesAm: vor(4 * TAG), rechnungAm: null } })).toBe(true);
-    expect(kv({ dokumente: { kvErstesAm: vor(3 * TAG), rechnungAm: null } })).toBe(false);
-    expect(kv({ dokumente: { kvErstesAm: vor(2 * TAG), rechnungAm: null } })).toBe(false);
-    expect(kv({ dokumente: { kvErstesAm: vor(4 * TAG), rechnungAm: null }, portalZuletztGeoeffnet: vor(TAG) })).toBe(false);
-    expect(kv({ dokumente: { kvErstesAm: vor(4 * TAG), rechnungAm: null }, portalZuletztGeoeffnet: vor(5 * TAG) })).toBe(true);
+    expect(kv({ dokumente: { kvErstesAm: vor(4 * TAG), rechnungAm: null, abAm: null } })).toBe(true);
+    expect(kv({ dokumente: { kvErstesAm: vor(3 * TAG), rechnungAm: null, abAm: null } })).toBe(false);
+    expect(kv({ dokumente: { kvErstesAm: vor(2 * TAG), rechnungAm: null, abAm: null } })).toBe(false);
+    expect(kv({ dokumente: { kvErstesAm: vor(4 * TAG), rechnungAm: null, abAm: null }, portalZuletztGeoeffnet: vor(TAG) })).toBe(false);
+    expect(kv({ dokumente: { kvErstesAm: vor(4 * TAG), rechnungAm: null, abAm: null }, portalZuletztGeoeffnet: vor(5 * TAG) })).toBe(true);
     // gesendete Version vor dem Dokument (Regel der Akte)
     expect(
       kv({
@@ -375,10 +386,10 @@ describe("Chips „Heute im Blick“ (Entscheidung 6)", () => {
       }),
     ).toBe(true);
     // Angebot mit Versionsbezug, aber nicht gesendet: das Dokument zählt nicht
-    expect(kv({ angebot: angebot({ ohneVersion: false }), dokumente: { kvErstesAm: vor(5 * TAG), rechnungAm: null } })).toBe(false);
+    expect(kv({ angebot: angebot({ ohneVersion: false }), dokumente: { kvErstesAm: vor(5 * TAG), rechnungAm: null, abAm: null } })).toBe(false);
     // andere Kategorie
     expect(
-      eintrag({ stufeId: "s_geplant", angebot: angebot(), dokumente: { kvErstesAm: vor(9 * TAG), rechnungAm: null } }).chips,
+      eintrag({ stufeId: "s_geplant", angebot: angebot(), dokumente: { kvErstesAm: vor(9 * TAG), rechnungAm: null, abAm: null } }).chips,
     ).not.toContain("kv_ungesehen");
   });
 
@@ -390,10 +401,12 @@ describe("Chips „Heute im Blick“ (Entscheidung 6)", () => {
 
   it("Rechnung offen: Rechnung vorhanden und Rest über 0", () => {
     const mit = (teil: Partial<LeadRoh>) =>
-      eintrag({ stufeId: "s_durch", dokumente: { kvErstesAm: null, rechnungAm: vor(TAG) }, ...teil }).chips.includes("rechnung_offen");
+      eintrag({ stufeId: "s_durch", dokumente: { kvErstesAm: null, rechnungAm: vor(TAG), abAm: null }, ...teil }).chips.includes("rechnung_offen");
     expect(mit({ angebot: angebot({ festpreisEuro: "1600" }) })).toBe(true);
     expect(mit({ angebot: angebot({ festpreisEuro: "1600" }), zahlungen: [{ amount: "1600", taxTreatment: null, date: null }] })).toBe(false);
-    expect(mit({ angebot: angebot({ istStunden: true }) })).toBe(false);
+    // Stunden-KV ohne Betrag: Rest unbekannt, zählt wie die Kasse-Schlange „offen“.
+    expect(mit({ angebot: angebot({ istStunden: true }) })).toBe(true);
+    expect(mit({ stufeId: "s_verloren", angebot: angebot({ festpreisEuro: "1600" }) })).toBe(false);
     expect(mit({})).toBe(false);
     expect(eintrag({ stufeId: "s_durch", angebot: angebot({ festpreisEuro: "1600" }) }).chips).not.toContain("rechnung_offen");
   });
@@ -422,7 +435,88 @@ describe("Chips „Heute im Blick“ (Entscheidung 6)", () => {
       eintrag({ id: "b", stufeId: "s_geplant", umzugAm: "2026-11-07", wartet: { auf: "uns", seit: vor(5), grund: "AB fehlt" } }),
       eintrag({ id: "c", stufeId: "s_verloren" }),
     ];
-    expect(chipsZaehlen(es)).toEqual({ warten: 2, kv_ungesehen: 0, ohne_team: 1, rechnung_offen: 0, diese_woche: 1 });
+    expect(chipsZaehlen(es)).toEqual({ warten: 2, kv_ungesehen: 0, ohne_team: 1, rechnung_offen: 0, ohne_ab: 0, diese_woche: 1 });
+  });
+
+  it("angenommen, keine AB: nur Geplant mit aktiver Annahme und ohne Auftragsbestätigung", () => {
+    const annahme = { cent: 190000, am: vor(TAG) };
+    expect(eintrag({ stufeId: "s_geplant", annahme }).chips).toContain("ohne_ab");
+    expect(
+      eintrag({
+        stufeId: "s_geplant",
+        annahme,
+        dokumente: { kvErstesAm: null, rechnungAm: null, abAm: vor(TAG) },
+      }).chips,
+    ).not.toContain("ohne_ab");
+    expect(eintrag({ stufeId: "s_geplant" }).chips).not.toContain("ohne_ab");
+    expect(eintrag({ stufeId: "s_durch", annahme }).chips).not.toContain("ohne_ab");
+  });
+});
+
+function rechnungKurz(teil: Partial<RechnungKurz> = {}): RechnungKurz {
+  return {
+    id: "inv_1",
+    nummer: "RE-1",
+    status: "gestellt",
+    bruttoCent: 160000,
+    rechnungstag: "2026-10-01",
+    faelligAm: "2026-10-01",
+    abweichungGrund: null,
+    erinnerung: null,
+    ...teil,
+  };
+}
+
+/** Dieselbe Abbildung wie `services/kasse.ts`, nur für den Chip-Vergleich. */
+function kasseRoh(r: LeadRoh): KasseDealRoh {
+  const kategorie = STUFEN.find((s) => s.id === r.stufeId)?.kategorie ?? null;
+  return {
+    dealId: r.id,
+    name: r.name?.trim() || "Ohne Namen",
+    nummer: r.nummer,
+    firmaId: r.firmaId,
+    firmaName: null,
+    kategorie,
+    termin: ersterTermin(r),
+    durchgefuehrtAm: durchgefuehrtAmAus(r, kategorie),
+    offen: offenVonLead(r),
+    rechnung: r.rechnung,
+    meldungen: offeneMeldungen(r.meldungsEreignisse),
+    anzahlungCent: r.anzahlungCent,
+    regel: ZAHLUNGSREGEL_STANDARD,
+    kanalFehlt: r.letzteNachrichtAm == null,
+  };
+}
+
+describe("Chip rechnung_offen und Kasse offen", () => {
+  it("zählt dieselben Deals: gestellte Rechnung, Rest unbekannt oder > 0, nicht verloren", () => {
+    const rohdaten = [
+      roh({ id: "offen", stufeId: "s_durch", rechnung: rechnungKurz(), angebot: angebot({ festpreisEuro: "1600" }) }),
+      roh({
+        id: "bezahlt",
+        stufeId: "s_durch",
+        rechnung: rechnungKurz(),
+        zahlungen: [{ amount: "1600", taxTreatment: null, date: "2026-11-01" }],
+      }),
+      roh({
+        id: "stunden",
+        stufeId: "s_angebot",
+        angebot: angebot({ istStunden: true }),
+        rechnung: rechnungKurz({ bruttoCent: null, faelligAm: null }),
+      }),
+      roh({
+        id: "entwurf",
+        stufeId: "s_durch",
+        rechnung: rechnungKurz({ status: "entwurf" }),
+        angebot: angebot({ festpreisEuro: "1600" }),
+      }),
+      roh({ id: "verloren", stufeId: "s_verloren", rechnung: rechnungKurz() }),
+    ];
+    const eintraege = rohdaten.map((r) => eintragAus(r, K, JETZT));
+    const kasse = kasseEintraege(rohdaten.map(kasseRoh), "2026-11-06", JETZT.toISOString());
+    expect(chipsZaehlen(eintraege).rechnung_offen).toBe(kasse.schlangen.offen.length);
+    expect(kasse.schlangen.offen.map((z) => z.dealId).sort()).toEqual(["offen", "stunden"]);
+    expect(eintraege.filter((e) => e.chips.includes("rechnung_offen")).map((e) => e.karte.id).sort()).toEqual(["offen", "stunden"]);
   });
 });
 

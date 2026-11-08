@@ -52,6 +52,14 @@ import {
   type LeadRoh,
   type StufeZeile,
 } from "@/lib/leads-board-bauen";
+import {
+  type BarBeiTeam,
+  type ErinnerungStand,
+  type ErinnerungStatus,
+  type RechnungKurz,
+  type RechnungStatus,
+  type ZahlungQuelle,
+} from "@/lib/geld";
 import { MELDUNG_EREIGNISTYPEN } from "@/lib/zahlungsmeldungen";
 import { ladeFirmen } from "@/services/lagekarte/laden";
 
@@ -277,7 +285,14 @@ function dealsLesen(ws: string) {
       WHERE dd.workspace_id = ${ws} AND dd.deal_record_id = d.id AND dd.document_type IN ('quotation', 'invoice')
     ) doc ON true
     LEFT JOIN LATERAL (
-      SELECT json_agg(json_build_object('amount', p.amount::text, 'taxTreatment', p.tax_treatment, 'date', p.date::text)) AS zahlungen
+      SELECT json_agg(json_build_object(
+        'amount', p.amount::text,
+        'taxTreatment', p.tax_treatment,
+        'date', p.date::text,
+        'id', p.id,
+        'quelle', p.quelle,
+        'stornoVonPaymentId', p.storno_von_payment_id
+      )) AS zahlungen
       FROM payments p
       WHERE p.workspace_id = ${ws} AND p.deal_record_id = d.id
     ) pay ON true
@@ -368,6 +383,21 @@ function positiveZahl(v: unknown): number | null {
   return n !== null && n > 0 ? n : null;
 }
 
+const ZAHLUNG_QUELLEN = new Set<ZahlungQuelle>(["hand", "meldung", "mitarbeiter", "api", "storno"]);
+const RECHNUNG_STATUS = new Set<RechnungStatus>(["entwurf", "gestellt", "storniert", "verworfen"]);
+const ERINNERUNG_STATUS = new Set<ErinnerungStatus>(["entwurf", "gesendet", "verworfen", "gestoppt"]);
+
+function quelleAus(v: unknown): ZahlungQuelle | null {
+  return typeof v === "string" && ZAHLUNG_QUELLEN.has(v as ZahlungQuelle) ? (v as ZahlungQuelle) : null;
+}
+
+function idListe(dealIds: string[]) {
+  return sql.join(
+    dealIds.map((id) => sql`${id}`),
+    sql`, `,
+  );
+}
+
 /** Besichtigung als Tag („2026-11-07“) oder Zeitpunkt (ISO); sonst null (wie die Akte). */
 function besichtigungAus(v: unknown): string | null {
   return alsTag(v) ?? alsIso(v);
@@ -438,13 +468,23 @@ export function rohAus(z: DbZeile): LeadRoh {
     rechner: wahr(z.hat_rechner)
       ? { festpreis: z.rechner_festpreis ?? null, teamSoll: positiveZahl(z.rechner_team_soll) }
       : null,
-    dokumente: { kvErstesAm: alsIso(z.kv_erstes_am), rechnungAm: alsIso(z.rechnung_am) },
+    dokumente: { kvErstesAm: alsIso(z.kv_erstes_am), rechnungAm: alsIso(z.rechnung_am), abAm: null },
+    rechnung: null,
+    bezahltAm: null,
+    stufeBetretenAm: null,
+    barBeiTeam: [],
+    anzahlungCent: null,
+    fertigAm: null,
     zahlungen: liste(z.zahlungen).map((p) => {
       const o = objekt(p);
+      const id = typeof o.id === "string" ? o.id : undefined;
       return {
         amount: text(o.amount) ?? "0",
         taxTreatment: typeof o.taxTreatment === "string" ? o.taxTreatment : null,
         date: alsTag(o.date),
+        ...(id ? { id } : {}),
+        quelle: quelleAus(o.quelle),
+        stornoVonPaymentId: typeof o.stornoVonPaymentId === "string" ? o.stornoVonPaymentId : null,
       };
     }),
     team: liste(z.team_namen).filter((n): n is string => typeof n === "string" && n.trim() !== ""),
@@ -460,12 +500,214 @@ export function rohAus(z: DbZeile): LeadRoh {
   };
 }
 
+// ─── Geld-Felder, eine Abfrage je Feld über alle Deal-IDs ────────────────────
+
+function rechnungenLesen(ws: string, dealIds: string[]) {
+  const ids = idListe(dealIds);
+  return db.execute(sql`
+    SELECT DISTINCT ON (di.deal_record_id)
+      di.deal_record_id AS deal_id,
+      di.id AS id,
+      di.nummer AS nummer,
+      di.status AS status,
+      di.brutto_cent AS brutto_cent,
+      di.rechnungstag::text AS rechnungstag,
+      di.faellig_am::text AS faellig_am,
+      di.abweichung_grund AS abweichung_grund,
+      pr.stufe AS stufe,
+      pr.status AS erinnerung_status,
+      pr.am::text AS erinnerung_am
+    FROM deal_invoices di
+    LEFT JOIN LATERAL (
+      SELECT r.stufe AS stufe,
+             r.status AS status,
+             CASE WHEN r.status = 'gesendet' THEN coalesce(r.gesendet_am, r.created_at) ELSE r.created_at END AS am
+      FROM payment_reminders r
+      WHERE r.invoice_id = di.id AND r.workspace_id = ${ws}
+      ORDER BY r.created_at DESC, r.id DESC
+      LIMIT 1
+    ) pr ON true
+    WHERE di.workspace_id = ${ws}
+      AND di.status IN ('entwurf', 'gestellt')
+      AND di.deal_record_id IN (${ids})
+    ORDER BY di.deal_record_id, CASE WHEN di.status = 'gestellt' THEN 0 ELSE 1 END, di.created_at DESC
+  `);
+}
+
+function abLesen(ws: string, dealIds: string[]) {
+  return db.execute(sql`
+    SELECT dd.deal_record_id AS deal_id, (max(dd.uploaded_at))::text AS ab_am
+    FROM deal_documents dd
+    WHERE dd.workspace_id = ${ws}
+      AND dd.document_type = 'order_confirmation'
+      AND dd.deal_record_id IN (${idListe(dealIds)})
+    GROUP BY dd.deal_record_id
+  `);
+}
+
+function workflowLesen(ws: string, dealIds: string[]) {
+  return db.execute(sql`
+    SELECT w.record_id AS deal_id,
+           w.bezahlt_am::text AS bezahlt_am,
+           w.stage_entered_at::text AS stufe_am
+    FROM deal_workflow_state w
+    INNER JOIN records r ON r.id = w.record_id AND r.deleted_at IS NULL
+    INNER JOIN objects o ON o.id = r.object_id AND o.workspace_id = ${ws} AND o.slug = 'deals'
+    WHERE w.record_id IN (${idListe(dealIds)})
+  `);
+}
+
+function barLesen(ws: string, dealIds: string[]) {
+  return db.execute(sql`
+    SELECT p.deal_record_id AS deal_id,
+           p.id AS payment_id,
+           p.amount::text AS amount,
+           coalesce(nullif(btrim(e.name), ''), 'Team') AS mitarbeiter
+    FROM payments p
+    LEFT JOIN employees e ON e.id = p.employee_id AND e.workspace_id = ${ws}
+    WHERE p.workspace_id = ${ws}
+      AND p.deal_record_id IN (${idListe(dealIds)})
+      AND p.quelle = 'mitarbeiter'
+      AND p.payment_method = 'cash'
+      AND p.bar_erhalten_am IS NULL
+      AND p.amount > 0
+      AND NOT EXISTS (
+        SELECT 1 FROM payments s
+        WHERE s.workspace_id = ${ws} AND s.storno_von_payment_id = p.id
+      )
+  `);
+}
+
+function anzahlungLesen(ws: string, dealIds: string[]) {
+  return db.execute(sql`
+    SELECT q.deal_record_id AS deal_id, q.deposit_required_cents AS cent
+    FROM quotations q
+    INNER JOIN records r ON r.id = q.deal_record_id AND r.deleted_at IS NULL
+    INNER JOIN objects o ON o.id = r.object_id AND o.workspace_id = ${ws} AND o.slug = 'deals'
+    WHERE q.deal_record_id IN (${idListe(dealIds)})
+  `);
+}
+
+function fertigLesen(ws: string, dealIds: string[]) {
+  return db.execute(sql`
+    SELECT m.deal_record_id AS deal_id, (max(m.finished_at))::text AS fertig_am
+    FROM move_time_entries m
+    INNER JOIN records r ON r.id = m.deal_record_id AND r.deleted_at IS NULL
+    INNER JOIN objects o ON o.id = r.object_id AND o.workspace_id = ${ws} AND o.slug = 'deals'
+    WHERE m.workspace_id = ${ws}
+      AND m.finished_at IS NOT NULL
+      AND m.deal_record_id IN (${idListe(dealIds)})
+    GROUP BY m.deal_record_id
+  `);
+}
+
+function erinnerungAus(stufe: unknown, status: unknown, am: unknown): ErinnerungStand | null {
+  const n = alsZahl(stufe);
+  if (n !== 1 && n !== 2) return null;
+  if (typeof status !== "string" || !ERINNERUNG_STATUS.has(status as ErinnerungStatus)) return null;
+  const iso = alsIso(am);
+  if (!iso) return null;
+  return { stufe: n, status: status as ErinnerungStatus, am: iso };
+}
+
+interface GeldFelder {
+  rechnung: Map<string, RechnungKurz>;
+  abAm: Map<string, string>;
+  bezahltAm: Map<string, string | null>;
+  stufeBetretenAm: Map<string, string | null>;
+  bar: Map<string, BarBeiTeam[]>;
+  anzahlung: Map<string, number | null>;
+  fertigAm: Map<string, string>;
+}
+
+async function geldFelderLesen(ws: string, dealIds: string[]): Promise<GeldFelder> {
+  const leer: GeldFelder = {
+    rechnung: new Map(),
+    abAm: new Map(),
+    bezahltAm: new Map(),
+    stufeBetretenAm: new Map(),
+    bar: new Map(),
+    anzahlung: new Map(),
+    fertigAm: new Map(),
+  };
+  if (dealIds.length === 0) return leer;
+  const [rechnungRes, abRes, workflowRes, barRes, anzahlungRes, fertigRes] = await Promise.all([
+    rechnungenLesen(ws, dealIds),
+    abLesen(ws, dealIds),
+    workflowLesen(ws, dealIds),
+    barLesen(ws, dealIds),
+    anzahlungLesen(ws, dealIds),
+    fertigLesen(ws, dealIds),
+  ]);
+  for (const z of zeilen<{
+    deal_id: string;
+    id: string;
+    nummer: string | null;
+    status: string;
+    brutto_cent: unknown;
+    rechnungstag: unknown;
+    faellig_am: unknown;
+    abweichung_grund: string | null;
+    stufe: unknown;
+    erinnerung_status: unknown;
+    erinnerung_am: unknown;
+  }>(rechnungRes)) {
+    if (!RECHNUNG_STATUS.has(z.status as RechnungStatus)) continue;
+    leer.rechnung.set(z.deal_id, {
+      id: z.id,
+      nummer: z.nummer ?? null,
+      status: z.status as RechnungStatus,
+      bruttoCent: alsZahl(z.brutto_cent),
+      rechnungstag: alsTag(z.rechnungstag),
+      faelligAm: alsTag(z.faellig_am),
+      abweichungGrund: z.abweichung_grund ?? null,
+      erinnerung: erinnerungAus(z.stufe, z.erinnerung_status, z.erinnerung_am),
+    });
+  }
+  for (const z of zeilen<{ deal_id: string; ab_am: unknown }>(abRes)) {
+    const am = alsIso(z.ab_am);
+    if (am) leer.abAm.set(z.deal_id, am);
+  }
+  for (const z of zeilen<{ deal_id: string; bezahlt_am: unknown; stufe_am: unknown }>(workflowRes)) {
+    leer.bezahltAm.set(z.deal_id, alsIso(z.bezahlt_am));
+    leer.stufeBetretenAm.set(z.deal_id, alsIso(z.stufe_am));
+  }
+  for (const z of zeilen<{ deal_id: string; payment_id: string; amount: unknown; mitarbeiter: string | null }>(barRes)) {
+    const cent = Math.round(Number(z.amount) * 100);
+    if (!Number.isFinite(cent) || cent <= 0 || typeof z.payment_id !== "string") continue;
+    const listeBar = leer.bar.get(z.deal_id) ?? [];
+    listeBar.push({ paymentId: z.payment_id, mitarbeiter: z.mitarbeiter?.trim() || "Team", cent });
+    leer.bar.set(z.deal_id, listeBar);
+  }
+  for (const z of zeilen<{ deal_id: string; cent: unknown }>(anzahlungRes)) {
+    leer.anzahlung.set(z.deal_id, alsZahl(z.cent));
+  }
+  for (const z of zeilen<{ deal_id: string; fertig_am: unknown }>(fertigRes)) {
+    const am = alsIso(z.fertig_am);
+    if (am) leer.fertigAm.set(z.deal_id, am);
+  }
+  return leer;
+}
+
+function geldAnwenden(roh: LeadRoh, geld: GeldFelder): LeadRoh {
+  return {
+    ...roh,
+    rechnung: geld.rechnung.get(roh.id) ?? null,
+    dokumente: { ...roh.dokumente, abAm: geld.abAm.get(roh.id) ?? null },
+    bezahltAm: geld.bezahltAm.get(roh.id) ?? null,
+    stufeBetretenAm: geld.stufeBetretenAm.get(roh.id) ?? null,
+    barBeiTeam: geld.bar.get(roh.id) ?? [],
+    anzahlungCent: geld.anzahlung.has(roh.id) ? (geld.anzahlung.get(roh.id) ?? null) : null,
+    fertigAm: geld.fertigAm.get(roh.id) ?? null,
+  };
+}
+
 // ─── Laden ───────────────────────────────────────────────────────────────────
 
 export async function ladeLeadsRoh(
   ws: string,
   jetzt: Date,
-): Promise<{ eintraege: LeadEintrag[]; stamm: LeadsStammdaten; stufen: StufeZeile[] }> {
+): Promise<{ eintraege: LeadEintrag[]; stamm: LeadsStammdaten; stufen: StufeZeile[]; roh: LeadRoh[] }> {
   const [dealsRes, stufenRes, quellenRes, gruendeRes, firmenRoh] = await Promise.all([
     dealsLesen(ws),
     stufenLesen(ws),
@@ -490,7 +732,10 @@ export async function ladeLeadsRoh(
 
   const woche = wocheGrenzen(jetzt);
   const k = { stufen, firmen: firmenMap, quellen: quellenMap };
-  const eintraege = zeilen<DbZeile>(dealsRes).map((z) => eintragAus(rohAus(z), k, jetzt, woche));
+  const geparst = zeilen<DbZeile>(dealsRes).map(rohAus);
+  const geld = await geldFelderLesen(ws, geparst.map((r) => r.id));
+  const roh = geparst.map((r) => geldAnwenden(r, geld));
+  const eintraege = roh.map((r) => eintragAus(r, k, jetzt, woche));
 
   const stamm: LeadsStammdaten = {
     firmen: [...firmenMap.values()].sort((a, b) => a.name.localeCompare(b.name, "de")),
@@ -501,7 +746,7 @@ export async function ladeLeadsRoh(
       .map((s) => ({ id: s.id, label: s.label, kategorie: s.kategorie })),
     verlustGruende: zeilen<{ id: string; title: string }>(gruendeRes).map((g) => ({ id: g.id, label: g.title })),
   };
-  return { eintraege, stamm, stufen };
+  return { eintraege, stamm, stufen, roh };
 }
 
 /** Board: je Spalte die erste Seite, Anzahl und Summe über die ganze gefilterte Spalte; Chips ungefiltert. */

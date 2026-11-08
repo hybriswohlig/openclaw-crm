@@ -347,7 +347,7 @@ describe("heuteAus", () => {
     });
     const h = heuteAus({ plan: [], leads, inbox, live: new Map() }, PLAN_JETZT);
     expect(h.chips).toEqual(chipsZaehlen(leads));
-    expect(h.chips).toEqual({ warten: 2, kv_ungesehen: 0, ohne_team: 1, rechnung_offen: 1, diese_woche: 1 });
+    expect(h.chips).toEqual({ warten: 2, kv_ungesehen: 0, ohne_team: 1, rechnung_offen: 1, ohne_ab: 0, diese_woche: 1 });
     expect(h.inbox).toEqual(inbox.chips);
     expect(h.inboxAbgeschnitten).toBe(true);
   });
@@ -377,7 +377,7 @@ describe("navZaehlerAus", () => {
       leadEintrag({ id: "f", stufe: { id: null, label: "Ohne Stufe", kategorie: null } }),
     ];
     const z = navZaehlerAus(leads);
-    expect(z).toEqual({ heute: 3, leads: 3 });
+    expect(z).toEqual({ heute: 3, leads: 3, kasse: 0 });
     expect(z.heute).toBe(chipsZaehlen(leads).warten);
   });
 });

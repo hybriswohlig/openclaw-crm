@@ -270,6 +270,7 @@ export function heuteAus(
     meldungen: alleMeldungen.slice(0, HEUTE_LISTE_MAX),
     meldungenGesamt: alleMeldungen.length,
     freigaben,
+    tagesabschluss: [],
     stand: jetzt.toISOString(),
   };
 }
@@ -296,15 +297,15 @@ export function navZaehlerAusGruppen(gruppen: readonly NavZaehlerGruppe[]): NavZ
     if (!(k && ENDSTUFEN.has(k))) heute += g.warten;
     if (k && OFFENE_LEAD_KATEGORIEN.has(k)) leads += g.anzahl;
   }
-  return { heute, leads };
+  return { heute, leads, kasse: 0 };
 }
 
-/** Seitenleiste (Entscheidung 12): „Heute“ = Chip „warten auf uns“, „Leads“ = offene Leads. */
+/** Seitenleiste (Entscheidung 12): „Heute“ = Chip „warten auf uns“, „Leads“ = offene Leads. `kasse` füllt `ladeNavZaehler`. */
 export function navZaehlerAus(leads: LeadEintrag[]): NavZaehler {
   let offen = 0;
   for (const l of leads) {
     const k = l.karte.stufe.kategorie;
     if (k && OFFENE_LEAD_KATEGORIEN.has(k)) offen++;
   }
-  return { heute: chipsZaehlen(leads).warten, leads: offen };
+  return { heute: chipsZaehlen(leads).warten, leads: offen, kasse: 0 };
 }

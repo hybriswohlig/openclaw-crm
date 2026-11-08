@@ -16,6 +16,7 @@ vi.mock("@/services/lagekarte/laden", () => ({ ladeFirmen: mocks.ladeFirmen }));
 
 import { chipsZaehlen } from "@/lib/leads-board-bauen";
 import { navZaehlerAus } from "@/lib/plan-bauen";
+import { kasseZaehlerCacheLeeren } from "./kasse";
 import { ladeLeadsRoh, type DbZeile } from "./leads-board";
 import { NAV_ZAEHLER_CACHE_MS, ladeNavZaehler, navZaehlerCacheLeeren, zaehlerLesen } from "./heute";
 
@@ -92,35 +93,52 @@ function gruppenZeilen() {
   return [...gruppen.values()].map((g) => ({ ...g, anzahl: String(g.anzahl), warten: String(g.warten) }));
 }
 
+/** Zählabfrage und Deal-Zeilen, die `ladeLeadsRoh` (für die Kasse) sieht. */
+let zaehlerZeilen: unknown[] = [];
+let dealZeilen: DbZeile[] = [];
+
+function sqlText(q: SQL) {
+  return dialect.sqlToQuery(q).sql;
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   navZaehlerCacheLeeren();
+  kasseZaehlerCacheLeeren();
   mocks.ladeFirmen.mockResolvedValue([]);
+  zaehlerZeilen = [];
+  dealZeilen = [];
+  mocks.execute.mockImplementation(async (q: SQL) => {
+    const text = sqlText(q);
+    if (text.includes("count(*) FILTER")) return zaehlerZeilen;
+    if (text.includes("FROM statuses")) return STUFEN;
+    if (text.includes("erstellt_am")) return dealZeilen;
+    return [];
+  });
 });
 
 describe("ladeNavZaehler (schlanke Zählabfrage)", () => {
-  it("liefert dieselben Zahlen wie die Board-Chips über dieselbe Fixture", async () => {
-    mocks.execute
-      .mockResolvedValueOnce(FIXTURE.map((f) => dbZeile(f.id, f.stufe, f.wartet)))
-      .mockResolvedValueOnce(STUFEN)
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([]);
+  it("liefert dieselben Heute- und Leads-Zahlen wie die Board-Chips über dieselbe Fixture", async () => {
+    dealZeilen = FIXTURE.map((f) => dbZeile(f.id, f.stufe, f.wartet));
+    zaehlerZeilen = gruppenZeilen();
     const { eintraege } = await ladeLeadsRoh("ws_1", JETZT);
     const board = navZaehlerAus(eintraege);
     expect(board.heute).toBe(chipsZaehlen(eintraege).warten);
+    expect(board.kasse).toBe(0);
 
-    mocks.execute.mockReset();
-    mocks.execute.mockResolvedValueOnce(gruppenZeilen());
+    mocks.execute.mockClear();
     const schlank = await ladeNavZaehler("ws_1", JETZT);
 
-    expect(schlank).toEqual(board);
+    expect(schlank.heute).toBe(board.heute);
+    expect(schlank.leads).toBe(board.leads);
     // a, d, e, f, g, k, l warten (Endstufen bezahlt, verloren, kein Lead nicht); offen a, b, c, d, e, n.
-    expect(schlank).toEqual({ heute: 7, leads: 6 });
-    expect(mocks.execute).toHaveBeenCalledTimes(1);
+    // Kasse: nur g ist Durchgeführt ohne Rechnung.
+    expect(schlank).toEqual({ heute: 7, leads: 6, kasse: 1 });
+    const zaehlerCalls = mocks.execute.mock.calls.filter((c) => sqlText(c[0] as SQL).includes("count(*) FILTER"));
+    expect(zaehlerCalls).toHaveLength(1);
   });
 
   it("Abfrage: Workspace-Objekt, lebende Deals, Stufe wie das Board, nichts Schweres", async () => {
-    mocks.execute.mockResolvedValueOnce([]);
     expect(await zaehlerLesen("ws_1")).toEqual([]);
     const q = dialect.sqlToQuery(mocks.execute.mock.calls[0][0] as SQL);
     expect(q.params).toEqual(["ws_1"]);
@@ -136,23 +154,25 @@ describe("ladeNavZaehler (schlanke Zählabfrage)", () => {
   });
 
   it("30 s Cache je Workspace; gleichzeitige Aufrufe teilen sich die Abfrage; Fehler werden nicht gemerkt", async () => {
-    mocks.execute.mockResolvedValue([{ stufe_id: "s_neu", titel: "Neue Anfrage", kategorie: "open_new", anzahl: "2", warten: "1" }]);
+    zaehlerZeilen = [{ stufe_id: "s_neu", titel: "Neue Anfrage", kategorie: "open_new", anzahl: "2", warten: "1" }];
     const t = JETZT.getTime();
     const [a, b] = await Promise.all([ladeNavZaehler("ws_1", JETZT), ladeNavZaehler("ws_1", JETZT)]);
-    expect(a).toEqual({ heute: 1, leads: 2 });
+    expect(a).toEqual({ heute: 1, leads: 2, kasse: 0 });
     expect(b).toEqual(a);
-    expect(mocks.execute).toHaveBeenCalledTimes(1);
+    const einmal = mocks.execute.mock.calls.length;
+    expect(einmal).toBeGreaterThan(1);
 
     await ladeNavZaehler("ws_1", new Date(t + NAV_ZAEHLER_CACHE_MS - 1));
-    expect(mocks.execute).toHaveBeenCalledTimes(1);
+    expect(mocks.execute).toHaveBeenCalledTimes(einmal);
     await ladeNavZaehler("ws_2", JETZT);
-    expect(mocks.execute).toHaveBeenCalledTimes(2);
+    expect(mocks.execute.mock.calls.length).toBe(einmal * 2);
     await ladeNavZaehler("ws_1", new Date(t + NAV_ZAEHLER_CACHE_MS));
-    expect(mocks.execute).toHaveBeenCalledTimes(3);
+    expect(mocks.execute.mock.calls.length).toBe(einmal * 3);
 
     navZaehlerCacheLeeren();
+    kasseZaehlerCacheLeeren();
     mocks.execute.mockRejectedValueOnce(new Error("weg"));
     await expect(ladeNavZaehler("ws_1", JETZT)).rejects.toThrow("weg");
-    expect(await ladeNavZaehler("ws_1", JETZT)).toEqual({ heute: 1, leads: 2 });
+    expect(await ladeNavZaehler("ws_1", JETZT)).toEqual({ heute: 1, leads: 2, kasse: 0 });
   });
 });
