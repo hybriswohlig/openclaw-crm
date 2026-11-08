@@ -5,6 +5,7 @@ import { useId, useState } from "react";
 import { toast } from "sonner";
 import { GlassSwitch } from "@/components/glassyui/glass-switch";
 import type { AkteDaten } from "@/lib/akte";
+import { kundeLink } from "@/lib/handy-links";
 import { apiAufruf, jsonAufruf } from "./api";
 import { StufenMenue } from "./stufen-menue";
 
@@ -47,7 +48,15 @@ export function AkteKopf({
   return (
     <header className="akte-kopf">
       <div className="akte-kopf-text">
-        <h1 className="akte-name">{kopf.name}</h1>
+        <h1 className="akte-name">
+          {kopf.kunde ? (
+            <Link href={kundeLink(kopf.kunde.personId)} className="akte-name-link" title={`Kundenakte von ${kopf.kunde.name}`}>
+              {kopf.name}
+            </Link>
+          ) : (
+            kopf.name
+          )}
+        </h1>
         {zweite ? <p className="akte-kopf-zweite">{zweite}</p> : null}
         {kopf.meta ? <p className="akte-meta">{kopf.meta}</p> : null}
       </div>
