@@ -1,3 +1,4 @@
+import { ZAHLUNGSREGEL_STANDARD } from "@/lib/geld";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const reads = vi.hoisted(() => ({ queue: [] as unknown[][] }));
@@ -42,6 +43,8 @@ describe("ladeFirmenEinstellungen", () => {
     await expect(ladeFirmenEinstellungen("ws_1", "oc_1")).resolves.toEqual({
       zeitposten: [],
       rechnerMarke: null,
+      zahlung: ZAHLUNGSREGEL_STANDARD,
+      steuernummer: null,
     });
   });
 
@@ -50,11 +53,19 @@ describe("ladeFirmenEinstellungen", () => {
       {
         zeitposten: [{ id: "klavier", bezeichnung: "Klavier", minuten: 90 }],
         rechnerMarke: "kottke",
+        basis: "rechnungstag",
+        tage: 7,
+        erinnerungModus: "entwurf",
+        erinnerungTage: 10,
+        erinnerung2Tage: 20,
+        steuernummer: " 41/123/45678 ",
       },
     ]];
     await expect(ladeFirmenEinstellungen("ws_1", "oc_1")).resolves.toEqual({
       zeitposten: [{ id: "klavier", bezeichnung: "Klavier", minuten: 90 }],
       rechnerMarke: "kottke",
+      zahlung: { basis: "rechnungstag", tage: 7, erinnerungModus: "entwurf", erinnerungTage: 10, erinnerung2Tage: 20 },
+      steuernummer: "41/123/45678",
     });
   });
 
@@ -63,6 +74,8 @@ describe("ladeFirmenEinstellungen", () => {
     await expect(ladeFirmenEinstellungen("ws_1", "oc_1")).resolves.toEqual({
       zeitposten: [],
       rechnerMarke: "ceylan",
+      zahlung: ZAHLUNGSREGEL_STANDARD,
+      steuernummer: null,
     });
   });
 });

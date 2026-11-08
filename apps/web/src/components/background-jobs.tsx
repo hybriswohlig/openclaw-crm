@@ -266,7 +266,15 @@ export function BackgroundJobsProvider({ children }: { children: React.ReactNode
       });
       if (!resp.ok) {
         const text = await resp.text();
-        throw new Error(`Start fehlgeschlagen (${resp.status}): ${text.slice(0, 300)}`);
+        // Geld-Prüfung der Rechnung (Plan 9) liefert { error, code }: nur den Text zeigen.
+        let meldung: string | null = null;
+        try {
+          const j = JSON.parse(text) as { error?: unknown; code?: unknown };
+          if (typeof j.code === "string" && typeof j.error === "string") meldung = j.error;
+        } catch {
+          // kein JSON
+        }
+        throw new Error(meldung ?? `Start fehlgeschlagen (${resp.status}): ${text.slice(0, 300)}`);
       }
       const data = (await resp.json()) as { job_id: string };
       const localId = nextLocalId();

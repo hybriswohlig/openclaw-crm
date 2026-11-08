@@ -171,6 +171,8 @@ interface Props {
   /** Sprungziele, die es in der aufrufenden Ansicht gibt. */
   ziele?: Array<"umzugsgut" | "preis">;
   onZiel?: (ziel: "umzugsgut" | "preis") => void;
+  /** Nur Rechnung (Plan 9): Betrag und Grund aus dem Rechnungsschritt der Akte, unverändert durchgereicht. */
+  rechnung?: { bruttoCent: number; abweichungGrund?: string };
 }
 
 export function GenerateDocumentDialog({
@@ -182,6 +184,7 @@ export function GenerateDocumentDialog({
   hinweise = [],
   ziele = [],
   onZiel,
+  rechnung,
 }: Props) {
   const isKottke = deal.firma === "kottke";
   const [modell, setModell] = useState<Preismodell>(
@@ -417,6 +420,7 @@ export function GenerateDocumentDialog({
               documentType,
               copy: copyPayload(),
               notifyCustomer: false,
+              ...(documentType === "RE" && rechnung ? { rechnung } : {}),
             }),
           }
         );
@@ -473,6 +477,7 @@ export function GenerateDocumentDialog({
           },
           _deal_record_id: deal.dealRecordId,
           _image_attachment_ids: imageIds,
+          ...(documentType === "RE" && rechnung ? { _rechnung: rechnung } : {}),
         },
         dealRecordId: deal.dealRecordId,
         label: kundeName || "Lead",
