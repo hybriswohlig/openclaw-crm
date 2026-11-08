@@ -1,4 +1,5 @@
 import { db } from "@/db";
+import { offenerRest } from "./offener-rest";
 import {
   dealEmployees,
   dealNumbers,
@@ -289,6 +290,9 @@ export async function getEmployeeJobDetail(
   else if (inventory.length)
     price = inventory.reduce((s, i) => s + i.quantity * Number(i.unitRate), 0);
 
+  // Fix-Welle M5: offener Betrag aus dem einen „offen“ (wie die Kassier-Obergrenze).
+  const offen = await offenerRest(workspaceId, dealRecordId).catch(() => null);
+
   const timeEntries = await db
     .select()
     .from(employeeTimeEntries)
@@ -324,7 +328,7 @@ export async function getEmployeeJobDetail(
     summary: q?.summary ?? null,
     inventory,
     paymentPreference: q?.paymentMethodPreference ?? null,
-    payment: { price, paid, outstanding: Math.max(0, price - paid) },
+    payment: zahlungFuerApp(offen, price, paid),
     myTimeEntries: timeEntries.map((t) => ({
       id: t.id,
       date: t.date,
@@ -343,4 +347,16 @@ export async function getEmployeeJobDetail(
       isImage: m.contentType.startsWith("image/"),
     })),
   };
+}
+
+/** Betrag für die App: bekannter Rest aus `offenAus`, sonst die bisherige Schätzung (Stunden-KV ohne Rechnung). */
+export function zahlungFuerApp(
+  offen: { gesamtCent: number | null; restCent: number | null } | null,
+  price: number,
+  paid: number
+): { price: number; paid: number; outstanding: number } {
+  if (offen && offen.restCent != null && offen.gesamtCent != null) {
+    return { price: offen.gesamtCent / 100, paid, outstanding: offen.restCent / 100 };
+  }
+  return { price, paid, outstanding: Math.max(0, price - paid) };
 }

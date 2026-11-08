@@ -74,6 +74,7 @@ export interface DbZeile {
   name: string | null;
   stufe_id: string | null;
   umzug_am: unknown;
+  umzug_ende?: unknown;
   von: unknown;
   nach: unknown;
   firma_id: string | null;
@@ -132,6 +133,12 @@ const ATTRIBUTE = [
   "value",
   "besichtigung_am",
   "loss_reason",
+  // Ende eines mehrtägigen Umzugs (wie `classifyDealDateAttribute` im Kalender, Fix-Welle I2).
+  "move_end",
+  "move_date_end",
+  "umzug_ende",
+  "einsatz_ende",
+  "service_end",
 ] as const;
 
 function dealsLesen(ws: string) {
@@ -162,6 +169,7 @@ function dealsLesen(ws: string) {
         (array_agg(rv.text_value ORDER BY rv.sort_order, rv.id) FILTER (WHERE a.slug = 'name' AND rv.text_value IS NOT NULL))[1] AS name,
         (array_agg(rv.text_value ORDER BY rv.sort_order, rv.id) FILTER (WHERE a.slug = 'stage' AND rv.text_value IS NOT NULL))[1] AS stufe_id,
         ((array_agg(rv.date_value ORDER BY rv.sort_order, rv.id) FILTER (WHERE a.slug = 'move_date' AND rv.date_value IS NOT NULL))[1])::text AS umzug_am,
+        (max(rv.date_value) FILTER (WHERE a.slug IN ('move_end', 'move_date_end', 'umzug_ende', 'einsatz_ende', 'service_end')))::text AS umzug_ende,
         (array_agg(coalesce(rv.json_value, to_jsonb(rv.text_value)) ORDER BY rv.sort_order, rv.id)
           FILTER (WHERE a.slug = 'move_from_address' AND coalesce(rv.json_value, to_jsonb(rv.text_value)) IS NOT NULL))[1] AS von,
         (array_agg(coalesce(rv.json_value, to_jsonb(rv.text_value)) ORDER BY rv.sort_order, rv.id)
@@ -186,6 +194,7 @@ function dealsLesen(ws: string) {
       v.name AS name,
       v.stufe_id AS stufe_id,
       v.umzug_am AS umzug_am,
+      v.umzug_ende AS umzug_ende,
       v.von AS von,
       v.nach AS nach,
       v.firma_id AS firma_id,
@@ -415,6 +424,7 @@ export function rohAus(z: DbZeile): LeadRoh {
     name: z.name ?? null,
     stufeId: z.stufe_id ?? null,
     umzugAm: alsTag(z.umzug_am),
+    umzugEnde: alsTag(z.umzug_ende),
     terminAuswahl: alsTag(z.termin_auswahl),
     von: adresseAus(z.von),
     nach: adresseAus(z.nach),
@@ -514,6 +524,7 @@ function rechnungenLesen(ws: string, dealIds: string[]) {
       di.rechnungstag::text AS rechnungstag,
       di.faellig_am::text AS faellig_am,
       di.abweichung_grund AS abweichung_grund,
+      di.herkunft AS herkunft,
       pr.stufe AS stufe,
       pr.status AS erinnerung_status,
       pr.am::text AS erinnerung_am
@@ -648,6 +659,7 @@ async function geldFelderLesen(ws: string, dealIds: string[]): Promise<GeldFelde
     rechnungstag: unknown;
     faellig_am: unknown;
     abweichung_grund: string | null;
+    herkunft?: string | null;
     stufe: unknown;
     erinnerung_status: unknown;
     erinnerung_am: unknown;
@@ -662,6 +674,9 @@ async function geldFelderLesen(ws: string, dealIds: string[]): Promise<GeldFelde
       faelligAm: alsTag(z.faellig_am),
       abweichungGrund: z.abweichung_grund ?? null,
       erinnerung: erinnerungAus(z.stufe, z.erinnerung_status, z.erinnerung_am),
+      ...(z.herkunft === "crm" || z.herkunft === "vps" || z.herkunft === "upload" || z.herkunft === "alt"
+        ? { herkunft: z.herkunft }
+        : {}),
     });
   }
   for (const z of zeilen<{ deal_id: string; ab_am: unknown }>(abRes)) {

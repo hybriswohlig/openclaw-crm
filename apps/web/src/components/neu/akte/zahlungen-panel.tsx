@@ -10,6 +10,7 @@ import { euroText, tagKurz } from "@/lib/anzeige";
 import type { ZahlungAkte, ZahlungZeileAkte } from "@/lib/geld";
 import { betragText, geldFehlerText, rechnungZeile, zahlungAktionen, zahlungDetails } from "@/components/neu/kasse/kasse-logik";
 import { apiAufruf, jsonAufruf } from "./api";
+import { eurosToCents } from "@/lib/work-ui";
 import { StornoDialog } from "./storno-dialog";
 import { ZahlungBearbeitenDialog } from "./zahlung-bearbeiten-dialog";
 
@@ -70,6 +71,9 @@ export function ZahlungenPanel({
             </button>
           ) : null}
         </div>
+      ) : null}
+      {r && r.herkunft === "alt" && r.status === "gestellt" && r.bruttoCent == null ? (
+        <BetragNachtragen dealId={dealId} invoiceId={r.id} onNeuLaden={onNeuLaden} />
       ) : null}
 
       {zahlung.zahlungen.length > 0 ? (
@@ -189,5 +193,59 @@ function ZeilenMenue({
         </Menu.Content>
       </Menu.Portal>
     </Menu.Root>
+  );
+}
+
+/**
+ * Fix-Welle I3: alte Rechnung (vor Plan 9) ohne Betrag, etwa ein Stunden-KV.
+ * Sie zählt nicht in der Kasse, bis hier der Rechnungsbetrag steht.
+ */
+function BetragNachtragen({
+  dealId,
+  invoiceId,
+  onNeuLaden,
+}: {
+  dealId: string;
+  invoiceId: string;
+  onNeuLaden: () => Promise<void> | void;
+}) {
+  const [betrag, setBetrag] = useState("");
+  const [fehler, setFehler] = useState<string | null>(null);
+  const [laeuft, setLaeuft] = useState(false);
+  return (
+    <form
+      className="geld-nachtragen"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        const cent = eurosToCents(betrag);
+        if (cent == null || cent <= 0) return setFehler("Bitte einen Betrag eingeben, etwa 1.980,00.");
+        setLaeuft(true);
+        setFehler(null);
+        const res = await apiAufruf(`/api/v1/deals/${dealId}/invoices/${invoiceId}/betrag`, jsonAufruf("PUT", { bruttoCent: cent }));
+        setLaeuft(false);
+        if (!res.ok) return setFehler(geldFehlerText(res.code, res.message));
+        toast.success("Rechnungsbetrag eingetragen.");
+        await onNeuLaden();
+      }}
+    >
+      <span className="geld-nachtragen-text">Alte Rechnung ohne Betrag: bitte den Rechnungsbetrag eintragen.</span>
+      <input
+        className="lg-input geld-nachtragen-feld"
+        type="text"
+        inputMode="decimal"
+        aria-label="Rechnungsbetrag in Euro"
+        placeholder="0,00"
+        value={betrag}
+        onChange={(e) => setBetrag(e.target.value)}
+      />
+      <button type="submit" className="akte-ablauf-knopf geld-knopf-klein" disabled={laeuft}>
+        {laeuft ? "Speichert" : "Eintragen"}
+      </button>
+      {fehler ? (
+        <span className="akte-dialog-fehler" role="alert">
+          {fehler}
+        </span>
+      ) : null}
+    </form>
   );
 }

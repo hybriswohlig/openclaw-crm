@@ -67,7 +67,23 @@ describe("PATCH agent draft", () => {
       approvedBy: "Dario",
       note: "freigegeben",
       overrideConsent: true,
+      sitzung: true,
     });
+  });
+
+  it("API-Schlüssel: Freigabe ohne Sitzung (Zahlungserinnerung antwortet dann 403)", async () => {
+    mocks.getAuthContext.mockResolvedValue({ userId: "usr_dario", workspaceId: "ws_kottke", workspaceRole: "admin", authMethod: "api_key" });
+    mocks.send.mockResolvedValue({ ok: false, fehler: "nur_sitzung" });
+    const res = await PATCH(
+      new NextRequest(`https://crm.test/api/v1/agent-drafts/${DRAFT}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "approve_and_send" }),
+      }),
+      { params: Promise.resolve({ id: DRAFT }) }
+    );
+    expect(res.status).toBe(403);
+    expect(mocks.send).toHaveBeenCalledWith(expect.objectContaining({ sitzung: false }));
   });
 
   it("returns 409 gate_blocked with the remaining reasons", async () => {

@@ -37,7 +37,8 @@ import { dealCalculationVersions } from "@/db/schema/deal-calculation-versions";
 import { kundenAnnahmen } from "@/lib/kunden-annahmen";
 import { activityEvents } from "@/db/schema/activity";
 import { dealDocuments, payments, dealNumbers } from "@/db/schema/financial";
-import { stornierteRechnungsDokumente } from "./rechnungen";
+import { aktiveRechnung, stornierteRechnungsDokumente } from "./rechnungen";
+import { offenAus } from "@/lib/geld";
 import { dealEmployees, employees } from "@/db/schema/employees";
 import { workspaceMembers } from "@/db/schema/workspace";
 import { objects, attributes, selectOptions } from "@/db/schema/objects";
@@ -505,6 +506,17 @@ export async function loadContextByToken(
     .from(payments)
     .where(eq(payments.dealRecordId, dealRecordId));
   const paymentsReceivedCents = preisZahlungenCent(paymentRows);
+  // Fix-Welle I1: der offene Rest kommt aus derselben Funktion wie überall
+  // (`offenAus`): gestellte Rechnung (auch Mehraufwand mit Grund, Stunden-KV mit
+  // Betrag) vor Annahme vor Angebot. Vor der Annahme gilt der Portalpreis mit Wahl.
+  const aktiveRe = await aktiveRechnung(workspaceId, dealRecordId);
+  const offen = offenAus({
+    rechnung: aktiveRe ? { status: aktiveRe.status, bruttoCent: aktiveRe.bruttoCent } : null,
+    annahmeCent: annahmeZeile?.confirmedTotalCents ?? null,
+    festpreis: kva && !kva.isVariable ? (kva.totalCents / 100).toFixed(2) : null,
+    istStunden: kva?.isVariable ?? false,
+    zahlungen: paymentRows,
+  });
 
   // Stage derivation
   const stage = deriveStage({
@@ -532,10 +544,10 @@ export async function loadContextByToken(
   //   - Stage 1 with a deposit required.
   let payment: PaymentInstructions | null = null;
   const quotationMethod = await loadPaymentMethodPreference(dealRecordId);
-  if (features.payments && stage === 4 && kva && !kva.isVariable) {
+  if (features.payments && stage === 4 && offen.restCent != null) {
     payment = buildPaymentInstructions({
       method: quotationMethod,
-      amountCents: Math.max(0, kva.totalCents - paymentsReceivedCents),
+      amountCents: offen.restCent,
       reference: `Rechnung ${dealNumber}`,
       branding,
     });
@@ -564,10 +576,10 @@ export async function loadContextByToken(
   return {
     stage,
     features,
-    paymentStatus: features.payments && kva ? {
+    paymentStatus: features.payments && (kva || aktiveRe) ? {
       receivedCents: paymentsReceivedCents,
-      remainingCents: kva.isVariable ? null : Math.max(0, kva.totalCents - paymentsReceivedCents),
-      paid: !kva.isVariable && kva.totalCents > 0 && paymentsReceivedCents >= kva.totalCents,
+      remainingCents: offen.restCent,
+      paid: offen.gesamtCent != null && offen.gesamtCent > 0 && offen.restCent === 0,
     } : null,
     dealNumber,
     customerDisplayName,
@@ -1671,7 +1683,8 @@ async function loadKvaSnapshot(
     isVariable: q.isVariable,
     fixedPriceCents: q.fixedPrice ? toCents(Number(q.fixedPrice)) : null,
     lineItems,
-    notes: q.notes ?? null,
+    // Interne Notiz des Angebots nie an den Kundenbrowser (Fix-Welle, Fund vor Plan 9).
+    notes: null,
     totalCents,
     depositRequiredCents: q.depositRequiredCents ?? null,
     summary: q.summary ?? null,

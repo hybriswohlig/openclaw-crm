@@ -7,7 +7,7 @@
  * Wo die Quotation gelesen wird, hält der Aufrufer `angebotSperren(tx, deal)`;
  * hier läuft dann alles über `tx`, nie über die globale `db`.
  */
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { dealInvoices, paymentReminders, type DealInvoiceRow } from "@/db/schema/deal-invoices";
 import { belegNumberCounters } from "@/db/schema/financial";
@@ -330,10 +330,27 @@ export async function rechnungPruefenUndReservieren(
 
 /** `entwurf` → `gestellt` mit verknüpftem PDF. */
 export async function rechnungStellen(tx: Tx, id: string, dealDocumentId: string): Promise<void> {
-  await tx
+  const rows = await tx
     .update(dealInvoices)
     .set({ status: "gestellt", dealDocumentId, updatedAt: new Date() })
-    .where(and(eq(dealInvoices.id, id), eq(dealInvoices.status, "entwurf")));
+    .where(and(eq(dealInvoices.id, id), eq(dealInvoices.status, "entwurf")))
+    .returning({ id: dealInvoices.id });
+  // Fix-Welle I4: keine Zeile geändert heißt, der Entwurf ist storniert oder verworfen.
+  if (rows.length === 0) throw new RechnungNichtStellbar(id);
+}
+
+/** Der Rechnungsdatensatz ist nicht mehr `entwurf`: das PDF darf nicht als Rechnung abgelegt werden. */
+export class RechnungNichtStellbar extends Error {
+  constructor(readonly invoiceId: string) {
+    super(`Rechnung ${invoiceId} ist nicht mehr im Entwurf.`);
+    this.name = "RechnungNichtStellbar";
+  }
+}
+
+/** Status eines Rechnungsdatensatzes über `ex` (unter der Sperre des Aufrufers). */
+export async function rechnungStatus(ex: DbExecutor, id: string): Promise<RechnungZeile["status"] | null> {
+  const [row] = await ex.select({ status: dealInvoices.status }).from(dealInvoices).where(eq(dealInvoices.id, id)).limit(1);
+  return row?.status ?? null;
 }
 
 /** Nie gestellt (VPS-Fehler, verworfen): die Nummer bleibt dokumentiert. */
@@ -568,4 +585,60 @@ export async function erinnerungenStoppen(ws: string, deal: string, grund: strin
     .returning({ draftId: paymentReminders.draftId });
   await entwuerfeSchliessen(db, ws, offen.map((o) => o.draftId));
   return offen.length;
+}
+
+/**
+ * Fix-Welle M10: Schaltet eine Firma die Erinnerung aus, werden ihre offenen
+ * Erinnerungs-Entwürfe gestoppt und die Entwürfe ersetzt. Liefert die Anzahl.
+ */
+export async function erinnerungenDerFirmaStoppen(ws: string, ocId: string): Promise<number> {
+  const rechnungenDerFirma = db
+    .select({ id: dealInvoices.id })
+    .from(dealInvoices)
+    .where(and(eq(dealInvoices.workspaceId, ws), eq(dealInvoices.operatingCompanyId, ocId)));
+  const offen = await db
+    .update(paymentReminders)
+    .set({ status: "gestoppt", stoppGrund: "schalter_aus", updatedAt: new Date() })
+    .where(
+      and(
+        eq(paymentReminders.workspaceId, ws),
+        eq(paymentReminders.status, "entwurf"),
+        inArray(paymentReminders.invoiceId, rechnungenDerFirma)
+      )
+    )
+    .returning({ draftId: paymentReminders.draftId });
+  await entwuerfeSchliessen(db, ws, offen.map((o) => o.draftId));
+  return offen.length;
+}
+
+/**
+ * Fix-Welle I3: Betrag einer Altrechnung (Backfill ohne Betrag) nachtragen.
+ * Nur `herkunft = 'alt'`, nur gestellt und nur, solange noch kein Betrag steht.
+ * Liefert die Zeile oder null (nicht gefunden oder nicht nachtragbar).
+ */
+export async function rechnungBetragNachtragen(
+  ws: string,
+  deal: string,
+  id: string,
+  bruttoCent: number,
+  userId: string
+): Promise<RechnungZeile | null> {
+  if (!Number.isInteger(bruttoCent) || bruttoCent <= 0) throw new GeldFehler("BETRAG_FEHLT");
+  const [row] = await db
+    .update(dealInvoices)
+    .set({ bruttoCent, updatedAt: new Date() })
+    .where(
+      and(
+        eq(dealInvoices.workspaceId, ws),
+        eq(dealInvoices.dealRecordId, deal),
+        eq(dealInvoices.id, id),
+        eq(dealInvoices.herkunft, "alt"),
+        eq(dealInvoices.status, "gestellt"),
+        isNull(dealInvoices.bruttoCent)
+      )
+    )
+    .returning();
+  if (!row) return null;
+  await nachRechnung(ws, deal, userId);
+  return zeileAus(row);
 }

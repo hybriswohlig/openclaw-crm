@@ -334,4 +334,38 @@ describe.skipIf(!url)("Rechnung als Datensatz (DB, Plan 9 Task A)", { timeout: 3
       values (${alt}, ${ws}, ${deal}, 'invoice', 'alt.pdf', 1, 'application/pdf', 'eA==')`;
     expect((await loeschen(deal, alt)).status).toBe(200);
   });
+
+  it("Fix-Welle I4: spätes VPS-PDF nach Storno des Entwurfs wird verworfen, nicht abgelegt", async () => {
+    const ablage = await import("./kv-job-ablage");
+    const jobs = await import("./render-jobs");
+    const z = await reservieren(deal, { herkunft: "vps" });
+    const job = `job-${randomUUID()}`;
+    await jobs.jobAnlegen({ vpsJobId: job, workspaceId: ws, dealRecordId: deal, documentType: "invoice", calculationVersionId: null, priceCents: z.bruttoCent, createdBy: "u1", invoiceId: z.id });
+    await r.rechnungStornieren(ws, deal, z.id, "VPS hängt, neu über CRM", "u1");
+    const res = await jobs.jobReservieren(ws, job, new Date());
+    const erg = await ablage.ablegenUnterSperre({ ...res!, claimedAt: res!.claimedAt! }, {
+      fileName: "RE.pdf",
+      mimeType: "application/pdf",
+      fileSize: 9,
+      fileContent: Buffer.from("%PDF-1.4\n").toString("base64"),
+      documentType: "invoice",
+    });
+    expect(erg.art).toBe("verworfen");
+    const [{ n }] = await sql`select count(*)::int as n from deal_documents where deal_record_id = ${deal}`;
+    expect(n).toBe(0);
+    const [st] = await sql`select status from deal_invoices where id = ${z.id}`;
+    expect(st.status).toBe("storniert");
+    // rechnungStellen meldet „keine Zeile geändert“.
+    await expect(db.transaction((tx) => r.rechnungStellen(tx, z.id, "doc-x"))).rejects.toThrow(/nicht mehr im Entwurf/);
+  });
+
+  it("Fix-Welle I3: Betrag einer Altrechnung nachtragen, nur einmal und nur bei alt", async () => {
+    const alt = randomUUID();
+    await sql`insert into deal_invoices (id, workspace_id, deal_record_id, operating_company_id, herkunft, status, rechnungstag)
+      values (${alt}, ${ws}, ${deal}, ${firma}, 'alt', 'gestellt', '2026-06-01')`;
+    const z = await r.rechnungBetragNachtragen(ws, deal, alt, 96000, "u1");
+    expect(z).toMatchObject({ bruttoCent: 96000, herkunft: "alt" });
+    expect(await r.rechnungBetragNachtragen(ws, deal, alt, 1000, "u1")).toBeNull();
+    await expect(r.rechnungBetragNachtragen(ws, deal, alt, 0, "u1")).rejects.toMatchObject({ code: "BETRAG_FEHLT" });
+  });
 });

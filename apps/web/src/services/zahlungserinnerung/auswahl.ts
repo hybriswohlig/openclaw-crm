@@ -10,6 +10,7 @@ import { payments } from "@/db/schema/financial";
 import { channelAccounts, inboxConversations, inboxMessages } from "@/db/schema/inbox";
 import {
   berlinTag,
+  erinnerungFaellig,
   erinnerungKanal,
   offenAus,
   type ErinnerungEingabe,
@@ -96,6 +97,8 @@ export async function ladeKandidaten(ws: string, jetzt: Date): Promise<Erinnerun
         AND di.status = 'gestellt'
         AND di.brutto_cent IS NOT NULL
         AND di.faellig_am IS NOT NULL
+        -- Fix-Welle I3: nie an Altrechnungen aus dem Backfill.
+        AND di.herkunft <> 'alt'
     `)
   );
   if (rechnungen.length === 0) return [];
@@ -240,7 +243,6 @@ export async function ladeKandidaten(ws: string, jetzt: Date): Promise<Erinnerun
     const mail = neuestesGespraech(mails, letzteJeGespraech);
     const waEingang = wa ? letzteJeGespraech.get(wa.id) ?? null : null;
 
-    const portal = await portalFuer(ws, dealId, firmaName || null, portale);
     let kanal = erinnerungKanal({
       whatsapp: wa
         ? { istCeylanKonto: istCeylanWhatsApp(wa.channelAccountId), letzteEingehendeAm: waEingang ? waEingang.toISOString() : null }
@@ -248,7 +250,6 @@ export async function ladeKandidaten(ws: string, jetzt: Date): Promise<Erinnerun
       emailGespraech: mails.length > 0,
       jetzt,
     });
-    if (!portal.token) kanal = null;
 
     const ocId = rechnung.operating_company_id;
     const regel = await regelFuer(ws, ocId, regeln);
@@ -256,7 +257,6 @@ export async function ladeKandidaten(ws: string, jetzt: Date): Promise<Erinnerun
       .map((e) => standAus(e))
       .filter((e): e is ErinnerungStand => e != null);
     const offene = offeneMeldungen(ereignisJeDeal.get(dealId) ?? []);
-    const kundeName = portal.name;
     const eingabe: ErinnerungEingabe = {
       regel,
       heute,
@@ -270,6 +270,16 @@ export async function ladeKandidaten(ws: string, jetzt: Date): Promise<Erinnerun
       verloren: wahr(rechnung.verloren),
       kanal,
     };
+
+    // Fix-Welle I1: Kundenlink und Portal-Kontext nur für Rechnungen, die jetzt
+    // wirklich erinnert würden. Ohne Link oder ohne Zahlungsangaben im Portal kein Kanal.
+    const vorab = erinnerungFaellig(eingabe);
+    const portal = vorab.stufe != null ? await portalFuer(ws, dealId, firmaName || null, portale) : null;
+    if (vorab.stufe != null && !portal?.token) {
+      kanal = null;
+      eingabe.kanal = null;
+    }
+    const kundeName = portal?.name ?? null;
 
     kandidaten.push({
       workspaceId: ws,
@@ -285,8 +295,8 @@ export async function ladeKandidaten(ws: string, jetzt: Date): Promise<Erinnerun
         rechnungstag,
         betragCent: restCent ?? 0,
         faelligAm: faelligAm ?? "",
-        portalLink: portal.token ? portalUrl(portal.token) : "",
-        signatur: portal.signatur ?? firmaName,
+        portalLink: portal?.token ? portalUrl(portal.token) : "",
+        signatur: portal?.signatur ?? firmaName,
       },
       conversationId: kanal === "whatsapp" ? wa?.id ?? null : kanal === "email" ? mail?.id ?? null : null,
     });
@@ -311,13 +321,16 @@ async function portalFuer(
   const link = await ensureCustomerStatusLink({ workspaceId: ws, dealRecordId: dealId, createdBy: null });
   let name: string | null = null;
   let signatur = firmaName;
-  if (link.token) {
-    const ctx = await loadContextByToken(link.token);
+  let token = link.token;
+  if (token) {
+    const ctx = await loadContextByToken(token);
     name = ctx?.customerDisplayName?.trim() || null;
     const marke = ctx?.branding.displayName?.trim();
     if (marke) signatur = marke;
+    // Der Text verweist auf die Überweisungsangaben im Portal: ohne sie kein Link (Fix-Welle I1).
+    if (!ctx || ctx.meta.featureDisabled || ctx.features?.payments !== true || !ctx.payment) token = null;
   }
-  const wert = { token: link.token, name, signatur };
+  const wert = { token, name, signatur };
   cache.set(dealId, wert);
   return wert;
 }

@@ -50,6 +50,7 @@ import {
   type ErinnerungStatus,
   type RechnungKurz,
   type RechnungStatus,
+  type RechnungHerkunft,
   type ZahlungAkte,
   type ZahlungQuelle,
   type ZahlungZeileAkte,
@@ -196,6 +197,7 @@ function geldLesen(ws: string, deal: string) {
           'rechnungstag', di.rechnungstag::text,
           'faelligAm', di.faellig_am::text,
           'abweichungGrund', di.abweichung_grund,
+          'herkunft', di.herkunft,
           'stufe', pr.stufe,
           'erinnerungStatus', pr.status,
           'erinnerungAm', pr.am
@@ -307,6 +309,9 @@ function rechnungAus(v: unknown): RechnungKurz | null {
     faelligAm: alsTag(o.faelligAm),
     abweichungGrund: typeof o.abweichungGrund === "string" ? o.abweichungGrund : null,
     erinnerung: erinnerungAus(o),
+    ...(o.herkunft === "crm" || o.herkunft === "vps" || o.herkunft === "upload" || o.herkunft === "alt"
+      ? { herkunft: o.herkunft as RechnungHerkunft }
+      : {}),
   };
 }
 

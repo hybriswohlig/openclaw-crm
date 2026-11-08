@@ -52,11 +52,18 @@ vi.mock("@/services/agent/agent-drafts", () => ({
   },
 }));
 
+const portalStand = vi.hoisted(() => ({ zahlungen: true, links: 0 }));
 vi.mock("@/services/customer-portal-data", () => ({
-  ensureCustomerStatusLink: async () => ({ token: TOKEN, created: false, skipped: false }),
+  ensureCustomerStatusLink: async () => {
+    portalStand.links += 1;
+    return { token: TOKEN, created: false, skipped: false };
+  },
   loadContextByToken: async () => ({
     customerDisplayName: "Anna Berger",
     branding: { displayName: "Kottke Umzüge" },
+    meta: { featureDisabled: false },
+    features: { payments: portalStand.zahlungen },
+    payment: portalStand.zahlungen ? { amountCents: 50000 } : null,
   }),
 }));
 
@@ -147,10 +154,13 @@ describe.skipIf(!url)("Zahlungserinnerung gegen Postgres", () => {
     expect(sommer.workspaces).toBeGreaterThan(0);
     expect(sommer.entwuerfe).toBe(0);
     expect(await erinnerungen(sql, invMail)).toHaveLength(0);
+    // Fix-Welle I1: ohne fällige Erinnerung wird kein Kundenlink angelegt.
+    expect(portalStand.links).toBe(0);
 
     gate.calls = [];
     const erster = await runZahlungserinnerung(NOV);
     expect(erster.entwuerfe).toBe(1);
+    expect(portalStand.links).toBe(1);
     expect(await erinnerungen(sql, invMail)).toEqual([
       expect.objectContaining({ stufe: 1, status: "entwurf", kanal: "email", draft_id: draftId }),
     ]);
@@ -187,6 +197,43 @@ describe.skipIf(!url)("Zahlungserinnerung gegen Postgres", () => {
     expect(nachZahlung[0]).toMatchObject({ status: "gestoppt", stopp_grund: "bezahlt" });
     expect((await sql`select status from agent_drafts where id = ${draftId}`)[0]?.status).toBe("superseded");
     expect(gate.calls).toHaveLength(1);
+  });
+
+  it("Fix-Welle: nie an Altrechnungen, ohne Zahlungsangaben im Portal kein Entwurf", async () => {
+    await sql`delete from payments where deal_record_id = ${dealMail}`;
+    await sql`delete from payment_reminders where invoice_id = ${invMail}`;
+    await sql`delete from agent_drafts where deal_record_id = ${dealMail}`;
+    gate.calls = [];
+
+    await sql`update deal_invoices set herkunft = 'alt' where id = ${invMail}`;
+    expect((await runZahlungserinnerung(NOV)).entwuerfe).toBe(0);
+    expect(await erinnerungen(sql, invMail)).toHaveLength(0);
+
+    await sql`update deal_invoices set herkunft = 'crm' where id = ${invMail}`;
+    portalStand.zahlungen = false;
+    const ohne = await runZahlungserinnerung(NOV);
+    expect(ohne.entwuerfe).toBe(0);
+    expect(ohne.ohneKanal).toBeGreaterThanOrEqual(1);
+    expect(gate.calls).toHaveLength(0);
+    portalStand.zahlungen = true;
+  });
+
+  it("Fix-Welle M7: abgelaufener Entwurf beendet die Kette nicht, der nächste Lauf legt neu an", async () => {
+    await sql`delete from payments where deal_record_id = ${dealMail}`;
+    await sql`delete from payment_reminders where invoice_id = ${invMail}`;
+    await sql`delete from agent_drafts where id = ${draftId}`;
+    await sql`insert into agent_drafts (id, workspace_id, deal_record_id, message_class, draft_text, status, expires_at, idempotency_key)
+      values (${draftId}, ${ws}, ${dealMail}, 'followup', 'platzhalter', 'pending', now() + interval '1 day', ${erinnerungSchluessel(invMail, 1)})`;
+    gate.calls = [];
+    expect((await runZahlungserinnerung(NOV)).entwuerfe).toBe(1);
+    await sql`update agent_drafts set expires_at = now() - interval '1 hour' where id = ${draftId}`;
+    const danach = await runZahlungserinnerung(NOV);
+    expect(danach.entwuerfe).toBe(1);
+    expect(gate.calls).toHaveLength(2);
+    const [d] = await sql`select status, idempotency_key from agent_drafts where id = ${draftId}`;
+    expect(d.status).toBe("expired");
+    expect(d.idempotency_key).toContain(":abgelaufen:");
+    expect(await erinnerungen(sql, invMail)).toEqual([expect.objectContaining({ stufe: 1, status: "entwurf" })]);
   });
 });
 

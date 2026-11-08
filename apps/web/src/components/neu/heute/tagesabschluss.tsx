@@ -113,7 +113,7 @@ export function Tagesabschluss({
 
       {offen?.art === "bestaetigen" && durchgefuehrtStufe ? (
         <BestaetigenDialog
-          eintrag={{ dealId: offen.karte.dealId, titel: offen.karte.name, bisTag: null }}
+          eintrag={{ dealId: offen.karte.dealId, titel: offen.karte.name, bisTag: offen.karte.letzterTermintag ?? null }}
           stufe={durchgefuehrtStufe}
           portalZiel={portalZiel}
           onEnde={(gesetzt) => {

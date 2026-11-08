@@ -23,7 +23,7 @@ import {
   type DealDocumentType,
 } from "@/services/deal-documents";
 import { rechnungenDerJobsVerwerfen } from "@/services/render-jobs";
-import { rechnungStellen } from "@/services/rechnungen";
+import { rechnungStatus, rechnungStellen } from "@/services/rechnungen";
 
 type DbExecutor = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -102,7 +102,10 @@ export async function ablegenUnterSperre(job: RenderJob & { claimedAt: string },
       job.documentType === "quotation" && job.calculationVersionId !== null
         ? await angebotsVersionId(job.dealRecordId, tx)
         : null;
-    const ablage = jobAblage(job, quotationVersionId);
+    // Fix-Welle I4: ein Job, dessen Rechnungsdatensatz storniert oder verworfen ist,
+    // wird verworfen und nicht abgelegt (sonst stünde ein PDF ohne Datensatz im Portal).
+    const rechnungWeg = job.invoiceId ? (await rechnungStatus(tx, job.invoiceId)) !== "entwurf" : false;
+    const ablage = rechnungWeg ? "verwerfen" : jobAblage(job, quotationVersionId);
     if (ablage === "verwerfen") {
       await abschliessenMitAnspruch(job.workspaceId, job.vpsJobId, job.claimedAt, { status: "verworfen" }, tx);
       return { art: "verworfen" as const };

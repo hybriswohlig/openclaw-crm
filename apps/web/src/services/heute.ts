@@ -76,7 +76,7 @@ export async function ladeHeute(ws: string, jetzt: Date = new Date()): Promise<H
   const live = await liveLesen(ws, heuteUmzuege);
   return {
     ...heuteAus({ plan: plan.eintraege, leads: roh.eintraege, inbox, live }, jetzt),
-    tagesabschluss: tagesabschlussKarten(roh.roh ?? [], roh.stufen ?? [], jetzt),
+    tagesabschluss: tagesabschlussKarten(roh.roh ?? [], roh.stufen ?? [], jetzt, planEnden(plan.eintraege)),
     durchgefuehrtStufe: durchgefuehrtStufeAus(roh.stufen ?? []),
   };
 }
@@ -88,13 +88,29 @@ function durchgefuehrtStufeAus(stufen: readonly StufeZeile[]): { id: string; lab
 }
 
 /** Karten aus denselben Lead-Zeilen. `tagesabschlussAus` lässt Erledigtes weg; Sortierung nach letztem Termintag. */
-function tagesabschlussKarten(leads: readonly LeadRoh[], stufen: readonly StufeZeile[], jetzt: Date): TagesabschlussKarte[] {
+/** Spätestes Ende der Umzugs-Einträge im Plan je Deal (mehrtägige Einträge). */
+function planEnden(eintraege: readonly { art: string; dealId: string; bisTag: string }[]): Map<string, string> {
+  const m = new Map<string, string>();
+  for (const e of eintraege) {
+    if (e.art !== "umzug") continue;
+    const bisher = m.get(e.dealId);
+    if (!bisher || e.bisTag > bisher) m.set(e.dealId, e.bisTag);
+  }
+  return m;
+}
+
+function tagesabschlussKarten(
+  leads: readonly LeadRoh[],
+  stufen: readonly StufeZeile[],
+  jetzt: Date,
+  planEnde: Map<string, string> = new Map()
+): TagesabschlussKarte[] {
   const tag = berlinTag(jetzt);
   const nachStufe = new Map(stufen.map((s) => [s.id, s.kategorie]));
   const karten: { karte: TagesabschlussKarte; tag: string }[] = [];
   for (const roh of leads) {
     const kategorie = roh.stufeId ? nachStufe.get(roh.stufeId) ?? null : null;
-    const letzter = letzterUmzugstag(roh);
+    const letzter = letzterUmzugstag(roh, planEnde.get(roh.id));
     const eingabe: TagesabschlussRoh = {
       dealId: roh.id,
       name: roh.name?.trim() || "Ohne Namen",

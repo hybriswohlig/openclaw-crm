@@ -6,6 +6,7 @@ import { db } from "@/db";
 import { agentDrafts } from "@/db/schema/agent";
 import { activityEvents } from "@/db/schema/activity";
 import { dealInvoices, paymentReminders } from "@/db/schema/deal-invoices";
+import { companySettings } from "@/db/schema/company-settings";
 import { payments } from "@/db/schema/financial";
 import { inboxConversations } from "@/db/schema/inbox";
 import { nachfassDailySends } from "@/db/schema/nachfass";
@@ -38,7 +39,7 @@ const DRAFT_GESENDET = new Set(["sent", "auto_sent"]);
  * Entwurf ist tot. `dismissed` ist die Ablehnung in `agent_drafts`
  * (ein Status `rejected` gibt es nicht).
  */
-const DRAFT_VERWORFEN = new Set(["dismissed", "rejected", "expired", "superseded", "cancelled", "gate_blocked"]);
+const DRAFT_VERWORFEN = new Set(["dismissed", "rejected", "superseded", "cancelled", "gate_blocked"]);
 
 export async function runZahlungserinnerung(jetzt: Date = new Date()): Promise<ErinnerungLauf> {
   const summary = leer();
@@ -79,7 +80,10 @@ async function syncEntwuerfe(ws: string): Promise<void> {
   const rows = await db
     .select({
       reminderId: paymentReminders.id,
+      draftId: agentDrafts.id,
       draftStatus: agentDrafts.status,
+      expiresAt: agentDrafts.expiresAt,
+      idempotencyKey: agentDrafts.idempotencyKey,
       reviewedAt: agentDrafts.reviewedAt,
       updatedAt: agentDrafts.updatedAt,
     })
@@ -89,6 +93,26 @@ async function syncEntwuerfe(ws: string): Promise<void> {
 
   for (const row of rows) {
     const jetzt = new Date();
+    // Fix-Welle M7: ein Entwurf, den niemand rechtzeitig freigegeben hat (abgelaufen
+    // oder noch „pending“ nach Ablauf), beendet die Kette nicht: die Erinnerungszeile
+    // fällt weg und der nächste Lauf legt einen frischen Entwurf an.
+    const abgelaufen =
+      row.draftStatus === "expired" ||
+      (row.draftStatus === "pending" && row.expiresAt != null && row.expiresAt.getTime() < jetzt.getTime());
+    if (abgelaufen) {
+      await db
+        .update(agentDrafts)
+        .set({
+          status: "expired",
+          idempotencyKey: row.idempotencyKey ? `${row.idempotencyKey}:abgelaufen:${row.draftId}` : null,
+          updatedAt: jetzt,
+        })
+        .where(and(eq(agentDrafts.id, row.draftId), eq(agentDrafts.workspaceId, ws)));
+      await db
+        .delete(paymentReminders)
+        .where(and(eq(paymentReminders.id, row.reminderId), eq(paymentReminders.workspaceId, ws), eq(paymentReminders.status, "entwurf")));
+      continue;
+    }
     if (DRAFT_GESENDET.has(row.draftStatus)) {
       await db
         .update(paymentReminders)
@@ -115,9 +139,11 @@ async function stoppeErledigte(ws: string, summary: ErinnerungLauf): Promise<voi
       dealRecordId: paymentReminders.dealRecordId,
       invoiceStatus: dealInvoices.status,
       bruttoCent: dealInvoices.bruttoCent,
+      modus: companySettings.erinnerungModus,
     })
     .from(paymentReminders)
     .innerJoin(dealInvoices, eq(dealInvoices.id, paymentReminders.invoiceId))
+    .leftJoin(companySettings, eq(companySettings.operatingCompanyRecordId, dealInvoices.operatingCompanyId))
     .where(and(eq(paymentReminders.workspaceId, ws), eq(paymentReminders.status, "entwurf")));
   if (offen.length === 0) return;
 
@@ -172,11 +198,13 @@ async function stoppeErledigte(ws: string, summary: ErinnerungLauf): Promise<voi
 }
 
 function stoppGrund(
-  row: { invoiceStatus: string; bruttoCent: number | null },
+  row: { invoiceStatus: string; bruttoCent: number | null; modus?: string | null },
   zahlungen: { amount: string | null; taxTreatment: string | null }[],
   ereignisse: { id: string; eventType: string; payload: unknown; createdAt: Date }[]
 ): string | null {
   if (row.invoiceStatus !== "gestellt") return "nicht_gestellt";
+  // Fix-Welle M10: Schalter der Firma aus → offene Entwürfe ersetzen.
+  if (row.modus !== "entwurf") return "schalter_aus";
   const rest = offenAus({
     rechnung: { status: row.invoiceStatus as RechnungStatus, bruttoCent: row.bruttoCent },
     annahmeCent: null,

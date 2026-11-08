@@ -205,6 +205,7 @@ describe("Tagesabschluss auf Heute", () => {
       stamm: STAMM,
       stufen: GELD_STUFEN,
       roh: [
+        // Fix-Welle I2: „fertig“ vor dem letzten Umzugstag zählt nicht.
         leadRoh({ id: "fertig", stufeId: "s_geplant", umzugAm: "2026-11-08", fertigAm: "2026-11-06T08:10:00.000Z" }),
         leadRoh({ id: "gestern", stufeId: "s_geplant", umzugAm: "2026-11-05" }),
         leadRoh({ id: "durch", stufeId: "s_durch", umzugAm: "2026-11-04" }),
@@ -218,7 +219,8 @@ describe("Tagesabschluss auf Heute", () => {
       ],
     });
     const karten = (await ladeHeute("ws_1", PLAN_JETZT)).tagesabschluss;
-    expect(karten.map((k) => k.dealId)).toEqual(["durch", "gestern", "fertig", "bar"]);
+    expect(karten.map((k) => k.dealId)).toEqual(["durch", "gestern", "bar"]);
+    expect(karten[1].letzterTermintag).toBe("2026-11-05");
 
     const durch = karten[0];
     expect(durch.hinweis).toBe("Termin war 04.11.2026");
@@ -234,11 +236,7 @@ describe("Tagesabschluss auf Heute", () => {
       ["rechnung", "spaeter"],
     ]);
 
-    const fertig = karten[2];
-    expect(fertig.hinweis).toBe("Team meldet fertig 09:10");
-    expect(fertig.schritte[0]).toMatchObject({ art: "bestaetigen", status: "jetzt" });
-
-    const bar = karten[3];
+    const bar = karten[2];
     expect(bar.hinweis).toBe("Bargeld beim Team");
     expect(bar.schritte.map((s) => [s.art, s.status])).toEqual([
       ["bestaetigen", "erledigt"],
@@ -247,5 +245,25 @@ describe("Tagesabschluss auf Heute", () => {
     ]);
     expect(bar.schritte[2].text).toMatch(/Bar bei Hans: 450,00\s*€/);
     expect(bar.schritte[2].paymentIds).toEqual(["pay_1"]);
+  });
+
+  it("mehrtägiger Umzug: erst nach dem letzten Tag, „fertig“ nur am letzten Tag (Fix-Welle I2)", async () => {
+    mocks.ladeLeadsRoh.mockResolvedValue({
+      eintraege: [],
+      stamm: STAMM,
+      stufen: GELD_STUFEN,
+      roh: [
+        // Start gestern, Ende morgen: läuft noch, auch wenn gestern „fertig“ gemeldet wurde.
+        leadRoh({ id: "laeuft", stufeId: "s_geplant", umzugAm: "2026-11-05", umzugEnde: "2026-11-07", fertigAm: "2026-11-05T15:00:00.000Z" }),
+        // Start vorgestern, Ende heute, „fertig“ heute: Karte mit Hinweis.
+        leadRoh({ id: "heute_fertig", stufeId: "s_geplant", umzugAm: "2026-11-04", umzugEnde: "2026-11-06", fertigAm: "2026-11-06T13:10:00.000Z" }),
+        // Ende gestern: Termin war.
+        leadRoh({ id: "vorbei", stufeId: "s_geplant", umzugAm: "2026-11-03", umzugEnde: "2026-11-05" }),
+      ],
+    });
+    const karten = (await ladeHeute("ws_1", PLAN_JETZT)).tagesabschluss;
+    expect(karten.map((k) => k.dealId).sort()).toEqual(["heute_fertig", "vorbei"]);
+    expect(karten.find((k) => k.dealId === "heute_fertig")?.hinweis).toBe("Team meldet fertig 14:10");
+    expect(karten.find((k) => k.dealId === "vorbei")?.hinweis).toBe("Termin war 05.11.2026");
   });
 });

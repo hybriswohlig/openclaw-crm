@@ -11,6 +11,8 @@ vi.mock("@/lib/api-utils", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api-utils")>();
   return { ...actual, getAuthContext: mocks.getAuthContext };
 });
+const stoppen = vi.hoisted(() => vi.fn(async () => 0));
+vi.mock("@/services/rechnungen", () => ({ erinnerungenDerFirmaStoppen: stoppen }));
 vi.mock("@/services/company-settings", () => ({
   ladeFirmenEinstellungen: mocks.ladeFirmenEinstellungen,
   speichereFirmenEinstellungen: mocks.speichereFirmenEinstellungen,
@@ -147,5 +149,13 @@ describe("GET/PUT /company-settings/[ocId]", () => {
     mocks.getAuthContext.mockResolvedValue({ ...ADMIN, authMethod: "api_key", apiKeyAccess: "read" });
     expect((await PUT(req("PUT", { zahlung: { erinnerungModus: "entwurf" } }), { params })).status).toBe(403);
     expect(mocks.speichereFirmenEinstellungen).not.toHaveBeenCalled();
+  });
+
+  it("Erinnerung aus: offene Erinnerungs-Entwürfe der Firma werden gestoppt (Fix-Welle M10)", async () => {
+    await PUT(req("PUT", { zahlung: { erinnerungModus: "aus" } }), { params });
+    expect(stoppen).toHaveBeenCalledWith("ws_1", "oc_1");
+    stoppen.mockClear();
+    await PUT(req("PUT", { zahlung: { erinnerungModus: "entwurf" } }), { params });
+    expect(stoppen).not.toHaveBeenCalled();
   });
 });

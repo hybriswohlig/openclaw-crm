@@ -399,16 +399,34 @@ describe("Chips „Heute im Blick“ (Entscheidung 6)", () => {
     expect(eintrag({ stufeId: "s_neu" }).chips).not.toContain("ohne_team");
   });
 
-  it("Rechnung offen: Rechnung vorhanden und Rest über 0", () => {
+  it("Rechnung offen: gestellte Rechnung und Rest über 0 oder unbekannt, wie die Kasse", () => {
+    const re = (r: Partial<NonNullable<LeadRoh["rechnung"]>> = {}): LeadRoh["rechnung"] => ({
+      id: "inv",
+      nummer: "RE-2026-0001",
+      status: "gestellt",
+      bruttoCent: null,
+      rechnungstag: "2026-11-01",
+      faelligAm: "2026-11-01",
+      abweichungGrund: null,
+      erinnerung: null,
+      ...r,
+    });
     const mit = (teil: Partial<LeadRoh>) =>
-      eintrag({ stufeId: "s_durch", dokumente: { kvErstesAm: null, rechnungAm: vor(TAG), abAm: null }, ...teil }).chips.includes("rechnung_offen");
+      eintrag({ stufeId: "s_durch", rechnung: re(), dokumente: { kvErstesAm: null, rechnungAm: vor(TAG), abAm: null }, ...teil }).chips.includes(
+        "rechnung_offen"
+      );
     expect(mit({ angebot: angebot({ festpreisEuro: "1600" }) })).toBe(true);
     expect(mit({ angebot: angebot({ festpreisEuro: "1600" }), zahlungen: [{ amount: "1600", taxTreatment: null, date: null }] })).toBe(false);
-    // Stunden-KV ohne Betrag: Rest unbekannt, zählt wie die Kasse-Schlange „offen“.
+    // Stunden-KV mit gestellter Rechnung ohne Betrag: Rest unbekannt, zählt wie die Kasse-Schlange „offen“.
     expect(mit({ angebot: angebot({ istStunden: true }) })).toBe(true);
     expect(mit({ stufeId: "s_verloren", angebot: angebot({ festpreisEuro: "1600" }) })).toBe(false);
-    expect(mit({})).toBe(false);
-    expect(eintrag({ stufeId: "s_durch", angebot: angebot({ festpreisEuro: "1600" }) }).chips).not.toContain("rechnung_offen");
+    // Ohne Rechnungsdatensatz kein Chip (die Kasse liest nur Datensätze).
+    expect(mit({ rechnung: null, angebot: angebot({ festpreisEuro: "1600" }) })).toBe(false);
+    // Fix-Welle I3: Altrechnung nur mit Betrag und nicht in einer Endstufe.
+    expect(mit({ rechnung: re({ herkunft: "alt" }), angebot: angebot({ istStunden: true }) })).toBe(false);
+    expect(mit({ rechnung: re({ herkunft: "alt" }), angebot: angebot({ festpreisEuro: "1600" }) })).toBe(false);
+    expect(mit({ rechnung: re({ herkunft: "alt", bruttoCent: 160000 }), angebot: angebot({ festpreisEuro: "1600" }) })).toBe(true);
+    expect(mit({ stufeId: "s_bezahlt", rechnung: re({ herkunft: "alt", bruttoCent: 160000 }) })).toBe(false);
   });
 
   it("Umzug diese Woche: Montag bis Sonntag in Berlin, nur Geplant, Durchgeführt, Bezahlt", () => {

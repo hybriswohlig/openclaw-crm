@@ -43,7 +43,8 @@ export type FreigabeErgebnis =
         | "expired" | "not_pending" | "no_conversation" | "gate_blocked" | "price_leak"
         | "attachment_invalid"
         | "internal_error" | "session_expired" | "send_failed" | "send_uncertain"
-        | "stale";
+        | "stale"
+        | "nur_sitzung";
       reasons?: string[];
       detail?: string;
       /** HTTP status for attachment_invalid (400, 404 or 413). */
@@ -65,6 +66,15 @@ const ZAHLUNGSERINNERUNG_UEBERSTIMMBAR: readonly string[] = [
   "stage_terminal",
   "no_proactive_consent",
 ];
+
+/** Stufen, in denen eine Rechnung offen sein kann; Verloren und Kein Lead heben nie auf (Fix-Welle M1). */
+const ERINNERUNG_STUFEN: ReadonlySet<string> = new Set(["booked", "done_unpaid", "paid"]);
+
+function erinnerungUeberstimmbar(context: Record<string, unknown>): readonly string[] {
+  const kategorie = (context.stage as { category?: unknown } | undefined)?.category;
+  if (typeof kategorie !== "string" || !ERINNERUNG_STUFEN.has(kategorie)) return ["no_proactive_consent"];
+  return ZAHLUNGSERINNERUNG_UEBERSTIMMBAR;
+}
 
 /** Roll a claimed draft back to 'pending' so the operator can retry. ONLY for
  * provably pre-delivery failures — see markSendUncertain for the rest. */
@@ -180,6 +190,11 @@ export async function entwurfFreigebenUndSenden(input: {
   attachments?: WhatsAppAttachmentDescriptor[];
   bodyDelivery?: BodyDelivery;
   idempotencyKey?: string;
+  /**
+   * Freigabe aus einer angemeldeten Sitzung (Cookie), kein API-Schlüssel.
+   * Zahlungserinnerungen (Plan 9) gehen nur so raus (Fix-Welle M1).
+   */
+  sitzung?: boolean;
 }): Promise<FreigabeErgebnis> {
   const { workspaceId, userId, draftId: id } = input;
   const body = { finalText: input.finalText };
@@ -234,6 +249,12 @@ export async function entwurfFreigebenUndSenden(input: {
       return { ok: false, fehler: "expired" };
     }
     return { ok: false, fehler: "not_pending" };
+  }
+
+  // Fix-Welle M1: Zahlungserinnerungen nur aus einer Sitzung (kein Bot, kein API-Schlüssel).
+  if (draft.sequenceId === ZAHLUNGSERINNERUNG_SEQUENZ && input.sitzung !== true) {
+    await revertToPending(id);
+    return { ok: false, fehler: "nur_sitzung" };
   }
 
   // Die Freigabe am Entwurf festhalten, auch wenn RETURNING den JSON-Merge
@@ -355,8 +376,8 @@ export async function entwurfFreigebenUndSenden(input: {
     const gated = gateReasonsBlockingSend({
       reasons: verdict.reasons,
       overridable:
-        draft.sequenceId === ZAHLUNGSERINNERUNG_SEQUENZ && (userId || humanApproved)
-          ? new Set([...ueberstimmbar, ...ZAHLUNGSERINNERUNG_UEBERSTIMMBAR])
+        draft.sequenceId === ZAHLUNGSERINNERUNG_SEQUENZ && input.sitzung === true
+          ? new Set([...ueberstimmbar, ...erinnerungUeberstimmbar(verdict.context)])
           : ueberstimmbar,
       humanApproved,
       overrideConsent,

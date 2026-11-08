@@ -62,6 +62,14 @@ describe("POST /deals/[recordId]/payment-reports/[eventId]", () => {
     expect(mocks.bestaetigeZahlungsmeldung).not.toHaveBeenCalled();
   });
 
+  it("voller API-Schlüssel darf nicht bestätigen (403), verwerfen bleibt", async () => {
+    mocks.getAuthContext.mockResolvedValue({ ...CTX, authMethod: "api_key", apiKeyAccess: "full" });
+    const res = await POST(post({ aktion: "bestaetigen" }), p());
+    expect(res.status).toBe(403);
+    expect(mocks.bestaetigeZahlungsmeldung).not.toHaveBeenCalled();
+    expect((await POST(post({ aktion: "verwerfen" }), p())).status).toBe(200);
+  });
+
   it("Deal aus fremdem Workspace → 404, nichts geschrieben", async () => {
     mocks.dealImWorkspace.mockResolvedValue(false);
     const res = await POST(post({ aktion: "bestaetigen" }), p());

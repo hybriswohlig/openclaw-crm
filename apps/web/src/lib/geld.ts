@@ -76,6 +76,25 @@ export interface RechnungKurz {
   faelligAm: string | null;
   abweichungGrund: string | null;
   erinnerung: ErinnerungStand | null;
+  /** Herkunft (Fix-Welle I3): `alt` aus dem Backfill zählt nur eingeschränkt. */
+  herkunft?: RechnungHerkunft;
+}
+
+/** Endstufen: Altrechnungen dort sind erledigt (Fix-Welle I3). */
+export const GELD_ENDSTUFEN: ReadonlySet<string> = new Set(["paid", "lost", "kein_lead"]);
+
+/**
+ * Ob eine gestellte Rechnung in Kasse, Chip und Zähler als offen zählen darf
+ * (Fix-Welle I3). Altrechnungen aus dem Backfill nur mit bekanntem Betrag und
+ * nur, solange der Deal nicht in einer Endstufe steht.
+ */
+export function rechnungZaehlt(
+  r: { status: RechnungStatus; bruttoCent: number | null; herkunft?: RechnungHerkunft } | null,
+  kategorie: string | null
+): boolean {
+  if (!r || r.status !== "gestellt") return false;
+  if (r.herkunft === "alt") return r.bruttoCent != null && !(kategorie && GELD_ENDSTUFEN.has(kategorie));
+  return true;
 }
 
 /** Was der Mensch beim Rechnungsschritt bestätigt (Body `rechnung`, VPS-Parameter `_rechnung`). */
@@ -691,7 +710,7 @@ export function kasseEintraege(deals: KasseDealRoh[], heute: string, stand: stri
         mahnreif: false,
       });
     }
-    if (gestellt && (d.offen.restCent == null || d.offen.restCent > 0)) {
+    if (rechnungZaehlt(d.rechnung, d.kategorie) && (d.offen.restCent == null || d.offen.restCent > 0)) {
       const f = d.rechnung!.faelligAm;
       const mahnreif = !!f && heute >= tagPlusTage(f, d.regel.erinnerungTage);
       const e = d.rechnung!.erinnerung;
@@ -786,6 +805,8 @@ export interface TagesabschlussKarte {
   /** „Team meldet fertig 14:10“ oder „Termin war Do 05.11.“ */
   hinweis: string;
   schritte: TagesabschlussSchritt[];
+  /** Letzter Umzugstag (Ende bei mehrtägigen Umzügen), `YYYY-MM-DD`. */
+  letzterTermintag?: string | null;
 }
 
 function uhrzeit(iso: string): string {
@@ -798,8 +819,12 @@ export function tagesabschlussAus(d: TagesabschlussRoh, heute: string): Tagesabs
   const frueheste = tagPlusTage(heute, -TAGESABSCHLUSS_TAGE);
   const imFenster = d.letzterTermintag != null && d.letzterTermintag >= frueheste;
   const vorbei = d.letzterTermintag != null && d.letzterTermintag < heute;
-  const fertigHeute = d.fertigAm != null && berlinTag(d.fertigAm) <= heute;
-  const offenBestaetigen = d.kategorie === "booked" && imFenster && (vorbei || fertigHeute);
+  // „Fertig“ der Mitarbeiter-App zählt nur am oder nach dem letzten Umzugstag (Fix-Welle I2):
+  // ein „fertig“ vom ersten Tag eines mehrtägigen Umzugs schließt nichts ab.
+  const fertigTag = d.fertigAm != null ? berlinTag(d.fertigAm) : null;
+  const fertigGemeldet =
+    fertigTag != null && d.letzterTermintag != null && fertigTag >= d.letzterTermintag && fertigTag <= heute;
+  const offenBestaetigen = d.kategorie === "booked" && imFenster && (vorbei || fertigGemeldet);
   const gestellt = d.rechnung?.status === "gestellt";
   const offenRechnung = (d.kategorie === "done_unpaid" && imFenster && !gestellt) || (offenBestaetigen && !gestellt);
   const bar = d.barBeiTeam;
@@ -824,12 +849,20 @@ export function tagesabschlussAus(d: TagesabschlussRoh, heute: string): Tagesabs
     });
   }
   const hinweis =
-    d.fertigAm && !bestaetigt
+    fertigGemeldet && d.fertigAm && !bestaetigt
       ? `Team meldet fertig ${uhrzeit(d.fertigAm)}`
       : d.letzterTermintag
         ? `Termin war ${tagDe(d.letzterTermintag)}`
         : "Bargeld beim Team";
-  return { dealId: d.dealId, name: d.name, nummer: d.nummer, href: akteHref(d.dealId), hinweis, schritte };
+  return {
+    dealId: d.dealId,
+    name: d.name,
+    nummer: d.nummer,
+    href: akteHref(d.dealId),
+    hinweis,
+    schritte,
+    letzterTermintag: d.letzterTermintag,
+  };
 }
 
 // ─── Akte ───────────────────────────────────────────────────────────────────

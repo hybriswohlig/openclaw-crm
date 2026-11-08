@@ -409,6 +409,7 @@ describe("runZahlungserinnerung", () => {
       dealRecordId: "deal-1",
       invoiceStatus: "gestellt",
       bruttoCent: 50000,
+      modus: "entwurf",
       status: "entwurf",
       stoppGrund: null as string | null,
     };

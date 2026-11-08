@@ -1446,7 +1446,26 @@ export async function offeneResteMitRechnung(workspaceId: string): Promise<numbe
   const rechnungen = await db
     .select({ deal: dealInvoices.dealRecordId, bruttoCent: dealInvoices.bruttoCent })
     .from(dealInvoices)
-    .where(and(eq(dealInvoices.workspaceId, workspaceId), eq(dealInvoices.status, "gestellt")));
+    .where(
+      and(
+        eq(dealInvoices.workspaceId, workspaceId),
+        eq(dealInvoices.status, "gestellt"),
+        // Fix-Welle M8: wie die Kasse ohne verlorene Deals; Altrechnungen nach `rechnungZaehlt`.
+        sql`NOT EXISTS (
+          SELECT 1 FROM record_values sv
+          INNER JOIN attributes sa ON sa.id = sv.attribute_id AND sa.slug = 'stage'
+          INNER JOIN statuses st ON st.id = sv.text_value
+          WHERE sv.record_id = ${dealInvoices.dealRecordId}
+            AND st.stage_category IN ('lost', 'kein_lead')
+        )`,
+        sql`(${dealInvoices.herkunft} <> 'alt' OR (${dealInvoices.bruttoCent} IS NOT NULL AND NOT EXISTS (
+          SELECT 1 FROM record_values sv
+          INNER JOIN attributes sa ON sa.id = sv.attribute_id AND sa.slug = 'stage'
+          INNER JOIN statuses st ON st.id = sv.text_value
+          WHERE sv.record_id = ${dealInvoices.dealRecordId} AND st.stage_category = 'paid'
+        )))`
+      )
+    );
   if (rechnungen.length === 0) return 0;
   const ids = [...new Set(rechnungen.map((r) => r.deal))];
   const [zahlungen, annahmen, angebote] = await Promise.all([

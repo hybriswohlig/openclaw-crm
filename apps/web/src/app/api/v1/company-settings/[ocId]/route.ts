@@ -13,6 +13,7 @@ import {
   speichereFirmenEinstellungen,
   type FirmenEinstellungenPatch,
 } from "@/services/company-settings";
+import { erinnerungenDerFirmaStoppen } from "@/services/rechnungen";
 import type { Marke } from "@/services/rechner/quelle";
 
 export const dynamic = "force-dynamic";
@@ -75,5 +76,11 @@ export async function PUT(
 
   const gespeichert = await speichereFirmenEinstellungen(ctx.workspaceId, ocId, patch);
   if (gespeichert === null) return notFound();
+  // Fix-Welle M10: Erinnerung aus → offene Erinnerungs-Entwürfe dieser Firma ersetzen.
+  if (patch.zahlung?.erinnerungModus === "aus") {
+    await erinnerungenDerFirmaStoppen(ctx.workspaceId, ocId).catch((err) =>
+      console.error("[company-settings] Erinnerungen stoppen fehlgeschlagen:", err)
+    );
+  }
   return success(await ladeFirmenEinstellungen(ctx.workspaceId, ocId));
 }

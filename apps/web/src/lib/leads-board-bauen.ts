@@ -49,6 +49,7 @@ import {
 import {
   berlinTag,
   offenAus,
+  rechnungZaehlt,
   type BarBeiTeam,
   type OffenErgebnis,
   type RechnungKurz,
@@ -72,6 +73,8 @@ export interface LeadRoh {
   stufeId: string | null;
   /** Attribut `move_date`. */
   umzugAm: string | null;
+  /** Ende eines mehrtägigen Umzugs (`move_end` u. ä.), sonst null. */
+  umzugEnde?: string | null;
   /** `customer_date_selections.selected_date`. */
   terminAuswahl: string | null;
   /** Adresse (Objekt `LocationValue` oder Freitext). */
@@ -295,8 +298,11 @@ export function offenVonLead(roh: LeadRoh): OffenErgebnis {
 }
 
 /** Letzter bekannter Umzugstag: das spätere von Attribut und Kundenauswahl. */
-export function letzterUmzugstag(roh: LeadRoh): string | null {
-  const tage = [roh.umzugAm, roh.terminAuswahl].filter((t): t is string => t != null && t !== "");
+export function letzterUmzugstag(roh: LeadRoh, planEnde?: string | null): string | null {
+  // Fix-Welle I2: das Ende zählt (Attribut `move_end`, sonst Ende des Plan-Eintrags), sonst der Starttag.
+  const tage = [roh.umzugAm, roh.terminAuswahl, roh.umzugEnde ?? null, planEnde ?? null].filter(
+    (t): t is string => t != null && t !== ""
+  );
   if (tage.length === 0) return null;
   return tage.reduce((a, b) => (a > b ? a : b));
 }
@@ -500,9 +506,10 @@ export function eintragAus(
       karte,
       kvGesendetAm,
       portalZuletztGeoeffnet: roh.portalZuletztGeoeffnet,
-      rechnungGestellt: rechnungGestellt(roh),
+      // Gleiche Regel wie die Kasse-Schlange „offen“ (Fix-Welle I3: Altrechnungen eingeschränkt).
+      rechnungGestellt: rechnungZaehlt(roh.rechnung, kategorie),
       restCent: offen.restCent,
-      restUnbekannt: offen.restCent == null && (roh.rechnung?.status === "gestellt" || roh.angebot?.istStunden === true),
+      restUnbekannt: offen.restCent == null,
       annahme: roh.annahme != null,
       abAm: roh.dokumente.abAm,
     },

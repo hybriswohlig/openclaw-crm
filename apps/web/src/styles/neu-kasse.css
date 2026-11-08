@@ -106,6 +106,28 @@
   text-decoration: line-through;
 }
 
+/* Altrechnung ohne Betrag: Hinweis mit Eingabe (Fix-Welle I3). */
+[data-neu] .geld-nachtragen {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  padding: 9px 12px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--gold) 12%, var(--fill-3));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gold) 35%, var(--fill-3));
+  font-size: 13px;
+  color: var(--gold-ink);
+}
+
+[data-neu] .geld-nachtragen-text {
+  flex: 1 1 220px;
+}
+
+[data-neu] .geld-nachtragen-feld {
+  width: 120px;
+}
+
 /* ── Zahlungszeilen in der Akte ──────────────────────── */
 
 [data-neu] .geld-zeilen {

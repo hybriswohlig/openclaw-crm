@@ -36,6 +36,8 @@ export async function POST(req: NextRequest, { params }: Params) {
 
   try {
     if (aktion === "bestaetigen") {
+      // Fix-Welle M2: Bestätigen bucht eine Zahlung, das geht nur aus einer Sitzung.
+      if (ctx.authMethod === "api_key") return apiKeyScopeForbidden("Zahlungsmeldungen bestätigt nur ein Mensch in der Oberfläche.");
       return success(await bestaetigeZahlungsmeldung(ctx.workspaceId, recordId, eventId, ctx.userId));
     }
     await verwerfeZahlungsmeldung(ctx.workspaceId, recordId, eventId, ctx.userId);

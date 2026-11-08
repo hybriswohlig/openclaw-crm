@@ -5,8 +5,8 @@
 CREATE TABLE IF NOT EXISTS "deal_invoices" (
   "id" text PRIMARY KEY NOT NULL,
   "workspace_id" text NOT NULL,
-  "deal_record_id" text NOT NULL REFERENCES "records"("id") ON DELETE CASCADE,
-  "operating_company_id" text REFERENCES "records"("id") ON DELETE SET NULL,
+  "deal_record_id" text NOT NULL CONSTRAINT "deal_invoices_deal_record_id_records_id_fk" REFERENCES "records"("id") ON DELETE CASCADE,
+  "operating_company_id" text CONSTRAINT "deal_invoices_operating_company_id_records_id_fk" REFERENCES "records"("id") ON DELETE SET NULL,
   "nummer" text,
   "jahr" integer,
   "laufnummer" integer,
@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS "deal_invoices" (
   "rechnungstag" date,
   "faellig_am" date,
   "abweichung_grund" text,
-  "deal_document_id" text REFERENCES "deal_documents"("id") ON DELETE SET NULL,
+  "deal_document_id" text CONSTRAINT "deal_invoices_deal_document_id_deal_documents_id_fk" REFERENCES "deal_documents"("id") ON DELETE SET NULL,
   "render_job_id" text,
   "storno_grund" text,
   "storniert_am" timestamptz,
@@ -76,14 +76,14 @@ ALTER TABLE "payments" ADD COLUMN IF NOT EXISTS "quelle" text
   CONSTRAINT "payments_quelle_check" CHECK ("quelle" IS NULL OR "quelle" IN ('hand', 'meldung', 'mitarbeiter', 'api', 'storno'));
 --> statement-breakpoint
 ALTER TABLE "payments" ADD COLUMN IF NOT EXISTS "employee_id" text
-  CONSTRAINT "payments_employee_id_fk" REFERENCES "employees"("id") ON DELETE SET NULL;
+  CONSTRAINT "payments_employee_id_employees_id_fk" REFERENCES "employees"("id") ON DELETE SET NULL;
 --> statement-breakpoint
 ALTER TABLE "payments" ADD COLUMN IF NOT EXISTS "bar_erhalten_am" timestamptz;
 --> statement-breakpoint
 ALTER TABLE "payments" ADD COLUMN IF NOT EXISTS "bar_erhalten_von" text;
 --> statement-breakpoint
 ALTER TABLE "payments" ADD COLUMN IF NOT EXISTS "storno_von_payment_id" text
-  CONSTRAINT "payments_storno_von_fk" REFERENCES "payments"("id") ON DELETE SET NULL;
+  CONSTRAINT "payments_storno_von_payment_id_payments_id_fk" REFERENCES "payments"("id") ON DELETE SET NULL;
 --> statement-breakpoint
 ALTER TABLE "payments" ADD COLUMN IF NOT EXISTS "storno_grund" text;
 --> statement-breakpoint
@@ -112,13 +112,13 @@ ALTER TABLE "company_settings" ADD COLUMN IF NOT EXISTS "steuernummer" text;
 ALTER TABLE "deal_workflow_state" ADD COLUMN IF NOT EXISTS "bezahlt_am" timestamptz;
 --> statement-breakpoint
 ALTER TABLE "document_render_jobs" ADD COLUMN IF NOT EXISTS "invoice_id" text
-  CONSTRAINT "document_render_jobs_invoice_fk" REFERENCES "deal_invoices"("id") ON DELETE SET NULL;
+  CONSTRAINT "document_render_jobs_invoice_id_deal_invoices_id_fk" REFERENCES "deal_invoices"("id") ON DELETE SET NULL;
 --> statement-breakpoint
 CREATE TABLE IF NOT EXISTS "payment_reminders" (
   "id" text PRIMARY KEY NOT NULL,
   "workspace_id" text NOT NULL,
-  "deal_record_id" text NOT NULL REFERENCES "records"("id") ON DELETE CASCADE,
-  "invoice_id" text NOT NULL REFERENCES "deal_invoices"("id") ON DELETE CASCADE,
+  "deal_record_id" text NOT NULL CONSTRAINT "payment_reminders_deal_record_id_records_id_fk" REFERENCES "records"("id") ON DELETE CASCADE,
+  "invoice_id" text NOT NULL CONSTRAINT "payment_reminders_invoice_id_deal_invoices_id_fk" REFERENCES "deal_invoices"("id") ON DELETE CASCADE,
   "stufe" smallint NOT NULL,
   "faellig_am" date NOT NULL,
   "rest_cent" integer NOT NULL,

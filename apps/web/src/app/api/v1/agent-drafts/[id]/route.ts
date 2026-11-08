@@ -41,7 +41,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   };
 
   if (body.action === "approve_and_send") {
-    return approveAndSend(ctx.workspaceId, ctx.userId ?? null, id, body);
+    return approveAndSend(ctx.workspaceId, ctx.userId ?? null, id, body, ctx.authMethod !== "api_key");
   }
 
   if (typeof body.action === "string" && parseCloseAction(body.action)) {
@@ -66,6 +66,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 const FEHLER_STATUS: Record<string, number> = {
   expired: 409, not_pending: 409, no_conversation: 409, gate_blocked: 409, price_leak: 409,
   session_expired: 409, send_uncertain: 409, stale: 409, internal_error: 500, send_failed: 500,
+  nur_sitzung: 403,
 };
 
 async function approveAndSend(
@@ -82,7 +83,8 @@ async function approveAndSend(
     bodyDelivery?: unknown;
     idempotencyKey?: unknown;
   }
-) {
+,
+  sitzung = false) {
   // Reject a bad attachment before the claim, so a 400 does not flip the draft
   // out of pending. Bytes are loaded later, after the gate and the price filter.
   let sendExtras: {
@@ -120,6 +122,7 @@ async function approveAndSend(
     approvedBy: typeof body.approvedBy === "string" ? body.approvedBy : null,
     note: typeof body.note === "string" ? body.note : null,
     overrideConsent: flagTrue(body.overrideConsent),
+    sitzung,
     ...sendExtras,
   });
   if (r.ok) return success({ sent: true });
