@@ -5,6 +5,7 @@ import "@/styles/neu-akte-ablauf.css";
 import Link from "next/link";
 import { useId, useState } from "react";
 import { GlassPanel } from "@/components/glassyui/glass-panel";
+import { einsatzDialogOeffnen } from "@/components/neu/einsatz/einsatz-api";
 import type { AblaufSchritt } from "@/lib/ablauf";
 import type { AkteDaten } from "@/lib/akte";
 import { fokusIndex, schrittOffen, sequenzRechts, WER_LABEL, ZUSTAND_TEXT } from "./ablauf-anzeige";
@@ -17,7 +18,8 @@ type Zahlung = AkteDaten["zahlung"];
  * Das Ablauf-Panel rechts in der Akte: die elf Schritte aus `/akte` mit
  * Kreis, Verbindungslinie, Wer-Marke, Zeile, Hinweis, Nachfass-Sequenz und
  * Chips (Maße aus dem Mockup). Aktionen: Schritt 3 öffnet die Kalkulation der
- * alten Seite (Entscheidung 3); Schritt 10 bestätigt bei genau einer offenen
+ * alten Seite (Entscheidung 3); Schritt 7 öffnet den Einsatz-Dialog (Plan 12a,
+ * Entscheidung 10; der Empfänger hängt im Akte-Kopf); Schritt 10 bestätigt bei genau einer offenen
  * Meldung direkt (Entscheidung 6), sonst ruft er `onZahlung`; Schritt 11 ruft
  * `onBewertung`, aber nur mit `bewertungErlaubt` aus dem Dock (Stufe
  * Durchgeführt oder Bezahlt, noch nicht angefragt, nicht gesperrt). Unter
@@ -96,6 +98,11 @@ export function AblaufPanel({
                 <Link href={kalkulationLink} className="akte-ablauf-knopf">
                   Kalkulation öffnen
                 </Link>
+              ) : null}
+              {s.key === "einsatz" && s.zustand !== "entfaellt" ? (
+                <button type="button" className="akte-ablauf-knopf" onClick={() => einsatzDialogOeffnen(dealId)}>
+                  {s.zustand === "erledigt" ? "Einsatz ändern" : "Einsatz planen"}
+                </button>
               ) : null}
               {s.key === "zahlung" && !einzige && schrittOffen(s.zustand) && onZahlung ? (
                 <button type="button" className="akte-ablauf-knopf" onClick={onZahlung}>

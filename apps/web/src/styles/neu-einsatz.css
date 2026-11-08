@@ -1,0 +1,803 @@
+/*
+ * Plan 12a: Einsatz-Dialog und Seite Mitarbeiter. Nur Tokens aus neu.css,
+ * Glas nur auf Panels, Zeilen auf --fill-3, Text in *-ink (Kontrast 4,5:1).
+ */
+
+/* ─── Dialog ─────────────────────────────────────────────────────────────── */
+
+[data-neu] .ez-dialog {
+  width: calc(100vw - 2rem);
+  max-width: 1180px;
+  max-height: calc(100dvh - 2rem);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+[data-neu] .ez-dialog[data-laedt] {
+  max-width: 620px;
+}
+
+[data-neu] .ez-skelett {
+  display: grid;
+  gap: 10px;
+}
+
+[data-neu] .ez-skelett > span {
+  height: 120px;
+  border-radius: 16px;
+}
+
+[data-neu] .ez-kopf {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+  padding-right: 44px;
+}
+
+[data-neu] .ez-kopf-text {
+  flex: 1 1 280px;
+  min-width: 0;
+}
+
+[data-neu] .ez-titel {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  line-height: 1.1;
+  color: var(--ink);
+}
+
+[data-neu] .ez-unter {
+  margin: 4px 0 0;
+  font-size: 14px;
+  color: var(--ink-2);
+}
+
+[data-neu] .ez-kopf-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+[data-neu] .ez-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--ink);
+  background: var(--fill-2);
+  box-shadow: inset 0 0 0 1px var(--rim);
+  white-space: nowrap;
+}
+
+[data-neu] .ez-chip i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--jade);
+}
+
+[data-neu] .ez-chip[data-ton="gold"] i {
+  background: var(--gold);
+}
+
+[data-neu] .ez-chip[data-ton="rot"] i {
+  background: var(--rose);
+}
+
+[data-neu] .ez-ansicht-platz:empty {
+  display: none;
+}
+
+[data-neu] .ez-hinweise {
+  margin: 0;
+  padding: 10px 14px 10px 30px;
+  border-radius: 14px;
+  font-size: 13px;
+  color: var(--gold-ink);
+  background: color-mix(in srgb, var(--gold) 12%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gold) 35%, transparent);
+}
+
+[data-neu] .ez-rueckfrage {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px 10px;
+  align-items: start;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1.5px var(--gold), var(--shadow);
+}
+
+[data-neu] .ez-rueckfrage > i {
+  width: 9px;
+  height: 9px;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: var(--gold);
+}
+
+[data-neu] .ez-rueckfrage p {
+  margin: 0;
+  font-size: 14px;
+  color: var(--ink);
+}
+
+[data-neu] .ez-rueckfrage-knoepfe {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+[data-neu] .ez-spalten {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 380px;
+  gap: 14px;
+  align-items: start;
+}
+
+[data-neu] .ez-leiste {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+[data-neu] .ez-karte {
+  border-radius: 20px;
+  background: var(--fill);
+  box-shadow: inset 0 0 0 1px var(--rim), var(--shadow);
+  padding-bottom: 10px;
+  min-width: 0;
+}
+
+[data-neu] .ez-karte-kopf {
+  padding: 14px 16px 8px;
+}
+
+[data-neu] .ez-karte-kopf-zeile {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  align-items: flex-start;
+}
+
+[data-neu] .ez-karte-kopf-zeile > div:first-child {
+  flex: 1 1 260px;
+}
+
+[data-neu] .ez-karte-kopf h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+[data-neu] .ez-karte-kopf p {
+  margin: 2px 0 0;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+[data-neu] .ez-knoepfe-klein {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+[data-neu] .ez-link {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--blue-ink);
+  cursor: pointer;
+}
+
+[data-neu] .ez-link:disabled {
+  color: var(--ink-3);
+  cursor: default;
+}
+
+[data-neu] .ez-link:focus-visible,
+[data-neu] .ez-mini:focus-visible,
+[data-neu] .ez-weg:focus-visible,
+[data-neu] .ez-haken:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+[data-neu] .ez-notiz,
+[data-neu] .ez-leer {
+  margin: 4px 16px 4px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+/* Liste */
+
+[data-neu] .ez-liste {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 10px;
+}
+
+[data-neu] .ez-liste-kopf,
+[data-neu] .ez-person {
+  display: grid;
+  grid-template-columns: 28px minmax(170px, 1fr) 118px 170px 92px;
+  gap: 10px;
+  align-items: center;
+}
+
+[data-neu] .ez-liste-kopf {
+  padding: 2px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+[data-neu] .ez-person {
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--rim);
+}
+
+[data-neu] .ez-person[data-an] {
+  box-shadow: inset 0 0 0 1.5px var(--blue);
+}
+
+[data-neu] .ez-person[data-lage="abwesend"]:not([data-an]) .ez-wer-text b,
+[data-neu] .ez-person[data-lage="abwesend"]:not([data-an]) .ez-zahl {
+  color: var(--ink-2);
+}
+
+[data-neu] .ez-haken {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: 7px;
+  border: 1.5px solid var(--ink-3);
+  background: var(--flaeche);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+[data-neu] .ez-haken svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: var(--flaeche);
+  stroke-width: 2.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0;
+}
+
+[data-neu] .ez-haken[aria-checked="true"] {
+  background: var(--blue);
+  border-color: var(--blue);
+}
+
+[data-neu] .ez-haken[aria-checked="true"] svg {
+  opacity: 1;
+}
+
+[data-neu] .ez-wer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+[data-neu] .ez-avatar {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--flaeche);
+  background: var(--tinte-flaeche);
+}
+
+[data-neu] .ez-avatar-klein {
+  width: 24px;
+  height: 24px;
+  font-size: 9.5px;
+  background: var(--blue-ink);
+}
+
+[data-neu] .ez-wer-text {
+  min-width: 0;
+}
+
+[data-neu] .ez-wer-text b {
+  display: block;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+[data-neu] .ez-wer-text small {
+  display: block;
+  font-size: 12px;
+  color: var(--ink-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+[data-neu] .ez-marken {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 3px;
+}
+
+[data-neu] .ez-marken:empty {
+  display: none;
+}
+
+[data-neu] .ez-marke {
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 999px;
+  color: var(--ink-2);
+  background: var(--hair);
+}
+
+[data-neu] .ez-marke[data-art="vorschlag"] {
+  color: var(--gold-ink);
+  background: color-mix(in srgb, var(--gold) 16%, transparent);
+}
+
+[data-neu] .ez-marke[data-art="lead"] {
+  color: var(--blue-ink);
+  background: color-mix(in srgb, var(--blue) 12%, transparent);
+}
+
+[data-neu] .ez-marke[data-art="stempel"] {
+  color: var(--rose-ink);
+  background: color-mix(in srgb, var(--rose) 12%, transparent);
+}
+
+[data-neu] .ez-lage {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+[data-neu] .ez-lage small {
+  display: block;
+  margin-top: 1px;
+  font-size: 11px;
+  font-weight: 400;
+  white-space: normal;
+}
+
+[data-neu] .ez-lage[data-lage="frei"] {
+  color: var(--jade-ink);
+  background: color-mix(in srgb, var(--jade) 14%, transparent);
+}
+
+[data-neu] .ez-lage[data-lage="belegt"] {
+  color: var(--gold-ink);
+  background: color-mix(in srgb, var(--gold) 16%, transparent);
+}
+
+[data-neu] .ez-lage[data-lage="abwesend"] {
+  color: var(--ink-2);
+  background: var(--hair);
+}
+
+[data-neu] .ez-zahl {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+[data-neu] .ez-zahl small {
+  display: block;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--ink-2);
+}
+
+[data-neu] .ez-minuten {
+  grid-column: 2 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+}
+
+[data-neu] .ez-minuten-feld {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+[data-neu] .ez-minuten-feld input {
+  width: 68px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--hair);
+  background: var(--flaeche);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+}
+
+[data-neu] .ez-minuten-feld[data-hand] input {
+  border-color: var(--blue);
+}
+
+[data-neu] .ez-minuten-einheit {
+  white-space: nowrap;
+}
+
+[data-neu] .ez-mini {
+  border: 0;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font: inherit;
+  font-size: 11px;
+  color: var(--blue-ink);
+  background: color-mix(in srgb, var(--blue) 10%, transparent);
+  cursor: pointer;
+}
+
+/* Team und Lohn */
+
+[data-neu] .ez-team {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 40px;
+  padding: 0 14px 8px;
+}
+
+[data-neu] .ez-team-leer {
+  align-self: center;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+[data-neu] .ez-team-person {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 4px 3px 3px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink);
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--rim);
+}
+
+[data-neu] .ez-leitet {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--blue-ink);
+}
+
+[data-neu] .ez-weg {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--ink-2);
+  background: var(--hair);
+  cursor: pointer;
+}
+
+[data-neu] .ez-kette {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0 10px;
+}
+
+[data-neu] .ez-zeile {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 14px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--rim);
+}
+
+[data-neu] .ez-zeile-text {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+[data-neu] .ez-zeile-betrag {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+  text-align: right;
+  white-space: nowrap;
+}
+
+[data-neu] .ez-zeile-formel {
+  grid-column: 1 / -1;
+  font-size: 11.5px;
+  color: var(--ink-2);
+}
+
+[data-neu] .ez-zeile-aktion {
+  grid-column: 1 / -1;
+  margin-top: 2px;
+}
+
+[data-neu] .ez-ok {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--jade-ink);
+}
+
+[data-neu] .ez-summe {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  padding: 10px 12px 4px;
+  margin-top: 4px;
+  border-top: 1px solid var(--hair);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+[data-neu] .ez-kalk {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  padding: 4px 12px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+[data-neu] .ez-kalk span:last-child {
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+[data-neu] .ez-vergleich {
+  margin-top: 6px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--rim);
+}
+
+[data-neu] .ez-vergleich[data-ton="gold"] {
+  color: var(--gold-ink);
+  background: color-mix(in srgb, var(--gold) 13%, var(--fill-3));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gold) 40%, transparent);
+}
+
+[data-neu] .ez-vergleich small {
+  display: block;
+  margin-top: 2px;
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--ink-2);
+}
+
+/* Fahrzeug */
+
+[data-neu] .ez-fahrzeuge {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 10px;
+}
+
+[data-neu] .ez-fahrzeug {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 10px;
+  align-items: start;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--rim);
+}
+
+[data-neu] .ez-fahrzeug[data-an] {
+  box-shadow: inset 0 0 0 1.5px var(--blue);
+}
+
+[data-neu] .ez-fahrzeug b {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+[data-neu] .ez-fahrzeug small {
+  display: block;
+  font-size: 11.5px;
+  color: var(--ink-2);
+}
+
+[data-neu] .ez-fahrzeug-betrag {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink);
+  text-align: right;
+  white-space: nowrap;
+}
+
+[data-neu] .ez-auslastung {
+  margin-top: 4px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--rim);
+}
+
+[data-neu] .ez-auslastung-kopf {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+[data-neu] .ez-auslastung[data-ton="gold"] .ez-auslastung-kopf span:last-child {
+  color: var(--gold-ink);
+}
+
+[data-neu] .ez-balken {
+  height: 8px;
+  margin: 8px 0 6px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--hair);
+}
+
+[data-neu] .ez-balken i {
+  display: block;
+  height: 100%;
+  border-radius: 4px;
+  background: var(--blue);
+}
+
+[data-neu] .ez-auslastung[data-ton="gold"] .ez-balken i {
+  background: var(--gold);
+}
+
+[data-neu] .ez-auslastung small {
+  display: block;
+  font-size: 11.5px;
+  color: var(--ink-2);
+}
+
+[data-neu] .ez-fuss {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding-top: 4px;
+}
+
+[data-neu] .ez-fuss p {
+  flex: 1 1 220px;
+  margin: 0;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+@media (max-width: 1100px) {
+  [data-neu] .ez-spalten {
+    grid-template-columns: 1fr;
+  }
+
+  [data-neu] .ez-liste-kopf {
+    display: none;
+  }
+
+  [data-neu] .ez-person {
+    grid-template-columns: 30px 1fr auto;
+    grid-template-areas:
+      "haken wer lage"
+      ". an satz"
+      ". min min";
+    row-gap: 8px;
+  }
+
+  [data-neu] .ez-person > .ez-haken {
+    grid-area: haken;
+  }
+
+  [data-neu] .ez-person > .ez-wer {
+    grid-area: wer;
+  }
+
+  [data-neu] .ez-person > .ez-lage-zelle {
+    grid-area: lage;
+    justify-self: end;
+  }
+
+  [data-neu] .ez-person > .ez-anfahrt {
+    grid-area: an;
+    white-space: normal;
+  }
+
+  [data-neu] .ez-person > .ez-satz {
+    grid-area: satz;
+    justify-self: end;
+    text-align: right;
+  }
+
+  [data-neu] .ez-person > .ez-minuten {
+    grid-area: min;
+  }
+}
+
+@media (max-width: 640px) {
+  [data-neu] .ez-dialog {
+    width: calc(100vw - 1rem);
+    max-height: calc(100dvh - 1rem);
+  }
+
+  [data-neu] .ez-titel {
+    font-size: 22px;
+  }
+
+  [data-neu] .ez-liste,
+  [data-neu] .ez-kette,
+  [data-neu] .ez-fahrzeuge {
+    padding: 0 6px;
+  }
+
+  [data-neu] .ez-person {
+    padding: 10px;
+  }
+
+  [data-neu] .ez-wer-text small {
+    white-space: normal;
+  }
+
+  [data-neu] .ez-fuss > button {
+    flex: 1;
+  }
+}

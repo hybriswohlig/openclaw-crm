@@ -41,7 +41,7 @@ describe("anfahrtenLaden", () => {
   });
 
   it("gültiger Cache und Tag in der Zukunft: ein Aufruf nur für die Verkehrsminuten, 15 Minuten im Speicher", async () => {
-    const matrix = vi.fn(async (orte: string[]) => orte.map(() => [{ meter: 14_200, sekunden: 22 * 60 }, { meter: 20_000, sekunden: 1500 }]));
+    const matrix = vi.fn(async (orte: string[], _ziele: string[], _abfahrt: number | null) => orte.map(() => [{ meter: 14_200, sekunden: 22 * 60 }, { meter: 20_000, sekunden: 1500 }]));
     const speicher = speicherMit([
       { ortSchluessel: "70176 stuttgart", adresseSchluessel: "hauptstraße 1, 70176 stuttgart", km: 14, berechnetAm: new Date("2026-11-01") },
       { ortSchluessel: "70176 stuttgart", adresseSchluessel: "bahnhofstraße 2, 73728 esslingen", km: 20, berechnetAm: new Date("2026-11-01") },
@@ -59,7 +59,7 @@ describe("anfahrtenLaden", () => {
   });
 
   it("Cache 31 Tage alt: neu holen und überschreiben, nie Minuten in der Tabelle", async () => {
-    const matrix = vi.fn(async (orte: string[]) => orte.map(() => [{ meter: 15_000, sekunden: 900 }]));
+    const matrix = vi.fn(async (orte: string[], _ziele: string[], _abfahrt: number | null) => orte.map(() => [{ meter: 15_000, sekunden: 900 }]));
     const speicher = speicherMit([
       { ortSchluessel: "70176 stuttgart", adresseSchluessel: "hauptstraße 1, 70176 stuttgart", km: 14, berechnetAm: new Date("2026-10-10T09:00:00Z") },
     ]);

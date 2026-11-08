@@ -1,9 +1,9 @@
 "use client";
 
-import Link from "next/link";
 import { useId, useState } from "react";
 import { toast } from "sonner";
 import { GlassSwitch } from "@/components/glassyui/glass-switch";
+import { EinsatzDialogEmpfaenger, einsatzDialogOeffnen } from "@/components/neu/einsatz/einsatz-dialog";
 import type { AkteDaten } from "@/lib/akte";
 import { kundeLink } from "@/lib/handy-links";
 import { apiAufruf, jsonAufruf } from "./api";
@@ -24,15 +24,16 @@ export function zweiteZeile(art: string, strecke: string): string {
 }
 
 /**
- * Kopf der Akte: Name, zweite Zeile, Meta; rechts Team-Kürzel mit „+“ zur
- * alten Seite (Entscheidung 3), der Nachfass-Schalter (Entscheidung 8) und die
- * Stufen-Pille als Menü (Entscheidung 14).
+ * Kopf der Akte: Name, zweite Zeile, Meta; rechts Team-Kürzel mit „+“, das den
+ * Einsatz-Dialog öffnet (Plan 12a, Entscheidung 10; `altLink` bleibt für die
+ * Aufrufer, wird hier nicht mehr genutzt), der Nachfass-Schalter
+ * (Entscheidung 8) und die Stufen-Pille als Menü (Entscheidung 14).
  */
 export function AkteKopf({
   dealId,
   kopf,
   nachfass,
-  altLink,
+  altLink: _altLink,
   onNachfass,
   onNeuLaden,
 }: {
@@ -73,10 +74,16 @@ export function AkteKopf({
               {m.kuerzel || "?"}
             </span>
           ))}
-          <Link href={altLink} className="akte-avatar akte-avatar-plus" title="Team zuweisen (alte Oberfläche)">
+          <button
+            type="button"
+            className="akte-avatar akte-avatar-plus"
+            title="Einsatz planen"
+            onClick={() => einsatzDialogOeffnen(dealId)}
+          >
             <span aria-hidden="true">+</span>
-            <span className="sr-only">Team zuweisen, öffnet die alte Oberfläche</span>
-          </Link>
+            <span className="sr-only">Einsatz planen, Team zuweisen</span>
+          </button>
+          <EinsatzDialogEmpfaenger dealId={dealId} onGespeichert={onNeuLaden} />
         </div>
         <NachfassSchalter dealId={dealId} nachfass={nachfass} onNachfass={onNachfass} onNeuLaden={onNeuLaden} />
         <StufenMenue
