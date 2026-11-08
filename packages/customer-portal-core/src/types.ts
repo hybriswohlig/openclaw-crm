@@ -511,6 +511,12 @@ export interface CustomerPortalContext {
   leistung: PortalLeistung;
   /** Eine frühere Annahme wurde aufgehoben: Kunde soll das neue Angebot prüfen. */
   fruehereAnnahmeAufgehoben: boolean;
+  /**
+   * Freiwilliger Haken zur Bewertungsanfrage im Annahmedialog (Plan 11). Nur
+   * gesetzt, wenn die Firma den Schalter an hat und einen Google-Link führt.
+   * Liegt außerhalb der Annahmeregeln und ändert die Annahme nicht.
+   */
+  bewertungHaken?: { anrede: "sie" | "du" } | null;
   /** Widerrufs-Button (§ 356a BGB) oder Hinweis auf einen eingegangenen Widerruf. */
   widerruf: WiderrufKontext;
 

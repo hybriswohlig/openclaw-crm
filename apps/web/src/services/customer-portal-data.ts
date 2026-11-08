@@ -112,6 +112,7 @@ import { createTask } from "./tasks";
 import { aktualisiereWartet, aktualisiereWartetNachBesuch } from "./wartet";
 import { annahmeNachlauf, nachlaufNoetig } from "./kva-bestaetigung";
 import { ladeWiderrufKontext } from "./kva-widerruf";
+import { portalHaken } from "./bewertung-einwilligung-portal";
 import { angezeigtesKvDokument, gueltigeAuftragsbestaetigung, neuestesKvDokument, oeffentlichAbrufbar, vertragUrl } from "@/lib/portal-dokumente";
 import {
   aktivBedingung,
@@ -573,6 +574,11 @@ export async function loadContextByToken(
   });
   // Nach einem Widerruf kein „Bitte prüfen Sie das neue Angebot“.
   const fruehereAnnahmeAufgehoben = !!aufgehobenAm && !widerruf.eingegangen;
+  // Plan 11: Haken zur Bewertungsanfrage, nur vor der Annahme und nie mit Einfluss auf sie.
+  const bewertungHaken = acceptance ? null : await portalHaken(workspaceId, dealRecordId).catch((err) => {
+    console.error("[customer-portal] Bewertungs-Haken nicht geladen:", err);
+    return null;
+  });
   return {
     stage,
     features,
@@ -598,6 +604,7 @@ export async function loadContextByToken(
     // Umzugs-Standards (Decken, Kartons …) gehören nicht zu Küche oder Entrümpelung.
     inclusions: leistungsWorte(leistung, branding.firmaSlug).standardleistungen ? inclusions : { included: [], optional: [] },
     fruehereAnnahmeAufgehoben,
+    bewertungHaken,
     widerruf,
     documents: {
       quotationUrl: quotationDocShown ? `/api/public/${token}/documents/${quotationDocShown.id}` : null,

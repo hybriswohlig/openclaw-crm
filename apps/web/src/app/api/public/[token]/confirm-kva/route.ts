@@ -1,5 +1,7 @@
 import { after, NextRequest, NextResponse } from "next/server";
 import { confirmKvaForToken } from "@/services/customer-portal-data";
+import { bewertungEinwilligungAus } from "@/lib/bewertungen-kunden";
+import { portalEinwilligungSpeichern } from "@/services/bewertung-einwilligung-portal";
 import { KV_VERALTET, parseConfirmKvaPayload } from "@openclaw-crm/customer-portal-core";
 
 export const dynamic = "force-dynamic";
@@ -55,6 +57,16 @@ export async function POST(
       { error: { code: result.reason.toUpperCase() } },
       { status: status[result.reason] ?? 422 }
     );
+  }
+
+  // Plan 11: freiwillige Einwilligung zur Bewertungsanfrage, erst nach der
+  // Annahme und außerhalb von ihr. Ein Fehler ändert die Antwort nie.
+  if (bewertungEinwilligungAus(raw)) {
+    try {
+      await portalEinwilligungSpeichern(token);
+    } catch (err) {
+      console.error("[confirm-kva] Einwilligung zur Bewertung nicht gespeichert:", err);
+    }
   }
 
   // Bestätigung an den Kunden und Team-Alarm laufen nach der Antwort weiter.

@@ -31,6 +31,7 @@ import { stempel } from "./brief";
 import { Stempel } from "./brief-teile";
 import { RestbetragHinweis } from "./restbetrag-hinweis";
 import { adressZeilen, worte } from "./leistung-worte";
+import { EINWILLIGUNG_PORTAL } from "@/lib/bewertungen-kunden";
 
 /**
  * Annahme-Dialog. Pflicht: Angebot, AGB (falls vorhanden), bei Umzug der
@@ -76,6 +77,8 @@ export function ConfirmKvaDialog({
   const [accHaftung, setAccHaftung] = useState(false);
   const [accVersicherung, setAccVersicherung] = useState(false);
   const [accBeginn, setAccBeginn] = useState(false);
+  // Plan 11: freiwillig, nie vorbelegt, ohne Einfluss auf `ready` und die Annahme.
+  const [accBewertung, setAccBewertung] = useState(false);
   const [fullName, setFullName] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -94,6 +97,7 @@ export function ConfirmKvaDialog({
       setAccHaftung(false);
       setAccVersicherung(false);
       setAccBeginn(false);
+      setAccBewertung(false);
       setFullName("");
       setError(null);
     }
@@ -101,6 +105,7 @@ export function ConfirmKvaDialog({
   }
 
   const agbHref = ctx.branding.agbPdfUrl;
+  const bewertungHaken = ctx.bewertungHaken ?? null;
   const hasAgb = !!agbHref;
 
   const r = ctx.annahmeRecht;
@@ -126,11 +131,13 @@ export function ConfirmKvaDialog({
       expectedTotalCents: displayTotalCents,
       fullName: fullName.trim() || null,
     };
+    // Außerhalb von ConfirmKvaPayload: die Annahme kennt das Feld nicht.
+    const body = bewertungHaken && accBewertung ? { ...payload, bewertungEinwilligung: true } : payload;
     try {
       const res = await fetch(`/api/public/${token}/confirm-kva`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(body),
       });
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as {
@@ -333,6 +340,29 @@ export function ConfirmKvaDialog({
               <CheckboxRow id="acc-beginn" checked={accBeginn} onCheckedChange={setAccBeginn}>
                 {vorzeitigerBeginnCheckbox(anrede)}
               </CheckboxRow>
+            )}
+
+            {bewertungHaken && (
+              <div className="portal-bewertung-haken border-t border-dashed border-border pt-4">
+                <label
+                  htmlFor="acc-bewertung"
+                  className="flex items-start gap-3 rounded-xl border border-dashed border-border bg-transparent px-4 py-3 text-sm"
+                >
+                  <input
+                    id="acc-bewertung"
+                    type="checkbox"
+                    checked={accBewertung}
+                    onChange={(e) => setAccBewertung(e.target.checked)}
+                    className="mt-0.5 h-4 w-4 accent-foreground"
+                  />
+                  <span className="leading-relaxed">
+                    {EINWILLIGUNG_PORTAL[bewertungHaken.anrede].frage}
+                    <span className="mt-1 block text-xs text-muted-foreground">
+                      {EINWILLIGUNG_PORTAL[bewertungHaken.anrede].hinweis}
+                    </span>
+                  </span>
+                </label>
+              </div>
             )}
 
             <label className="block">
