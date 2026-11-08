@@ -101,8 +101,8 @@ describe.skipIf(!url)("Portal-Einwilligung gegen Postgres", () => {
     expect(await portalHaken(ws, c.d)).toBeNull();
     await einstellen(firmen.kottke, { haken: true, link: "https://g.page/r/k/review" });
     await einstellen(firmen.ceylan, { haken: true, link: "https://g.page/r/c/review" });
-    expect(await portalHaken(ws, k.d)).toEqual({ anrede: "du" });
-    expect(await portalHaken(ws, c.d)).toEqual({ anrede: "sie" });
+    expect(await portalHaken(ws, k.d)).toMatchObject({ anrede: "du", frage: EINWILLIGUNG_PORTAL.du.frage, firmaId: firmen.kottke });
+    expect(await portalHaken(ws, c.d)).toMatchObject({ anrede: "sie", frage: EINWILLIGUNG_PORTAL.sie.frage, firmaId: firmen.ceylan });
     expect(await portalHaken(randomUUID(), k.d)).toBeNull();
   });
 
@@ -115,11 +115,18 @@ describe.skipIf(!url)("Portal-Einwilligung gegen Postgres", () => {
     const [r1, r2] = await Promise.all([portalEinwilligungSpeichern(k.token), portalEinwilligungSpeichern(k.token)]);
     expect([r1, r2].sort()).toEqual(["gespeichert", "schon_da"]);
     expect(await portalEinwilligungSpeichern(c.token)).toBe("gespeichert");
-    const zeilen = await sql<{ person_record_id: string; exact_wording: string; channel: string; purpose: string }[]>`
-      select person_record_id, exact_wording, channel, purpose from consent_ledger where workspace_id = ${ws} and person_record_id in (${k.p}, ${c.p})`;
+    const zeilen = await sql<{ person_record_id: string; exact_wording: string; channel: string; purpose: string; operating_company_record_id: string; deal_record_id: string }[]>`
+      select person_record_id, exact_wording, channel, purpose, operating_company_record_id, deal_record_id
+      from consent_ledger where workspace_id = ${ws} and person_record_id in (${k.p}, ${c.p})`;
     expect(zeilen).toHaveLength(2);
     const nach = Object.fromEntries(zeilen.map((z) => [z.person_record_id, z]));
-    expect(nach[k.p]).toMatchObject({ exact_wording: einwilligungsWortlaut("du"), channel: "whatsapp", purpose: "review_request" });
+    expect(nach[k.p]).toMatchObject({
+      exact_wording: einwilligungsWortlaut("du"),
+      channel: "whatsapp",
+      purpose: "review_request",
+      operating_company_record_id: firmen.kottke,
+      deal_record_id: k.d,
+    });
     expect(nach[c.p]!.exact_wording).toContain(EINWILLIGUNG_PORTAL.sie.frage);
     const ev = await sql<{ actor_id: string | null; payload: { quelle: string } }[]>`
       select actor_id, payload from activity_events where workspace_id = ${ws} and record_id = ${k.d} and event_type = 'consent.eingetragen'`;
@@ -137,5 +144,43 @@ describe.skipIf(!url)("Portal-Einwilligung gegen Postgres", () => {
     const aus = await deal(firmen.kottke);
     expect(await portalEinwilligungSpeichern(aus.token)).toBe("aus");
     expect(await portalEinwilligungSpeichern("x".repeat(32))).toBe("aus");
+  });
+
+  it("I3: Einwilligung je Firma; Kottke-Einwilligung zählt nicht für Ceylan. M5: Text je Leistung", async () => {
+    await einstellen(firmen.kottke, { haken: true, link: "https://g.page/r/k/review" });
+    await einstellen(firmen.ceylan, { haken: true, link: "https://g.page/r/c/review" });
+    const k = await deal(firmen.kottke);
+    expect(await portalEinwilligungSpeichern(k.token)).toBe("gespeichert");
+    // dieselbe Person bekommt einen Ceylan-Auftrag (Küche)
+    const c = id();
+    const link = id();
+    const token = randomUUID().replace(/-/g, "").slice(0, 32);
+    await sql`insert into records (id, object_id) values (${c}, ${o.deals})`;
+    await sql`insert into record_values (id, record_id, attribute_id, referenced_record_id) values
+      (${id()}, ${c}, ${a.oc}, ${firmen.ceylan}), (${id()}, ${c}, ${a.ppl}, ${k.p})`;
+    await sql`insert into quotations (id, deal_record_id, service_type) values (${id()}, ${c}, 'kitchen_installation')`;
+    await sql`insert into customer_status_links (id, workspace_id, deal_record_id, token) values (${link}, ${ws}, ${c}, ${token})`;
+    await sql`insert into kva_confirmations (id, workspace_id, deal_record_id, customer_link_id, quotation_snapshot,
+        confirmed_total_cents, agb_version_accepted, ip_address, user_agent)
+      values (${id()}, ${ws}, ${c}, ${link}, ${sql.json({})}, 100000, 'v1', '1.1.1.1', 'UA')`;
+    expect(await dbBewertungSpeicher.einwilligungFuerDealDa(ws, k.p, c, firmen.ceylan)).toBe(false);
+    expect(await portalHaken(ws, c)).toMatchObject({ frage: "Darf ich Sie nach der Küchenmontage per WhatsApp um eine Google-Bewertung bitten?" });
+    expect(await portalEinwilligungSpeichern(token)).toBe("gespeichert");
+    expect(await dbBewertungSpeicher.einwilligungFuerDealDa(ws, k.p, c, firmen.ceylan)).toBe(true);
+    const [w] = await sql<{ exact_wording: string }[]>`select exact_wording from consent_ledger where deal_record_id = ${c}`;
+    expect(w!.exact_wording).toContain("nach der Küchenmontage");
+    await sql`delete from quotations where deal_record_id = ${c}`;
+  });
+
+  it("I3: Eintrag von Hand ohne Firma gilt nur für seinen Deal", async () => {
+    const p = id();
+    const d1 = id();
+    const d2 = id();
+    await sql`insert into records (id, object_id) values (${p}, ${o.people}), (${d1}, ${o.deals}), (${d2}, ${o.deals})`;
+    await sql`insert into consent_ledger (id, workspace_id, person_record_id, channel, purpose, exact_wording, deal_record_id)
+      values (${id()}, ${ws}, ${p}, 'whatsapp', 'review_request', 'Am Telefon', ${d1})`;
+    expect(await dbBewertungSpeicher.einwilligungFuerDealDa(ws, p, d1, firmen.kottke)).toBe(true);
+    expect(await dbBewertungSpeicher.einwilligungFuerDealDa(ws, p, d2, firmen.kottke)).toBe(false);
+    expect(await dbBewertungSpeicher.einwilligungDa(ws, p)).toBe(true);
   });
 });

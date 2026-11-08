@@ -83,7 +83,7 @@ describe.skipIf(!url)("bewertungAutomatikLauf gegen Postgres", () => {
       (${o.deals}, ${ws}, 'deals', 'Deal', 'Deals'), (${o.people}, ${ws}, 'people', 'Person', 'Personen'),
       (${o.oc}, ${ws}, 'operating_companies', 'Firma', 'Firmen')`;
     const a = {
-      oc: id(), stage: id(), status: id(), dnc: id(), ppl: id(), kontaktart: id(), name: id(),
+      oc: id(), stage: id(), status: id(), dnc: id(), ppl: id(), kontaktart: id(), name: id(), umzug: id(),
     };
     await sql`insert into attributes (id, object_id, slug, title, type) values
       (${a.oc}, ${o.deals}, 'operating_company', 'Firma', 'record_reference'),
@@ -92,6 +92,7 @@ describe.skipIf(!url)("bewertungAutomatikLauf gegen Postgres", () => {
       (${a.dnc}, ${o.deals}, 'do_not_contact_review', 'Keine Bewertung', 'checkbox'),
       (${a.ppl}, ${o.deals}, 'associated_people', 'Personen', 'record_reference'),
       (${a.kontaktart}, ${o.people}, 'kontaktart', 'Kontaktart', 'select'),
+      (${a.umzug}, ${o.deals}, 'move_date', 'Umzug', 'date'),
       (${a.name}, ${o.oc}, 'name', 'Name', 'text')`;
     const s = { paid: id(), done: id(), booked: id(), sent: id(), complaint: id() };
     await sql`insert into statuses (id, attribute_id, title, stage_category) values
@@ -101,10 +102,12 @@ describe.skipIf(!url)("bewertungAutomatikLauf gegen Postgres", () => {
     const opt = { bewerber: id() };
     await sql`insert into select_options (id, attribute_id, title) values (${opt.bewerber}, ${a.kontaktart}, 'Bewerber')`;
     const firma = id();
-    await sql`insert into records (id, object_id) values (${firma}, ${o.oc})`;
-    await sql`insert into record_values (id, record_id, attribute_id, text_value) values (${id()}, ${firma}, ${a.name}, 'Kottke Umzüge')`;
+    const firma2 = id();
+    await sql`insert into records (id, object_id) values (${firma}, ${o.oc}), (${firma2}, ${o.oc})`;
+    await sql`insert into record_values (id, record_id, attribute_id, text_value) values
+      (${id()}, ${firma}, ${a.name}, 'Kottke Umzüge'), (${id()}, ${firma2}, ${a.name}, 'Ceylan Transporte')`;
     await sql`insert into company_settings (operating_company_record_id, workspace_id, bewertung_modus, bewertung_modus_seit)
-      values (${firma}, ${ws}, ${modus}, ${seit})`;
+      values (${firma}, ${ws}, ${modus}, ${seit}), (${firma2}, ${ws}, 'aus', null)`;
 
     async function deal(e: {
       stufe?: "paid" | "done" | "booked";
@@ -112,10 +115,15 @@ describe.skipIf(!url)("bewertungAutomatikLauf gegen Postgres", () => {
       status?: "sent" | "complaint";
       dnc?: boolean;
       bewerber?: boolean;
+      /** Umzugstag; Standard: ein Tag vor dem Anker. `null` = keiner. */
+      umzug?: Date | null;
+      /** Person wiederverwenden (zwei Deals derselben Person). */
+      person?: string;
     } = {}) {
       const d = id();
-      const p = id();
-      await sql`insert into records (id, object_id) values (${d}, ${o.deals}), (${p}, ${o.people})`;
+      const p = e.person ?? id();
+      await sql`insert into records (id, object_id) values (${d}, ${o.deals})`;
+      if (!e.person) await sql`insert into records (id, object_id) values (${p}, ${o.people})`;
       await sql`insert into record_values (id, record_id, attribute_id, referenced_record_id) values
         (${id()}, ${d}, ${a.oc}, ${firma}), (${id()}, ${d}, ${a.ppl}, ${p})`;
       await sql`insert into record_values (id, record_id, attribute_id, text_value) values (${id()}, ${d}, ${a.stage}, ${s[e.stufe ?? "paid"]})`;
@@ -126,6 +134,11 @@ describe.skipIf(!url)("bewertungAutomatikLauf gegen Postgres", () => {
       if (e.bewerber) await sql`insert into record_values (id, record_id, attribute_id, text_value) values (${id()}, ${p}, ${a.kontaktart}, ${opt.bewerber})`;
       const bezahlt = e.bezahltAm === undefined ? new Date(JETZT.getTime() - 2 * TAG) : e.bezahltAm;
       await sql`insert into deal_workflow_state (record_id, bezahlt_am) values (${d}, ${bezahlt})`;
+      const umzug = e.umzug === undefined ? (bezahlt ? new Date(bezahlt.getTime() - TAG) : null) : e.umzug;
+      if (umzug) {
+        await sql`insert into record_values (id, record_id, attribute_id, date_value)
+          values (${id()}, ${d}, ${a.umzug}, ${umzug.toISOString().slice(0, 10)}::date)`;
+      }
       return d;
     }
 
@@ -145,7 +158,15 @@ describe.skipIf(!url)("bewertungAutomatikLauf gegen Postgres", () => {
         values (${id()}, ${ws}, ${conv}, 'inbound', ${body}, ${am.toISOString()}::timestamptz at time zone 'UTC')`;
     }
 
-    return { ws, firma, deal, vormerkungen, nachricht };
+    async function firmaWechseln(deal: string, neu: string) {
+      await sql`update record_values set referenced_record_id = ${neu} where record_id = ${deal} and attribute_id = ${a.oc}`;
+    }
+    async function personVon(deal: string) {
+      const [r] = await sql<{ p: string }[]>`select referenced_record_id as p from record_values where record_id = ${deal} and attribute_id = ${a.ppl}`;
+      return r!.p;
+    }
+
+    return { ws, firma, firma2, deal, vormerkungen, nachricht, firmaWechseln, personVon };
   }
 
   function sendenFake(impl?: (ws: string, deal: string) => Promise<unknown>) {
@@ -181,7 +202,7 @@ describe.skipIf(!url)("bewertungAutomatikLauf gegen Postgres", () => {
     const d = await w.deal();
     const senden = sendenFake();
     await bewertungAutomatikLauf(JETZT, { senden: senden as never });
-    expect(fuer(senden, w.ws)).toEqual([[w.ws, d, { userId: null, quelle: "automatik" }, expect.anything()]]);
+    expect(fuer(senden, w.ws)).toEqual([[w.ws, d, { userId: null, quelle: "automatik", firmaId: w.firma }, expect.anything()]]);
     expect(await w.vormerkungen()).toMatchObject([{ art: "auto", status: "gesendet" }]);
   });
 
@@ -281,8 +302,8 @@ describe.skipIf(!url)("bewertungAutomatikLauf gegen Postgres", () => {
   it("Vormerkung von Hand: Autor, Text und Einwilligung, Quelle vorgemerkt, auch bei Modus aus", async () => {
     const w = await welt("aus");
     const d = await w.deal();
-    await sql`insert into review_vormerkungen (id, workspace_id, deal_record_id, art, faellig_ab, frist_bis, text, einwilligung, erstellt_von)
-      values (${randomUUID()}, ${w.ws}, ${d}, 'hand', ${new Date(JETZT.getTime() - 3600 * 1000)}, ${new Date(JETZT.getTime() + TAG)},
+    await sql`insert into review_vormerkungen (id, workspace_id, deal_record_id, operating_company_record_id, art, faellig_ab, frist_bis, text, einwilligung, erstellt_von)
+      values (${randomUUID()}, ${w.ws}, ${d}, ${w.firma}, 'hand', ${new Date(JETZT.getTime() - 3600 * 1000)}, ${new Date(JETZT.getTime() + TAG)},
               'Text [Bewertungslink]', 'Am Telefon', 'usr_9')`;
     const senden = sendenFake();
     await bewertungAutomatikLauf(JETZT, { senden: senden as never });
@@ -341,5 +362,111 @@ describe.skipIf(!url)("bewertungAutomatikLauf gegen Postgres", () => {
     await bewertungAutomatikLauf(JETZT, { senden: sendenFake() as never });
     const e2 = await sql<{ meta: Record<string, unknown> }[]>`select meta from review_events where workspace_id = ${w.ws} order by at`;
     expect(e2.map((x) => x.meta)).toEqual([{ x: 1 }, { ip: "5.6.7.8", user_agent: "UA2" }]);
+  });
+
+  // ─── Fix-Welle ──────────────────────────────────────────────────────────────
+
+  it("I1: Firmenwechsel nach der Automatik-Vormerkung verwirft sie (neue Firma aus), nichts gesendet", async () => {
+    const w = await welt("senden");
+    const d = await w.deal({ bezahltAm: new Date(SONNTAG.getTime() - 2 * TAG) });
+    const senden = sendenFake();
+    await bewertungAutomatikLauf(SONNTAG, { senden: senden as never });
+    expect(await w.vormerkungen()).toMatchObject([{ art: "auto", status: "offen" }]);
+    await w.firmaWechseln(d, w.firma2);
+    await bewertungAutomatikLauf(new Date("2026-11-16T09:00:00Z"), { senden: senden as never });
+    expect(fuer(senden, w.ws)).toHaveLength(0);
+    expect(await w.vormerkungen()).toMatchObject([{ status: "verworfen", sperre: "FIRMA_GEWECHSELT" }]);
+  });
+
+  it("I1: Vormerkung von Hand bleibt bei Firmenwechsel, sendet dann mit dem Text der neuen Firma", async () => {
+    const w = await welt("aus");
+    const d = await w.deal();
+    await sql`insert into review_vormerkungen (id, workspace_id, deal_record_id, operating_company_record_id, art, faellig_ab, frist_bis, text, einwilligung, erstellt_von)
+      values (${randomUUID()}, ${w.ws}, ${d}, ${w.firma}, 'hand', ${new Date(JETZT.getTime() - 3600 * 1000)}, ${new Date(JETZT.getTime() + TAG)},
+              'Kottke-Text [Bewertungslink]', null, 'usr_9')`;
+    await w.firmaWechseln(d, w.firma2);
+    const senden = sendenFake();
+    await bewertungAutomatikLauf(JETZT, { senden: senden as never });
+    expect(fuer(senden, w.ws)).toEqual([[w.ws, d, { userId: "usr_9", quelle: "vorgemerkt" }, expect.anything()]]);
+  });
+
+  it("I2: Umzug im Juni, Zahlung heute geändert: kein Kandidat; Umzug kurz vor dem Einschalten zählt", async () => {
+    const w = await welt("senden", new Date(JETZT.getTime() - 5 * TAG));
+    await w.deal({ bezahltAm: new Date(JETZT.getTime() - 2 * TAG), umzug: new Date("2026-06-15T00:00:00Z") });
+    await w.deal({ bezahltAm: new Date(JETZT.getTime() - 2 * TAG), umzug: null });
+    const ok = await w.deal({ bezahltAm: new Date(JETZT.getTime() - 2 * TAG), umzug: new Date(JETZT.getTime() - 15 * TAG) });
+    const senden = sendenFake();
+    await bewertungAutomatikLauf(JETZT, { senden: senden as never });
+    const v = await w.vormerkungen();
+    expect(v.map((x) => x.deal_record_id)).toEqual([ok]);
+  });
+
+  it("M2: alte Automatik-Zeile nach Aus und wieder Ein geht nicht raus", async () => {
+    const w = await welt("senden");
+    const d = await w.deal({ bezahltAm: new Date(SONNTAG.getTime() - 2 * TAG) });
+    await bewertungAutomatikLauf(SONNTAG, { senden: sendenFake() as never });
+    // neu eingeschaltet nach dem Anlegen: Stichtag hinter der Zahlung und dem Umzug + 14 Tage
+    await sql`update company_settings set bewertung_modus_seit = ${new Date("2026-12-15T00:00:00Z")} where operating_company_record_id = ${w.firma}`;
+    const senden = sendenFake();
+    await bewertungAutomatikLauf(new Date("2026-11-16T09:00:00Z"), { senden: senden as never });
+    expect(fuer(senden, w.ws)).toHaveLength(0);
+    expect(await w.vormerkungen()).toMatchObject([{ deal_record_id: d, status: "verworfen", sperre: "MODUS" }]);
+  });
+
+  it("M3: Beschwerde sperrt auch eine Vormerkung von Hand", async () => {
+    const w = await welt("aus");
+    const d = await w.deal();
+    await w.nachricht(d, "Kratzer im Schrank, sehr enttäuscht", new Date(JETZT.getTime() - 3600 * 1000));
+    await sql`insert into review_vormerkungen (id, workspace_id, deal_record_id, operating_company_record_id, art, faellig_ab, frist_bis, erstellt_von)
+      values (${randomUUID()}, ${w.ws}, ${d}, ${w.firma}, 'hand', ${new Date(JETZT.getTime() - 3600 * 1000)}, ${new Date(JETZT.getTime() + TAG)}, 'usr_9')`;
+    const senden = sendenFake();
+    await bewertungAutomatikLauf(JETZT, { senden: senden as never });
+    expect(fuer(senden, w.ws)).toHaveLength(0);
+    expect(await w.vormerkungen()).toMatchObject([{ status: "gesperrt", sperre: "BESCHWERDE" }]);
+  });
+
+  it("M4: je Person höchstens eine Automatik-Anfrage, auch über zwei Deals", async () => {
+    const w = await welt("senden");
+    const d1 = await w.deal();
+    const person = await w.personVon(d1);
+    await w.deal({ person });
+    const senden = sendenFake();
+    await bewertungAutomatikLauf(JETZT, { senden: senden as never });
+    expect(await w.vormerkungen()).toHaveLength(1);
+    expect(fuer(senden, w.ws)).toHaveLength(1);
+  });
+
+  it("M1: Vormerkungen von Hand werden vor vielen wartenden Automatik-Zeilen gelesen", async () => {
+    const w = await welt("senden");
+    for (let i = 0; i < 60; i++) {
+      const d = await w.deal();
+      await sql`insert into review_vormerkungen (id, workspace_id, deal_record_id, operating_company_record_id, art, faellig_ab, frist_bis)
+        values (${randomUUID()}, ${w.ws}, ${d}, ${w.firma}, 'auto', ${new Date(JETZT.getTime() - 2 * TAG)}, ${new Date(JETZT.getTime() + 5 * TAG)})`;
+    }
+    const hand = await w.deal();
+    await sql`insert into review_vormerkungen (id, workspace_id, deal_record_id, operating_company_record_id, art, faellig_ab, frist_bis, erstellt_von)
+      values (${randomUUID()}, ${w.ws}, ${hand}, ${w.firma}, 'hand', ${new Date(JETZT.getTime() - 3600 * 1000)}, ${new Date(JETZT.getTime() + TAG)}, 'usr_9')`;
+    const senden = sendenFake();
+    await bewertungAutomatikLauf(JETZT, { senden: senden as never, limit: 2 });
+    expect(fuer(senden, w.ws).map((c) => c[1])).toContain(hand);
+    // Aufräumen: die wartenden Zeilen sollen spätere Tests (gleiche DB) nicht verdrängen.
+    await sql`update review_vormerkungen set status = 'verworfen' where workspace_id = ${w.ws} and status = 'offen'`;
+  });
+
+  it("M11: ein Fehler in einer Zeile bricht den Lauf nicht ab", async () => {
+    const w = await welt("senden");
+    const a = await w.deal();
+    const b = await w.deal();
+    let erste = true;
+    const senden = sendenFake(async () => {
+      if (erste) {
+        erste = false;
+        throw new TypeError("kaputt");
+      }
+    });
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    await bewertungAutomatikLauf(JETZT, { senden: senden as never });
+    err.mockRestore();
+    expect(new Set(fuer(senden, w.ws).map((c) => c[1]))).toEqual(new Set([a, b]));
   });
 });

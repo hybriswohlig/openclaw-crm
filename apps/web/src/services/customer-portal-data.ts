@@ -605,7 +605,9 @@ export async function loadContextByToken(
     inclusions: leistungsWorte(leistung, branding.firmaSlug).standardleistungen ? inclusions : { included: [], optional: [] },
     fruehereAnnahmeAufgehoben,
     // Nur gesetzt, wenn der Haken erscheint: ohne Schalter bleibt der Kontext wie vor Plan 11.
-    ...(bewertungHaken ? { bewertungHaken } : {}),
+    ...(bewertungHaken
+      ? { bewertungHaken: { anrede: bewertungHaken.anrede, frage: bewertungHaken.frage, hinweis: bewertungHaken.hinweis } }
+      : {}),
     widerruf,
     documents: {
       quotationUrl: quotationDocShown ? `/api/public/${token}/documents/${quotationDocShown.id}` : null,

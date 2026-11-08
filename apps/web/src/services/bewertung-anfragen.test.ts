@@ -128,6 +128,10 @@ function fake(start: {
   vornamen?: Record<string, string | null>;
   /** Was die Prüfung unter der Sperre sieht (sonst der Stand von `roh`). */
   anspruchStatus?: string | null;
+  /** Fix-Welle I3: Einwilligung derselben Firma oder dieses Deals (Standard wie `einwilligung`). */
+  einwilligungFirma?: boolean;
+  /** Fix-Welle I4: Firma je Kanalkonto (Standard: jedes Konto gehört oc_kottke). */
+  kontoFirma?: Record<string, string | null>;
 } = {}) {
   const st = {
     tokens: [] as { token: string; quelle?: string; zustand?: string }[],
@@ -145,6 +149,8 @@ function fake(start: {
     personKontakt: vi.fn(async () => start.personKontakt ?? { telefone: [WABA.telefon!], emails: [] }),
     personVorname: vi.fn(async (_ws: string, id: string) => start.vornamen?.[id] ?? null),
     einwilligungDa: vi.fn(async () => (start.einwilligung ?? true) || st.einwilligungen.length > 0),
+    einwilligungFuerDealDa: vi.fn(async () => start.einwilligungFirma ?? start.einwilligung ?? true),
+    kontoFirmen: vi.fn(async (_ws: string, ids: string[]) => new Map(ids.map((id) => [id, start.kontoFirma?.[id] !== undefined ? start.kontoFirma[id]! : "oc_kottke"]))),
     anrede: vi.fn(async () => start.anrede ?? "sie"),
     optionen: vi.fn(async () => start.optionen ?? { statusGesendet: "st_sent_wa", varianteManuell: null }),
     anspruch: vi.fn(async () => ({
@@ -480,6 +486,7 @@ describe("Erfolg", () => {
       exactWording: eintrag,
       sourceConversationId: "conv_waba",
       userId: "usr_1",
+      operatingCompanyRecordId: "oc_kottke",
     });
     expect(vi.mocked(s.einwilligungSpeichern).mock.invocationCallOrder[0]!).toBeLessThan(
       mocks.sendeAntwort.mock.invocationCallOrder[0]!
@@ -1066,6 +1073,8 @@ describe("dbBewertungSpeicher", () => {
       purpose: "review_request",
       exactWording: "Am Telefon",
       sourceConversationId: "conv_waba",
+      operatingCompanyRecordId: null,
+      dealRecordId: DEAL,
     });
     expect(werte[2]!.values).toEqual({
       workspaceId: WS,
@@ -1254,5 +1263,50 @@ describe("Plan 11: bewertungVormerken", () => {
     const w = await bewertungsVorschau(WS, DEAL, fake(), WERKTAG);
     expect(w.naechstesFenster).toBeNull();
     expect(w.vormerkung).toBeNull();
+  });
+});
+
+describe("Fix-Welle Plan 11: Firma, Einwilligung, Kanal", () => {
+  it("I3: Automatik zählt nur eine Einwilligung derselben Firma oder dieses Deals", async () => {
+    const s = fake({ einwilligung: true, einwilligungFirma: false });
+    expect(await fehlerCode(bewertungAnfragen(WS, DEAL, { userId: null, quelle: "automatik" }, s))).toBe("EINWILLIGUNG");
+    expect(s.einwilligungFuerDealDa).toHaveBeenCalledWith(WS, "person_1", DEAL, "oc_kottke");
+    // von Hand reicht die Einwilligung der Person wie bisher
+    const h = fake({ einwilligung: true, einwilligungFirma: false });
+    await bewertungAnfragen(WS, DEAL, ANFRAGE, h);
+    expect(h.einwilligungFuerDealDa).not.toHaveBeenCalled();
+  });
+
+  it("I3: neue Einwilligung von Hand speichert Firma und Deal", async () => {
+    const s = fake({ einwilligung: false });
+    await bewertungAnfragen(WS, DEAL, { ...ANFRAGE, einwilligung: "Am Telefon" }, s);
+    expect(s.einwilligungSpeichern).toHaveBeenCalledWith(expect.objectContaining({ operatingCompanyRecordId: "oc_kottke", dealRecordId: DEAL }));
+  });
+
+  it("I4: Automatik und Vormerkung senden nur über ein Konto der Firma, sonst KEIN_KANAL_FIRMA", async () => {
+    const fremd = { [WABA.kontoId]: "oc_ceylan" };
+    expect(await fehlerCode(bewertungAnfragen(WS, DEAL, { userId: null, quelle: "automatik" }, fake({ kontoFirma: fremd })))).toBe("KEIN_KANAL_FIRMA");
+    expect(
+      await fehlerCode(bewertungAnfragen(WS, DEAL, { userId: "usr_1", quelle: "vorgemerkt" }, fake({ kontoFirma: fremd })))
+    ).toBe("KEIN_KANAL_FIRMA");
+    expect(mocks.sendeAntwort).not.toHaveBeenCalled();
+    // von Hand sieht der Mensch den Kanal im Dialog: bleibt wie bisher
+    await bewertungAnfragen(WS, DEAL, ANFRAGE, fake({ kontoFirma: fremd }));
+    expect(mocks.sendeAntwort).toHaveBeenCalledTimes(1);
+  });
+
+  it("I4: Marke der Maschine nur aus der Firma, nie aus brand", async () => {
+    const s = fake({ roh: { markeTitel: "kottke", firmaName: "Ceylan Transporte", googleUrl: "https://g.page/r/ceylan/review" } });
+    await bewertungAnfragen(WS, DEAL, { userId: null, quelle: "automatik" }, s);
+    expect(mocks.sendeAntwort.mock.calls[0]![0].body).toContain("Ceylan");
+  });
+
+  it("I1: Automatik mit anderer Firma als vorgemerkt → FIRMA_GEWECHSELT, nichts gesendet", async () => {
+    const s = fake();
+    expect(
+      await fehlerCode(bewertungAnfragen(WS, DEAL, { userId: null, quelle: "automatik", firmaId: "oc_alt" }, s))
+    ).toBe("FIRMA_GEWECHSELT");
+    expect(s.tokenAnlegen).not.toHaveBeenCalled();
+    expect(mocks.sendeAntwort).not.toHaveBeenCalled();
   });
 });

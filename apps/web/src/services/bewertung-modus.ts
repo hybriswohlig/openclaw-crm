@@ -5,6 +5,10 @@
  * `bewertung_modus_seit`, `bewertung_haken_portal`. Ohne Zeile gilt: aus,
  * kein Seit, kein Haken.
  *
+ * Offene Automatik-Zeilen folgen dem Modus (Fix-Welle M2): Senden → Entwurf
+ * macht sie zu Entwürfen, Ausschalten verwirft „auto“ und „entwurf“ (Grund
+ * MODUS); Vormerkungen von Hand bleiben.
+ *
  * `seit` wird gesetzt beim Wechsel von „aus“ auf einen anderen Modus, bleibt
  * beim Wechsel zwischen „entwurf“ und „senden“, wird beim Ausschalten nicht
  * gelöscht und beim nächsten Einschalten neu gesetzt. Anker vor `seit` zählen
@@ -138,6 +142,21 @@ export async function bewertungModusSetzen(
         target: companySettings.operatingCompanyRecordId,
         set: { bewertungModus: modus, bewertungModusSeit: seit, bewertungHakenPortal: hakenPortal, updatedAt: jetzt },
       });
+    // Fix-Welle M2: offene Zeilen der Automatik folgen dem Modus. Senden → Entwurf: sie warten
+    // auf Freigabe. Ausschalten: sie werden verworfen und erscheinen wieder als „fällig“ von Hand.
+    if (vorher.modus === "senden" && modus === "entwurf") {
+      await tx.execute(sql`
+        UPDATE review_vormerkungen SET art = 'entwurf', updated_at = now()
+        WHERE workspace_id = ${ws} AND operating_company_record_id = ${ocId} AND status = 'offen' AND art = 'auto'
+      `);
+    }
+    if (modus === "aus" && vorher.modus !== "aus") {
+      await tx.execute(sql`
+        UPDATE review_vormerkungen
+        SET status = 'verworfen', sperre = 'MODUS', erledigt_at = now(), erledigt_von = ${userId}, updated_at = now()
+        WHERE workspace_id = ${ws} AND operating_company_record_id = ${ocId} AND status = 'offen' AND art IN ('auto', 'entwurf')
+      `);
+    }
     await tx.insert(activityEvents).values({
       workspaceId: ws,
       recordId: ocId,

@@ -91,7 +91,9 @@ export type BewertungCode =
   | "RUHEZEIT"
   | "SCHON_GESENDET"
   | "TEXT"
-  | "SCHON_VORGEMERKT";
+  | "SCHON_VORGEMERKT"
+  | "FIRMA_GEWECHSELT"
+  | "KEIN_KANAL_FIRMA";
 
 const TEXTE: Record<BewertungCode, string> = {
   STUFE: "Eine Bewertung kann erst ab der Stufe Durchgeführt angefragt werden.",
@@ -106,6 +108,8 @@ const TEXTE: Record<BewertungCode, string> = {
   SCHON_GESENDET: "Die Bewertung wurde für diesen Deal schon angefragt.",
   TEXT: "Der Text muss den Bewertungslink und den STOP-Hinweis enthalten.",
   SCHON_VORGEMERKT: "Für diesen Deal ist schon eine Bewertungsanfrage vorgemerkt.",
+  FIRMA_GEWECHSELT: "Die Firma des Auftrags hat gewechselt. Die Automatik sendet dafür nicht.",
+  KEIN_KANAL_FIRMA: "Kein WhatsApp-Gespräch über ein Konto der Firma dieses Auftrags.",
 };
 
 /** Woher ein Versand kommt (Plan 11): Knopf, Vormerkung des Knopfs, Automatik. */
@@ -195,6 +199,8 @@ export interface EinwilligungZeile {
   sourceConversationId: string;
   /** Autor: landet als actor_id im Ereignis `consent.eingetragen`. */
   userId: string;
+  /** Fix-Welle I3: Firma des Deals; die Einwilligung gilt für sie und diesen Deal. */
+  operatingCompanyRecordId?: string | null;
 }
 
 export interface BewertungSpeicher {
@@ -213,6 +219,13 @@ export interface BewertungSpeicher {
   /** Telefonnummern und E-Mail-Adressen der Personen. */
   personKontakt(ws: string, personIds: string[]): Promise<{ telefone: string[]; emails: string[] }>;
   einwilligungDa(ws: string, personId: string): Promise<boolean>;
+  /**
+   * Fix-Welle I3, nur für die Automatik: Einwilligung derselben Firma wie der
+   * Deal, oder ein Eintrag ohne Firma, der an genau diesem Deal erfasst wurde.
+   */
+  einwilligungFuerDealDa(ws: string, personId: string, deal: string, firmaId: string | null): Promise<boolean>;
+  /** Fix-Welle I4: Firma (`operating_company_record_id`) je Kanalkonto dieses Workspace. */
+  kontoFirmen(ws: string, kontoIds: string[]): Promise<Map<string, string | null>>;
   anrede(ws: string, deal: string, conversationId: string): Promise<ManuellAnrede>;
   /** Status-ID `sent_whatsapp` und Options-ID „manuell“, über ihren Titel aufgelöst. */
   optionen(objectId: string): Promise<{ statusGesendet: string | null; varianteManuell: string | null }>;
@@ -508,6 +521,39 @@ function speicherAuf(conn: Verbindung, gesperrt: BewertungSpeicher["gesperrt"] |
       return { telefone: werte("phone_numbers"), emails: werte("email_addresses") };
     },
 
+    async einwilligungFuerDealDa(ws, personId, deal, firmaId) {
+      const [r] = zeilen<{ da: boolean }>(
+        await conn.execute(sql`
+          SELECT EXISTS (
+            SELECT 1 FROM consent_ledger
+            WHERE workspace_id = ${ws} AND person_record_id = ${personId}
+              AND purpose = 'review_request' AND channel = 'whatsapp' AND revoked_at IS NULL
+              AND (
+                (${firmaId}::text IS NOT NULL AND operating_company_record_id = ${firmaId})
+                OR (operating_company_record_id IS NULL AND deal_record_id = ${deal})
+              )
+          ) AS da
+        `)
+      );
+      return r?.da === true;
+    },
+
+    async kontoFirmen(ws, kontoIds) {
+      const ids = [...new Set(kontoIds)];
+      if (ids.length === 0) return new Map();
+      const rows = zeilen<{ id: string; firma: string | null }>(
+        await conn.execute(sql`
+          SELECT ca.id AS id, ca.operating_company_record_id AS firma
+          FROM channel_accounts ca
+          WHERE ca.workspace_id = ${ws} AND ca.id IN (${sql.join(
+            ids.map((id) => sql`${id}`),
+            sql`, `
+          )})
+        `)
+      );
+      return new Map(rows.map((r) => [r.id, r.firma ?? null]));
+    },
+
     async einwilligungDa(ws, personId) {
       const [r] = zeilen<{ da: boolean }>(
         await conn.execute(sql`
@@ -629,6 +675,8 @@ function speicherAuf(conn: Verbindung, gesperrt: BewertungSpeicher["gesperrt"] |
           purpose: z.purpose,
           exactWording: z.exactWording,
           sourceConversationId: z.sourceConversationId,
+          operatingCompanyRecordId: z.operatingCompanyRecordId ?? null,
+          dealRecordId: z.dealRecordId,
         })
         .returning({ id: consentLedger.id });
       const consentId = row!.id;
@@ -662,9 +710,14 @@ export const dbBewertungSpeicher: BewertungSpeicher = speicherAuf(db, (ws, deal,
 
 // ─── Prüfen ───────────────────────────────────────────────────────────────────
 
-function markeAus(roh: BewertungRoh): ManuellMarke | null {
+/**
+ * Marke: von Hand wie bisher (Attribut `brand`, sonst Firmenname). Für die
+ * Maschine (Automatik, Vormerkung) nur aus `operating_company` des Deals
+ * (Fix-Welle I4).
+ */
+function markeAus(roh: BewertungRoh, nurFirma = false): ManuellMarke | null {
   const titel = roh.markeTitel?.trim().toLowerCase();
-  if (titel === "kottke" || titel === "ceylan") return titel;
+  if (!nurFirma && (titel === "kottke" || titel === "ceylan")) return titel;
   const firma = roh.firmaName?.toLowerCase() ?? "";
   if (firma.includes("kottke")) return "kottke";
   if (firma.includes("ceylan")) return "ceylan";
@@ -728,24 +781,46 @@ interface Pruefung {
   sperre: BewertungCode | null;
 }
 
-async function pruefen(ws: string, deal: string, speicher: BewertungSpeicher): Promise<Pruefung> {
+/** Was ohne Menschen davor gesendet wird (Treiber): Kanal und Marke streng an die Firma gebunden. */
+function maschinell(quelle: BewertungQuelle | undefined): boolean {
+  return quelle === "automatik" || quelle === "vorgemerkt";
+}
+
+async function pruefen(
+  ws: string,
+  deal: string,
+  speicher: BewertungSpeicher,
+  quelle: BewertungQuelle = "hand"
+): Promise<Pruefung> {
   const roh = await speicher.lesen(ws, deal);
   if (!roh) throw new Error("Deal nicht gefunden");
-  const [stufe, gespraeche, tokenDa] = await Promise.all([
+  const [stufe, alleGespraeche, tokenDa] = await Promise.all([
     getDealStageCategory(ws, deal),
     speicher.gespraeche(ws, deal),
     speicher.tokenDa(ws, deal),
   ]);
+  // Fix-Welle I4: Die Maschine sendet nur über ein Kanalkonto der Firma des Deals.
+  let gespraeche = alleGespraeche;
+  let kanalFremd = false;
+  if (maschinell(quelle)) {
+    const firmen = await speicher.kontoFirmen(ws, alleGespraeche.map((g) => g.kontoId));
+    gespraeche = alleGespraeche.filter((g) => !!roh.firmaId && firmen.get(g.kontoId) === roh.firmaId);
+    kanalFremd = !!whatsappGespraech(deal, alleGespraeche) && !whatsappGespraech(deal, gespraeche);
+  }
   const gespraech = whatsappGespraech(deal, gespraeche);
   const kontaktPerson = gespraech ? await speicher.kontaktPerson(ws, gespraech.id) : null;
   const { empfaenger, unzugeordnet } = kontaktPerson
     ? { empfaenger: kontaktPerson, unzugeordnet: false }
     : await ersatzEmpfaenger(ws, gespraech, roh.personId, speicher);
   const [einwilligung, vorname] = await Promise.all([
-    empfaenger ? speicher.einwilligungDa(ws, empfaenger) : Promise.resolve(false),
+    !empfaenger
+      ? Promise.resolve(false)
+      : quelle === "automatik"
+        ? speicher.einwilligungFuerDealDa(ws, empfaenger, deal, roh.firmaId)
+        : speicher.einwilligungDa(ws, empfaenger),
     !empfaenger ? Promise.resolve(null) : empfaenger === roh.personId ? Promise.resolve(roh.vorname) : speicher.personVorname(ws, empfaenger),
   ]);
-  const markeOderNull = markeAus(roh);
+  const markeOderNull = markeAus(roh, maschinell(quelle));
   let ziel: ReviewDestination | null = null;
   if (markeOderNull) {
     try {
@@ -761,7 +836,7 @@ async function pruefen(ws: string, deal: string, speicher: BewertungSpeicher): P
   if ((roh.statusTitel && SCHON_GESENDET.has(roh.statusTitel)) || tokenDa) return mit("SCHON_GESENDET");
   if (roh.statusTitel && STATUS_GESPERRT.has(roh.statusTitel)) return mit("SPERRE");
   if (roh.nichtKontaktieren) return mit("SPERRE");
-  if (!gespraech) return mit("KEIN_KANAL");
+  if (!gespraech) return mit(kanalFremd ? "KEIN_KANAL_FIRMA" : "KEIN_KANAL");
   const personen = [...new Set([empfaenger, roh.personId].filter((p): p is string => !!p))];
   if (await abgemeldet(ws, gespraech.telefon, personen, speicher)) return mit("SPERRE");
   if (unzugeordnet) return mit("EMPFAENGER");
@@ -917,6 +992,8 @@ export interface BewertungEingabe {
   einwilligung?: string;
   /** Standard „hand“. */
   quelle?: BewertungQuelle;
+  /** Fix-Welle I1, nur Automatik: Firma der Vormerkung; weicht die Firma des Deals ab, FIRMA_GEWECHSELT. */
+  firmaId?: string | null;
 }
 
 /**
@@ -962,7 +1039,11 @@ export async function bewertungAnfragen(
   const quelle: BewertungQuelle = input.quelle ?? "hand";
 
   // ─ Phase 1a: Prüfen ohne Transaktion
-  const p = await pruefen(ws, deal, speicher);
+  const p = await pruefen(ws, deal, speicher, quelle);
+  // Fix-Welle I1: die Automatik sendet nur für die Firma, für die sie vorgemerkt hat.
+  if (quelle === "automatik" && input.firmaId !== undefined && p.roh.firmaId !== input.firmaId) {
+    throw new BewertungFehler("FIRMA_GEWECHSELT");
+  }
   if (p.sperre) throw new BewertungFehler(p.sperre);
   const gespraech = p.gespraech!;
   const ziel = p.ziel!;
@@ -988,6 +1069,7 @@ export async function bewertungAnfragen(
         exactWording: eintrag,
         sourceConversationId: gespraech.id,
         userId: input.userId!,
+        operatingCompanyRecordId: p.roh.firmaId,
       });
     }
     await tx.tokenAnlegen({ token, workspaceId: ws, dealRecordId: deal, destinationUrl: ziel.url, quelle });

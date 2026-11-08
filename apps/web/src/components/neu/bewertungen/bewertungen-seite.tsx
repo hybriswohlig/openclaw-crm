@@ -145,6 +145,7 @@ export function BewertungenSeite() {
         <>
           <FirmenLeiste
             firmen={firma === "alle" ? a.firmen : a.firmen.filter((f) => f.id === firma)}
+            darfRegeln={a.darfRegeln === true}
             portalZiel={portalZiel}
             speichert={speichert}
             onSetzen={(id, e) => void setzen(id, e)}

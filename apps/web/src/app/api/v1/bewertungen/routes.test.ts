@@ -84,6 +84,14 @@ describe("Bewertungsrouten, Zugriff", () => {
     expect((await GET(new NextRequest("http://localhost/api/v1/bewertungen"))).status).toBe(401);
   });
 
+  it("Fix-Welle M9: darfRegeln nur für Admins", async () => {
+    const admin = await (await GET(new NextRequest("http://localhost/api/v1/bewertungen"))).json();
+    expect(admin.data.darfRegeln).toBe(true);
+    mocks.auth.mockResolvedValue(MITGLIED);
+    const mitglied = await (await GET(new NextRequest("http://localhost/api/v1/bewertungen"))).json();
+    expect(mitglied.data.darfRegeln).toBe(false);
+  });
+
   it("unbekannte Liste ist 400", async () => {
     const res = await GET(new NextRequest("http://localhost/api/v1/bewertungen?liste=alles"));
     expect(res.status).toBe(400);

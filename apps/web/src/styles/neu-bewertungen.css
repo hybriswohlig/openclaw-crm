@@ -81,6 +81,12 @@
   cursor: pointer;
 }
 
+[data-neu] .bew-firma-stand {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
 [data-neu] .bew-firma-hinweis {
   margin: 0;
   padding: 8px 12px;

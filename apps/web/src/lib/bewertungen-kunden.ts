@@ -185,7 +185,15 @@ export type ListenGrund =
   | "VERSAND_UNKLAR"
   | "FEHLGESCHLAGEN"
   | "FRIST"
-  | "KONTAKTART";
+  | "KONTAKTART"
+  /** Fix-Welle I1: Firma des Deals seit der Automatik-Vormerkung geändert. */
+  | "FIRMA_GEWECHSELT"
+  /** Fix-Welle I4: kein sendefähiges WhatsApp-Gespräch über ein Konto der Firma des Deals. */
+  | "KEIN_KANAL_FIRMA"
+  /** Fix-Welle M2: Automatik der Firma aus oder neu eingeschaltet, alte Zeile geht nicht raus. */
+  | "MODUS"
+  /** Fix-Welle M4: dieselbe Person bekam in den letzten 180 Tagen schon eine Automatik-Anfrage. */
+  | "PERSON_KUERZLICH";
 
 export type SperrGrund = HandCode | ListenGrund;
 
@@ -209,7 +217,16 @@ export const SPERR_TEXT: Record<SperrGrund, string> = {
   FEHLGESCHLAGEN: "Senden fehlgeschlagen.",
   FRIST: "Frist der Automatik abgelaufen, nur noch von Hand.",
   KONTAKTART: "Kontaktart ist kein Kunde.",
+  FIRMA_GEWECHSELT: "Firma des Auftrags hat gewechselt, Automatik verworfen.",
+  KEIN_KANAL_FIRMA: "Kein WhatsApp-Gespräch über ein Konto dieser Firma.",
+  MODUS: "Automatik der Firma aus oder neu eingeschaltet.",
+  PERSON_KUERZLICH: "Kunde bekam in den letzten 180 Tagen schon eine Anfrage.",
 };
+
+/** Fix-Welle I2: letzter Umzugstag höchstens so lange vor dem Einschalten. */
+export const UMZUG_VOR_SEIT_TAGE = 14;
+/** Fix-Welle M4: je Person höchstens eine Automatik-Anfrage in dieser Zeit. */
+export const PERSON_SPERRE_TAGE = 180;
 
 // ─── Automatik: Kandidat ──────────────────────────────────────────────────────
 
@@ -229,6 +246,21 @@ export interface AutoKandidatEingabe {
   tokenDa: boolean;
   offeneVormerkung: boolean;
   kontaktart: Kontaktart | null;
+  /** Fix-Welle I2: letzter Umzugstag (`move_completed_at`, sonst `move_end`, sonst `move_date`). */
+  umzugAm?: Date | null;
+  /** Fix-Welle M4: Empfänger-Person bekam in den letzten 180 Tagen eine Automatik-Anfrage. */
+  personKuerzlich?: boolean;
+}
+
+/**
+ * Altauftrag (Fix-Welle I2): Zahlung vor dem Einschalten, oder der letzte
+ * Umzugstag liegt mehr als 14 Tage vor dem Einschalten (ein spät gesetztes
+ * `bezahlt_am` an einem alten Auftrag zählt nicht). Ohne Umzugstag nie.
+ */
+export function istAltauftrag(e: { modusSeit: Date | null; bezahltAm: Date | null; umzugAm: Date | null }): boolean {
+  if (!e.modusSeit || !e.bezahltAm || !e.umzugAm) return true;
+  if (e.bezahltAm.getTime() < e.modusSeit.getTime()) return true;
+  return e.umzugAm.getTime() < e.modusSeit.getTime() - UMZUG_VOR_SEIT_TAGE * TAG_MS;
 }
 
 export type AutoKandidat =
@@ -243,13 +275,16 @@ export type AutoKandidat =
 export function autoKandidat(e: AutoKandidatEingabe, jetzt: Date): AutoKandidat {
   if (e.modus === "aus") return { ok: false, grund: "MODUS" };
   if (!e.bezahltAm) return { ok: false, grund: "KEIN_ANKER" };
-  if (!e.modusSeit || e.bezahltAm.getTime() < e.modusSeit.getTime()) return { ok: false, grund: "ALTAUFTRAG" };
+  if (istAltauftrag({ modusSeit: e.modusSeit, bezahltAm: e.bezahltAm, umzugAm: e.umzugAm ?? null })) {
+    return { ok: false, grund: "ALTAUFTRAG" };
+  }
   if (!e.stufe || !BEWERTUNG_STUFEN.includes(e.stufe)) return { ok: false, grund: "STUFE" };
   if (e.kontaktart && e.kontaktart !== "lead_kunde") return { ok: false, grund: "KONTAKTART" };
   if (e.tokenDa || (e.statusTitel && STATUS_ANGEFRAGT.has(e.statusTitel))) return { ok: false, grund: "SCHON_GESENDET" };
   if (e.statusTitel && STATUS_GESPERRT.has(e.statusTitel)) return { ok: false, grund: "BESCHWERDE_STATUS" };
   if (e.nichtKontaktieren) return { ok: false, grund: "NICHT_KONTAKTIEREN" };
   if (e.offeneVormerkung) return { ok: false, grund: "VORGEMERKT" };
+  if (e.personKuerzlich) return { ok: false, grund: "PERSON_KUERZLICH" };
   const berechtigt = e.bezahltAm.getTime() + ANKER_VERZUG_MS;
   if (jetzt.getTime() < berechtigt) return { ok: false, grund: "NOCH_NICHT" };
   const fristBis = new Date(berechtigt + AUTO_FRIST_TAGE * TAG_MS);
@@ -351,14 +386,33 @@ export const EINWILLIGUNG_PORTAL: Record<ManuellAnrede, { frage: string; hinweis
   },
 };
 
+/** Leistungsart für den Portal-Text (wie `ManuellLeistung`). */
+export type PortalLeistungsart = "move" | "kitchen_installation" | "clearance" | "clearance_move";
+
+const NACH_DER_LEISTUNG: Record<PortalLeistungsart, string> = {
+  move: "nach dem Umzug",
+  kitchen_installation: "nach der Küchenmontage",
+  clearance: "nach der Entrümpelung",
+  clearance_move: "nach Entrümpelung und Umzug",
+};
+
+/** Fix-Welle M5: Frage und Hinweis je Anrede und Leistung (Umzug, Küche, Entrümpelung). */
+export function einwilligungPortalText(anrede: ManuellAnrede, leistung: PortalLeistungsart = "move"): { frage: string; hinweis: string } {
+  const wer = anrede === "du" ? "dich" : "Sie";
+  return {
+    frage: `Darf ich ${wer} ${NACH_DER_LEISTUNG[leistung]} per WhatsApp um eine Google-Bewertung bitten?`,
+    hinweis: EINWILLIGUNG_PORTAL[anrede].hinweis,
+  };
+}
+
 /** Anrede im Portal: Sie bei Ceylan, du bei Kottke. */
 export function portalAnrede(marke: ManuellMarke): ManuellAnrede {
   return marke === "ceylan" ? "sie" : "du";
 }
 
 /** Gespeicherter Wortlaut: Frage und Hinweis, wie der Kunde sie sah, mit Quelle. */
-export function einwilligungsWortlaut(anrede: ManuellAnrede): string {
-  const t = EINWILLIGUNG_PORTAL[anrede];
+export function einwilligungsWortlaut(anrede: ManuellAnrede, leistung: PortalLeistungsart = "move"): string {
+  const t = einwilligungPortalText(anrede, leistung);
   return `Portal, Annahme des Angebots: „${t.frage}“ angehakt. ${t.hinweis}`;
 }
 
@@ -545,6 +599,8 @@ export interface BewertungenAntwort {
   zaehler: Record<BewertungListe, number>;
   /** Deals mit `do_not_contact_review` aus dem Backfill (vor `BACKFILL_STICHTAG`): nur Zahl, keine Zeilen. */
   altsperren: number;
+  /** Fix-Welle M9: darf der Nutzer Modus und Haken ändern (Admin)? */
+  darfRegeln?: boolean;
 }
 
 export const KUNDEN_ANSICHTEN = ["kunden", "anfragen", "ohne_kunde"] as const;

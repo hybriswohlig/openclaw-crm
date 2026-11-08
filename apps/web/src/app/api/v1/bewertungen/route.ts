@@ -24,10 +24,10 @@ export async function GET(req: NextRequest) {
   const firma = req.nextUrl.searchParams.get("firma")?.trim() || undefined;
   if (listeRaw && !istListe(listeRaw)) return badRequest("Unbekannte Liste.");
 
-  return success(
-    await ladeBewertungen(ctx.workspaceId, {
-      firmaId: firma,
-      liste: listeRaw && istListe(listeRaw) ? listeRaw : undefined,
-    })
-  );
+  const antwort = await ladeBewertungen(ctx.workspaceId, {
+    firmaId: firma,
+    liste: listeRaw && istListe(listeRaw) ? listeRaw : undefined,
+  });
+  // Fix-Welle M9: Regler nur für Admins (PUT …/firmen verlangt Admin).
+  return success({ ...antwort, darfRegeln: ctx.workspaceRole === "admin" });
 }

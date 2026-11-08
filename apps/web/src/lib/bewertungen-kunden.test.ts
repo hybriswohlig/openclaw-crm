@@ -9,6 +9,7 @@ import {
   bewertungLage,
   dublettenSchluessel,
   einwilligungsWortlaut,
+  einwilligungPortalText,
   EINWILLIGUNG_PORTAL,
   fensterText,
   gespraecheJeFirma,
@@ -99,6 +100,19 @@ describe("Kleinteile", () => {
     expect(markeAusFirmenname("CEYLAN Transporte")).toBe("ceylan");
     expect(markeAusFirmenname(null)).toBeNull();
   });
+  it("Portal-Text je Leistung (Fix-Welle M5)", () => {
+    expect(einwilligungPortalText("du").frage).toBe(EINWILLIGUNG_PORTAL.du.frage);
+    expect(einwilligungPortalText("sie", "kitchen_installation").frage).toBe(
+      "Darf ich Sie nach der Küchenmontage per WhatsApp um eine Google-Bewertung bitten?"
+    );
+    expect(einwilligungPortalText("du", "clearance").frage).toContain("nach der Entrümpelung");
+    expect(einwilligungPortalText("sie", "clearance_move").frage).toContain("nach Entrümpelung und Umzug");
+    expect(einwilligungsWortlaut("du", "kitchen_installation")).toContain("nach der Küchenmontage");
+    for (const l of ["move", "kitchen_installation", "clearance", "clearance_move"] as const) {
+      expect(einwilligungPortalText("du", l).frage).not.toMatch(/[–—]/);
+    }
+  });
+
   it("Portal: Anrede, Wortlaut, nur true zählt", () => {
     expect(portalAnrede("ceylan")).toBe("sie");
     expect(portalAnrede("kottke")).toBe("du");
@@ -156,6 +170,7 @@ describe("autoKandidat", () => {
     tokenDa: false,
     offeneVormerkung: false,
     kontaktart: null,
+    umzugAm: new Date(bezahlt.getTime() - 24 * STUNDE),
   };
   const jetzt = new Date(bezahlt.getTime() + ANKER_VERZUG_MS + STUNDE); // Di 11:00 UTC
   const grund = (e: Partial<AutoKandidatEingabe>, j = jetzt) => {
@@ -188,13 +203,20 @@ describe("autoKandidat", () => {
     expect(grund({ statusTitel: "complaint_routed" })).toBe("BESCHWERDE_STATUS");
     expect(grund({ nichtKontaktieren: true })).toBe("NICHT_KONTAKTIEREN");
     expect(grund({ offeneVormerkung: true })).toBe("VORGEMERKT");
+    expect(grund({ personKuerzlich: true })).toBe("PERSON_KUERZLICH");
+    // Fix-Welle I2: Umzug im Juni, Zahlung heute: Altauftrag; ohne Umzugstag nie
+    expect(grund({ umzugAm: iso("2026-06-15T00:00:00Z") })).toBe("ALTAUFTRAG");
+    expect(grund({ umzugAm: null })).toBe("ALTAUFTRAG");
+    // Umzug bis 14 Tage vor dem Einschalten zählt noch
+    expect(grund({ umzugAm: iso("2026-10-18T00:00:00Z") })).toBe("ok");
+    expect(grund({ umzugAm: iso("2026-10-17T23:00:00Z") })).toBe("ALTAUFTRAG");
     expect(grund({}, new Date(bezahlt.getTime() + ANKER_VERZUG_MS - 1))).toBe("NOCH_NICHT");
     expect(grund({}, new Date(bezahlt.getTime() + ANKER_VERZUG_MS + (AUTO_FRIST_TAGE * 24 + 1) * STUNDE))).toBe("FRIST");
   });
   it("berechtigt in der Ruhezeit → fällig im nächsten Fenster", () => {
     // Anker Fr 13.11. 20:00 Berlin → berechtigt Sa 14.11. 20:00 → Mo 16.11. 9 Uhr
     const b = iso("2026-11-13T19:00:00Z");
-    const r = autoKandidat({ ...basis, bezahltAm: b }, iso("2026-11-14T19:30:00Z"));
+    const r = autoKandidat({ ...basis, bezahltAm: b, umzugAm: b }, iso("2026-11-14T19:30:00Z"));
     expect(r.ok && r.faelligAb.toISOString()).toBe("2026-11-16T08:00:00.000Z");
   });
 });
@@ -233,6 +255,9 @@ describe("bewertungLage", () => {
     expect(lage({ vormerkung: { art: "hand", status: "offen", faelligAb: f, sperre: null } })).toEqual({ liste: "vorgemerkt", grund: null, faelligAb: f });
     expect(lage({ vormerkung: { art: "auto", status: "gesperrt", faelligAb: f, sperre: "BESCHWERDE" } })).toMatchObject({ liste: "gesperrt", grund: "BESCHWERDE" });
     expect(lage({ vormerkung: { art: "auto", status: "gesperrt", faelligAb: f, sperre: "UNSINN" } })).toMatchObject({ grund: "FEHLGESCHLAGEN" });
+    // Fix-Welle I4/I3: Gründe der Automatik stehen in der Liste
+    expect(lage({ vormerkung: { art: "auto", status: "gesperrt", faelligAb: f, sperre: "KEIN_KANAL_FIRMA" } })).toMatchObject({ liste: "gesperrt", grund: "KEIN_KANAL_FIRMA" });
+    expect(lage({ vormerkung: { art: "auto", status: "gesperrt", faelligAb: f, sperre: "EINWILLIGUNG" } })).toMatchObject({ grund: "EINWILLIGUNG" });
     expect(lage({ vormerkung: { art: "auto", status: "gesperrt", faelligAb: f, sperre: "FRIST" } })).toEqual({ liste: "faellig", grund: "FRIST", faelligAb: null });
     expect(lage({ hatPerson: false })).toMatchObject({ liste: "gesperrt", grund: "EMPFAENGER" });
     expect(lage({ hatGoogleLink: false })).toMatchObject({ liste: "gesperrt", grund: "KEIN_LINK" });

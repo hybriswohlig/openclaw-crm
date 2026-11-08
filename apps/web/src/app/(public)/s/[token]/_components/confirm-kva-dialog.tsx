@@ -31,7 +31,6 @@ import { stempel } from "./brief";
 import { Stempel } from "./brief-teile";
 import { RestbetragHinweis } from "./restbetrag-hinweis";
 import { adressZeilen, worte } from "./leistung-worte";
-import { EINWILLIGUNG_PORTAL } from "@/lib/bewertungen-kunden";
 
 /**
  * Annahme-Dialog. Pflicht: Angebot, AGB (falls vorhanden), bei Umzug der
@@ -356,9 +355,9 @@ export function ConfirmKvaDialog({
                     className="mt-0.5 h-4 w-4 accent-foreground"
                   />
                   <span className="leading-relaxed">
-                    {EINWILLIGUNG_PORTAL[bewertungHaken.anrede].frage}
+                    {bewertungHaken.frage}
                     <span className="mt-1 block text-xs text-muted-foreground">
-                      {EINWILLIGUNG_PORTAL[bewertungHaken.anrede].hinweis}
+                      {bewertungHaken.hinweis}
                     </span>
                   </span>
                 </label>

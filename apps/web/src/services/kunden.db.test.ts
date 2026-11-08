@@ -497,6 +497,9 @@ describe.skipIf(!url)("Kunden gegen Postgres", () => {
     expect(await kundeZuDeal(ws, D.nurTot)).toBeNull();
     expect(await kundeZuDeal(ws, D.fremd)).toBeNull();
     expect(await kundeZuDeal(wsFremd, D.kopf)).toBeNull();
+    // Fix-Welle M8: Bewerber, Team, Spam: keine Kundenakte und kein Link
+    expect(await kundeZuDeal(ws, D.berta)).toBeNull();
+    expect(await ladeKundenAkte(ws, P.berta)).toBeNull();
   });
 
   it("hält die Abfragezahl bei 3 und bei 60 Personen gleich", async () => {

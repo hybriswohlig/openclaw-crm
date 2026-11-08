@@ -514,9 +514,10 @@ export interface CustomerPortalContext {
   /**
    * Freiwilliger Haken zur Bewertungsanfrage im Annahmedialog (Plan 11). Nur
    * gesetzt, wenn die Firma den Schalter an hat und einen Google-Link führt.
-   * Liegt außerhalb der Annahmeregeln und ändert die Annahme nicht.
+   * Liegt außerhalb der Annahmeregeln und ändert die Annahme nicht. Frage und
+   * Hinweis kommen vom Server, je Anrede und Leistung (dieser Wortlaut wird gespeichert).
    */
-  bewertungHaken?: { anrede: "sie" | "du" } | null;
+  bewertungHaken?: { anrede: "sie" | "du"; frage: string; hinweis: string } | null;
   /** Widerrufs-Button (§ 356a BGB) oder Hinweis auf einen eingegangenen Widerruf. */
   widerruf: WiderrufKontext;
 

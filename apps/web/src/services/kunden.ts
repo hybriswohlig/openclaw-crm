@@ -17,6 +17,7 @@ import { nameAusWert } from "@/lib/personen-name";
 import type { OffenEingabe, RechnungStatus } from "@/lib/geld";
 import {
   BEWERTUNG_STUFEN,
+  KONTAKTART_NIE,
   bewertungLage,
   KUNDEN_SEITE,
   kundenSuche,
@@ -561,6 +562,8 @@ export async function ladeKundenAkte(ws: string, personId: string): Promise<Kund
   ]);
   const person = personenAus(personRes)[0];
   if (!person || person.personId !== personId) return null;
+  // Fix-Welle M8: Bewerber, Team und Spam sind keine Kunden, auch nicht per ID.
+  if (person.kontaktart && KONTAKTART_NIE.includes(person.kontaktart)) return null;
   const geld = await resteLesen(ws, dealIdsVon([person]));
   const gespraeche = zeilen<Parameters<typeof gespraechAus>[0]>(gespraechRes).flatMap((z) => {
     const g = gespraechAus(z);
@@ -709,6 +712,14 @@ export async function kundeZuDeal(ws: string, dealId: string): Promise<{ personI
       LIMIT 1
     ) nw ON true
     WHERE deal.id = ${dealId} AND deal.deleted_at IS NULL
+      -- Fix-Welle M8: keine Kundenakte für Bewerber, Team und Spam.
+      AND NOT EXISTS (
+        SELECT 1 FROM record_values kv
+        INNER JOIN attributes ka ON ka.id = kv.attribute_id AND ka.object_id = person.object_id AND ka.slug = 'kontaktart'
+        LEFT JOIN select_options so ON so.id = kv.text_value AND so.attribute_id = ka.id
+        WHERE kv.record_id = person.id
+          AND lower(coalesce(so.title, kv.text_value, '')) IN ('bewerber', 'team/helfer', 'team_helfer', 'spam/werbung', 'spam_werbung')
+      )
     ORDER BY rv.sort_order, rv.created_at, rv.id
     LIMIT 1
   `);

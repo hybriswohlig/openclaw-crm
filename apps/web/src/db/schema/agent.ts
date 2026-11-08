@@ -281,6 +281,9 @@ export const consentLedger = pgTable(
       onDelete: "set null",
     }),
     sourceConversationId: text("source_conversation_id"),
+    /** Migration 0063 (Plan 11, Fix-Welle I3): Firma und Deal, für die die Einwilligung gilt. */
+    operatingCompanyRecordId: text("operating_company_record_id"),
+    dealRecordId: text("deal_record_id"),
     revokedAt: timestamp("revoked_at"),
     revokedReason: text("revoked_reason"),
     createdAt: timestamp("created_at").notNull().defaultNow(),

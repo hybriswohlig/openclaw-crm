@@ -109,4 +109,32 @@ describe.skipIf(!url)("bewertungModusSetzen gegen Postgres", () => {
     await expect(bewertungModusSetzen(ws, oc, { modus: "immer" as never }, "u1")).rejects.toMatchObject({ code: "EINGABE" });
     expect(await ladeBewertungModus(fremd, ocFremd)).toEqual({ modus: "aus", seit: null, hakenPortal: false });
   });
+
+  it("M2: Senden → Entwurf macht offene Automatik-Zeilen zu Entwürfen, Aus verwirft sie, Hand bleibt", async () => {
+    const dObj = randomUUID();
+    await sql`insert into objects (id, workspace_id, slug, singular_name, plural_name) values (${dObj}, ${ws}, 'deals', 'Deal', 'Deals')`;
+    const [d1, d2, d3] = [randomUUID(), randomUUID(), randomUUID()];
+    await sql`insert into records (id, object_id) values (${d1}, ${dObj}), (${d2}, ${dObj}), (${d3}, ${dObj})`;
+    await bewertungModusSetzen(ws, oc, { modus: "senden" }, "u1");
+    const vm = (d: string, art: string) =>
+      sql`insert into review_vormerkungen (id, workspace_id, deal_record_id, operating_company_record_id, art, faellig_ab, frist_bis)
+          values (${randomUUID()}, ${ws}, ${d}, ${oc}, ${art}, now(), now() + interval '1 day')`;
+    await vm(d1, "auto");
+    await vm(d2, "hand");
+    await bewertungModusSetzen(ws, oc, { modus: "entwurf" }, "u1");
+    const stand = async () =>
+      Object.fromEntries(
+        (await sql<{ deal_record_id: string; art: string; status: string; sperre: string | null }[]>`
+          select deal_record_id, art, status, sperre from review_vormerkungen where workspace_id = ${ws}`).map((r) => [r.deal_record_id, r])
+      );
+    expect((await stand())[d1]).toMatchObject({ art: "entwurf", status: "offen" });
+    await bewertungModusSetzen(ws, oc, { modus: "aus" }, "u1");
+    const s = await stand();
+    expect(s[d1]).toMatchObject({ status: "verworfen", sperre: "MODUS" });
+    expect(s[d2]).toMatchObject({ art: "hand", status: "offen" });
+    await sql`delete from review_vormerkungen where workspace_id = ${ws}`;
+    await sql`delete from records where object_id = ${dObj}`;
+    await sql`delete from objects where id = ${dObj}`;
+    void d3;
+  });
 });

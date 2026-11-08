@@ -28,11 +28,14 @@ const MODUS_LABEL: Record<BewertungModus, string> = { aus: "Aus", entwurf: "Entw
  */
 export function FirmenLeiste({
   firmen,
+  darfRegeln = false,
   portalZiel,
   speichert,
   onSetzen,
 }: {
   firmen: BewertungFirma[];
+  /** Fix-Welle M9: nur Admins sehen die Regler; alle anderen lesen den Stand. */
+  darfRegeln?: boolean;
   portalZiel: HTMLElement | undefined;
   speichert: string | null;
   onSetzen: (ocId: string, e: { modus?: BewertungModus; hakenPortal?: boolean }) => void;
@@ -49,6 +52,7 @@ export function FirmenLeiste({
               <h2 className="bew-firma-name">{f.name}</h2>
               <span className="bew-firma-modus-text">{BEWERTUNG_MODUS_TEXT[f.modus]}</span>
             </div>
+            {darfRegeln ? (
             <div className="bew-firma-regler">
               <GlassSegmentedControl
                 value={f.modus}
@@ -76,6 +80,11 @@ export function FirmenLeiste({
                 <span>Einwilligung im Portal abfragen</span>
               </label>
             </div>
+            ) : (
+              <p className="bew-firma-stand">
+                Einwilligung im Portal: {f.hakenPortal ? "wird abgefragt" : "aus"}. Ändern kann die Teamleitung.
+              </p>
+            )}
             {!f.googleLink ? (
               <p className="bew-firma-hinweis" role="note">
                 Kein Google-Bewertungslink hinterlegt. Ohne Link wird nichts gesendet und der Portal-Haken bleibt unsichtbar.

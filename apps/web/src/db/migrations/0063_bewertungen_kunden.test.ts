@@ -14,12 +14,13 @@ describe("Migration 0063 Bewertungen und Kunden (Text)", () => {
       expect(kompakt.slice(m.index!, m.index! + 60)).toMatch(/IF NOT EXISTS/);
     }
     const alter = kompakt.match(/ALTER TABLE "\w+" ADD (\w+ )+/g) ?? [];
-    expect(alter.length).toBe(6);
+    expect(alter.length).toBe(8);
     for (const a of alter) expect(a).toContain("ADD COLUMN IF NOT EXISTS");
     expect(kompakt).toContain('CREATE TABLE IF NOT EXISTS "review_vormerkungen"');
-    // Der einzige UPDATE ist der Datenschritt und trifft nur Token ohne Quelle.
-    expect(kompakt.match(/\bUPDATE "/g)?.length).toBe(1);
+    // Zwei Datenschritte: Token ohne Quelle und Einwilligungen ohne Deal.
+    expect(kompakt.match(/\bUPDATE "/g)?.length).toBe(2);
     expect(kompakt).toContain('WHERE t."quelle" IS NULL;');
+    expect(kompakt).toContain('WHERE c."deal_record_id" IS NULL');
   });
 
   it("legt CHECKs und Indizes an", () => {
@@ -86,6 +87,8 @@ describe.skipIf(!url)("Migration 0063 gegen Postgres", () => {
   afterAll(async () => {
     if (!sql) return;
     await sql`delete from review_vormerkungen where workspace_id = ${ws}`;
+    await sql`delete from activity_events where workspace_id = ${ws}`;
+    await sql`delete from consent_ledger where workspace_id = ${ws}`;
     await sql`delete from review_events where workspace_id = ${ws}`;
     await sql`delete from review_tokens where workspace_id = ${ws}`;
     await sql`delete from records where object_id = ${obj}`;
@@ -110,6 +113,19 @@ describe.skipIf(!url)("Migration 0063 gegen Postgres", () => {
     expect(s.waise).toMatchObject({ zustand: "unklar", quelle: "alt" });
     expect(s.waise!.zustand_at).not.toBeNull();
     expect(s.neu).toMatchObject({ zustand: "anspruch", quelle: "hand", zustand_at: null });
+  });
+
+  it("trägt bei alten Einwilligungen von Hand den Deal aus dem Ereignis nach", async () => {
+    const consent = randomUUID();
+    await sql`insert into consent_ledger (id, workspace_id, person_record_id, channel, purpose, exact_wording)
+      values (${consent}, ${ws}, ${deal2}, 'whatsapp', 'review_request', 'Am Telefon')`;
+    await sql`update consent_ledger set deal_record_id = null where id = ${consent}`;
+    await sql`insert into activity_events (id, workspace_id, record_id, object_slug, event_type, payload)
+      values (${randomUUID()}, ${ws}, ${deal}, 'deals', 'consent.eingetragen', ${sql.json({ consentId: consent })})`;
+    await migrieren();
+    const [z] = await sql<{ deal_record_id: string | null; operating_company_record_id: string | null }[]>`
+      select deal_record_id, operating_company_record_id from consent_ledger where id = ${consent}`;
+    expect(z).toEqual({ deal_record_id: deal, operating_company_record_id: null });
   });
 
   it("ein zweiter Lauf ändert nichts", async () => {

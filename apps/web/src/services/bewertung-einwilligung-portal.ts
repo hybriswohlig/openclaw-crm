@@ -13,7 +13,13 @@ import { db } from "@/db";
 import { activityEvents } from "@/db/schema/activity";
 import { consentLedger } from "@/db/schema/agent";
 import { customerStatusLinks } from "@/db/schema/customer-portal";
-import { einwilligungsWortlaut, markeAusFirmenname, portalAnrede } from "@/lib/bewertungen-kunden";
+import {
+  einwilligungPortalText,
+  einwilligungsWortlaut,
+  markeAusFirmenname,
+  portalAnrede,
+  type PortalLeistungsart,
+} from "@/lib/bewertungen-kunden";
 import { parseReviewUrl } from "@/lib/reviews/review-url";
 import type { ActivityEventType } from "@/services/activity-events";
 import { ladeAktiveAnnahme, type DbExecutor } from "@/services/kva-annahme";
@@ -23,13 +29,33 @@ function zeilen<T>(result: unknown): T[] {
   return (result as { rows?: T[] }).rows ?? [];
 }
 
-/** Haken im Annahmedialog: nur mit Schalter und gültigem Google-Link, Anrede je Firma. */
-export async function portalHaken(
-  ws: string,
-  dealRecordId: string,
-  ex: DbExecutor = db
-): Promise<{ anrede: "sie" | "du" } | null> {
-  const [r] = zeilen<{ haken: boolean | null; google_url: string | null; firma: string | null }>(
+export interface PortalHaken {
+  anrede: "sie" | "du";
+  frage: string;
+  hinweis: string;
+  /** Intern: Firma und Leistung, für das Speichern. */
+  firmaId: string;
+  leistung: PortalLeistungsart;
+}
+
+function leistungAus(serviceType: string | null, mitEntruempelung: unknown): PortalLeistungsart {
+  if (serviceType === "kitchen_installation" || serviceType === "clearance") return serviceType;
+  return mitEntruempelung === true || mitEntruempelung === "true" ? "clearance_move" : "move";
+}
+
+/**
+ * Haken im Annahmedialog: nur mit Schalter und gültigem Google-Link, Anrede je
+ * Firma, Text je Leistung (Fix-Welle M5). Für den Browser nur Anrede, Frage, Hinweis.
+ */
+export async function portalHaken(ws: string, dealRecordId: string, ex: DbExecutor = db): Promise<PortalHaken | null> {
+  const [r] = zeilen<{
+    oc_id: string;
+    haken: boolean | null;
+    google_url: string | null;
+    firma: string | null;
+    service_type: string | null;
+    mit_entruempelung: unknown;
+  }>(
     await ex.execute(sql`
       WITH oc AS (
         SELECT v.referenced_record_id AS id FROM record_values v
@@ -41,6 +67,10 @@ export async function portalHaken(
         LIMIT 1
       )
       SELECT
+        oc.id AS oc_id,
+        (SELECT q.service_type FROM quotations q WHERE q.deal_record_id = ${dealRecordId} ORDER BY q.updated_at DESC LIMIT 1) AS service_type,
+        (SELECT q.document_details->>'mitEntruempelung' FROM quotations q
+          WHERE q.deal_record_id = ${dealRecordId} ORDER BY q.updated_at DESC LIMIT 1) AS mit_entruempelung,
         cs.bewertung_haken_portal AS haken,
         ps.google_review_url AS google_url,
         (
@@ -58,7 +88,9 @@ export async function portalHaken(
   if (!parseReviewUrl(r.google_url).ok) return null;
   const marke = markeAusFirmenname(r.firma);
   if (!marke) return null;
-  return { anrede: portalAnrede(marke) };
+  const anrede = portalAnrede(marke);
+  const leistung = leistungAus(r.service_type, r.mit_entruempelung);
+  return { anrede, ...einwilligungPortalText(anrede, leistung), firmaId: r.oc_id, leistung };
 }
 
 export type PortalEinwilligungErgebnis = "gespeichert" | "schon_da" | "aus" | "keine_person";
@@ -106,12 +138,14 @@ export async function portalEinwilligungSpeichern(token: string): Promise<Portal
 
   return db.transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext('einwilligung:' || ${ws} || ':' || ${person.id}))`);
+    // Fix-Welle I3: je Firma eine Einwilligung; eine der anderen Firma zählt hier nicht.
     const [da] = zeilen<{ da: boolean }>(
       await tx.execute(sql`
         SELECT EXISTS (
           SELECT 1 FROM consent_ledger
           WHERE workspace_id = ${ws} AND person_record_id = ${person.id}
             AND purpose = 'review_request' AND channel = 'whatsapp' AND revoked_at IS NULL
+            AND operating_company_record_id = ${haken.firmaId}
         ) AS da
       `)
     );
@@ -123,7 +157,9 @@ export async function portalEinwilligungSpeichern(token: string): Promise<Portal
         personRecordId: person.id,
         channel: "whatsapp",
         purpose: "review_request",
-        exactWording: einwilligungsWortlaut(haken.anrede),
+        exactWording: einwilligungsWortlaut(haken.anrede, haken.leistung),
+        operatingCompanyRecordId: haken.firmaId,
+        dealRecordId: deal,
       })
       .returning({ id: consentLedger.id });
     await tx.insert(activityEvents).values({
@@ -136,6 +172,7 @@ export async function portalEinwilligungSpeichern(token: string): Promise<Portal
         purpose: "review_request",
         channel: "whatsapp",
         personRecordId: person.id,
+        operatingCompanyRecordId: haken.firmaId,
         quelle: "portal",
       },
       actorId: null,

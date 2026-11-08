@@ -44,6 +44,8 @@ export const BEWERTUNG_TEXT: Record<string, string> = {
   RUHEZEIT: "Ruhezeit. Bitte Mo bis Sa zwischen 9 und 19 Uhr senden.",
   SCHON_GESENDET: "Schon angefragt.",
   SCHON_VORGEMERKT: "Schon vorgemerkt.",
+  FIRMA_GEWECHSELT: "Die Firma des Auftrags hat gewechselt.",
+  KEIN_KANAL_FIRMA: "Kein WhatsApp-Gespräch über ein Konto dieser Firma.",
   EMPFAENGER: "Der WhatsApp-Kontakt ist keiner Person am Deal zugeordnet. Bitte den Kontakt im Posteingang mit der Person verknüpfen.",
   EINWILLIGUNG: "Keine verknüpfte Person am Deal. Bitte in der alten Akte eine Person verknüpfen.",
 };
@@ -102,7 +104,8 @@ export function BewertungDialog({
   const vorschau = zustand.art === "fertig" ? zustand.vorschau : null;
   // Ruhezeit mit nächstem Fenster sperrt nicht: dann wird vorgemerkt (Plan 11).
   const fenster = vorschau?.sperre === "RUHEZEIT" && vorschau.naechstesFenster ? new Date(vorschau.naechstesFenster) : null;
-  const handVorgemerkt = vorschau?.vormerkung?.art === "hand";
+  // Fix-Welle M6: jede offene Vormerkung außer einem Entwurf sperrt ein zweites Vormerken.
+  const handVorgemerkt = !!vorschau?.vormerkung && vorschau.vormerkung.art !== "entwurf";
   const gesperrt = fenster ? (handVorgemerkt ? "SCHON_VORGEMERKT" : null) : (vorschau?.sperre ?? null);
   const einwilligungNoetig = vorschau !== null && !vorschau.einwilligung;
 

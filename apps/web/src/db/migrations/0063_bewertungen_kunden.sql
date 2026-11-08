@@ -79,3 +79,18 @@ CREATE UNIQUE INDEX IF NOT EXISTS "review_vormerkungen_offen_uniq"
 --> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "review_vormerkungen_faellig_idx"
   ON "review_vormerkungen" ("status", "faellig_ab");
+--> statement-breakpoint
+-- Fix-Welle I3: Einwilligung je Firma und Deal. Neue Zeilen tragen beides;
+-- alte Einträge von Hand bekommen den Deal aus ihrem Ereignis consent.eingetragen.
+ALTER TABLE "consent_ledger" ADD COLUMN IF NOT EXISTS "operating_company_record_id" text;
+--> statement-breakpoint
+ALTER TABLE "consent_ledger" ADD COLUMN IF NOT EXISTS "deal_record_id" text;
+--> statement-breakpoint
+UPDATE "consent_ledger" c
+SET "deal_record_id" = e."record_id"
+FROM "activity_events" e
+WHERE c."deal_record_id" IS NULL
+  AND c."purpose" = 'review_request'
+  AND e."event_type" = 'consent.eingetragen'
+  AND e."workspace_id" = c."workspace_id"
+  AND e."payload"->>'consentId' = c."id";
