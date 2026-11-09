@@ -415,7 +415,11 @@
   }
 
   [data-neu] .ueb-balken-label {
-    font-size: 9.5px;
+    font-size: 10px;
+  }
+
+  [data-neu] .ueb-balken-jahr {
+    display: none;
   }
 
   [data-neu] .ueb-quote-zeile {

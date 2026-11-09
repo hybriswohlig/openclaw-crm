@@ -41,7 +41,8 @@ export function Balken({
             ))}
           </div>
           <span className="ueb-balken-label" aria-hidden="true">
-            {m.label}
+            {m.label.split(" ")[0]}
+            <span className="ueb-balken-jahr"> {m.label.split(" ")[1] ?? ""}</span>
           </span>
         </div>
       ))}

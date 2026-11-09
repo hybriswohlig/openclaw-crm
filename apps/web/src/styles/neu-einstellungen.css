@@ -12,7 +12,7 @@
   padding-bottom: 32px;
 }
 
-[data-neu] .einst a {
+[data-neu] .einst a:not(.lg-button) {
   color: var(--blue-ink);
 }
 
@@ -196,7 +196,10 @@
 }
 
 [data-neu] .einst-abschnitt .bew-firma {
+  --lg-panel-radius: 0;
+
   padding: 0;
+  overflow: visible;
   background: none;
   box-shadow: none;
 }
@@ -207,8 +210,12 @@
 
 [data-neu] .einst-raster {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px 14px;
+}
+
+[data-neu] .einst-feld-breit {
+  grid-column: span 2;
 }
 
 [data-neu] .einst-feld {
@@ -516,6 +523,10 @@
 }
 
 @media (max-width: 760px) {
+  [data-neu] .einst-raster {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   [data-neu] .einst-ich {
     grid-template-columns: minmax(0, 1fr);
   }

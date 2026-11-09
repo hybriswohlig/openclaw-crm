@@ -21,7 +21,7 @@ export function AbschlussBlock({ a }: { a: UebersichtAntwort }) {
               </span>
               <b className="ueb-quote-wert">{q.quoteProzent == null ? "–" : `${q.quoteProzent} %`}</b>
               <span className="ueb-quote-zahlen">
-                {q.gewonnen} gewonnen, {q.verloren} verloren, {q.offen} offen
+                {q.gewonnen + q.verloren + q.offen === 0 ? "keine Anfragen" : `${q.gewonnen} gewonnen, ${q.verloren} verloren, ${q.offen} offen`}
                 {vieleOffen(q) ? <span className="ueb-marke">noch viele offen</span> : null}
               </span>
             </li>

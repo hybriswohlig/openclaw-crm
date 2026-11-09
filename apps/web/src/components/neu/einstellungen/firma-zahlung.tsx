@@ -73,7 +73,7 @@ export function FirmaZahlung({
         onSpeichern={klick}
         kinder={
           <div className="einst-raster">
-            <div className="einst-feld">
+            <div className="einst-feld einst-feld-breit">
               <span className="einst-label" id={`basis-${firma.id}`}>
                 {TEXT.zahlungBasis}
               </span>
@@ -95,7 +95,7 @@ export function FirmaZahlung({
                 aria-invalid={!geprueft.ok && geprueft.feld === "tage"}
               />
             </div>
-            <div className="einst-feld">
+            <div className="einst-feld einst-feld-breit">
               <span className="einst-label" id={`erinnerung-${firma.id}`}>
                 {TEXT.zahlungErinnerung}
               </span>
