@@ -32,7 +32,7 @@ import "./lagekarte.css";
 export interface LagekarteProps {
   /** Zur klassischen Startseite wechseln (HUD „Liste“, WebGL-Hinweis). */
   onListe: () => void;
-  /** Fest vorgegebenes Thema statt next-themes (neue Oberfläche: hell bis Plan 14). */
+  /** Fest vorgegebenes Thema statt next-themes (neue Oberfläche: aus der Darstellung, Plan 14b). */
   thema?: Thema;
 }
 

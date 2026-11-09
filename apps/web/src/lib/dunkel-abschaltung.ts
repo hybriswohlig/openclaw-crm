@@ -477,6 +477,7 @@ export const PRUEFRASTER_THEMES = ["hell", "dunkel"] as const;
 /** `:deal` = Deal (a) aus `scripts/akte-testdaten.ts`, `:person` = dessen Person. */
 export const PRUEFRASTER_SEITEN = [
   "/app/heute",
+  "/app/heute/karte",
   "/app/leads",
   "/app/leads/:deal",
   "/app/leads/:deal/kalkulation",

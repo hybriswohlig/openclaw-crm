@@ -6,11 +6,21 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { BrettSilhouette } from "@/components/lagekarte/ladebild";
+import { useDarstellung } from "@/components/neu/darstellung";
+import type { LgTheme } from "@/lib/dunkel-abschaltung";
 
-/** Ladebild fest hell, wie die Karte in der neuen Oberfläche (Dark Mode erst in Plan 14). */
-function LadebildHell() {
+/** Thema der Lagekarte aus der Darstellung der neuen Oberfläche (Plan 14b), nie aus next-themes. */
+export function lagekarteThema(theme: LgTheme): "hell" | "dunkel" {
+  return theme === "dark" ? "dunkel" : "hell";
+}
+
+/** Ladebild im Thema der neuen Oberfläche, solange die Karte lädt. */
+function LadebildNeu() {
+  const { theme } = useDarstellung();
   return (
-    <div className="lagekarte relative flex h-full w-full items-center justify-center overflow-hidden">
+    <div
+      className={`lagekarte ${theme === "dark" ? "lagekarte--dunkel" : ""} relative flex h-full w-full items-center justify-center overflow-hidden`}
+    >
       <BrettSilhouette />
     </div>
   );
@@ -18,7 +28,7 @@ function LadebildHell() {
 
 const Lagekarte = dynamic(() => import("@/components/lagekarte/lagekarte"), {
   ssr: false,
-  loading: () => <LadebildHell />,
+  loading: () => <LadebildNeu />,
 });
 
 /**
@@ -28,6 +38,7 @@ const Lagekarte = dynamic(() => import("@/components/lagekarte/lagekarte"), {
  */
 export function LagekarteAnsicht() {
   const router = useRouter();
+  const { theme } = useDarstellung();
   return (
     <div className="heute-karte">
       <nav className="heute-karte-kopf" aria-label="Zurück">
@@ -35,7 +46,7 @@ export function LagekarteAnsicht() {
         <h1 className="heute-karte-titel">Lagekarte</h1>
       </nav>
       <div className="heute-karte-flaeche">
-        <Lagekarte thema="hell" onListe={() => router.push("/app/heute")} />
+        <Lagekarte thema={lagekarteThema(theme)} onListe={() => router.push("/app/heute")} />
       </div>
     </div>
   );
