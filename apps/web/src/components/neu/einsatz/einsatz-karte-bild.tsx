@@ -73,9 +73,23 @@ export default function EinsatzKarteBild(props: EinsatzKarteBildProps) {
     return () => onSteuerung(null);
   }, [onSteuerung]);
 
-  const grenzen = useMemo(() => kartenGrenzen({ beladen, entladen, linie }, gruppen), [beladen, entladen, linie, gruppen]);
-  // Erster Ausschnitt nur einmal: Filter und Auswahl verschieben die Karte nicht.
+  // Ausschnitt über Auftrag, Linie, Pins und den Umkreis (sonst liegt der Ring oft ganz außerhalb).
+  const grenzen = useMemo(() => {
+    const ring = beladen && umkreisKm > 0 ? kreisPunkte(beladen.punkt, umkreisKm, 16) : [];
+    return kartenGrenzen({ beladen, entladen, linie: [...linie, ...ring] }, gruppen);
+  }, [beladen, entladen, linie, gruppen, umkreisKm]);
+  // Erster Ausschnitt einmal; Filter und Auswahl verschieben die Karte nicht, nur ein neuer Umkreis.
   const start = useRef(grenzen);
+  const rand = schmal ? { top: 36, bottom: 24, left: 24, right: 60 } : { top: 60, bottom: 50, left: 50, right: 120 };
+  const ersterUmkreis = useRef(umkreisKm);
+  useEffect(() => {
+    if (umkreisKm === ersterUmkreis.current) return;
+    ersterUmkreis.current = umkreisKm;
+    const m = karte.current?.getMap();
+    if (m && grenzen) m.fitBounds(grenzen, { padding: rand, maxZoom: 12, duration: 400 });
+    // `rand` hängt nur an `schmal`; neu einpassen nur bei neuem Umkreis.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [umkreisKm, grenzen]);
 
   // Leere Ebenen als leere FeatureCollection (eine leere Geometrie ist kein gültiges GeoJSON).
   const strecke = useMemo(
@@ -121,8 +135,6 @@ export default function EinsatzKarteBild(props: EinsatzKarteBildProps) {
   if (!start.current) {
     return <div className="ezk-leer">Keine Orte zum Anzeigen. Wohnorte unter Mitarbeiter eintragen.</div>;
   }
-  const rand = schmal ? { top: 36, bottom: 24, left: 24, right: 60 } : { top: 60, bottom: 50, left: 50, right: 120 };
-
   return (
     <div className="ezk-bild-rahmen">
       <MapLibreKarte

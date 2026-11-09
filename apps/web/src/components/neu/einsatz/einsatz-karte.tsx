@@ -336,7 +336,7 @@ export function EinsatzKartenAnsicht({
       <div className="ez-karte-kopf ez-karte-kopf-zeile">
         <div>
           <h3 id="ezk-titel">{tagText ? `Karte am ${tagText}` : "Karte"}</h3>
-          <p>Pin auf Beladen oder in die Team-Liste ziehen. Klick zeigt Anfahrt und Satz.</p>
+          <p>Pin auf Beladen oder in die Team-Liste ziehen. {schmal ? "Antippen" : "Klick"} zeigt Anfahrt und Satz.</p>
         </div>
       </div>
 
@@ -404,6 +404,9 @@ export function EinsatzKartenAnsicht({
             schmal={schmal}
           />
         </div>
+        <div className="ezk-kompakt" data-ablage="team" aria-live="polite">
+          {kompakt}
+        </div>
         <div className="ezk-legende" aria-hidden="true">
           <span>
             <LageSymbol lage="frei" /> frei
@@ -456,9 +459,6 @@ export function EinsatzKartenAnsicht({
         </div>
       ) : null}
 
-      <div className="ezk-kompakt" data-ablage="team" aria-live="polite">
-        {kompakt}
-      </div>
 
       {geist && portalZiel
         ? createPortal(
