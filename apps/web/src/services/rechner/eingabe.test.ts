@@ -203,3 +203,18 @@ describe("mitEinsatzFeldern (Plan 12b)", () => {
     expect(basis.mietstation).toBe("alt");
   });
 });
+
+describe("rechnerAnfrageAus mit Adressen aus dem Chat (Plan 15, Bauteil 8)", () => {
+  const chat = { von: "70372 Stuttgart", nach: "71032 Böblingen", quelleVon: "erkennung" as const, quelleNach: "erkennung" as const };
+  it("Viktoria: Lead leer, beide PLZ aus dem Chat gehen an den Rechner", () => {
+    const a = rechnerAnfrageAus({ ...leer, chatAdressen: chat });
+    expect(a).toMatchObject({ von_adresse: "70372 Stuttgart", nach_adresse: "71032 Böblingen", nach_vorhanden: "on" });
+  });
+  it("das Lead gewinnt je Seite", () => {
+    const a = rechnerAnfrageAus({ ...leer, von: "Hauptstr. 1, 70173 Stuttgart", chatAdressen: { ...chat, von: null, quelleVon: null } });
+    expect(a).toMatchObject({ von_adresse: "Hauptstr. 1, 70173 Stuttgart", nach_adresse: "71032 Böblingen" });
+  });
+  it("ohne Chat-Angabe exakt wie vorher", () => {
+    expect(rechnerAnfrageAus({ ...leer, chatAdressen: null })).toEqual(rechnerAnfrageAus(leer));
+  });
+});

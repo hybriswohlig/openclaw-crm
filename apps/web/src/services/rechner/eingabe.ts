@@ -8,6 +8,7 @@ import { createHash } from "node:crypto";
 import type { Auftragsart } from "@/lib/auftragsart";
 import { rechnerBuchungFeld, type BuchungsAnteil, type TransporterBuchung } from "@/lib/einsatz";
 import type { InventoryOwner } from "@/services/inventory-owner";
+import type { ChatAdressen } from "@/lib/kalkulation-p15";
 import type { LeadQuelle, Marke } from "./quelle";
 import { zugangAusTitel } from "./zugang";
 
@@ -35,6 +36,11 @@ export interface LeadDaten {
   halteverbotNach?: boolean;
   packService: boolean;
   kartons: number | null;
+  /**
+   * Plan 15 (Bauteil 8): beste Angabe aus dem Chat für Seiten, die im Lead fehlen
+   * („PLZ Ort“, unbestätigt). Gilt nur, wo `von` bzw. `nach` leer ist.
+   */
+  chatAdressen?: ChatAdressen | null;
   /** Firma des Leads, für den Margenvorschlag */
   marke?: Marke | null;
   /** Herkunft des Leads, für den Margenvorschlag */
@@ -67,9 +73,12 @@ export function rechnerAnfrageAus(lead: LeadDaten, opts: { heute?: string } = {}
     if (wert !== null && wert !== undefined && wert !== "") a[feld] = String(wert);
   };
 
+  // Plan 15: fehlt im Lead eine Adresse, rechnet der Rechner mit der Angabe aus dem Chat.
+  const von = lead.von ?? lead.chatAdressen?.von ?? null;
+  const nach = lead.nach ?? lead.chatAdressen?.nach ?? null;
   for (const [seite, adresse, etage, zugangTitel, tragestrecke, treppenhaus] of [
-    ["von", lead.von, lead.etageVon, lead.zugangVon, lead.tragestreckeVonM, lead.treppenhausVon],
-    ["nach", lead.nach, lead.etageNach, lead.zugangNach, lead.tragestreckeNachM, lead.treppenhausNach],
+    ["von", von, lead.etageVon, lead.zugangVon, lead.tragestreckeVonM, lead.treppenhausVon],
+    ["nach", nach, lead.etageNach, lead.zugangNach, lead.tragestreckeNachM, lead.treppenhausNach],
   ] as const) {
     const z = zugangAusTitel(zugangTitel);
     setze(`${seite}_adresse`, adresse);
@@ -80,8 +89,8 @@ export function rechnerAnfrageAus(lead: LeadDaten, opts: { heute?: string } = {}
   }
   // Zielseite aktiv, sobald es Angaben zum Ziel gibt oder der Umzug "innerhalb" eines Ortes ist
   // (der Rechner nimmt dann denselben Ort als Ziel bzw. meldet die fehlende Adresse).
-  const ortsintern = !!lead.von && /^(umzug\s+)?innerhalb\s/i.test(lead.von.trim());
-  if (lead.nach || ortsintern || lead.etageNach !== null || lead.zugangNach !== null || a.nach_treppenhaus || lead.halteverbotNach) a.nach_vorhanden = "on";
+  const ortsintern = !!von && /^(umzug\s+)?innerhalb\s/i.test(von.trim());
+  if (nach || ortsintern || lead.etageNach !== null || lead.zugangNach !== null || a.nach_treppenhaus || lead.halteverbotNach) a.nach_vorhanden = "on";
   setze("umzugsdatum", lead.umzugsdatum);
   setze("marke", lead.marke);
   setze("quelle", lead.quelle);

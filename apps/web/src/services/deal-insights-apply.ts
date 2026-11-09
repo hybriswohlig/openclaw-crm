@@ -599,6 +599,9 @@ export async function applyDealInsights(
           openCustomerQuestions: insights.openCustomerQuestions,
           legalFlags: insights.legalFlags,
           confirmedByUser: !!appliedBy,
+          // Plan 15 (Bauteil 8): zuletzt erkannte Adressen, auch wenn sie nicht ins Lead
+          // geschrieben wurden. Die Kalkulation rechnet damit, solange das Lead leer ist.
+          adressen: { von: ext.move_from_address ?? null, nach: ext.move_to_address ?? null },
         },
         actorId: appliedBy,
       });

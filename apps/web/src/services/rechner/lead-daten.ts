@@ -12,6 +12,7 @@ import { auftragsartAus } from "@/lib/auftragsart";
 import { getRecord } from "@/services/records";
 import { getDealInventory } from "@/services/deal-inventory";
 import { ladeFirmenEinstellungen } from "@/services/company-settings";
+import { ladeChatAdressen } from "@/services/chat-adressen";
 import type { LeadDaten } from "./eingabe";
 import { leadQuelle, markeAusFirmenname } from "./quelle";
 import { datumText, groesseAusLead, inventarAusZeilen, ortText, referenzId, zahlOderNull } from "./lead-daten-helfer";
@@ -80,9 +81,14 @@ export async function ladeLeadDaten(workspaceId: string, dealRecordId: string): 
     .where(eq(quotations.dealRecordId, dealRecordId))
     .limit(1);
 
+  const von = ortText(dv.move_from_address);
+  const nach = ortText(dv.move_to_address);
+  // Plan 15 (Bauteil 8): fehlende Adressen aus dem Chat (KI-Ereignis, sonst Erkennung).
+  const chatAdressen = von && nach ? null : await ladeChatAdressen(workspaceId, dealRecordId, { von, nach });
   return {
-    von: ortText(dv.move_from_address),
-    nach: ortText(dv.move_to_address),
+    von,
+    nach,
+    chatAdressen,
     etageVon: zahlOderNull(dv.floors_from),
     etageNach: zahlOderNull(dv.floors_to),
     zugangVon: await optionsTitel(dv.elevator_from),
