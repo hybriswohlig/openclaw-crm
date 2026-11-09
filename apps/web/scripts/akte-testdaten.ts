@@ -1061,6 +1061,200 @@ async function main(): Promise<void> {
     move_to_address: adresse("Beispielpfad 6", "Sindelfingen", "71063"),
   });
 
+  // ─── Plan 15: zwei Deals in der Lage von Viktoria (keine Adressen im Lead, 37 Positionen, Eckbank) ───
+  // (V1) Chat mit beiden PLZ und „10 bis 15 Umzugskartons“, Route aus Testdaten (Cache), Google ungefähr.
+  // (V2) ohne Chat, ohne Adressen: alles geschätzt (2 Touren, 5 Personen, 30 + 3 × 25 + 30 min), keine Route.
+  const { dealCalculationRoutes } = await import("@/db/schema/deal-calculation-routes");
+  const { punkteSchluessel, googleMapsLink } = await import("@/lib/route-link");
+  const { punkteAusVersion } = await import("@/services/kalkulations-route");
+  const kodiere = (punkte: [number, number][]): string => {
+    let alt = [0, 0];
+    let aus = "";
+    const zahl = (n: number) => {
+      let v = n < 0 ? ~(n << 1) : n << 1;
+      let t = "";
+      while (v >= 0x20) {
+        t += String.fromCharCode((0x20 | (v & 0x1f)) + 63);
+        v >>= 5;
+      }
+      return t + String.fromCharCode(v + 63);
+    };
+    for (const [lng, lat] of punkte) {
+      const la = Math.round(lat * 1e5);
+      const ln = Math.round(lng * 1e5);
+      aus += zahl(la - alt[0]) + zahl(ln - alt[1]);
+      alt = [la, ln];
+    }
+    return aus;
+  };
+  const NAMEN_KATALOG = ["Bett", "Kleiderschrank", "Sofa", "Esstisch", "Stuhl", "Kommode", "Regal", "Schreibtisch", "Waschmaschine", "Kühlschrank", "Fernseher", "Nachttisch", "Couchtisch", "Sessel"];
+  const NAMEN_OHNE = [
+    "Eckbank", "Gartensessel", "Kinderhochbett mit Spielzelt", "Schwebetürenschrank", "Kindertisch", "Kinderstuhl", "Spielküche",
+    "Spielwaschbecken", "Teppich groß", "Läufer", "Drucker", "Stoffboxen", "Bücherstapel", "Wäscheständer", "Staubsauger",
+    "Bügelbrett", "Schuhregal", "Garderobe", "Standlampe", "Wandbild", "Gartentisch", "Sonnenschirm", "Getränkekisten",
+  ];
+  const viktoriaInventar = (deal: string, mitFoto: boolean) => {
+    const zeilen = [...NAMEN_KATALOG.map((n) => ({ name: n, ohne: false })), ...NAMEN_OHNE.map((n) => ({ name: n, ohne: true }))];
+    return zeilen.map((z, i) => ({
+      workspaceId: workspace.id,
+      dealRecordId: deal,
+      name: z.name,
+      category: "Möbel",
+      quantity: z.name === "Stuhl" ? 6 : z.name === "Stoffboxen" ? 12 : z.name === "Getränkekisten" ? 8 : z.name === "Regal" ? 4 : z.name === "Wandbild" ? 6 : z.name === "Kinderstuhl" ? 2 : z.name === "Gartensessel" ? 4 : 1,
+      sizeClass: (z.name === "Eckbank" ? "sperrig" : z.ohne ? "mittel" : "gross") as "sperrig" | "mittel" | "gross",
+      heavyFlag: false,
+      fragileFlag: false,
+      disassemblyRequired: z.name === "Bett" || z.name === "Kleiderschrank",
+      moveFlag: true,
+      photoAttachmentId: mitFoto && i < 8 ? kachel((i % 14) + 1) : null,
+      volumeCbmEstimate: null,
+      confidence: "mittel" as const,
+      source: (mitFoto && i < 30 ? "foto" : "chat") as "foto" | "chat",
+      needsPhoto: false,
+      dismantlingOwner: (z.name === "Bett" || z.name === "Kleiderschrank" ? "company" : "none") as "company" | "none",
+      assemblyOwner: (z.name === "Bett" || z.name === "Kleiderschrank" ? "company" : "none") as "company" | "none",
+      sortOrder: i,
+    }));
+  };
+  const KATALOG_WERTE: Record<string, { key: string; cbm: number; kg: number; trage: number; de: number | null; mo: number | null; tr: number; g: "klein" | "mittel" | "gross" | "sperrig" }> = {
+    Bett: { key: "bett_180", cbm: 1.2, kg: 70, trage: 16, de: 30, mo: 45, tr: 2, g: "gross" },
+    Kleiderschrank: { key: "kleiderschrank_3t", cbm: 1.8, kg: 90, trage: 20, de: 60, mo: 90, tr: 2, g: "gross" },
+    Sofa: { key: "sofa_3", cbm: 1.6, kg: 70, trage: 16, de: null, mo: null, tr: 2, g: "gross" },
+    Esstisch: { key: "esstisch", cbm: 0.8, kg: 40, trage: 10, de: 20, mo: 25, tr: 2, g: "gross" },
+    Stuhl: { key: "stuhl", cbm: 0.15, kg: 6, trage: 3, de: null, mo: null, tr: 1, g: "mittel" },
+    Kommode: { key: "kommode", cbm: 0.5, kg: 40, trage: 8, de: null, mo: null, tr: 2, g: "mittel" },
+    Regal: { key: "regal_billy", cbm: 0.35, kg: 30, trage: 8, de: 20, mo: 30, tr: 1, g: "mittel" },
+    Schreibtisch: { key: "schreibtisch", cbm: 0.7, kg: 35, trage: 10, de: 20, mo: 25, tr: 2, g: "gross" },
+    Waschmaschine: { key: "waschmaschine", cbm: 0.4, kg: 75, trage: 12, de: null, mo: null, tr: 2, g: "mittel" },
+    Kühlschrank: { key: "kuehlschrank", cbm: 0.6, kg: 60, trage: 10, de: null, mo: null, tr: 2, g: "mittel" },
+    Fernseher: { key: "tv", cbm: 0.15, kg: 20, trage: 6, de: null, mo: null, tr: 1, g: "mittel" },
+    Nachttisch: { key: "nachttisch", cbm: 0.15, kg: 12, trage: 3, de: null, mo: null, tr: 1, g: "klein" },
+    Couchtisch: { key: "couchtisch", cbm: 0.3, kg: 20, trage: 4, de: null, mo: null, tr: 1, g: "mittel" },
+    Sessel: { key: "sessel", cbm: 0.6, kg: 25, trage: 6, de: null, mo: null, tr: 1, g: "mittel" },
+  };
+  const viktoriaErgebnis = (fahrt: {
+    anfahrt: { km: number; min: number; quelle: "google" | "angenommen" };
+    strecke: { km: number; min: number; quelle: "google" | "angenommen" };
+    rueckfahrt: { km: number; min: number; quelle: "google" | "angenommen" };
+    team: number;
+  }) => {
+    const basis = weberErgebnis({ volumen: 11.7, arbeitPm: 520, zeitpostenPm: 0, halteverbotSeiten: 1, montage: true, margeProzent: 38, margeQuelle: "vorschlag" });
+    const inv = viktoriaInventar("x", false);
+    const positionen = inv.map((z, i) => {
+      const k = KATALOG_WERTE[z.name];
+      const ohne = !k;
+      return {
+        positionId: `freitext-${i}`,
+        name: z.name,
+        menge: z.quantity,
+        volumenCbm: k ? k.cbm : z.name === "Eckbank" ? 2 : 0.4,
+        gewichtKg: k ? k.kg : z.name === "Eckbank" ? 120 : 30,
+        zerlegt: z.dismantlingOwner === "company",
+        demontageQuelle: (z.dismantlingOwner === "company" ? "wunsch" : "keine_regel") as "wunsch" | "keine_regel",
+        ungeprueft: ohne,
+      };
+    });
+    const details = inv.map((z, i) => {
+      const k = KATALOG_WERTE[z.name];
+      return k
+        ? { positionId: `freitext-${i}`, katalogKey: k.key, katalogTreffer: true, groessenklasse: k.g, mindestTraeger: k.tr, trageMin: k.trage, demontageMin: k.de, montageMin: k.mo }
+        : { positionId: `freitext-${i}`, katalogKey: null, katalogTreffer: false, groessenklasse: z.name === "Eckbank" ? ("sperrig" as const) : ("mittel" as const), mindestTraeger: z.name === "Eckbank" ? 3 : 1, trageMin: z.name === "Eckbank" ? 50 : 10, demontageMin: null, montageMin: null };
+    });
+    const touren = 2;
+    const fahrtMin = fahrt.anfahrt.min + (2 * touren - 1) * fahrt.strecke.min + fahrt.rueckfahrt.min;
+    const fahrtH = Math.round((fahrtMin / 60) * fahrt.team * 1.1 * 100) / 100;
+    const posten = basis.ergebnis.kosten.posten.map((p) =>
+      p.key === "personal.fahrt"
+        ? { ...p, menge: fahrtH, satz: 22.5, betrag: Math.round(fahrtH * 22.5 * 100) / 100, formel: `${fahrtH.toLocaleString("de-DE")} h × 22,50 €` }
+        : p
+    );
+    return {
+      ...basis.ergebnis,
+      team: { groesse: fahrt.team, quelle: "traeger" as const },
+      kosten: { ...basis.ergebnis.kosten, posten, personalStunden: { ...basis.ergebnis.kosten.personalStunden, pufferProzent: 10 } },
+      positionen,
+      positionenDetails: details,
+      zuordnungFreitext: { nichtZugeordnet: NAMEN_OHNE },
+      fahrtAufschluesselung: { ...fahrt, fahrten: touren, wege: 2 * touren - 1, fahrtMin },
+      fahrzeugoptionen: [{ id: "sprinter_l", name: "Sprinter L", fahrten: touren, km: 60, fahrtMin, teamgroesse: fahrt.team, uhrzeitMin: 0, auslastung: 0.9 }],
+      empfehlungOptionId: "sprinter_l",
+      mietstation: { ...basis.ergebnis.mietstation, quelle: fahrt.anfahrt.quelle, anfahrtMin: fahrt.anfahrt.min, anfahrtKm: fahrt.anfahrt.km, rueckfahrtMin: fahrt.rueckfahrt.min, rueckfahrtKm: fahrt.rueckfahrt.km },
+      zeiten: { ...basis.ergebnis.zeiten, fahrtMin, methode: "volumen" as const },
+      hinweise: [{ typ: "traeger", text: "Eckbank: mindestens 3 Träger nötig" }],
+      annahmen: [
+        "Etage an der Beladeadresse unbekannt: günstig Erdgeschoss, ungünstig 3. OG ohne Aufzug.",
+        "Tragestrecke an der Beladeadresse unbekannt: 10 m angenommen.",
+        "Tragestrecke an der Entladeadresse unbekannt: 10 m angenommen.",
+        ...NAMEN_OHNE.slice(0, 3).map((n) => `Position "${n}" ohne Katalogtreffer: 0.4 m³ (Standard der Größenklasse mittel) und 30 kg (Standard der Größenklasse mittel) je Stück.`),
+      ],
+      schaetzung: null,
+    };
+  };
+  const viktoriaKontakt = async (name: string, telefon: string) => {
+    const [k] = await db.insert(inboxContacts).values({ workspaceId: workspace.id, displayName: name, phone: telefon, phoneCanonical: telefon }).returning();
+    return k!;
+  };
+  const v1Deal = await datensatz(dealObjekt, { name: "Viktoria Muster (Chat)", stage: angebotStufe, operating_company: beispiel, source_channel: quelleWhatsapp, move_date: "2026-11-28" });
+  const v2Deal = await datensatz(dealObjekt, { name: "Viktoria Muster (ohne Angaben)", stage: angebotStufe, operating_company: beispiel, source_channel: quelleWhatsapp, move_date: "2026-11-28" });
+  await db.insert(dealInventoryItems).values(viktoriaInventar(v1Deal, true));
+  await db.insert(dealInventoryItems).values(viktoriaInventar(v2Deal, false));
+  const vk = await viktoriaKontakt("Viktoria Muster", "+491550000301");
+  const [vGespraech] = await db
+    .insert(inboxConversations)
+    .values({ workspaceId: workspace.id, channelAccountId: waKonto.id, contactId: vk.id, externalThreadId: "+491550000301", status: "open", dealRecordId: v1Deal, lastMessageAt: new Date("2026-11-08T10:05:00+01:00"), lastMessagePreview: "10 bis 15 Umzugskartons", unreadCount: 0 })
+    .returning();
+  await db.insert(inboxMessages).values([
+    { workspaceId: workspace.id, conversationId: vGespraech!.id, direction: "inbound", status: "received", fromAddress: "+491550000301", toAddress: "+491550000101", body: "Hallo, wir ziehen Ende November von 70372 Stuttgart nach 71032 Böblingen um.", sentAt: new Date("2026-11-08T10:00:00+01:00") },
+    { workspaceId: workspace.id, conversationId: vGespraech!.id, direction: "outbound", status: "sent", fromAddress: "+491550000101", toAddress: "+491550000301", body: "Gern! Ist es eher 70173 oder 70372?", sentAt: new Date("2026-11-08T10:02:00+01:00") },
+    { workspaceId: workspace.id, conversationId: vGespraech!.id, direction: "inbound", status: "received", fromAddress: "+491550000301", toAddress: "+491550000101", body: "70372. Wir haben so 10 bis 15 Umzugskartons, packen selbst.", sentAt: new Date("2026-11-08T10:05:00+01:00") },
+  ]);
+  const heuteV = (await import("@/services/rechner/quelle")).heuteBerlin();
+  const viktoriaVersion = async (deal: string, ergebnis: ReturnType<typeof viktoriaErgebnis>, overrides: unknown[]) => {
+    const l = await ladeLeadDaten(workspace.id, deal);
+    if (!l) throw new Error("Lead Viktoria fehlt");
+    const id = randomUUID();
+    const ov = overrides as Parameters<typeof grundlageAus>[2];
+    const request = anfrageMitUebersteuerungen(rechnerAnfrageAus(l), ov, { referenceDate: heuteV });
+    await db.insert(dealCalculationVersions).values({
+      id, workspaceId: workspace.id, dealRecordId: deal, version: 1, status: "entwurf", pricingMode: "fest", referenceDate: heuteV,
+      inputs: grundlageAus(l, ergebnis, ov), overrides: ov, rechnerRequest: request, rechnerResult: ergebnis, error: null,
+      costLines: kostenzeilenAus(ergebnis, ov), margin: { vorschlagProzent: 38, gruende: MARGE_VORSCHLAG.gruende, gewaehltProzent: null },
+      priceCents: Math.round(ergebnis.preis.festpreis * 100), packagePrices: [], kvItems: [], tariff: ergebnis.tarif,
+      createdBy: userId, createdAt: new Date(), updatedAt: new Date(), lockedAt: null, lockedBy: null, sentAt: null, sentVia: null,
+    });
+    return { id, request };
+  };
+  const e1 = viktoriaErgebnis({
+    anfahrt: { km: 9, min: 18, quelle: "google" },
+    strecke: { km: 21, min: 25, quelle: "google" },
+    rueckfahrt: { km: 17, min: 21, quelle: "google" },
+    team: 3,
+  });
+  const ver1 = await viktoriaVersion(v1Deal, e1, []);
+  const punkte = punkteAusVersion({ rechnerRequest: ver1.request, rechnerResult: e1 });
+  if (punkte) {
+    const S: [number, number] = [9.165, 48.815];
+    const B: [number, number] = [9.226, 48.808];
+    const E: [number, number] = [9.012, 48.684];
+    await db.insert(dealCalculationRoutes).values({
+      calculationVersionId: ver1.id,
+      workspaceId: workspace.id,
+      punkteSchluessel: punkteSchluessel(punkte),
+      teilstrecken: [
+        { von: "Station", nach: "Beladen", km: 9, minuten: 18, polyline: kodiere([S, [9.19, 48.82], B]), haupt: false },
+        { von: "Beladen", nach: "Entladen", km: 21, minuten: 25, polyline: kodiere([B, [9.18, 48.77], [9.1, 48.72], E]), haupt: true },
+        { von: "Entladen", nach: "Station", km: 17, minuten: 21, polyline: kodiere([E, [9.08, 48.76], S]), haupt: false },
+      ],
+      googleLink: googleMapsLink(punkte),
+      berechnetAm: new Date(),
+    });
+  }
+  const geschaetzt = { km: 20, min: 30, quelle: "angenommen" as const };
+  const e2 = viktoriaErgebnis({ anfahrt: geschaetzt, strecke: { km: 15, min: 25, quelle: "angenommen" }, rueckfahrt: geschaetzt, team: 5 });
+  await viktoriaVersion(v2Deal, { ...e2, mietstation: { ...e2.mietstation, quelle: "angenommen" } }, [
+    { id: randomUUID(), art: "eingabe", key: "umzugskartons", umgedeutet: "kartons", rechnerwert: null, wert: 15, grund: "Kundin: 15 Kartons", autor: { userId, quelle: "mensch" }, zeit: "2026-11-08T11:00:00+01:00", fotoRef: null },
+  ]);
+
   for (const id of [weber, anfrage, sommer, probe]) {
     await aktualisiereWartet(workspace.id, id);
   }
@@ -1072,6 +1266,8 @@ async function main(): Promise<void> {
     password: PASSWORD,
     firmen: { kottke, beispiel },
     deals: {
+      viktoriaChat: v1Deal,
+      viktoriaOhne: v2Deal,
       angebot: weber,
       anfrage,
       durchgefuehrt: sommer,

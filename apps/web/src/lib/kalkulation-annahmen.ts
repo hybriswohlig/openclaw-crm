@@ -196,7 +196,9 @@ export function teamGrund(e: RechnerErgebnis | null): string | null {
       const t = (e?.hinweise ?? []).find((h) => h.typ === "traeger");
       const name = t?.text.split(":")[0]?.trim() ?? null;
       const pos = name ? (e?.positionen ?? []).find((p) => p.name.trim() === name) : undefined;
-      const geschaetzt = pos?.ungeprueft ? `, geschätzt ${GROESSENKLASSE_TEXT[pos.groessenklasse ?? "mittel"]}` : "";
+      const detail = pos ? (e?.positionenDetails ?? []).find((d) => d.positionId === (pos.positionId ?? pos.id)) : undefined;
+      const klasse = detail?.groessenklasse ?? pos?.groessenklasse ?? "mittel";
+      const geschaetzt = pos?.ungeprueft ? `, geschätzt ${GROESSENKLASSE_TEXT[klasse]}` : "";
       return name ? `${n} Träger wegen ${name}${geschaetzt}` : `${n} Personen wegen eines Möbels mit Mindestträgern`;
     }
     case "staffel":

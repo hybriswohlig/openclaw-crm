@@ -876,13 +876,11 @@ function fahrtZeile(e: RechnerErgebnis | null, anfrage: RechnerAnfrage, k: Grund
   return {
     key: "fahrt",
     label: "Fahrzeiten",
-    wert: f
-      ? [a ? `Anfahrt ${GANZ.format(a.min)} min` : null, t ? `Weg ${GANZ.format(t.min)} min` : null, r ? `Rückfahrt ${GANZ.format(r.min)} min` : null]
-          .filter(Boolean)
-          .join(" · ")
-      : "offen",
+    wert: f ? [a, t, r].filter(Boolean).map((x) => GANZ.format(x!.min)).join(" / ") + " min" : "offen",
     herkunft: eindeutig(herkunft.length > 0 ? herkunft : [{ art: "STANDARD", text: "STANDARD" }]),
-    warum: f ? `${quelle(a?.quelleText)}${t && t.quelleText !== a?.quelleText ? `, Weg ${t.quelleText}` : ""} · ${f.rechnung}` : null,
+    warum: f
+      ? `Anfahrt / Weg je Tour / Rückfahrt, ${quelle(a?.quelleText)}${t && t.quelleText !== a?.quelleText ? `, Weg ${t.quelleText}` : ""} · ${f.rechnung}`
+      : null,
     bearbeitet: k.bearbeitet(keys),
     felder: FAHRT_FELDER.map(([key, label]) => {
       const s = key.startsWith("fahrt.anfahrt") ? a : key.startsWith("fahrt.strecke") ? t : r;

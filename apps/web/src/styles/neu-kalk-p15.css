@@ -78,8 +78,8 @@
 }
 
 [data-neu] .kalk-fahrt-farbe[data-gestrichelt] {
-  -webkit-mask: repeating-linear-gradient(90deg, #000 0 4px, transparent 4px 7px);
-  mask: repeating-linear-gradient(90deg, #000 0 4px, transparent 4px 7px);
+  -webkit-mask: repeating-linear-gradient(90deg, #000 0 4px, transparent 4px 7px); /* fest */
+  mask: repeating-linear-gradient(90deg, #000 0 4px, transparent 4px 7px); /* fest */
 }
 
 [data-neu] .kalk-fahrt-hinweis {
@@ -355,7 +355,7 @@
 
 [data-neu] .kalk-kurzgrund[aria-pressed="true"] {
   background: var(--blue);
-  color: #fff;
+  color: var(--flaeche);
 }
 
 [data-neu] .kalk-hinweis-klein {
@@ -376,4 +376,22 @@
 
 [data-neu] .kalk-pakete-schalter select {
   max-width: 220px;
+}
+
+[data-neu] .kalk-pakete-schalter .kalk-dialog-schalter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--ink);
+}
+
+[data-neu] .kalk-pakete-schalter .lg-input {
+  width: auto;
+  min-width: 0;
+  max-width: 220px;
+  height: auto;
+  padding: 4px 10px;
+  font-size: 13px;
 }

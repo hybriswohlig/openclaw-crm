@@ -65,7 +65,7 @@ export function HebelAusDialog({
           </div>
           <label className="akte-dialog-feld" htmlFor={`${id}-f`}>
             Ergänzung (optional)
-            <input id={`${id}-f`} className="lg-input" value={frei} onChange={(e) => setFrei(e.target.value)} placeholder="Etwa: Kundin hat das Halteverbot selbst beantragt" />
+            <input id={`${id}-f`} className="lg-input" value={frei} onChange={(e) => setFrei(e.target.value)} placeholder="Etwa: mit der Kundin am Telefon so besprochen" />
           </label>
           {fehler ? <p className="akte-dialog-fehler">{fehler}</p> : null}
           <div className="akte-dialog-knoepfe">
