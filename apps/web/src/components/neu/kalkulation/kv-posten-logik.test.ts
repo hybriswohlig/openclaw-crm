@@ -32,3 +32,14 @@ describe("„×“ an Hebel-Posten (Bauteil 6)", () => {
     expect(grundAusKurzgrund("nicht nötig", "")).toBe("nicht nötig");
   });
 });
+
+describe("Review I6: mit Paketen kein hebel_aus", () => {
+  it("Paket-Hebel in der Anfrage: Montage und Küche bleiben an", () => {
+    const a = anfrageMitUebersteuerungen(
+      {},
+      alsUe([...hebelAusUebersteuerungen("montage", "g"), ...hebelAusUebersteuerungen("kueche", "g")]),
+      { referenceDate: "2026-11-09", paketHebel: { premium: ["montage", "kueche"] } }
+    );
+    expect(a).not.toHaveProperty("hebel_aus");
+  });
+});

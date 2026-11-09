@@ -322,7 +322,8 @@ export function MargeSpalte({ ansicht, kontext }: { ansicht: KalkulationsAnsicht
             kvFehler={ansicht.kvFehler}
             erzeugung={version.kvErzeugung}
             werkzeug={
-              version.status === "entwurf" || kontext.bearbeitbar
+              // Review I6: mit Paketen kein „ד, die Pakete schalten die Hebel.
+              (version.status === "entwurf" || kontext.bearbeitbar) && ansicht.pakete.length === 0
                 ? {
                     beschaeftigt: lauf !== null,
                     onAus: (hebel, posten) => setDialog({ art: "hebel_aus", hebel, posten }),

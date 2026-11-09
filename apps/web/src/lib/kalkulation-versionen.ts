@@ -543,8 +543,10 @@ export function anfrageMitUebersteuerungen(
     if (werte.length > 0) a[feld] = werte;
     else delete a[feld];
   };
-  // Plan 15 (Bauteil 6): Hebel aus, sortiert (stabiler Hash); leer = Feld weg.
-  if (hebelAus.size > 0) a.hebel_aus = JSON.stringify([...hebelAus].sort());
+  // Plan 15 (Bauteil 6): Hebel aus, sortiert (stabiler Hash); leer = Feld weg. Review I6: mit
+  // Paketen nie, denn dort schalten die Pakete die Hebel (eine Paketkarte verspricht sie).
+  const mitPaketen = !!opts.paketHebel && Object.keys(opts.paketHebel).length > 0;
+  if (hebelAus.size > 0 && !mitPaketen) a.hebel_aus = JSON.stringify([...hebelAus].sort());
   else delete a.hebel_aus;
   // Plan 15 (Bauteil 3): Korrektur je Position ohne Katalogtreffer (Name wie im Inventar).
   if (positionen.size > 0 && Array.isArray(a.positionen_freitext)) {
