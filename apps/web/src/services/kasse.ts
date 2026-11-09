@@ -94,16 +94,21 @@ function dealAus(
 }
 
 /** `GET /api/v1/kasse`. `firmaId` filtert auf die Betriebsfirma des Deals. */
-export async function ladeKasse(ws: string, firmaId: string | null, jetzt: Date = new Date()): Promise<KasseAntwort> {
-  const geladen = await ladeLeadsRoh(ws, jetzt);
-  const stufen = new Map(geladen.stufen.map((s) => [s.id, s]));
-  const firmen = new Map(geladen.stamm.firmen.map((f) => [f.id, f.name]));
-  const leads = (firmaId ? geladen.roh.filter((r) => r.firmaId === firmaId) : geladen.roh);
+export async function ladeKasse(
+  ws: string,
+  firmaId: string | null,
+  jetzt: Date = new Date(),
+  geladen?: Awaited<ReturnType<typeof ladeLeadsRoh>>,
+): Promise<KasseAntwort> {
+  const daten = geladen ?? (await ladeLeadsRoh(ws, jetzt));
+  const stufen = new Map(daten.stufen.map((s) => [s.id, s]));
+  const firmen = new Map(daten.stamm.firmen.map((f) => [f.id, f.name]));
+  const leads = (firmaId ? daten.roh.filter((r) => r.firmaId === firmaId) : daten.roh);
   const regeln = await regelnLaden(ws, leads.map((r) => r.firmaId));
   const deals = leads.map((r) => dealAus(r, stufen, firmen, regeln));
   return {
     ...kasseEintraege(deals, berlinTag(jetzt), jetzt.toISOString()),
-    firmen: geladen.stamm.firmen.map((f) => ({ id: f.id, name: f.name })),
+    firmen: daten.stamm.firmen.map((f) => ({ id: f.id, name: f.name })),
   };
 }
 
