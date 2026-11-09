@@ -697,7 +697,7 @@ describe("Karte", () => {
     expect(kartenGrenzen({ beladen: null, entladen: null, linie: [] }, [])).toBeNull();
     expect(
       kartenGrenzen(
-        { beladen: { punkt: [1, 2], text: "A" }, entladen: { punkt: [3, 4], text: "B" }, linie: [[0, 5]] },
+        { beladen: { punkt: [1, 2], text: "A", quelle: "route" }, entladen: { punkt: [3, 4], text: "B", quelle: "route" }, linie: [[0, 5]] },
         [{ schluessel: "p", punkt: [2, 1], ortText: "", personen: [], freiZahl: 0 }],
       ),
     ).toEqual([[0, 1], [3, 5]]);

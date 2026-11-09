@@ -982,10 +982,19 @@ export interface KartenPerson {
   lage: PersonLage;
 }
 
+/**
+ * Herkunft eines Auftragspunkts (12c, Auftrag 10.11. Punkt 1): `route` aus der
+ * gespeicherten Route der maßgeblichen Version; `ort` Ortsmitte aus „PLZ Ort“
+ * oder Ort der Adresse (Kalkulation oder Lead); `chat` Ortsmitte aus einer
+ * Chat-Angabe (Plan 15), nur ungefähr.
+ */
+export type AuftragPunktQuelle = "route" | "ort" | "chat";
+
 export interface KartenAuftragPunkt {
   punkt: Punkt;
   /** Ort oder Ortsteil, z. B. „Stuttgart-West“. */
   text: string;
+  quelle: AuftragPunktQuelle;
 }
 
 /** Antwort von `GET /api/v1/deals/[recordId]/einsatz/karte`. */
@@ -1061,4 +1070,72 @@ export function ziehenErgebnis(lage: PersonLage, imTeam: boolean): ZiehenErgebni
   if (lage === "abwesend") return "rueckfrage_abwesend";
   if (lage === "belegt") return "rueckfrage_belegt";
   return "hinzufuegen";
+}
+
+// ─── Karte: Orte und Umkreis (12c, Auftrag 10.11.) ───────────────────────────
+
+/**
+ * PLZ und Ort aus einer Adressangabe, ohne Straße: „Königstr. 1, 70173
+ * Stuttgart“ → 70173 und „Stuttgart“; „70372 Stuttgart“; „innerhalb Böblingen“
+ * → nur Ort „Böblingen“. Ohne verwertbare Angabe beide null.
+ */
+export function ortAusAdresse(adresse: string | null | undefined): { plz: string | null; ort: string | null } {
+  if (typeof adresse !== "string") return { plz: null, ort: null };
+  const t = adresse
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^(umzug\s+)?(innerhalb|in)(\s+von)?\s+/i, "")
+    .replace(/,?\s*(deutschland|germany)$/i, "");
+  if (t === "") return { plz: null, ort: null };
+  const mitPlz = /(?:^|[\s,])(\d{5})\s+([^,;\d]+?)\s*(?:[,;]|$)/.exec(t);
+  if (mitPlz) {
+    const ort = mitPlz[2]!.trim();
+    return { plz: mitPlz[1]!, ort: ort === "" ? null : ort };
+  }
+  const nurPlz = /(?:^|[\s,])(\d{5})(?:$|[\s,])/.exec(t);
+  // Ohne PLZ: letzter Teil ohne Ziffern, mit Großbuchstaben am Anfang (keine Straße mit Hausnummer).
+  const teile = t.split(/[,;]/).map((x) => x.trim()).filter(Boolean);
+  const ort = [...teile].reverse().find((x) => !/\d/.test(x) && /^\p{Lu}\p{L}/u.test(x)) ?? null;
+  return { plz: nurPlz ? nurPlz[1]! : null, ort: ort && (teile.length > 1 || !/(str\.|straße|strasse|weg|gasse|platz)\b/i.test(ort)) ? ort : null };
+}
+
+/**
+ * Cache-Schlüssel eines Kartenpunkts in `einsatz_orte`: mit PLZ wie
+ * `ortSchluessel` („70176 stuttgart“), nur mit Ort „ort:böblingen“; sonst null.
+ */
+export function kartenOrtSchluessel(plz: string | null | undefined, ort: string | null | undefined): string | null {
+  const mit = ortSchluessel(plz, ort);
+  if (mit) return mit;
+  const o = (ort ?? "").trim().replace(/\s+/g, " ").toLocaleLowerCase("de");
+  return o === "" ? null : `ort:${o}`;
+}
+
+/** Umkreis um Beladen (Luftlinie, grobe Orientierung), wählbar; 0 = aus. */
+export const UMKREIS_KM = [15, 30, 50] as const;
+export type UmkreisKm = (typeof UMKREIS_KM)[number] | 0;
+export const UMKREIS_VORGABE: UmkreisKm = 30;
+
+/** Geschlossener Ring mit `n` Ecken um `mitte` im Abstand `km` (Kugel, Erdradius 6371 km). */
+export function kreisPunkte(mitte: Punkt, km: number, n = 64): Punkt[] {
+  const r = km / 6371;
+  const lat1 = (mitte[1] * Math.PI) / 180;
+  const lng1 = (mitte[0] * Math.PI) / 180;
+  const ring: Punkt[] = [];
+  for (let i = 0; i < n; i++) {
+    const b = (2 * Math.PI * i) / n;
+    const lat2 = Math.asin(Math.sin(lat1) * Math.cos(r) + Math.cos(lat1) * Math.sin(r) * Math.cos(b));
+    const lng2 = lng1 + Math.atan2(Math.sin(b) * Math.sin(r) * Math.cos(lat1), Math.cos(r) - Math.sin(lat1) * Math.sin(lat2));
+    ring.push([Math.round(((lng2 * 180) / Math.PI) * 1e6) / 1e6, Math.round(((lat2 * 180) / Math.PI) * 1e6) / 1e6]);
+  }
+  ring.push(ring[0]!);
+  return ring;
+}
+
+/** Luftlinie in km zwischen zwei Punkten (Haversine). */
+export function luftlinieKm(a: Punkt, b: Punkt): number {
+  const rad = (x: number) => (x * Math.PI) / 180;
+  const dLat = rad(b[1] - a[1]);
+  const dLng = rad(b[0] - a[0]);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a[1])) * Math.cos(rad(b[1])) * Math.sin(dLng / 2) ** 2;
+  return 2 * 6371 * Math.asin(Math.min(1, Math.sqrt(h)));
 }
