@@ -90,7 +90,7 @@ export function PlanLeiste({
       <LeistenMenue titel="Mitarbeiter" optionen={leuteWahl} wert={z.mitarbeiterId} onWaehlen={(w) => onZustand({ ...z, mitarbeiterId: w })} />
 
       {imLeads || kompakt ? null : (
-        <Link href="/contract-calendar" className="plan-abo">
+        <Link href="/app/einstellungen#kalender" className="plan-abo">
           Kalender-Abo
         </Link>
       )}

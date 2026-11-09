@@ -1,0 +1,553 @@
+/*
+ * Einstellungen in der neuen Oberfläche (Plan 13): /app/einstellungen (.einst-).
+ * Alles unter [data-neu]; nur Tokens aus neu.css, Text nur in --ink* und
+ * --*-ink. Glas nur auf Panels, Tabellen auf --fill-3. Hell; Plan 14b bringt Dunkel.
+ */
+
+[data-neu] .einst {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  min-width: 0;
+  padding-bottom: 32px;
+}
+
+[data-neu] .einst a {
+  color: var(--blue-ink);
+}
+
+/* ── Bereiche ────────────────────────────────────────── */
+
+[data-neu] .einst-bereich {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  scroll-margin-top: 16px;
+}
+
+[data-neu] .einst-bereich-kopf {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0 6px;
+}
+
+[data-neu] .einst-bereich-kopf-zeile {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 20px;
+}
+
+[data-neu] .einst-bereich-titel {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+
+[data-neu] .einst-firmenwahl {
+  flex: 0 1 380px;
+  min-width: 0;
+}
+
+[data-neu] .einst-ich {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 14px;
+}
+
+[data-neu] .einst-karte,
+[data-neu] .einst-firma {
+  --lg-panel-radius: 22px;
+
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding: 16px 18px;
+  scroll-margin-top: 16px;
+}
+
+[data-neu] .einst-karte h3,
+[data-neu] .einst-abschnitt h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+[data-neu] .einst-satz {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--ink-2);
+}
+
+[data-neu] .einst-einzug {
+  padding-left: 46px;
+}
+
+[data-neu] .einst-leer {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ink-3);
+}
+
+[data-neu] .einst-fehler {
+  margin: 0;
+  font-size: 13px;
+  color: var(--rose-ink);
+}
+
+[data-neu] .einst-hinweis {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 16px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: var(--fill-3);
+  color: var(--ink);
+}
+
+[data-neu] .einst-hinweis p {
+  margin: 0;
+}
+
+[data-neu] .einst-skelett {
+  height: 160px;
+  border-radius: 22px;
+}
+
+[data-neu] .einst-knoepfe {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+[data-neu] .einst-link {
+  display: block;
+  padding: 9px 12px;
+  border-radius: 12px;
+  background: var(--fill-3);
+  color: var(--ink);
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
+/* ── Firmenkarte ─────────────────────────────────────── */
+
+[data-neu] .einst-firma-kopf {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+[data-neu] .einst-firma-kopf h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+[data-neu] .einst-firma-raster {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 12px;
+}
+
+[data-neu] .einst-abschnitt {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding: 14px;
+  border-radius: 18px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--hair);
+}
+
+[data-neu] .einst-abschnitt[aria-busy="true"] {
+  opacity: 0.7;
+}
+
+[data-neu] .einst-abschnitt-kopf {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+[data-neu] .einst-abschnitt-fuss {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: auto;
+}
+
+/* Die Bewertungs-Regler aus Plan 11 sitzen hier ohne eigenes Panel-Glas. */
+[data-neu] .einst-abschnitt .bew-firmen {
+  display: block;
+}
+
+[data-neu] .einst-abschnitt .bew-firma {
+  padding: 0;
+  background: none;
+  box-shadow: none;
+}
+
+[data-neu] .einst-abschnitt .bew-firma-name {
+  display: none;
+}
+
+[data-neu] .einst-raster {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px 14px;
+}
+
+[data-neu] .einst-feld {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+[data-neu] .einst-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-2);
+}
+
+[data-neu] .einst-zeile {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+[data-neu] .einst-wachsen {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+[data-neu] .einst-schalter {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+[data-neu] .einst-schalter-zeile {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  color: var(--ink);
+}
+
+[data-neu] .einst-schalter-zeile[data-gesperrt] {
+  color: var(--ink-3);
+}
+
+/* ── Pakete ──────────────────────────────────────────── */
+
+[data-neu] .einst-pakete {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+[data-neu] .einst-paket {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+[data-neu] .einst-paket-name {
+  font-weight: 500;
+}
+
+[data-neu] .einst-paket[data-aus] .einst-paket-name {
+  color: var(--ink-3);
+}
+
+[data-neu] .einst-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-left: 46px;
+}
+
+[data-neu] .einst-chip {
+  padding: 5px 11px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--fill-2);
+  box-shadow: inset 0 0 0 1px var(--hair);
+  color: var(--ink-2);
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+[data-neu] .einst-chip[aria-pressed="true"] {
+  background: var(--flaeche);
+  box-shadow: inset 0 0 0 1.5px var(--blue-ink);
+  color: var(--blue-ink);
+}
+
+[data-neu] .einst-chip:focus-visible,
+[data-neu] .einst-icon:focus-visible {
+  outline: 2px solid var(--blue-ink);
+  outline-offset: 2px;
+}
+
+[data-neu] .einst-chip:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+/* ── Zeitposten ──────────────────────────────────────── */
+
+[data-neu] .einst-zeitposten {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+[data-neu] .einst-zeitposten-zeile {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) 76px minmax(0, 2fr) auto;
+  align-items: center;
+  gap: 6px;
+}
+
+[data-neu] .einst-zp-knoepfe {
+  display: flex;
+  gap: 2px;
+}
+
+[data-neu] .einst-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--ink-2);
+  font-size: 15px;
+  cursor: pointer;
+}
+
+[data-neu] .einst-icon:hover:not(:disabled) {
+  background: var(--fill-2);
+  color: var(--ink);
+}
+
+[data-neu] .einst-icon:disabled {
+  color: var(--ink-3);
+  cursor: default;
+  opacity: 0.5;
+}
+
+/* ── Rechner und Zugänge ─────────────────────────────── */
+
+[data-neu] .einst-rechner-tarife {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 14px;
+}
+
+[data-neu] .einst-tarif-kopf {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+[data-neu] .einst-werte {
+  display: grid;
+  grid-template-columns: 1fr;
+  margin: 0;
+  border-radius: 14px;
+  background: var(--fill-3);
+  overflow: hidden;
+}
+
+[data-neu] .einst-werte div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--hair);
+  font-size: 13px;
+}
+
+[data-neu] .einst-werte div:last-child {
+  border-bottom: 0;
+}
+
+[data-neu] .einst-werte dt {
+  color: var(--ink-2);
+}
+
+[data-neu] .einst-werte dd {
+  margin: 0;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+[data-neu] .einst-details summary {
+  padding: 4px 6px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+[data-neu] .einst-tabelle-huelle {
+  max-width: 100%;
+  overflow-x: auto;
+  border-radius: 14px;
+  background: var(--fill-3);
+}
+
+[data-neu] .einst-tabelle {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+[data-neu] .einst-tabelle th {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--hair);
+  color: var(--ink-2);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-align: left;
+  white-space: nowrap;
+}
+
+[data-neu] .einst-tabelle td {
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--hair);
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  vertical-align: top;
+}
+
+[data-neu] .einst-tabelle tr:last-child td {
+  border-bottom: 0;
+}
+
+[data-neu] .einst-tabelle tr[data-aus] td {
+  color: var(--ink-3);
+}
+
+[data-neu] .einst-marke {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--fill-2);
+  color: var(--ink-2);
+  font-size: 11.5px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+[data-neu] .einst-marke[data-ton="gold"] {
+  color: var(--gold-ink);
+}
+
+[data-neu] .einst-marke[data-ton="rose"] {
+  color: var(--rose-ink);
+}
+
+/* ── Alte Oberfläche ─────────────────────────────────── */
+
+[data-neu] .einst-alt {
+  padding: 14px 18px;
+  border-radius: 18px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--hair);
+}
+
+[data-neu] .einst-alt h2 {
+  margin: 0 0 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+[data-neu] .einst-alt ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+}
+
+/* ── Schmal ──────────────────────────────────────────── */
+
+@media (max-width: 1100px) {
+  [data-neu] .einst-firma-raster {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 760px) {
+  [data-neu] .einst-ich {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  [data-neu] .einst-karte,
+  [data-neu] .einst-firma {
+    padding: 14px;
+  }
+
+  [data-neu] .einst-abschnitt {
+    padding: 12px;
+  }
+
+  [data-neu] .einst-zeitposten-zeile {
+    grid-template-columns: minmax(0, 1fr) 72px;
+  }
+
+  [data-neu] .einst-zp-hinweis {
+    grid-column: 1 / 2;
+  }
+
+  [data-neu] .einst-zp-knoepfe {
+    grid-column: 2 / 3;
+    justify-content: flex-end;
+  }
+
+  [data-neu] .einst-chips,
+  [data-neu] .einst-einzug {
+    padding-left: 0;
+  }
+
+  [data-neu] .einst-firmenwahl {
+    flex: 1 1 100%;
+  }
+}

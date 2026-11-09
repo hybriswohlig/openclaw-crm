@@ -40,7 +40,7 @@ export function Legende({
       ) : null}
       {abo ? (
         <li className="plan-legende-abo">
-          <Link href="/contract-calendar" className="plan-abo">
+          <Link href="/app/einstellungen#kalender" className="plan-abo">
             Kalender-Abo
           </Link>
         </li>
