@@ -277,15 +277,17 @@ export function InboxSeite() {
 
   const fenster =
     verfassen.art === "offen" ? (
-      <ComposeWhatsAppModal
-        accounts={verfassen.konten}
-        initialChannelAccountId={verfassen.vorgabe.channelAccountId ?? undefined}
-        initialPhone={verfassen.vorgabe.telefon ?? undefined}
-        initialCustomerName={verfassen.vorgabe.name ?? undefined}
-        dealRecordId={verfassen.vorgabe.dealRecordId}
-        onClose={() => setVerfassen({ art: "zu" })}
-        onSent={nachGesendet}
-      />
+      <div className="neu-alt-hell">
+        <ComposeWhatsAppModal
+          accounts={verfassen.konten}
+          initialChannelAccountId={verfassen.vorgabe.channelAccountId ?? undefined}
+          initialPhone={verfassen.vorgabe.telefon ?? undefined}
+          initialCustomerName={verfassen.vorgabe.name ?? undefined}
+          dealRecordId={verfassen.vorgabe.dealRecordId}
+          onClose={() => setVerfassen({ art: "zu" })}
+          onSent={nachGesendet}
+        />
+      </div>
     ) : null;
   const verfassenLaedt = verfassen.art === "laden";
 

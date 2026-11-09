@@ -73,15 +73,18 @@ export function DokumentDialog({
   }, [dealId]);
 
   if (zustand.art === "bereit") {
+    // Alter, heller Dialog: im Dunkelmodus eigene dunkle Schrift (sonst hell auf Weiß).
     return (
-      <GenerateDocumentDialog
-        open
-        onClose={onSchliessen}
-        documentType={art}
-        deal={zustand.deal}
-        prefill={zustand.prefill}
-        rechnung={art === "RE" ? rechnung : undefined}
-      />
+      <div className="neu-alt-hell">
+        <GenerateDocumentDialog
+          open
+          onClose={onSchliessen}
+          documentType={art}
+          deal={zustand.deal}
+          prefill={zustand.prefill}
+          rechnung={art === "RE" ? rechnung : undefined}
+        />
+      </div>
     );
   }
 

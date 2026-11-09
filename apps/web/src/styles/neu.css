@@ -178,6 +178,23 @@ body:has([data-neu]) {
   --muted-foreground: #a1a1a6;
 }
 
+/* Alte, helle Dialoge, Menüs und Seitenleisten (shadcn, per Portal direkt am Body) erben
+   sonst die helle Body-Schrift von oben und werden auf Weiß unlesbar (KV-Dialog in der
+   Kalkulation). Sie bleiben ganz hell: eigene dunkle Schrift und helle Bedienelemente. */
+:root[data-lg-theme="dark"] body > :is(.bg-background, .bg-popover, .bg-card),
+:root[data-lg-theme="dark"] body > [data-radix-popper-content-wrapper] {
+  color: var(--foreground);
+  color-scheme: light;
+}
+
+/* Dasselbe für alte Dialoge, die nicht per Portal kommen, sondern in der neuen Oberfläche
+   hängen (KV/AB/Rechnung, WhatsApp verfassen): Hülle .neu-alt-hell ohne eigenes Layout. */
+[data-neu] .neu-alt-hell {
+  display: contents;
+  color: var(--foreground);
+  color-scheme: light;
+}
+
 [data-neu] .neu-hintergrund-karte {
   position: absolute;
   inset: 0;
