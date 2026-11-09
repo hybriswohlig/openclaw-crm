@@ -128,7 +128,10 @@ describe("Navigation zeigt nur auf vorhandene Seiten und Routen", () => {
   });
 
   it("jeder Link führt auf eine Seite, die es gibt", () => {
-    expect(SEITEN_FUNDE.filter((f) => !existiert(SEITEN, f.ziel))).toEqual([]);
+    // Weichen außerhalb von /api (route.ts wie /start, /weiter) leiten auf eine Seite weiter
+    // und zählen als Ziel (Plan 14b: Approval-Gate geht nach der Freigabe auf /start).
+    const weichen = API_ROUTEN.filter((r) => r[0] !== "api");
+    expect(SEITEN_FUNDE.filter((f) => !existiert([...SEITEN, ...weichen], f.ziel))).toEqual([]);
   });
 
   it("jeder API-Aufruf trifft eine Route, die es gibt", () => {

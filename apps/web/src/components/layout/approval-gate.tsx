@@ -33,7 +33,9 @@ export function ApprovalGate({ children }: { children: React.ReactNode }) {
 
         if (status === "approved") {
           if (pathname === ALLOW_PENDING_PATH) {
-            router.replace("/start");
+            // /start ist eine Weiche (route.ts), keine Seite: echte Navigation, damit die
+            // Weiterleitung nach ui_version greift.
+            window.location.replace("/start");
             return;
           }
           setAllowed(true);
