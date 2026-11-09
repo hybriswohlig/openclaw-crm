@@ -755,7 +755,7 @@ function grundlageAnsicht(v: VersionsZeile, rest: AnsichtRest): GrundlageAnsicht
       label: "Einpackservice (wir packen)",
       wert: einpackenWert !== null && einpackenWert > 0 ? `${GANZ.format(einpackenWert)} Kartons` : "nein",
       herkunft: [k.herkunft("einpacken")],
-      warum: einpackenWert !== null && einpackenWert > 0 ? "steht als Einpacken im KV" : null,
+      warum: einpackenWert !== null && einpackenWert > 0 ? "steht als Einpacken im KV, zählt auch als Transportvolumen" : null,
       bearbeitet: k.bearbeitet(["einpacken"]),
       felder: [feld("einpacken", "Kartons, die wir packen", "ganzzahl", k)],
     },
