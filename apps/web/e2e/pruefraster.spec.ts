@@ -16,6 +16,7 @@ import {
   portalTokenLaden,
   pruefSkript,
   type HellFund,
+  type KontrastFund,
 } from "./pruefraster-hilfen";
 
 const LOGIN_EMAIL = "herr.testmann@example.com";
@@ -34,6 +35,8 @@ interface Befund {
   horizontalScroll: boolean;
   lgTheme: string | null;
   hellFunde: HellFund[];
+  /** Plan 14b: Text unter 4,5:1 (großer Text 3:1), in beiden Themes geprüft. */
+  kontrastFunde?: KontrastFund[];
   uebersprungen?: string;
   portalHintergrund?: string;
 }
@@ -127,6 +130,13 @@ async function seitePruefen(opts: {
       });
     }
     await anmelden(context, baseURL);
+    // Plan 14b: die Schale gleicht den Cookie nach dem Laden mit der Datenbank ab. Ohne
+    // gespeicherten Wert spränge „dunkel“ auf den Standard „system“ zurück.
+    const gespeichert = await context.request.put("/api/v1/me/ansichten/darstellung", {
+      headers: { "content-type": "application/json" },
+      data: JSON.stringify(opts.theme),
+    });
+    if (!gespeichert.ok()) throw new Error(`Darstellung nicht gespeichert (${gespeichert.status()})`);
     const page = await context.newPage();
     await page.goto(opts.pfad, { waitUntil: "domcontentloaded" });
     await netzAbwarten(page);
@@ -135,6 +145,11 @@ async function seitePruefen(opts: {
     const keinUeberlauf = await page.evaluate(pruefSkript.horizontalScroll);
     const lgTheme = await page.evaluate(pruefSkript.lgTheme);
     const hellFunde = opts.theme === "dunkel" ? await page.evaluate(pruefSkript.helleFlaechen) : [];
+    const kontrastFunde = await page.evaluate(pruefSkript.kontrast, opts.theme === "dunkel" ? "rgb(28, 28, 30)" : "rgb(230, 232, 236)");
+    await opts.testInfo.attach("kontrast", {
+      body: JSON.stringify(kontrastFunde, null, 2),
+      contentType: "application/json",
+    });
     if (opts.theme === "dunkel") {
       await opts.testInfo.attach("helle-flaechen", {
         body: JSON.stringify(hellFunde, null, 2),
@@ -156,11 +171,13 @@ async function seitePruefen(opts: {
       horizontalScroll: !keinUeberlauf,
       lgTheme,
       hellFunde,
+      kontrastFunde,
     });
 
     expect.soft(keinUeberlauf, `${opts.datei}: Seite breiter als das Fenster`).toBe(true);
-    if (opts.theme === "hell") {
-      expect(lgTheme, `${opts.datei}: data-lg-theme`).toBe("light");
+    expect(lgTheme, `${opts.datei}: data-lg-theme`).toBe(opts.theme === "hell" ? "light" : "dark");
+    if (opts.theme === "dunkel") {
+      expect.soft(hellFunde, `${opts.datei}: helle Flächen im Dunkeln`).toEqual([]);
     }
   } finally {
     await context.close();

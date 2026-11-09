@@ -6,6 +6,7 @@ import type { ReactNode } from "react";
  * Silberband unten links am Seitenende (Pfade aus design/neubau-2026-11-05/03-leads-board.html).
  * Die beiden Formen sitzen je in ihrer Ecke, damit sie auch am Handy sichtbar bleiben.
  * `karte` ist der Platz für die blasse Regionskarte späterer Meilensteine.
+ * Das Silberband folgt dem Theme (--silber-1, --silber-2); die Schleife bleibt Vermilion.
  */
 export function Hintergrund({ karte }: { karte?: ReactNode }) {
   return (
@@ -15,9 +16,10 @@ export function Hintergrund({ karte }: { karte?: ReactNode }) {
       <svg className="neu-silberband" viewBox="0 880 680 120" preserveAspectRatio="xMinYMax meet">
         <defs>
           <linearGradient id="neu-silber" x2="1" y2=".7">
-            <stop stopColor="#d2d5da" />
-            <stop offset=".55" stopColor="#ffffff" />
-            <stop offset="1" stopColor="#d2d5da" />
+            {/* Farben als CSS-Variable (style, nicht Attribut): im Dunkeln dunkles Silber. */}
+            <stop style={{ stopColor: "var(--silber-1)" }} />
+            <stop offset=".55" style={{ stopColor: "var(--silber-2)" }} />
+            <stop offset="1" style={{ stopColor: "var(--silber-1)" }} />
           </linearGradient>
         </defs>
         <path d="M-80 960C250 910 330 1040 640 990" fill="none" stroke="url(#neu-silber)" strokeWidth="44" />

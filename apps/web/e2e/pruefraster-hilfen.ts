@@ -216,8 +216,110 @@ export function pruefSkriptHelleFlaechen(): HellFund[] {
   return funde;
 }
 
+export interface KontrastFund {
+  beschreibung: string;
+  text: string;
+  farbe: string;
+  grund: string;
+  kontrast: number;
+}
+
+/**
+ * Läuft in der Seite (Plan 14b). Sichtbarer Text unter `[data-neu]` mit Kontrast unter 4,5:1
+ * gegen den Hintergrund, der sich aus allen Vorfahren ergibt (halbtransparente Flächen werden
+ * über `grundFarbe` geschichtet; Glas ohne Unschärfe, also eine Näherung). Großer Text
+ * (ab 24 px oder ab 18,66 px fett) braucht 3:1. Elemente in `.neu-hell-fest`, Bilder, Karten
+ * (`.maplibregl-map`) und deaktivierte Bedienelemente zählen nicht. Höchstens 60 Treffer.
+ */
+export function pruefSkriptKontrast(grundFarbe: string): KontrastFund[] {
+  type Rgba = { r: number; g: number; b: number; a: number };
+  function lesen(wert: string): Rgba | null {
+    const t = /^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:\s*[,/]\s*([\d.]+%?))?\s*\)$/i.exec(wert.trim());
+    if (t) {
+      const a = t[4] === undefined ? 1 : t[4].endsWith("%") ? Number(t[4].slice(0, -1)) / 100 : Number(t[4]);
+      return { r: Number(t[1]), g: Number(t[2]), b: Number(t[3]), a };
+    }
+    const srgb = /^color\(srgb\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)(?:\s*\/\s*([\d.]+))?\s*\)$/i.exec(wert.trim());
+    if (srgb) {
+      return { r: Number(srgb[1]) * 255, g: Number(srgb[2]) * 255, b: Number(srgb[3]) * 255, a: srgb[4] === undefined ? 1 : Number(srgb[4]) };
+    }
+    return null;
+  }
+  function ueber(v: Rgba, g: Rgba): Rgba {
+    return { r: v.r * v.a + g.r * (1 - v.a), g: v.g * v.a + g.g * (1 - v.a), b: v.b * v.a + g.b * (1 - v.a), a: 1 };
+  }
+  function leucht(c: Rgba): number {
+    const k = (x: number) => {
+      const s = x / 255;
+      return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+    };
+    return 0.2126 * k(c.r) + 0.7152 * k(c.g) + 0.0722 * k(c.b);
+  }
+  function kontrast(a: Rgba, b: Rgba): number {
+    const [x, y] = [leucht(a), leucht(b)].sort((p, q) => q - p);
+    return (x + 0.05) / (y + 0.05);
+  }
+  function text(c: Rgba): string {
+    return `rgb(${Math.round(c.r)}, ${Math.round(c.g)}, ${Math.round(c.b)})`;
+  }
+  function beschreibung(el: Element): string {
+    const teile: string[] = [];
+    let k: Element | null = el;
+    for (let i = 0; i < 4 && k; i++) {
+      const klassen = [...k.classList].slice(0, 2).map((c) => `.${c}`).join("");
+      teile.unshift(`${k.tagName.toLowerCase()}${k.id ? `#${k.id}` : ""}${klassen}`);
+      if (k.id || k.hasAttribute("data-neu")) break;
+      k = k.parentElement;
+    }
+    return teile.join(" > ");
+  }
+  const grund = lesen(grundFarbe) ?? { r: 28, g: 28, b: 30, a: 1 };
+  const funde: KontrastFund[] = [];
+  const gesehen = new Set<string>();
+  const laeufer = document.createTreeWalker(document.querySelector("[data-neu]") ?? document.body, NodeFilter.SHOW_TEXT);
+  for (let n = laeufer.nextNode(); n && funde.length < 60; n = laeufer.nextNode()) {
+    const inhalt = (n.textContent ?? "").trim();
+    if (!inhalt) continue;
+    const el = n.parentElement;
+    if (!el || el.closest(".neu-hell-fest, .maplibregl-map, [disabled], [aria-disabled='true'], [aria-hidden='true']")) continue;
+    const rect = el.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) continue;
+    const stil = getComputedStyle(el);
+    if (stil.visibility !== "visible" || Number(stil.opacity) < 0.5) continue;
+    const farbe = lesen(stil.color);
+    if (!farbe) continue;
+    // Hintergrund: von oben (Seite) nach unten (Element) schichten; Verläufe und Bilder abbrechen.
+    const kette: Element[] = [];
+    for (let k: Element | null = el; k; k = k.parentElement) kette.unshift(k);
+    let bg = grund;
+    let unklar = false;
+    for (const k of kette) {
+      const ks = getComputedStyle(k);
+      if (Number(ks.opacity) < 1 && k !== el) unklar = true;
+      if (ks.backgroundImage && ks.backgroundImage !== "none" && !k.classList.contains("neu-hintergrund")) unklar = true;
+      const f = lesen(ks.backgroundColor);
+      if (f && f.a > 0) bg = ueber(f, bg);
+    }
+    if (unklar) continue;
+    const vorne = ueber(farbe, bg);
+    const k = kontrast(vorne, bg);
+    const groesse = parseFloat(stil.fontSize);
+    const fett = Number(stil.fontWeight) >= 700;
+    const soll = groesse >= 24 || (fett && groesse >= 18.66) ? 3 : 4.5;
+    if (k + 1e-6 < soll) {
+      const b = beschreibung(el);
+      const schluessel = `${b}|${text(vorne)}|${text(bg)}`;
+      if (gesehen.has(schluessel)) continue;
+      gesehen.add(schluessel);
+      funde.push({ beschreibung: b, text: inhalt.slice(0, 40), farbe: text(vorne), grund: text(bg), kontrast: Math.round(k * 100) / 100 });
+    }
+  }
+  return funde;
+}
+
 export const pruefSkript = {
   horizontalScroll: pruefSkriptHorizontalScroll,
   lgTheme: pruefSkriptLgTheme,
   helleFlaechen: pruefSkriptHelleFlaechen,
+  kontrast: pruefSkriptKontrast,
 };
