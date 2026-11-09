@@ -17,6 +17,8 @@ export type ActivityEventType =
   | "call.received"
   | "call.summary_attached"
   | "ai.insights_extracted"
+  /** Plan 15: Adresse aus der Kalkulation ins Lead geschrieben */
+  | "kalkulation.adresse_gesetzt"
   | "ai.field_enrichment"
   | "ai.inventory_extracted"
   | "ai.inventory_extract_attempt"

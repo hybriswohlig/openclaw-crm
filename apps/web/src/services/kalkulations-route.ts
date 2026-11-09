@@ -13,7 +13,7 @@
  * Der Speicher ist austauschbar (Tests ohne Datenbank).
  */
 import type { RoutenTeilstrecke } from "@/db/schema/deal-calculation-routes";
-import { adresseGenau } from "@/lib/adresse-genau";
+import { adresseFuerRoute, istAdresseGenau } from "@/lib/adresse-regel";
 import { googleMapsLink, punkteSchluessel, type RoutenPunkte, type RoutenStatus } from "@/lib/route-link";
 import type { VersionsZeile } from "@/services/kalkulation-versionen";
 
@@ -43,6 +43,8 @@ export interface RouteErgebnis {
   stationen: number;
   gesamtKm: number | null;
   gesamtMinuten: number | null;
+  /** Plan 15 (Bauteil 10): mindestens eine Adresse ohne Straße, Google rechnet von Ortsmitte zu Ortsmitte. */
+  ungefaehr?: boolean;
 }
 
 export interface RouteOptionen {
@@ -53,18 +55,24 @@ export interface RouteOptionen {
 
 type RoutenVersion = Pick<VersionsZeile, "id" | "status" | "rechnerRequest" | "rechnerResult">;
 
-/** Punkte aus der Version; null ohne Station oder bei ungenauer Adresse. */
+/**
+ * Punkte aus der Version; null ohne Station oder ohne Beladeangabe. Plan 15
+ * (Bauteil 10): auch „PLZ Ort“ oder nur der Ort reicht, Google rechnet dann von
+ * Ortsmitte zu Ortsmitte (`ungefaehrePunkte`).
+ */
 export function punkteAusVersion(v: Pick<VersionsZeile, "rechnerRequest" | "rechnerResult">): RoutenPunkte | null {
   const station = v.rechnerResult?.mietstation?.adresse;
   const anfrage = v.rechnerRequest ?? {};
-  const beladen = adresseGenau(anfrage.von_adresse);
-  const entladenRoh = anfrage.nach_adresse;
-  const entladen = adresseGenau(entladenRoh);
+  const beladen = adresseFuerRoute(anfrage.von_adresse);
+  const entladen = adresseFuerRoute(anfrage.nach_adresse);
   if (typeof station !== "string" || station.trim() === "") return null;
-  if (!beladen.genau || !beladen.text) return null;
-  // Eine angegebene, aber ungenaue Entladeadresse ist ungenau (nicht still weglassen).
-  if (entladen.text && !entladen.genau) return null;
-  return { station: station.trim(), beladen: beladen.text, entladen: entladen.text };
+  if (!beladen) return null;
+  return { station: station.trim(), beladen, entladen };
+}
+
+/** true, wenn eine Adresse der Punkte keine Straße mit Hausnummer hat. */
+export function ungefaehrePunkte(p: RoutenPunkte): boolean {
+  return !istAdresseGenau(p.beladen) || (p.entladen !== null && !istAdresseGenau(p.entladen));
 }
 
 /** Anzahl verglichener Stationen ("günstigste von N Stationen"). */
@@ -158,12 +166,15 @@ export async function routeFuer(ws: string, version: RoutenVersion, opts: RouteO
   const jetzt = (opts.jetzt ?? (() => new Date()))();
   const stationen = stationenAus(version);
   const gespeichert = await speicher.lesen(ws, version.id);
+  const punkte = punkteAusVersion(version);
+  const ungefaehr = punkte ? ungefaehrePunkte(punkte) : false;
   const ausGespeichert = (r: GespeicherteRoute): RouteErgebnis => ({
     status: "ok",
     teilstrecken: r.teilstrecken,
     googleLink: r.googleLink,
     stationen,
     ...summen(r.teilstrecken),
+    ...(ungefaehr ? { ungefaehr: true } : {}),
   });
   const ohneRoute = (status: RoutenStatus, googleLink: string | null): RouteErgebnis => ({
     status,
@@ -177,7 +188,6 @@ export async function routeFuer(ws: string, version: RoutenVersion, opts: RouteO
   // Punkte immer aus dem Schnappschuss der Version: bei einer gesperrten Version ist
   // er eingefroren, also bleiben ihre Punkte, auch wenn sich der Lead später ändert;
   // eine vor dem Sperren gespeicherte Route anderer Punkte passt nicht und wird ersetzt.
-  const punkte = punkteAusVersion(version);
   if (!punkte) return ohneRoute("ungenau", null);
   const schluessel = punkteSchluessel(punkte);
   const link = googleMapsLink(punkte);

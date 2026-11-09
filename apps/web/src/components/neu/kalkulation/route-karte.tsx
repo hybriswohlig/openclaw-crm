@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
 import { apiAufruf } from "@/components/neu/akte/api";
-import { ROUTE_HINWEISE, type RoutenStatus } from "@/lib/route-hinweise";
+import { ROUTE_HINWEISE, ROUTE_UNGEFAEHR, type RoutenStatus } from "@/lib/route-hinweise";
 
 /** Eine Teilstrecke aus `GET …/[v]/route-karte` (Task 6, Bericht D). */
 export interface Teilstrecke {
@@ -22,6 +22,8 @@ export interface RouteDaten {
   stationen: number;
   gesamtKm: number | null;
   gesamtMinuten: number | null;
+  /** Plan 15: Adresse ohne Straße, Google rechnet von Ortsmitte zu Ortsmitte. */
+  ungefaehr?: boolean;
 }
 
 const KM = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 1 });
@@ -112,6 +114,11 @@ export function RouteKarte({ dealId, versionNr, vorschau }: { dealId: string; ve
         <span className="kalk-marke" data-ton="blau">
           Google
         </span>
+        {zeigen && daten.ungefaehr ? (
+          <span className="kalk-marke" data-ton="gold">
+            {ROUTE_UNGEFAEHR}
+          </span>
+        ) : null}
         {zeigen ? (
           <span>
             Vorausgewählte Route

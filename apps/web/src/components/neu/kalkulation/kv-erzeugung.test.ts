@@ -23,6 +23,7 @@ function version(kvErzeugung: KvErzeugung, extra: Partial<KalkulationsAnsicht["v
     veraltet: false,
     veraltetGrund: null,
     fehler: null,
+    adresseFehlt: { beladen: false, entladen: false },
     tarif: null,
     kvDokument: null,
     kvErstellbar: true,

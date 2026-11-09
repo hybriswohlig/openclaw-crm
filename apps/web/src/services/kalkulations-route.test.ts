@@ -21,13 +21,13 @@ const TAG = 24 * 60 * 60 * 1000;
 const vor = (ms: number) => new Date(JETZT.getTime() - ms);
 
 type V = Parameters<typeof routeFuer>[1];
-function version(p: { status?: "entwurf" | "gesperrt"; von?: string; nach?: string | null; station?: string | null; vergleich?: number } = {}): V {
+function version(p: { status?: "entwurf" | "gesperrt"; von?: string | null; nach?: string | null; station?: string | null; vergleich?: number } = {}): V {
   const nach = p.nach === undefined ? ENTLADEN : p.nach;
   const station = p.station === undefined ? STATION : p.station;
   return {
     id: "ver_1",
     status: p.status ?? "entwurf",
-    rechnerRequest: { von_adresse: p.von ?? BELADEN, ...(nach ? { nach_adresse: nach } : {}) },
+    rechnerRequest: { ...(p.von === null ? {} : { von_adresse: p.von ?? BELADEN }), ...(nach ? { nach_adresse: nach } : {}) },
     rechnerResult: {
       ...(station ? { mietstation: { name: "Sixt", anbieter: "Sixt", adresse: station, quelle: "x", anfahrtKm: 1, anfahrtMin: 1, rueckfahrtKm: 1, rueckfahrtMin: 1 } } : {}),
       stationsVergleich: Array.from({ length: p.vergleich ?? 3 }, (_, i) => ({ name: `S${i}`, festpreis: 1, selbstkosten: 1, gewaehlt: i === 0 })),
@@ -156,14 +156,26 @@ describe("routeFuer", () => {
 
   it.each([
     ["ohne Station", { station: null }],
-    ["ungenaue Beladeadresse", { von: "Umzug innerhalb Stuttgart" }],
-    ["ungenaue Entladeadresse", { nach: "Esslingen" }],
+    ["ohne Beladeadresse", { von: null }],
   ])("%s → ungenau, kein Aufruf (Review Focus 1)", async (_n, p) => {
     const s = speicherMit();
     const r = await routeFuer("ws_1", version(p), opts(s));
     expect(r).toEqual({ status: "ungenau", teilstrecken: [], googleLink: null, stationen: 3, gesamtKm: null, gesamtMinuten: null });
     expect(fetchMock).not.toHaveBeenCalled();
     expect(s.schreiben).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["nur PLZ und Ort", { von: "70372 Stuttgart", nach: "71032 Böblingen" }, ["70372 Stuttgart", "71032 Böblingen"]],
+    ["innerhalb eines Ortes", { von: "Umzug innerhalb Stuttgart", nach: null }, ["Stuttgart"]],
+    ["Entladen nur Ort", { nach: "Esslingen" }, [BELADEN, "Esslingen"]],
+  ])("Plan 15: %s → Route ungefähr von Google", async (_n, p, adressen) => {
+    googleAntwort(adressen.length === 1 ? [LEG(9_000, 960, "p1"), LEG(9_000, 960, "p2")] : undefined);
+    const s = speicherMit();
+    const r = await routeFuer("ws_1", version(p as Parameters<typeof version>[0]), opts(s));
+    expect(r.status).toBe("ok");
+    expect(r.ungefaehr).toBe(true);
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).intermediates).toEqual(adressen.map((address) => ({ address })));
   });
 
   it("Fehler speichert nichts", async () => {

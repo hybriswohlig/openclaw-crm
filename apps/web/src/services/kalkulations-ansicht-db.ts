@@ -69,3 +69,29 @@ export async function ladePaketNamen(ws: string, deal: string): Promise<Record<s
     .where(and(eq(offerPackages.workspaceId, ws), eq(offerPackages.operatingCompanyRecordId, firma)));
   return Object.fromEntries(rows.map((r) => [r.slug, r.name]));
 }
+
+/**
+ * Plan 15 (Bauteil 2): letzte Adresse je Seite, die die Kalkulation ins Lead
+ * geschrieben hat (Ereignis `kalkulation.adresse_gesetzt`), mit Autor und Zeit.
+ */
+export async function ladeAdressGesetzt(
+  ws: string,
+  deal: string
+): Promise<Partial<Record<"beladen" | "entladen", { adresse: string; userId: string | null; am: string }>>> {
+  const { activityEvents } = await import("@/db/schema");
+  const { ADRESSE_GESETZT_EVENT } = await import("@/lib/kalkulation-p15");
+  const rows = await db
+    .select({ payload: activityEvents.payload, actorId: activityEvents.actorId, createdAt: activityEvents.createdAt })
+    .from(activityEvents)
+    .where(and(eq(activityEvents.workspaceId, ws), eq(activityEvents.recordId, deal), eq(activityEvents.eventType, ADRESSE_GESETZT_EVENT)))
+    .orderBy(desc(activityEvents.createdAt))
+    .limit(20);
+  const aus: Partial<Record<"beladen" | "entladen", { adresse: string; userId: string | null; am: string }>> = {};
+  for (const r of rows) {
+    const p = r.payload as { seite?: unknown; adresse?: unknown };
+    if ((p.seite === "beladen" || p.seite === "entladen") && typeof p.adresse === "string" && !aus[p.seite]) {
+      aus[p.seite] = { adresse: p.adresse, userId: r.actorId ?? null, am: r.createdAt.toISOString() };
+    }
+  }
+  return aus;
+}

@@ -49,6 +49,17 @@ import {
   type UebersteuerungsArt,
 } from "./kalkulation-versionen";
 import type { ZeitpostenVorlage } from "./zeitposten";
+import {
+  annahmenKasten,
+  fahrtAnsicht,
+  fahrtUnterzeilen,
+  fehlendeAdressen,
+  positionenOhneKatalog,
+  teamGrund,
+  type AdressInfo,
+  type FahrtAnsicht,
+} from "./kalkulation-annahmen";
+import type { AnnahmenKasten, PositionOhneKatalog } from "./kalkulation-p15";
 
 export type GrundlageFeldTyp = "zahl" | "ganzzahl" | "aufzug" | "ja_nein" | "datum";
 
@@ -69,6 +80,8 @@ export interface GrundlageAnsichtZeile {
   bearbeitet: { von: string; am: string; grund: string } | null;
   /** Leer = nicht direkt bearbeitbar (Montage: über Zeitposten). */
   felder: GrundlageFeld[];
+  /** Plan 15: Beladen und Entladen tragen die Adresse mit Herkunft (Lead, Chat, fehlt). */
+  adresse?: AdressInfo & { amText: string | null };
 }
 
 export interface GrundlageAnsicht {
@@ -76,6 +89,8 @@ export interface GrundlageAnsicht {
   fotosGesamt: number;
   zeilen: GrundlageAnsichtZeile[];
   adressen: { beladen: string | null; entladen: string | null };
+  /** Plan 15 (Bauteile 3, 14): Positionen ohne Katalogtreffer mit Korrektur dieser Version */
+  positionenOhneKatalog: PositionOhneKatalog[];
 }
 
 export interface SelbstkostenUnterzeile {
@@ -103,6 +118,8 @@ export interface SelbstkostenGruppe {
 
 export interface SelbstkostenAnsicht {
   gruppen: SelbstkostenGruppe[];
+  /** Plan 15 (Bauteile 9, 12): Fahrt je Strecke für Unterzeilen und Routen-Popup; null ohne neuen Rechner. */
+  fahrt: FahrtAnsicht | null;
   zwischensummeCent: number;
   gemeinkosten: { prozent: number; betragCent: number } | null;
   versicherungCent: number | null;
@@ -133,7 +150,8 @@ export interface PreisAnsicht {
 }
 
 export interface KvAnsicht {
-  posten: { text: string; betragCent: number; herkunft: string }[];
+  /** `hebel`: Plan 15 (Bauteil 6), Hebel des Postens für „×“; null beim Kern und bei weiteren Leistungen. */
+  posten: { text: string; betragCent: number; herkunft: string; hebel?: HebelArt | null }[];
   summeCent: number;
   /** true = Entwurf (aus angebotsUebernahme), false = gesperrte kvItems */
   vorschau: boolean;
@@ -189,8 +207,12 @@ export interface KalkulationsAnsicht {
     /** Plan 5b: Sperren macht aus dem Stunden-KV der Quotation einen Festpreis; die Seite fragt nach (`modusWechselBestaetigt`). */
     modusWechsel?: boolean;
     renderer: "crm" | "vps";
+    /** Plan 15 (Bauteil 5): fehlende Adressen der gerechneten Anfrage (Chat-Angaben zählen als vorhanden). */
+    adresseFehlt: { beladen: boolean; entladen: boolean };
   };
   grundlage: GrundlageAnsicht;
+  /** Plan 15 (Bauteil 1): Kasten „Damit hat der Rechner gerechnet“; null ohne Annahmen. */
+  annahmen: AnnahmenKasten | null;
   selbstkosten: SelbstkostenAnsicht;
   marge: MargeAnsicht;
   preis: PreisAnsicht;
@@ -333,6 +355,8 @@ export interface AnsichtRest {
   paketOptionen?: { catalogueSlug: string | null; isRecommended: boolean }[];
   /** Plan 5b: Hebel je Paket-Slug aus dem Katalog der Firma. */
   paketHebel?: Record<string, HebelArt[]>;
+  /** Plan 15: Herkunft der Adressen je Seite (Server). */
+  adressen?: { beladen: AdressInfo; entladen: AdressInfo };
 }
 
 // ─── Anzeige ──────────────────────────────────────────────────────────────────
@@ -573,7 +597,8 @@ function feld(key: GrundlageKey, label: string, typ: GrundlageFeldTyp, k: Grundl
 function seitenZeile(
   seite: "beladen" | "entladen",
   adresse: string | null,
-  k: GrundlageKontext
+  k: GrundlageKontext,
+  info?: AdressInfo
 ): GrundlageAnsichtZeile {
   const etageKey = `${seite}.etage` as GrundlageKey;
   const aufzugKey = `${seite}.aufzug` as GrundlageKey;
@@ -588,11 +613,21 @@ function seitenZeile(
   const herkunft = [k.herkunft(etageKey), k.herkunft(aufzugKey)];
   if (tragwegHerkunft.art === "MANUELL" || tragwegHerkunft.art === "BOT") herkunft.push(tragwegHerkunft);
   const strasse = strasseAus(adresse);
+  const adressMarke: HerkunftEintrag[] = !info
+    ? []
+    : info.quelle === "chat"
+      ? [{ art: "CHAT", text: "CHAT, unbestätigt" }]
+      : info.quelle === "fehlt"
+        ? [{ art: "STANDARD", text: "ADRESSE FEHLT" }]
+        : info.gesetzt
+          ? [{ art: "MANUELL", text: info.gesetzt.von.toLocaleUpperCase("de-DE") }]
+          : [];
   return {
     key: seite,
-    label: `${seite === "beladen" ? "Beladen" : "Entladen"}${strasse ? ` · ${strasse}` : ""}`,
+    label: `${seite === "beladen" ? "Beladen" : "Entladen"}${strasse ? ` · ${strasse}` : info?.text ? ` · ${info.text}` : ""}`,
     wert: teile.length > 0 ? teile.join(", ") : "keine Angaben",
-    herkunft: eindeutig(herkunft),
+    herkunft: eindeutig([...adressMarke, ...herkunft]),
+    ...(info ? { adresse: { ...info, amText: info.gesetzt ? zeitpunktText(info.gesetzt.am) : null } } : {}),
     warum: tragweg === null ? "Tragweg Standard des Rechners" : `Tragweg ${KOMMA1.format(tragweg)} m (${herkunftWort(tragwegHerkunft)})`,
     bearbeitet: k.bearbeitet([etageKey, aufzugKey, tragwegKey]),
     felder: [
@@ -651,8 +686,20 @@ function grundlageAnsicht(v: VersionsZeile, rest: AnsichtRest): GrundlageAnsicht
       bearbeitet: k.bearbeitet(["volumen"]),
       felder: [feld("volumen", "Volumen in m³", "zahl", k)],
     },
-    seitenZeile("beladen", text(anfrage.von_adresse), k),
-    seitenZeile("entladen", text(anfrage.nach_adresse), k),
+    {
+      key: "wohnung",
+      label: "Wohnung",
+      wert:
+        [zahl(k.wert("zimmer")) !== null ? grundlageWertText("zimmer", k.wert("zimmer")) : null, zahl(k.wert("wohnflaeche")) !== null ? grundlageWertText("wohnflaeche", k.wert("wohnflaeche")) : null]
+          .filter(Boolean)
+          .join(", ") || "offen",
+      herkunft: eindeutig([k.herkunft("zimmer"), k.herkunft("wohnflaeche")]),
+      warum: e?.kartonSchaetzung ? `${GANZ.format(e.kartonSchaetzung.kartonzahl)} Kartons aus der Wohnfläche geschätzt` : null,
+      bearbeitet: k.bearbeitet(["zimmer", "wohnflaeche"]),
+      felder: [feld("zimmer", "Zimmer", "zahl", k), feld("wohnflaeche", "Wohnfläche in m²", "zahl", k)],
+    },
+    seitenZeile("beladen", text(anfrage.von_adresse), k, rest.adressen?.beladen),
+    seitenZeile("entladen", text(anfrage.nach_adresse), k, rest.adressen?.entladen),
     {
       key: "halteverbot",
       label: "Halteverbot",
@@ -706,10 +753,11 @@ function grundlageAnsicht(v: VersionsZeile, rest: AnsichtRest): GrundlageAnsicht
       label: "Team",
       wert: team === null ? "offen" : personenText(team),
       herkunft: [k.herkunft("team")],
-      warum: option ? `${option.name} · ${option.fahrten} ${option.fahrten === 1 ? "Tour" : "Touren"}` : null,
+      warum: [teamGrund(e), option ? `${option.name} · ${option.fahrten} ${option.fahrten === 1 ? "Tour" : "Touren"}` : null].filter(Boolean).join(" · ") || null,
       bearbeitet: k.bearbeitet(["team"]),
       felder: [feld("team", "Team", "ganzzahl", k)],
     },
+    fahrtZeile(e, anfrage, k),
     {
       key: "termin",
       label: "Termin",
@@ -769,6 +817,44 @@ function grundlageAnsicht(v: VersionsZeile, rest: AnsichtRest): GrundlageAnsicht
     fotosGesamt: bilder.length,
     zeilen,
     adressen: { beladen: text(anfrage.von_adresse), entladen: text(anfrage.nach_adresse) },
+    positionenOhneKatalog: positionenOhneKatalog(e ?? null, v.overrides ?? [], (u) => autorName(u.autor, rest.namen), zeitpunktText),
+  };
+}
+
+const FAHRT_FELDER: [GrundlageKey, string][] = [
+  ["fahrt.anfahrt_min", "Anfahrt Station → Beladen in min"],
+  ["fahrt.strecke_min", "Weg Beladen → Entladen in min (je Weg)"],
+  ["fahrt.rueckfahrt_min", "Rückfahrt zur Station in min"],
+  ["fahrt.anfahrt_km", "Anfahrt in km (leer: aus den Minuten)"],
+  ["fahrt.strecke_km", "Weg in km (leer: aus den Minuten)"],
+  ["fahrt.rueckfahrt_km", "Rückfahrt in km (leer: aus den Minuten)"],
+];
+
+/** Plan 15 (Bauteil 11): Fahrzeiten je Strecke, übersteuerbar mit Grund. */
+function fahrtZeile(e: RechnerErgebnis | null, anfrage: RechnerAnfrage, k: GrundlageKontext): GrundlageAnsichtZeile {
+  const f = fahrtAnsicht(e, anfrage);
+  const keys = FAHRT_FELDER.map(([key]) => key);
+  const manuell = keys.map((key) => k.herkunft(key)).filter((h) => h.art === "MANUELL" || h.art === "BOT");
+  const quelle = (q: string | undefined) => q ?? "";
+  const a = f?.strecken.find((s) => s.art === "anfahrt");
+  const t = f?.strecken.find((s) => s.art === "tour");
+  const r = f?.strecken.find((s) => s.art === "rueckfahrt");
+  const quellen = new Set([a?.quelle, t?.quelle, r?.quelle].filter(Boolean));
+  const herkunft: HerkunftEintrag[] = manuell.length > 0 ? [manuell[0]] : [];
+  if (quellen.has("google")) herkunft.push({ art: "GOOGLE", text: "GOOGLE" });
+  if (quellen.has("angenommen") || quellen.has("ortsintern")) herkunft.push({ art: "STANDARD", text: "GESCHÄTZT" });
+  return {
+    key: "fahrt",
+    label: "Fahrzeiten",
+    wert: f
+      ? [a ? `Anfahrt ${GANZ.format(a.min)} min` : null, t ? `Weg ${GANZ.format(t.min)} min` : null, r ? `Rückfahrt ${GANZ.format(r.min)} min` : null]
+          .filter(Boolean)
+          .join(" · ")
+      : "offen",
+    herkunft: eindeutig(herkunft.length > 0 ? herkunft : [{ art: "STANDARD", text: "STANDARD" }]),
+    warum: f ? `${quelle(a?.quelleText)}${t && t.quelleText !== a?.quelleText ? `, Weg ${t.quelleText}` : ""} · ${f.rechnung}` : null,
+    bearbeitet: k.bearbeitet(keys),
+    felder: FAHRT_FELDER.map(([key, label]) => ({ ...feld(key, label, key.endsWith("_min") ? "ganzzahl" : "zahl", k) })),
   };
 }
 
@@ -880,7 +966,13 @@ function selbstkostenAnsicht(v: VersionsZeile, namen: Record<string, string>): S
   const arbeit = buckets.get("arbeit");
   if (arbeit) gruppen.push(einfach("arbeit", arbeit, arbeitUnterzeilen()));
   const fahrt = buckets.get("fahrt");
-  if (fahrt) gruppen.push(einfach("fahrt", fahrt));
+  const fahrtJeStrecke = fahrtAnsicht(e ?? null, v.rechnerRequest ?? null);
+  if (fahrt) {
+    const extra = fahrtJeStrecke
+      ? fahrtUnterzeilen(fahrtJeStrecke).map((z) => ({ key: z.key, label: z.label, formel: null, wert: z.wert, uebersteuert: false }))
+      : [];
+    gruppen.push(einfach("fahrt", fahrt, extra));
+  }
   for (const [key, zs] of buckets) {
     if (!key.startsWith("fahrzeug.")) continue;
     const haupt = zs.find((z) => /\.(miete|tagespauschale)$/.test(z.key)) ?? zs[0];
@@ -911,6 +1003,7 @@ function selbstkostenAnsicht(v: VersionsZeile, namen: Record<string, string>): S
   const tarif = v.tariff ?? e?.tarif ?? null;
   return {
     gruppen,
+    fahrt: fahrtJeStrecke,
     zwischensummeCent,
     gemeinkosten:
       gkCent === null ? null : { prozent: zwischensummeCent > 0 ? Math.round((gkCent / zwischensummeCent) * 100) : 0, betragCent: gkCent },
@@ -978,6 +1071,13 @@ function hebelAusText(beschreibung: string): HebelArt | null {
 
 /** Herkunft je KV-Posten: der erste ist der Kern, die übrigen sind Hebel (wie `kvBausteine`). */
 function postenHerkunft(items: { description: string }[], e: RechnerErgebnis | null, anfrage: RechnerAnfrage | null): string[] {
+  return postenHebel(items, e, anfrage).map((h, i) =>
+    i === 0 ? (items.length > 1 ? "Rest nach den Hebeln" : "Gesamtpreis") : h ? HEBEL_TEXT[h] : "Weitere Leistung"
+  );
+}
+
+/** Hebel je KV-Posten (Plan 15, Bauteil 6); null beim Kern und bei weiteren Leistungen. */
+function postenHebel(items: { description: string }[], e: RechnerErgebnis | null, anfrage: RechnerAnfrage | null): (HebelArt | null)[] {
   const arten = new Map<string, HebelArt>();
   const basis = e?.schaetzung ? e.schaetzung.festpreisBis : e?.preis?.festpreis;
   if (e && anfrage && typeof basis === "number" && basis > 0) {
@@ -987,21 +1087,19 @@ function postenHerkunft(items: { description: string }[], e: RechnerErgebnis | n
       if (art) arten.set(p.description, art);
     });
   }
-  return items.map((it, i) => {
-    if (i === 0) return items.length > 1 ? "Rest nach den Hebeln" : "Gesamtpreis";
-    const art = arten.get(it.description) ?? hebelAusText(it.description);
-    return art ? HEBEL_TEXT[art] : "Weitere Leistung";
-  });
+  return items.map((it, i) => (i === 0 ? null : arten.get(it.description) ?? hebelAusText(it.description)));
 }
 
 function kvAnsicht(v: VersionsZeile, rest: AnsichtRest): { kv: KvAnsicht | null; kvFehler: string | null } {
   const e = v.rechnerResult;
   const posten = (items: { description: string; quantity: number; unitRate: number }[], vorschau: boolean): KvAnsicht => {
     const herkunft = postenHerkunft(items, e, v.rechnerRequest);
+    const hebel = postenHebel(items, e, v.rechnerRequest);
     const liste = items.map((it, i) => ({
       text: it.description,
       betragCent: Math.round(it.unitRate * 100) * it.quantity,
       herkunft: herkunft[i],
+      hebel: hebel[i],
     }));
     return { posten: liste, summeCent: liste.reduce((s, p) => s + p.betragCent, 0), vorschau, obergrenze: !!e?.schaetzung };
   };
@@ -1377,6 +1475,18 @@ export function ansichtAus(v: VersionsZeile, rest: AnsichtRest): KalkulationsAns
   const gesperrt = v.status === "gesperrt";
   const grundlage = grundlageAnsicht(v, rest);
   const selbstkosten = selbstkostenAnsicht(v, rest.namen);
+  const leereAdresse: AdressInfo = { text: null, quelle: "fehlt", genau: false };
+  const annahmen = annahmenKasten({
+    ergebnis: v.rechnerResult ?? null,
+    anfrage: v.rechnerRequest ?? null,
+    adressen: rest.adressen ?? {
+      beladen: { ...leereAdresse, ...(text(v.rechnerRequest?.von_adresse) ? { text: text(v.rechnerRequest?.von_adresse), quelle: "lead" as const } : {}) },
+      entladen: { ...leereAdresse, ...(text(v.rechnerRequest?.nach_adresse) ? { text: text(v.rechnerRequest?.nach_adresse), quelle: "lead" as const } : {}) },
+    },
+    fahrt: selbstkosten.fahrt,
+    positionen: grundlage.positionenOhneKatalog,
+    overrides: v.overrides ?? [],
+  });
   const marge = margeAnsicht(v, rest.namen);
   const preis = preisAnsicht(v, marge);
   const { kv, kvFehler } = kvAnsicht(v, rest);
@@ -1477,8 +1587,10 @@ export function ansichtAus(v: VersionsZeile, rest: AnsichtRest): KalkulationsAns
       preisModus: stunden ? "stunden" : "fest",
       modusWechsel: !gesperrt && regel.pricingMode === "fest" && rest.angebot?.isVariable === true,
       renderer: rest.renderer ?? "crm",
+      adresseFehlt: fehlendeAdressen(v.rechnerRequest ?? null),
     },
     grundlage,
+    annahmen,
     selbstkosten,
     marge,
     preis,

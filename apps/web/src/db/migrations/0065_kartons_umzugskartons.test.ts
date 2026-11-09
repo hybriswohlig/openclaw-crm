@@ -21,7 +21,7 @@ const url = process.env.ANNAHME_TEST_DATABASE_URL;
 describe.skipIf(!url)("Migration 0065 Kartons (DB)", () => {
   let db: postgres.Sql;
   const schema = `m0065_${Date.now().toString(36)}`;
-  const u = (key: string, wert: unknown) => ({ id: key, art: "eingabe", key, wert, grund: "g", rechnerwert: null, autor: { userId: "u", quelle: "mensch" }, zeit: "2026-11-01T10:00:00Z", fotoRef: null });
+  const u = (key: string, wert: number) => ({ id: key, art: "eingabe", key, wert, grund: "g", rechnerwert: null, autor: { userId: "u", quelle: "mensch" }, zeit: "2026-11-01T10:00:00Z", fotoRef: null });
 
   beforeAll(async () => {
     db = postgres(url!, { max: 1 });

@@ -20,6 +20,8 @@ import type { Auftragsart } from "@/lib/auftragsart";
 import type { Plan5Schalter } from "@/lib/angebot-wahl";
 import { entwurfVeraltet, rechenHebel, VersionsFehler, type PaketOption, type VersionsSpeicher } from "./kalkulation-versionen";
 import { rechnerAnfrageAus, type LeadDaten } from "./rechner/eingabe";
+import { istAdresseGenau } from "@/lib/adresse-regel";
+import type { AdressInfo } from "@/lib/kalkulation-annahmen";
 import type { HebelArt } from "./rechner/kv-posten";
 import { heuteBerlin } from "./rechner/quelle";
 
@@ -52,6 +54,8 @@ export interface AnsichtOptionen {
   /** Plan 5a: letzter KV-Job (VPS) dieser Version aus `document_render_jobs` */
   ladeKvJob?: (ws: string, deal: string, versionId: string) => Promise<RenderJob | null>;
   jetzt?: () => Date;
+  /** Plan 15: letzte von der Kalkulation ins Lead geschriebene Adresse je Seite */
+  ladeAdressGesetzt?: (ws: string, deal: string) => Promise<Partial<Record<"beladen" | "entladen", { adresse: string; userId: string | null; am: string }>>>;
 }
 
 /**
@@ -144,7 +148,40 @@ async function abhaengigkeiten(o: AnsichtOptionen): Promise<Required<AnsichtOpti
     ladePaketOptionen:
       o.ladePaketOptionen ?? (async (deal) => (await import("./kalkulation-versionen-speicher")).ladePaketOptionen(deal)),
     jetzt: o.jetzt ?? (() => new Date()),
+    ladeAdressGesetzt: o.ladeAdressGesetzt ?? (o.speicher ? async () => ({}) : (await db()).ladeAdressGesetzt),
   };
+}
+
+/** Plan 15 (Bauteile 2, 8, 10): woher die Adresse je Seite kommt. */
+export function adressInfos(
+  v: { status: "entwurf" | "gesperrt"; rechnerRequest: Record<string, unknown> | null },
+  lead: Pick<LeadDaten, "von" | "nach" | "chatAdressen">,
+  gesetzt: Partial<Record<"beladen" | "entladen", { adresse: string; userId: string | null; am: string }>>,
+  namen: Record<string, string>
+): { beladen: AdressInfo; entladen: AdressInfo } {
+  const norm = (t: string | null | undefined) => (t ?? "").toLowerCase().replace(/[\s,]+/g, " ").trim();
+  const seite = (s: "beladen" | "entladen"): AdressInfo => {
+    const feld = s === "beladen" ? "von_adresse" : "nach_adresse";
+    const anfrage = typeof v.rechnerRequest?.[feld] === "string" ? (v.rechnerRequest[feld] as string) : null;
+    const imLead = s === "beladen" ? lead.von : lead.nach;
+    const chat = s === "beladen" ? lead.chatAdressen?.von : lead.chatAdressen?.nach;
+    const chatQuelle = s === "beladen" ? lead.chatAdressen?.quelleVon : lead.chatAdressen?.quelleNach;
+    // Gesperrt: die eingefrorene Anfrage zählt; Chat nur, wenn sie genau die Chat-Angabe trägt.
+    const text = v.status === "gesperrt" ? anfrage : imLead ?? chat ?? null;
+    const quelle: AdressInfo["quelle"] = !text ? "fehlt" : (v.status === "gesperrt" ? !!chat && norm(chat) === norm(anfrage) : !imLead && !!chat) ? "chat" : "lead";
+    const g = gesetzt[s];
+    return {
+      text,
+      quelle,
+      chatQuelle: quelle === "chat" ? chatQuelle ?? null : null,
+      genau: !!text && istAdresseGenau(text),
+      gesetzt:
+        quelle === "lead" && g && imLead && norm(g.adresse) === norm(imLead)
+          ? { von: (g.userId && namen[g.userId]?.split(" ")[0]) || "Kalkulation", am: g.am }
+          : null,
+    };
+  };
+  return { beladen: seite("beladen"), entladen: seite("entladen") };
 }
 
 /** Ansichtsmodell der Version `version` des Deals. Wirft `VersionsFehler("NICHT_GEFUNDEN")`. */
@@ -155,12 +192,13 @@ export async function ladeKalkulationsAnsicht(
   opts: AnsichtOptionen = {}
 ): Promise<KalkulationsAnsicht> {
   const d = await abhaengigkeiten(opts);
-  const [v, alle, lead, schalter, einsatz] = await Promise.all([
+  const [v, alle, lead, schalter, einsatz, gesetzt] = await Promise.all([
     d.speicher.lesen(ws, deal, version),
     d.speicher.liste(ws, deal),
     d.ladeLead(ws, deal),
     d.ladeSchalter(ws, deal),
     d.ladeEinsatz(ws, deal),
+    d.ladeAdressGesetzt(ws, deal).catch(() => ({})),
   ]);
   // Mit Schalter zählen die Paketoptionen selbst (Slug, Empfehlung); ohne wie vorher.
   const paketOptionen = schalter.angebotAusKalkulation ? await d.ladePaketOptionen(deal) : [];
@@ -171,6 +209,7 @@ export async function ladeKalkulationsAnsicht(
   const jetzt = d.jetzt();
   const nutzer = new Set<string>();
   for (const u of v.overrides ?? []) if (u.autor.userId) nutzer.add(u.autor.userId);
+  for (const g of Object.values(gesetzt)) if (g?.userId) nutzer.add(g.userId);
   if (v.lockedBy) nutzer.add(v.lockedBy);
   if (v.createdBy) nutzer.add(v.createdBy);
 
@@ -228,5 +267,6 @@ export async function ladeKalkulationsAnsicht(
     schalter,
     paketOptionen: paketOptionen.map((o) => ({ catalogueSlug: o.catalogueSlug, isRecommended: o.isRecommended })),
     paketHebel: paketHebel ?? {},
+    adressen: adressInfos(v, lead, gesetzt, namen),
   });
 }

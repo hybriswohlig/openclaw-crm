@@ -65,6 +65,7 @@ describe("ansichtAus: Kopf und Versionen", () => {
     expect(a.version).toEqual({
       nummer: 2, status: "entwurf", bearbeitbar: true, gesperrtText: null, veraltet: false, veraltetGrund: null, fehler: null,
       tarif: "Tarif v1", kvDokument: null, kvErstellbar: false, kvErzeugung: { art: "keins" }, sperrbar: true, sperrGrund: null, preisModus: "fest", modusWechsel: false, renderer: "vps",
+      adresseFehlt: { beladen: false, entladen: false },
     });
     expect(ansichtAus(weberVersion(), rest({ renderer: "crm" })).version.renderer).toBe("crm");
   });
@@ -74,7 +75,7 @@ describe("ansichtAus: Grundlage", () => {
   const a = ansichtAus(weberVersion(), rest());
 
   it("Zeilen in der Reihenfolge des Mockups", () => {
-    expect(a.grundlage.zeilen.map((z) => z.key)).toEqual(["volumen", "beladen", "entladen", "halteverbot", "umzugskartons", "einpacken", "montage", "team", "termin"]);
+    expect(a.grundlage.zeilen.map((z) => z.key)).toEqual(["volumen", "wohnung", "beladen", "entladen", "halteverbot", "umzugskartons", "einpacken", "montage", "team", "fahrt", "termin"]);
     expect(a.grundlage.adressen).toEqual({ beladen: "Rotebühlstr. 112, 70178 Stuttgart", entladen: "Plochinger Str. 8, 73730 Esslingen" });
   });
 

@@ -94,8 +94,8 @@ describe("GET /calculation/versions/[version]/route-karte", () => {
     expect(mocks.routeSchreiben).not.toHaveBeenCalled();
   });
 
-  it("ungenaue Adresse: ungenau, kein Abruf (Review Focus 1)", async () => {
-    mocks.lesen.mockResolvedValue({ ...VERSION, rechnerRequest: { von_adresse: "Umzug innerhalb Stuttgart" } });
+  it("ohne Beladeadresse: ungenau, kein Abruf (Review Focus 1; Plan 15: ein Ort allein reicht für eine ungefähre Route)", async () => {
+    mocks.lesen.mockResolvedValue({ ...VERSION, rechnerRequest: {} });
     const data = (await (await GET(req(), p("2"))).json()).data;
     expect(data).toEqual({ status: "ungenau", teilstrecken: [], googleLink: null, stationen: 2, gesamtKm: null, gesamtMinuten: null });
     expect(fetchMock).not.toHaveBeenCalled();

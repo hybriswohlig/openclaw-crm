@@ -81,12 +81,14 @@ export interface RechnerErgebnis {
   montageJePosition?: boolean;
   /** Bericht der Freitext-Zuordnung (Rechner) */
   zuordnungFreitext?: { nichtZugeordnet?: unknown[] } | null;
-  volumen?: { nettoCbm: number; ladeCbm?: number; gewichtKg?: number };
+  volumen?: { nettoCbm: number; ladeCbm?: number; gewichtKg?: number; katalogquote?: number };
   /** Personenminuten je Tätigkeit (demontage, montage, packen) und Fahrzeiten */
   zeiten?: {
     fahrtMin?: number; uhrzeitMin?: number; einsatztage?: number; demontage?: number; montage?: number; packen?: number;
     /** Personenminuten aus Zeitposten der Anfrage (neuer Rechner) */
     zeitpostenPm?: number;
+    /** „volumen“: Katalogquote unter 80 %, Tragezeit pauschal nach Volumen statt je Teil */
+    methode?: "positionen" | "volumen";
   };
   /** Tarif, mit dem gerechnet wurde (neuer Rechner) */
   tarif?: { id: string; version: number; marke: Marke | null };
