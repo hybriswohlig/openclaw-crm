@@ -62,3 +62,10 @@
     border-radius: 14px;
   }
 }
+
+/* Plan 14b: Die Lagekarte folgt unter /app der Darstellung (lagekarte--dunkel). Ihr
+   schwacher Text (#6f7f9c) hält dort auf --lk-panel-2 nur 4,0:1; in der neuen Oberfläche
+   etwas heller, damit Zähler und Zeitangaben 4,5:1 halten (5,0:1 auf #172033). */
+[data-neu] .lagekarte.lagekarte--dunkel {
+  --lk-text-schwach: #8090ab;
+}
