@@ -13,7 +13,8 @@ export function postenKeyFuer(gruppe: Pick<SelbstkostenGruppe, "postenKey">): st
 
 /** Unterzeilen aus Personenstunden und Zeitposten sind abgeleitet; nur echte Kostenzeilen lassen sich als Zeile übersteuern. */
 export function unterzeileUebersteuerbar(z: Pick<SelbstkostenUnterzeile, "key">): boolean {
-  return !z.key.startsWith("arbeit.") && !z.key.startsWith("zeitposten.") && !z.key.startsWith("material_frei.");
+  // Plan 15: `fahrt.*` sind Strecken der Fahrt (Popup), keine Kostenzeilen.
+  return !z.key.startsWith("arbeit.") && !z.key.startsWith("zeitposten.") && !z.key.startsWith("material_frei.") && !z.key.startsWith("fahrt.");
 }
 
 /** Hauptzeile einer Gruppe: Titel, Betrag mit Formel darunter; Klick öffnet den Anpassungs-Dialog. */

@@ -108,7 +108,7 @@ export function EingabeDialog({
                   inputMode={f.typ === "datum" ? undefined : f.typ === "ganzzahl" ? "numeric" : "decimal"}
                   value={eingaben.texte[f.key] ?? ""}
                   onChange={(e) => setzeText(f.key, e.target.value)}
-                  placeholder={f.wert === null || f.wert === undefined ? "Standard des Rechners" : undefined}
+                  placeholder={f.wert === null || f.wert === undefined ? f.platzhalter ?? "Standard des Rechners" : undefined}
                   autoComplete="off"
                 />
               </label>

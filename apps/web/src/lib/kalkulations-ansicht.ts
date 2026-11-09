@@ -68,6 +68,8 @@ export interface GrundlageFeld {
   label: string;
   typ: GrundlageFeldTyp;
   wert: unknown;
+  /** Plan 15: was der Rechner ohne Eingabe nimmt („30 min, geschätzt“) */
+  platzhalter?: string;
 }
 
 export interface GrundlageAnsichtZeile {
@@ -854,7 +856,11 @@ function fahrtZeile(e: RechnerErgebnis | null, anfrage: RechnerAnfrage, k: Grund
     herkunft: eindeutig(herkunft.length > 0 ? herkunft : [{ art: "STANDARD", text: "STANDARD" }]),
     warum: f ? `${quelle(a?.quelleText)}${t && t.quelleText !== a?.quelleText ? `, Weg ${t.quelleText}` : ""} · ${f.rechnung}` : null,
     bearbeitet: k.bearbeitet(keys),
-    felder: FAHRT_FELDER.map(([key, label]) => ({ ...feld(key, label, key.endsWith("_min") ? "ganzzahl" : "zahl", k) })),
+    felder: FAHRT_FELDER.map(([key, label]) => {
+      const s = key.startsWith("fahrt.anfahrt") ? a : key.startsWith("fahrt.strecke") ? t : r;
+      const platz = s ? (key.endsWith("_min") ? `${GANZ.format(s.min)} min, ${s.quelleText}` : `${KOMMA1.format(s.km)} km, ${s.quelleText}`) : undefined;
+      return { ...feld(key, label, key.endsWith("_min") ? "ganzzahl" : "zahl", k), ...(platz ? { platzhalter: platz } : {}) };
+    }),
   };
 }
 

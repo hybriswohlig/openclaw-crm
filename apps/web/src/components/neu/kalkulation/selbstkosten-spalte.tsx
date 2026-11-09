@@ -5,9 +5,18 @@ import "@/styles/neu-kalk-kosten.css";
 import { useState } from "react";
 import { GlassPanel } from "@/components/glassyui/glass-panel";
 import { usePortalZiel } from "@/components/neu/portal-ziel";
-import type { AnpassungAnsicht, GrundlageFeld, KalkulationsAnsicht, SelbstkostenAnsicht, SelbstkostenGruppe } from "@/lib/kalkulations-ansicht";
+import type {
+  AnpassungAnsicht,
+  GrundlageAnsichtZeile,
+  GrundlageFeld,
+  KalkulationsAnsicht,
+  SelbstkostenAnsicht,
+  SelbstkostenGruppe,
+} from "@/lib/kalkulations-ansicht";
 import { euro } from "@/components/neu/akte/format";
 import { AnpassungDialog, type AnpassungStart } from "./anpassung-dialog";
+import { EingabeDialog } from "./eingabe-dialog";
+import { FahrtDialog } from "./fahrt-dialog";
 import type { KalkKontext } from "./kalk-seite";
 import { KostenGruppeZeile, KostenUnterzeile, postenKeyFuer, unterzeileUebersteuerbar } from "./kostenzeile";
 import { MaterialChip, ZeitpostenChips } from "./zeitposten-chips";
@@ -35,7 +44,10 @@ export function SelbstkostenSpalte({
   anpassungen,
   felder,
   kontext,
+  fahrtZeile,
 }: {
+  /** Plan 15: Grundlage-Zeile „Fahrzeiten“ für „Fahrzeiten ändern“ aus dem Popup */
+  fahrtZeile?: GrundlageAnsichtZeile;
   selbstkosten: SelbstkostenAnsicht;
   vorlagen: KalkulationsAnsicht["zeitpostenVorlagen"];
   anpassungen: AnpassungAnsicht[];
@@ -43,6 +55,9 @@ export function SelbstkostenSpalte({
   kontext: KalkKontext;
 }) {
   const [dialog, setDialog] = useState<AnpassungStart | null>(null);
+  /** Plan 15 (Bauteil 12): Routen-Popup der Fahrt, `start` = hervorgehobene Strecke */
+  const [fahrtPopup, setFahrtPopup] = useState<{ start: string | null } | null>(null);
+  const [fahrzeitenDialog, setFahrzeitenDialog] = useState(false);
   const portalZiel = usePortalZiel();
   const beschaeftigt = kontext.laeuft !== null;
   const zeilen = uebersteuerbareZeilen(selbstkosten);
@@ -72,14 +87,20 @@ export function SelbstkostenSpalte({
         <div className="kalk-kette">
           {selbstkosten.gruppen.map((g) => (
             <div key={g.key} role="group" aria-label={g.label}>
-              <KostenGruppeZeile gruppe={g} beschaeftigt={beschaeftigt} onKlick={postenKeyFuer(g) ? gruppeKlick : undefined} />
+              <KostenGruppeZeile
+                gruppe={g}
+                beschaeftigt={beschaeftigt}
+                onKlick={g.key === "fahrt" && selbstkosten.fahrt ? () => setFahrtPopup({ start: null }) : postenKeyFuer(g) ? gruppeKlick : undefined}
+              />
               {g.unterzeilen.map((u) => (
                 <KostenUnterzeile
                   key={u.key}
                   zeile={u}
                   beschaeftigt={beschaeftigt}
                   onKlick={
-                    u.key.startsWith("zeitposten.")
+                    u.key.startsWith("fahrt.") && selbstkosten.fahrt
+                      ? () => setFahrtPopup({ start: u.key === "fahrt.rechnung" ? null : u.key.slice("fahrt.".length) })
+                      : u.key.startsWith("zeitposten.")
                       ? () => setDialog({ art: "zeitposten", key: u.key.slice("zeitposten.".length), bezeichnung: u.label.split(" · ")[0] })
                       : unterzeileUebersteuerbar(u)
                         ? () => setDialog({ art: "zeile", key: u.key, label: `${g.label} · ${u.label}`, aktuell: u.wert })
@@ -126,6 +147,36 @@ export function SelbstkostenSpalte({
         </div>
       )}
 
+      {fahrtPopup && selbstkosten.fahrt ? (
+        <FahrtDialog
+          dealId={kontext.dealId}
+          versionNr={kontext.versionNr}
+          fahrt={selbstkosten.fahrt}
+          start={fahrtPopup.start}
+          portalZiel={portalZiel}
+          onSchliessen={() => setFahrtPopup(null)}
+          onFahrzeitenAendern={
+            fahrtZeile && !beschaeftigt
+              ? () => {
+                  setFahrtPopup(null);
+                  setFahrzeitenDialog(true);
+                }
+              : undefined
+          }
+          onFahrtzeileAendern={
+            !beschaeftigt
+              ? () => {
+                  const g = selbstkosten.gruppen.find((x) => x.key === "fahrt");
+                  setFahrtPopup(null);
+                  if (g) gruppeKlick(g);
+                }
+              : undefined
+          }
+        />
+      ) : null}
+      {fahrzeitenDialog && fahrtZeile ? (
+        <EingabeDialog zeile={fahrtZeile} kontext={kontext} portalZiel={portalZiel} onSchliessen={() => setFahrzeitenDialog(false)} />
+      ) : null}
       {dialog ? (
         <AnpassungDialog
           start={dialog}

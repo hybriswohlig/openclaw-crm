@@ -1,0 +1,369 @@
+/*
+ * Plan 15 „Kalkulation verlässlich“: Kasten „Damit hat der Rechner gerechnet“,
+ * Fahrt-Popup, Inventarliste, Adressen, KV-Posten-Werkzeug. Nur Tokens (Text
+ * über `--*-ink`), neu.css bleibt unberührt (Plan 14b fasst es an).
+ */
+
+/* ── Fahrt-Popup ─────────────────────────────────────── */
+
+[data-neu] .kalk-fahrt-dialog {
+  max-width: min(96vw, 760px);
+}
+
+[data-neu] .kalk-fahrt-karte {
+  position: relative;
+  height: 260px;
+  margin: 12px 0;
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--rim);
+}
+
+[data-neu] .kalk-fahrt-tabelle {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  color: var(--ink);
+}
+
+[data-neu] .kalk-fahrt-tabelle th {
+  text-align: left;
+  font-weight: 600;
+  color: var(--ink-2);
+  padding: 4px 6px;
+}
+
+[data-neu] .kalk-fahrt-tabelle td {
+  padding: 6px;
+  border-top: 1px solid var(--rim);
+  vertical-align: middle;
+}
+
+[data-neu] .kalk-fahrt-tabelle td:nth-child(2),
+[data-neu] .kalk-fahrt-tabelle td:nth-child(3),
+[data-neu] .kalk-fahrt-tabelle th:nth-child(2),
+[data-neu] .kalk-fahrt-tabelle th:nth-child(3) {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+[data-neu] .kalk-fahrt-tabelle tbody tr {
+  cursor: pointer;
+}
+
+[data-neu] .kalk-fahrt-tabelle tbody tr[data-aktiv] td {
+  background: var(--fill-3);
+  font-weight: 600;
+}
+
+[data-neu] .kalk-fahrt-tabelle tbody tr:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: -2px;
+}
+
+[data-neu] .kalk-fahrt-tabelle tfoot td {
+  font-weight: 600;
+  padding-top: 10px;
+}
+
+[data-neu] .kalk-fahrt-farbe {
+  display: inline-block;
+  width: 14px;
+  height: 4px;
+  margin-right: 8px;
+  vertical-align: middle;
+  border-radius: 2px;
+}
+
+[data-neu] .kalk-fahrt-farbe[data-gestrichelt] {
+  -webkit-mask: repeating-linear-gradient(90deg, #000 0 4px, transparent 4px 7px);
+  mask: repeating-linear-gradient(90deg, #000 0 4px, transparent 4px 7px);
+}
+
+[data-neu] .kalk-fahrt-hinweis {
+  margin: 10px 0 0;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+[data-neu] .kalk-fahrt-knoepfe {
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+@media (max-width: 520px) {
+  [data-neu] .kalk-fahrt-karte {
+    height: 200px;
+  }
+  [data-neu] .kalk-fahrt-tabelle {
+    font-size: 12px;
+  }
+}
+
+/* ── Kasten „Damit hat der Rechner gerechnet“ ────────── */
+
+[data-neu] .kalk-annahmen {
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1.5px var(--gold);
+  color: var(--ink);
+}
+
+[data-neu] .kalk-annahmen-kopf {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 0 0 8px;
+}
+
+[data-neu] .kalk-annahmen-kopf h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+  color: var(--gold-ink);
+}
+
+[data-neu] .kalk-annahmen-kopf p {
+  margin: 0;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+[data-neu] .kalk-annahmen-gruppen {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 6px 18px;
+}
+
+[data-neu] .kalk-annahmen-gruppe h3 {
+  margin: 4px 0 2px;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+[data-neu] .kalk-annahmen-gruppe ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+[data-neu] .kalk-annahme {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 3px 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+[data-neu] .kalk-annahme:hover,
+[data-neu] .kalk-annahme:focus-visible {
+  color: var(--blue-ink);
+  text-decoration: underline;
+}
+
+[data-neu] .kalk-annahme-details {
+  margin: 2px 0 4px 12px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+[data-neu] .kalk-annahme-details summary {
+  cursor: pointer;
+  color: var(--blue-ink);
+}
+
+[data-neu] .kalk-annahme-details ul {
+  margin: 4px 0 0;
+  padding-left: 16px;
+  list-style: disc;
+}
+
+[data-neu] .kalk-zeile[data-sprung] {
+  animation: kalk-sprung 1.6s ease-out 1;
+}
+
+@keyframes kalk-sprung {
+  0% {
+    box-shadow: 0 0 0 3px var(--gold);
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-neu] .kalk-zeile[data-sprung] {
+    animation: none;
+    box-shadow: 0 0 0 2px var(--gold);
+  }
+}
+
+/* ── Adressen in der Grundlage ───────────────────────── */
+
+[data-neu] .kalk-adresse {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px 8px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+[data-neu] .kalk-adresse b {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+/* ── Listen in Dialogen (Inventar, Positionen) ───────── */
+
+[data-neu] .kalk-liste-dialog {
+  max-width: min(96vw, 980px);
+}
+
+[data-neu] .kalk-inventar {
+  display: grid;
+  gap: 6px;
+  max-height: 60vh;
+  overflow: auto;
+  margin: 10px 0;
+  padding: 0;
+  list-style: none;
+}
+
+[data-neu] .kalk-inv {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+  gap: 4px 10px;
+  align-items: center;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--rim);
+  color: var(--ink);
+  font-size: 13px;
+}
+
+[data-neu] .kalk-inv[data-ohne-katalog] {
+  box-shadow: inset 0 0 0 1.5px var(--gold);
+}
+
+[data-neu] .kalk-inv[data-entfernt] {
+  opacity: 0.55;
+  text-decoration: line-through;
+}
+
+[data-neu] .kalk-inv-bild {
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+  object-fit: cover;
+  background: var(--rim);
+}
+
+[data-neu] .kalk-inv-name {
+  font-weight: 600;
+}
+
+[data-neu] .kalk-inv-meta {
+  grid-column: 2 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+[data-neu] .kalk-inv-team {
+  color: var(--gold-ink);
+  font-weight: 600;
+}
+
+[data-neu] .kalk-inv-aktionen {
+  display: flex;
+  gap: 6px;
+}
+
+[data-neu] .kalk-inv-form {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 8px;
+  margin-top: 6px;
+}
+
+[data-neu] .kalk-inv-form label {
+  display: grid;
+  gap: 3px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+@media (max-width: 520px) {
+  [data-neu] .kalk-inv {
+    grid-template-columns: 36px minmax(0, 1fr);
+  }
+  [data-neu] .kalk-inv-aktionen {
+    grid-column: 1 / -1;
+  }
+}
+
+/* ── KV-Posten-Werkzeug ──────────────────────────────── */
+
+[data-neu] .kalk-kvl-x {
+  margin-left: 6px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--rim);
+  color: var(--rose-ink);
+  font: inherit;
+  font-size: 12px;
+  line-height: 20px;
+  cursor: pointer;
+}
+
+[data-neu] .kalk-kvl-x:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+[data-neu] .kalk-kv-plus {
+  margin-top: 6px;
+}
+
+[data-neu] .kalk-kurzgruende {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0;
+}
+
+[data-neu] .kalk-kurzgrund[aria-pressed="true"] {
+  background: var(--blue);
+  color: #fff;
+}
+
+[data-neu] .kalk-hinweis-klein {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+[data-neu] .kalk-hinweis-klein a {
+  color: var(--blue-ink);
+}

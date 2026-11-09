@@ -327,6 +327,7 @@ export function KalkSeite({ dealId }: { dealId: string }) {
             anpassungen={ansicht.anpassungen}
             felder={ansicht.grundlage.zeilen.flatMap((z) => z.felder)}
             kontext={kontext}
+            fahrtZeile={ansicht.grundlage.zeilen.find((z) => z.key === "fahrt")}
           />
         </div>
         <div className="kalk-spalte">
