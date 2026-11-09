@@ -21,9 +21,12 @@ export const dealWorkflowState = pgTable(
     stageEnteredAt: timestamp("stage_entered_at"),
     /** Voll bezahlt mit gestellter Rechnung (Plan 9, `abschlussAus`); Anker der Bewertung (Plan 11). */
     bezahltAm: timestamp("bezahlt_am", { withTimezone: true }),
+    /** Plan 15 (Bauteil 15): „Pakete anbieten“ je Deal; null = Firmenstandard (`angebot_aus_kalkulation`). */
+    paketeAnbieten: text("pakete_anbieten").$type<"an" | "aus" | null>(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
   (table) => [
     check("deal_workflow_state_waiting_on_check", sql`${table.waitingOn} in ('uns', 'kunde', 'niemand')`),
+    check("deal_workflow_state_pakete_anbieten_check", sql`${table.paketeAnbieten} IS NULL OR ${table.paketeAnbieten} IN ('an', 'aus')`),
   ]
 );

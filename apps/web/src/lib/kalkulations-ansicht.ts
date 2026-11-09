@@ -216,6 +216,8 @@ export interface KalkulationsAnsicht {
     adresseFehlt: { beladen: boolean; entladen: boolean };
   };
   grundlage: GrundlageAnsicht;
+  /** Plan 15 (Bauteil 15): „Pakete anbieten“ je Deal; null, wenn der Server ihn nicht geladen hat. */
+  paketSchalter: PaketSchalterAnsicht | null;
   /** Plan 15 (Bauteil 1): Kasten „Damit hat der Rechner gerechnet“; null ohne Annahmen. */
   annahmen: AnnahmenKasten | null;
   selbstkosten: SelbstkostenAnsicht;
@@ -314,6 +316,14 @@ export interface StundenAnsicht {
 // ─── Eingaben von `ansichtAus` ────────────────────────────────────────────────
 
 /** Die Felder einer Zeile aus `deal_inventory_items`, die die Ansicht liest. */
+/** Plan 15 (Bauteil 15): Schalter „Pakete anbieten“ (wie `PaketSchalter` im Dienst). */
+export interface PaketSchalterAnsicht {
+  firma: boolean;
+  deal: "an" | "aus" | null;
+  wirksam: boolean;
+  pakete: { aktiv: number; basis: boolean };
+}
+
 export interface InventarZeile {
   /** Plan 15: Zeilen-ID und Größenklasse für die Inventarliste */
   id?: string;
@@ -363,6 +373,8 @@ export interface AnsichtRest {
   paketOptionen?: { catalogueSlug: string | null; isRecommended: boolean }[];
   /** Plan 5b: Hebel je Paket-Slug aus dem Katalog der Firma. */
   paketHebel?: Record<string, HebelArt[]>;
+  /** Plan 15 (Bauteil 15): Zustand „Pakete anbieten“ */
+  paketSchalter?: PaketSchalterAnsicht;
   /** Plan 15: letzte Korrektur je Inventarzeile (Name, Zeit). */
   inventarKorrekturen?: Record<string, { von: string; am: string }>;
   /** Plan 15: Herkunft der Adressen je Seite (Server). */
@@ -1612,6 +1624,7 @@ export function ansichtAus(v: VersionsZeile, rest: AnsichtRest): KalkulationsAns
       adresseFehlt: fehlendeAdressen(v.rechnerRequest ?? null),
     },
     grundlage,
+    paketSchalter: rest.paketSchalter ?? null,
     annahmen,
     selbstkosten,
     marge,

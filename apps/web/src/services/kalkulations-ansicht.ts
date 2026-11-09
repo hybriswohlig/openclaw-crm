@@ -57,6 +57,8 @@ export interface AnsichtOptionen {
   jetzt?: () => Date;
   /** Plan 15: letzte von der Kalkulation ins Lead geschriebene Adresse je Seite */
   ladeAdressGesetzt?: (ws: string, deal: string) => Promise<Partial<Record<"beladen" | "entladen", { adresse: string; userId: string | null; am: string }>>>;
+  /** Plan 15 (Bauteil 15): Schalter „Pakete anbieten“ */
+  ladePaketSchalter?: (ws: string, deal: string) => Promise<import("./plan5-schalter").PaketSchalter | null>;
   /** Plan 15: letzte Korrektur je Inventarzeile */
   ladeInventarKorrekturen?: (ws: string, deal: string) => Promise<Record<string, { userId: string | null; am: string }>>;
 }
@@ -153,6 +155,8 @@ async function abhaengigkeiten(o: AnsichtOptionen): Promise<Required<AnsichtOpti
     jetzt: o.jetzt ?? (() => new Date()),
     ladeAdressGesetzt: o.ladeAdressGesetzt ?? (o.speicher ? async () => ({}) : (await db()).ladeAdressGesetzt),
     ladeInventarKorrekturen: o.ladeInventarKorrekturen ?? (o.speicher ? async () => ({}) : (await db()).ladeInventarKorrekturen),
+    ladePaketSchalter:
+      o.ladePaketSchalter ?? (o.ladeSchalter ? async () => null : async (ws, deal) => (await import("./plan5-schalter")).paketSchalter(ws, deal)),
   };
 }
 
@@ -204,6 +208,7 @@ export async function ladeKalkulationsAnsicht(
     d.ladeEinsatz(ws, deal),
     d.ladeAdressGesetzt(ws, deal).catch(() => ({})),
   ]);
+  const paketSchalter = await d.ladePaketSchalter(ws, deal).catch(() => null);
   const inventarKorrekturen: Record<string, { userId: string | null; am: string }> = await d
     .ladeInventarKorrekturen(ws, deal)
     .catch(() => ({}));
@@ -276,6 +281,7 @@ export async function ladeKalkulationsAnsicht(
     paketOptionen: paketOptionen.map((o) => ({ catalogueSlug: o.catalogueSlug, isRecommended: o.isRecommended })),
     paketHebel: paketHebel ?? {},
     adressen: adressInfos(v, lead, gesetzt, namen),
+    ...(paketSchalter ? { paketSchalter } : {}),
     inventarKorrekturen: Object.fromEntries(
       Object.entries(inventarKorrekturen).map(([id, k]) => [
         id,

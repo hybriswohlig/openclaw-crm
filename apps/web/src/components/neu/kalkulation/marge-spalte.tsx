@@ -22,6 +22,7 @@ import { PaketPreise, PreismodusWahl, TagePreise } from "./paket-preise";
 import { ModuswechselDialog, PreisDialog } from "./preis-dialog";
 import { OhneAdresseDialog } from "./adress-dialog";
 import { HebelAusDialog } from "./hebel-aus-dialog";
+import { PaketeSchalter } from "./pakete-schalter";
 import type { HebelArt } from "@/services/rechner/kv-posten";
 import { ADRESSE_FEHLT_TEXT } from "@/lib/kalkulation-p15";
 import {
@@ -312,6 +313,7 @@ export function MargeSpalte({ ansicht, kontext }: { ansicht: KalkulationsAnsicht
         </>
       )}
 
+      {ansicht.paketSchalter ? <PaketeSchalter schalter={ansicht.paketSchalter} kontext={kontext} portalZiel={portalZiel} /> : null}
       {plan5 ? <PreismodusWahl modus={version.preisModus} beschaeftigt={lauf !== null} onPreis={preisOeffnen} /> : null}
       {stundenModus ? null : (
         <>
@@ -342,12 +344,7 @@ export function MargeSpalte({ ansicht, kontext }: { ansicht: KalkulationsAnsicht
           </>
         )
       ) : (
-        <>
-          <PaketeAnzeige pakete={ansicht.pakete} preisModus={version.preisModus} link={ansicht.angebotsformularLink} />
-          <p className="kalk-hinweis-klein">
-            Pakete (Basis, Komfort, Premium) sind für diese Firma aus. <a href="/app/einstellungen#einst-firmen">Einstellungen, Kundenportal</a>
-          </p>
-        </>
+        <PaketeAnzeige pakete={ansicht.pakete} preisModus={version.preisModus} link={ansicht.angebotsformularLink} />
       )}
       <VerwaisteAnpassungen
         verwaist={ansicht.verwaist}

@@ -84,6 +84,7 @@ function deps(felder: Partial<AnsichtOptionen> = {}, versionen: VersionsZeile[] 
     ladeLead: vi.fn(async () => WEBER_LEAD),
     ladeAdressGesetzt: vi.fn(async () => ({})),
     ladeInventarKorrekturen: vi.fn(async () => ({})),
+    ladePaketSchalter: vi.fn(async () => null),
     hatPakete: vi.fn(async () => false),
     ladePaketHebel: vi.fn(async () => null),
     ladeInventar: vi.fn(async () => weberInventar()),

@@ -2,16 +2,17 @@ import { readFileSync } from "node:fs";
 import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-const sql = readFileSync(new URL("./0065_kartons_umzugskartons.sql", import.meta.url), "utf8");
+const sql = readFileSync(new URL("./0065_kalkulation_verlaesslich.sql", import.meta.url), "utf8");
 
 describe("Migration 0065 Kartons (Text)", () => {
-  it("ändert nur Entwürfe, nichts wird gelöscht", () => {
-    expect(sql).not.toMatch(/\b(DROP|DELETE|ALTER)\b/i);
+  it("ändert nur Entwürfe, nichts wird gelöscht; neue Spalte additiv", () => {
+    expect(sql).not.toMatch(/\b(DROP|DELETE)\b/i);
     expect(sql).toMatch(/v\."status" = 'entwurf'/);
+    expect(sql).toContain('ADD COLUMN IF NOT EXISTS "pakete_anbieten"');
   });
   it("steht im Journal als idx 65", () => {
     const journal = JSON.parse(readFileSync(new URL("./meta/_journal.json", import.meta.url), "utf8"));
-    expect(journal.entries.find((e: { idx: number }) => e.idx === 65)).toMatchObject({ tag: "0065_kartons_umzugskartons" });
+    expect(journal.entries.find((e: { idx: number }) => e.idx === 65)).toMatchObject({ tag: "0065_kalkulation_verlaesslich" });
   });
 });
 
@@ -28,6 +29,7 @@ describe.skipIf(!url)("Migration 0065 Kartons (DB)", () => {
     await db.unsafe(`CREATE SCHEMA ${schema}`);
     await db.unsafe(`SET search_path TO ${schema}`);
     await db.unsafe(`CREATE TABLE deal_calculation_versions (id text primary key, status text not null, overrides jsonb not null default '[]')`);
+    await db.unsafe(`CREATE TABLE deal_workflow_state (record_id text primary key)`);
     await db`insert into deal_calculation_versions ${db([
       { id: "e1", status: "entwurf", overrides: db.json([u("volumen", 20), u("kartons", 15), { ...u("marge", 40), art: "marge" }]) },
       { id: "g1", status: "gesperrt", overrides: db.json([u("kartons", 15)]) },
@@ -40,8 +42,9 @@ describe.skipIf(!url)("Migration 0065 Kartons (DB)", () => {
   });
 
   it("deutet kartons im Entwurf um, lässt Gesperrtes und Reihenfolge, zweimal idempotent", async () => {
-    await db.unsafe(sql);
-    await db.unsafe(sql);
+    for (let i = 0; i < 2; i++) for (const s of sql.split("--> statement-breakpoint")) await db.unsafe(s);
+    await db`insert into deal_workflow_state (record_id, pakete_anbieten) values ('d1', 'an'), ('d2', null)`;
+    await expect(db`insert into deal_workflow_state (record_id, pakete_anbieten) values ('d3', 'vielleicht')`).rejects.toThrow();
     const zeilen = await db<{ id: string; overrides: Array<Record<string, unknown>> }[]>`select id, overrides from deal_calculation_versions order by id`;
     const by = Object.fromEntries(zeilen.map((z) => [z.id, z.overrides]));
     expect(by.e1.map((x) => x.key)).toEqual(["volumen", "umzugskartons", "marge"]);

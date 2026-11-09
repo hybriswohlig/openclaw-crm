@@ -367,3 +367,13 @@
 [data-neu] .kalk-hinweis-klein a {
   color: var(--blue-ink);
 }
+
+/* ── Pakete anbieten je Deal ─────────────────────────── */
+
+[data-neu] .kalk-pakete-schalter {
+  margin: 10px 0;
+}
+
+[data-neu] .kalk-pakete-schalter select {
+  max-width: 220px;
+}

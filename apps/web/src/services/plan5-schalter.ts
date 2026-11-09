@@ -28,8 +28,56 @@ export async function plan5Schalter(ws: string, dealId: string, ex: Ausfuehrer =
     LIMIT 1
   `);
   const [z] = zeilen<{ angebot: boolean | null; tage: boolean | null }>(res);
-  if (!z) return SCHALTER_AUS;
-  return { angebotAusKalkulation: z.angebot === true, tagespreise: z.tage === true };
+  // Plan 15 (Bauteil 15): „Pakete anbieten“ am Deal übersteuert `angebot_aus_kalkulation`
+  // der Firma (nicht die Tagespreise). null = Firmenstandard.
+  const deal = await paketeAnbietenAmDeal(dealId, ex);
+  const firma = z ? z.angebot === true : false;
+  return { angebotAusKalkulation: deal === null ? firma : deal === "an", tagespreise: z?.tage === true };
+}
+
+/** Wert „Pakete anbieten“ am Deal (`deal_workflow_state.pakete_anbieten`), null = Firmenstandard. */
+export async function paketeAnbietenAmDeal(dealId: string, ex: Ausfuehrer = db): Promise<"an" | "aus" | null> {
+  const res = await ex.execute(sql`SELECT pakete_anbieten AS wert FROM deal_workflow_state WHERE record_id = ${dealId} LIMIT 1`);
+  const [z] = zeilen<{ wert: string | null }>(res);
+  return z?.wert === "an" || z?.wert === "aus" ? z.wert : null;
+}
+
+export interface PaketSchalter {
+  /** Firmenstandard `angebot_aus_kalkulation` */
+  firma: boolean;
+  /** Wert am Deal, null = Firmenstandard */
+  deal: "an" | "aus" | null;
+  wirksam: boolean;
+  /** Aktive Pakete der Firma und ob „basis“ dabei ist */
+  pakete: { aktiv: number; basis: boolean };
+}
+
+/** Zustand des Schalters „Pakete anbieten“ für die Kalkulationsseite (Bauteil 15). */
+export async function paketSchalter(ws: string, dealId: string, ex: Ausfuehrer = db): Promise<PaketSchalter> {
+  const res = await ex.execute(sql`
+    SELECT s.angebot_aus_kalkulation AS angebot,
+      (SELECT count(*)::int FROM offer_packages p WHERE p.workspace_id = ${ws} AND p.operating_company_record_id = v.referenced_record_id AND p.active) AS aktiv,
+      EXISTS (SELECT 1 FROM offer_packages p WHERE p.workspace_id = ${ws} AND p.operating_company_record_id = v.referenced_record_id AND p.active AND p.slug = 'basis') AS basis
+    FROM record_values v
+    INNER JOIN attributes a ON a.id = v.attribute_id AND a.slug = 'operating_company'
+    INNER JOIN objects o ON o.id = a.object_id AND o.slug = 'deals' AND o.workspace_id = ${ws}
+    LEFT JOIN operating_company_portal_settings s
+      ON s.operating_company_record_id = v.referenced_record_id AND s.workspace_id = ${ws}
+    WHERE v.record_id = ${dealId}
+    LIMIT 1
+  `);
+  const [z] = zeilen<{ angebot: boolean | null; aktiv: number | null; basis: boolean | null }>(res);
+  const firma = z?.angebot === true;
+  const deal = await paketeAnbietenAmDeal(dealId, ex);
+  return { firma, deal, wirksam: deal === null ? firma : deal === "an", pakete: { aktiv: Number(z?.aktiv ?? 0), basis: z?.basis === true } };
+}
+
+/** Setzt „Pakete anbieten“ am Deal; null = Firmenstandard. Der Aufrufer prüft Workspace und Mensch. */
+export async function paketeAnbietenSetzen(dealId: string, wert: "an" | "aus" | null): Promise<void> {
+  await db.execute(sql`
+    INSERT INTO deal_workflow_state (record_id, pakete_anbieten, updated_at) VALUES (${dealId}, ${wert}, now())
+    ON CONFLICT (record_id) DO UPDATE SET pakete_anbieten = ${wert}, updated_at = now()
+  `);
 }
 
 /**

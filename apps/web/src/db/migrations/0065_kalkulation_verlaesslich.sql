@@ -23,3 +23,15 @@ WHERE v."status" = 'entwurf'
     SELECT 1 FROM jsonb_array_elements(v."overrides") AS x(e)
     WHERE x.e->>'art' = 'eingabe' AND x.e->>'key' = 'kartons'
   );
+--> statement-breakpoint
+-- Plan 15, Bauteil 15: „Pakete anbieten“ je Deal übersteuert den Firmen-Schalter
+-- `angebot_aus_kalkulation` (null = Firmenstandard). Additiv und idempotent.
+ALTER TABLE "deal_workflow_state" ADD COLUMN IF NOT EXISTS "pakete_anbieten" text;
+--> statement-breakpoint
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'deal_workflow_state_pakete_anbieten_check' AND conrelid = '"deal_workflow_state"'::regclass
+  ) THEN
+    ALTER TABLE "deal_workflow_state" ADD CONSTRAINT "deal_workflow_state_pakete_anbieten_check" CHECK ("pakete_anbieten" IS NULL OR "pakete_anbieten" IN ('an', 'aus'));
+  END IF;
+END $$;
