@@ -3,19 +3,21 @@
  * Fahrt-Karte im Routen-Popup (Plan 15, Bauteil 12): je Strecke eine Linie in
  * eigener Farbe, geschätzte Strecken gestrichelt als Gerade. Die gewählte Strecke
  * ist breit und deckend, die übrigen blass. Nur im Browser (next/dynamic ohne SSR).
+ * Kartenstil folgt der Darstellung (Plan 14b: hell positron, dunkel dark).
  */
 import { setWorkerUrl } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { Layer, Map as MapLibreKarte, Source } from "@vis.gl/react-maplibre";
 import { useMemo } from "react";
+import { useDarstellung } from "@/components/neu/darstellung";
+import { kartenStil } from "./karten-stil";
 import { grenzenAus } from "./route-karte-bild-logik";
 import type { FahrtLinie } from "./fahrt-karte-logik";
 
 setWorkerUrl(new URL("maplibre-gl/dist/maplibre-gl-worker.mjs", import.meta.url).toString());
 
-const STIL = "https://tiles.openfreemap.org/styles/positron";
-
 export default function FahrtKarteBild({ linien, aktiv }: { linien: FahrtLinie[]; aktiv: string | null }) {
+  const { theme } = useDarstellung();
   const geojson = useMemo(
     () => ({
       type: "FeatureCollection" as const,
@@ -33,7 +35,7 @@ export default function FahrtKarteBild({ linien, aktiv }: { linien: FahrtLinie[]
   const deckung: unknown = ["case", ["get", "aktiv"], 1, 0.3];
   return (
     <MapLibreKarte
-      mapStyle={STIL}
+      mapStyle={kartenStil(theme)}
       initialViewState={{ bounds: grenzen, fitBoundsOptions: { padding: 32 } }}
       interactive={false}
       attributionControl={{ compact: true }}

@@ -114,6 +114,22 @@ export async function kennungenLaden(url: string): Promise<{ deal: string; perso
   });
 }
 
+/** Plan 15: Deal mit Fahrt-Popup aus `scripts/akte-testdaten.ts` („Viktoria Muster (Chat)“), sonst null. */
+export async function fahrtDealLaden(url: string): Promise<string | null> {
+  return mitDb(url, async (sql) => {
+    const zeilen = await sql<{ id: string }[]>`
+      SELECT r.id
+      FROM records r
+      JOIN objects o ON o.id = r.object_id AND o.slug = 'deals'
+      JOIN record_values rv ON rv.record_id = r.id
+      JOIN attributes a ON a.id = rv.attribute_id AND a.object_id = o.id AND a.slug = 'name'
+      WHERE rv.text_value = 'Viktoria Muster (Chat)' AND r.deleted_at IS NULL
+      LIMIT 1
+    `;
+    return zeilen[0]?.id ?? null;
+  });
+}
+
 /** Token der Kundenstatus-Seite für Deal (a). Widerrufene Links zählen nicht. */
 export async function portalTokenLaden(url: string, deal: string): Promise<string | null> {
   return mitDb(url, async (sql) => {

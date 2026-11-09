@@ -12,6 +12,7 @@ import {
 import {
   ausgabeOrdner,
   datenbankUrlPruefen,
+  fahrtDealLaden,
   kennungenLaden,
   portalTokenLaden,
   pruefSkript,
@@ -59,6 +60,7 @@ const themes = aktiveThemes();
 
 let kennungen: { deal: string; person: string | null } = { deal: "", person: null };
 let portalToken: string | null = null;
+let fahrtDeal: string | null = null;
 let ausgabe = "";
 let faelle: PruefFall[] = [];
 const befunde: Befund[] = [];
@@ -110,6 +112,8 @@ async function seitePruefen(opts: {
   breite: number;
   theme: Theme;
   reduce?: boolean;
+  /** Plan 15: vor dem Bild etwas öffnen (z. B. das Fahrt-Popup); geprüft wird dann der Dialog. */
+  oeffnen?: (page: Page) => Promise<void>;
 }): Promise<void> {
   const baseURL = basisUrl(opts.testInfo);
   const context = await opts.browser.newContext({
@@ -148,6 +152,7 @@ async function seitePruefen(opts: {
     const page = await context.newPage();
     await page.goto(opts.pfad, { waitUntil: "domcontentloaded" });
     await netzAbwarten(page);
+    if (opts.oeffnen) await opts.oeffnen(page);
     await page.screenshot({ path: path.join(ausgabe, opts.datei), fullPage: true });
 
     const keinUeberlauf = await page.evaluate(pruefSkript.horizontalScroll);
@@ -266,6 +271,7 @@ test.describe("Prüfraster", () => {
     datenbankUrlPruefen(url);
     kennungen = await kennungenLaden(url);
     portalToken = await portalTokenLaden(url, kennungen.deal);
+    fahrtDeal = await fahrtDealLaden(url);
     ausgabe = ausgabeOrdner();
     const erlaubt = new Set<string>(themes);
     faelle = pruefFaelle({ deal: kennungen.deal, person: kennungen.person ?? "OHNE_PERSON" }).filter((fall) =>
@@ -297,6 +303,33 @@ test.describe("Prüfraster", () => {
           });
         });
       }
+    }
+  }
+
+  // Plan 15: Fahrt-Popup der Kalkulation (Karte, Tabelle, Farbfelder) in beiden Themes.
+  for (const breite of PRUEFRASTER_BREITEN) {
+    for (const theme of themes) {
+      test(`fahrt-popup ${breite} ${theme}`, async ({ browser }, testInfo) => {
+        if (!fahrtDeal) {
+          test.skip(true, "kein Deal mit Fahrt-Popup");
+          return;
+        }
+        await seitePruefen({
+          browser,
+          testInfo,
+          pfad: `/app/leads/${fahrtDeal}/kalkulation`,
+          datei: `fahrt-popup-${breite}-${theme}.png`,
+          breite,
+          theme,
+          oeffnen: async (page) => {
+            const gruppe = page.locator('[role="group"][aria-label="Fahrt"]');
+            await gruppe.waitFor({ timeout: 60_000 });
+            await gruppe.locator("button").first().click();
+            await page.locator(".kalk-fahrt-dialog").waitFor({ state: "visible", timeout: 15_000 });
+            await page.waitForTimeout(1500);
+          },
+        });
+      });
     }
   }
 
