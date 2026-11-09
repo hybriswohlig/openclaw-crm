@@ -9,8 +9,9 @@ export default function manifest(): MetadataRoute.Manifest {
     scope: "/",
     display: "standalone",
     orientation: "portrait",
-    background_color: "#fbf8f3",
-    theme_color: "#fbf8f3",
+    // Seitenfarbe der neuen Oberfläche (NEU_THEMEFARBE.light); dunkel setzt die Schale per meta.
+    background_color: "#faf9f7",
+    theme_color: "#faf9f7",
     lang: "de",
     icons: [
       { src: "/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },

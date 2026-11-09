@@ -8,6 +8,7 @@ import {
   success,
   unauthorized,
 } from "@/lib/api-utils";
+import { DARSTELLUNG_COOKIE, cookieZeile } from "@/lib/dunkel-abschaltung";
 import { DARSTELLUNG_SCHLUESSEL, darstellungPruefen } from "@/lib/einstellungen-uebersicht";
 import { LEADS_ANSICHT_SCHLUESSEL, leadsAnsichtPruefen } from "@/lib/leads-board";
 import { PLAN_ANSICHT_SCHLUESSEL, planAnsichtPruefen } from "@/lib/plan-heute";
@@ -19,7 +20,7 @@ const ANSICHT_MAX_BYTES = 4 * 1024;
 const ANSICHT_PRUEFER = new Map<string, (roh: unknown) => unknown | null>([
   [LEADS_ANSICHT_SCHLUESSEL, leadsAnsichtPruefen],
   [PLAN_ANSICHT_SCHLUESSEL, planAnsichtPruefen],
-  // Plan 13: Hell, Dunkel, Wie das Gerät. Wirksam wird der Wert mit Plan 14.
+  // Plan 13: Hell, Dunkel, Wie das Gerät. Wirksam seit Plan 14b (Spiegel-Cookie unten).
   [DARSTELLUNG_SCHLUESSEL, darstellungPruefen],
 ]);
 
@@ -52,5 +53,10 @@ export async function PUT(
   if (!wert) return badRequest("Ansicht ungültig");
 
   await setAnsicht(ctx.userId, schluessel, wert);
-  return success(wert);
+  const res = success(wert);
+  // Plan 14b: Spiegel-Cookie für das Kopf-Skript (nicht httpOnly, das Skript liest ihn).
+  if (schluessel === DARSTELLUNG_SCHLUESSEL && typeof wert === "string") {
+    res.headers.append("Set-Cookie", cookieZeile(DARSTELLUNG_COOKIE, wert, req.nextUrl.protocol === "https:"));
+  }
+  return res;
 }

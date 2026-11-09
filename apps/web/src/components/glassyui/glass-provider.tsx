@@ -29,7 +29,7 @@ type SystemPreferenceState = Pick<
   'theme' | 'quality' | 'reduceMotion' | 'reduceTransparency'
 >;
 
-type PreferenceSources = {
+export type PreferenceSources = {
   explicit: GlassyUiPreferences;
   system: SystemPreferenceState;
 };
@@ -129,16 +129,36 @@ function readInitialPreferenceSources(): PreferenceSources {
 }
 
 /**
+ * Effective preferences. Order, lowest first: defaults, system (or `defaultTheme` in place of the
+ * system theme), stored choices (`glassy-ui-preferences`), then a controlled `theme`, which no
+ * stored choice can override.
+ */
+export function effectivePreferences(
+  sources: PreferenceSources,
+  defaultTheme?: GlassyUiTheme,
+  theme?: GlassyUiTheme,
+): PreferenceState {
+  const merged = mergePreferences(
+    mergePreferences(DEFAULT_STATE, defaultTheme ? { ...sources.system, theme: defaultTheme } : sources.system),
+    sources.explicit,
+  );
+  return theme ? { ...merged, theme } : merged;
+}
+
+/**
  * Holds the glass preferences and applies them to the document. `defaultTheme` is the theme a
  * visitor sees until they choose one, whatever their system prefers; leave it out to follow the
- * system setting.
+ * system setting. `theme` controls the theme from outside (the CRM's own appearance setting) and
+ * wins over stored preferences and `defaultTheme`.
  */
 export function GlassProvider({
   children,
   defaultTheme,
+  theme,
 }: {
   children: ReactNode;
   defaultTheme?: GlassyUiTheme;
+  theme?: GlassyUiTheme;
 }) {
   const [sources, setSources] = useState<PreferenceSources>(readInitialPreferenceSources);
 
@@ -151,15 +171,8 @@ export function GlassProvider({
   const activeSources = hydrated ? sources : SERVER_SOURCES;
 
   const preferences = useMemo(
-    () =>
-      mergePreferences(
-        mergePreferences(
-          DEFAULT_STATE,
-          defaultTheme ? { ...activeSources.system, theme: defaultTheme } : activeSources.system,
-        ),
-        activeSources.explicit,
-      ),
-    [activeSources, defaultTheme],
+    () => effectivePreferences(activeSources, defaultTheme, theme),
+    [activeSources, defaultTheme, theme],
   );
 
   useEffect(() => {

@@ -5,7 +5,8 @@ import { toast } from "sonner";
 import { GlassButton } from "@/components/glassyui/glass-button";
 import { GlassPanel } from "@/components/glassyui/glass-panel";
 import { GlassSegmentedControl, GlassSegmentedControlItem } from "@/components/glassyui/glass-segmented-control";
-import { apiAufruf, jsonAufruf } from "@/components/neu/akte/api";
+import { apiAufruf } from "@/components/neu/akte/api";
+import { useDarstellung } from "@/components/neu/darstellung";
 import {
   DARSTELLUNG_LABEL,
   DARSTELLUNGEN,
@@ -20,8 +21,8 @@ import { Rueckfrage } from "./rueckfrage";
 import { TEXT, type RueckfrageArt } from "./texte";
 
 /**
- * „Für mich“ (Entscheidung 10): Darstellung (wirksam mit Plan 14) und
- * Kalender-Abo. Speichert sofort, beides betrifft nur den eigenen Zugang.
+ * „Für mich“ (Entscheidung 10): Darstellung und Kalender-Abo. Speichert sofort, beides
+ * betrifft nur den eigenen Zugang. Die Darstellung wirkt sofort (Plan 14b, `useDarstellung`).
  */
 export function FuerMich({
   ich,
@@ -34,6 +35,7 @@ export function FuerMich({
   portalZiel: HTMLElement | undefined;
   onGespeichert: () => Promise<void>;
 }) {
+  const { setzen: darstellungWirksam } = useDarstellung();
   const [darstellung, setDarstellung] = useState<Darstellung>(ich.darstellung);
   const [laeuft, setLaeuft] = useState<string | null>(null);
   const [frage, setFrage] = useState<RueckfrageArt | null>(null);
@@ -48,14 +50,15 @@ export function FuerMich({
     const vorher = darstellung;
     setDarstellung(neu);
     setLaeuft("darstellung");
-    const r = await apiAufruf(`/api/v1/me/ansichten/darstellung`, jsonAufruf("PUT", neu));
-    setLaeuft(null);
-    if (!r.ok) {
+    try {
+      await darstellungWirksam(neu);
+      toast.success(TEXT.gespeichert);
+    } catch (e) {
       setDarstellung(vorher);
-      toast.error(TEXT.nichtGespeichert, { description: r.message });
-      return;
+      toast.error(TEXT.nichtGespeichert, { description: e instanceof Error ? e.message : undefined });
+    } finally {
+      setLaeuft(null);
     }
-    toast.success(TEXT.gespeichert);
   }
 
   async function kalender(methode: "POST" | "DELETE", pfad = "/api/v1/calendar/subscription") {

@@ -257,3 +257,33 @@ describe("PUT /api/v1/me/ansichten/darstellung (Plan 13)", () => {
     });
   });
 });
+
+describe("Spiegel-Cookie neu_darstellung (Plan 14b)", () => {
+  it("setzt den Cookie bei darstellung, nicht httpOnly, mit Secure unter https", async () => {
+    mocks.getAuthContext.mockResolvedValue(NUTZER);
+    const res = await put("darstellung", "dunkel");
+    expect(res.status).toBe(200);
+    const zeile = res.headers.get("set-cookie") ?? "";
+    expect(zeile).toContain("neu_darstellung=dunkel");
+    expect(zeile).toContain("Path=/");
+    expect(zeile).toContain("SameSite=Lax");
+    expect(zeile).toContain("Secure");
+    expect(zeile.toLowerCase()).not.toContain("httponly");
+  });
+
+  it("setzt keinen Cookie bei anderen Ansichten", async () => {
+    mocks.getAuthContext.mockResolvedValue(NUTZER);
+    const res = await put("leads", GEPRUEFT);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("set-cookie")).toBeNull();
+  });
+
+  it("setzt keinen Cookie, wenn die Darstellung ungültig ist oder nicht gespeichert wird", async () => {
+    mocks.getAuthContext.mockResolvedValue(NUTZER);
+    expect((await put("darstellung", "grau")).headers.get("set-cookie")).toBeNull();
+    mocks.getAuthContext.mockResolvedValue({ ...NUTZER, authMethod: "api_key", apiKeyAccess: "read" });
+    const nurLesen = await put("darstellung", "dunkel");
+    expect(nurLesen.status).toBe(403);
+    expect(nurLesen.headers.get("set-cookie")).toBeNull();
+  });
+});

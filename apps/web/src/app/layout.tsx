@@ -8,6 +8,7 @@ import { AmplitudeScript } from "@/components/analytics/amplitude-script";
 import { CookieConsent } from "@/components/analytics/cookie-consent";
 import { ServiceWorkerRegister } from "@/components/pwa/service-worker-register";
 import { baseUrl } from "@/lib/base-url";
+import { DARSTELLUNG_SKRIPT } from "@/lib/dunkel-abschaltung";
 import "./globals.css";
 
 export const viewport: Viewport = {
@@ -103,6 +104,11 @@ export default function RootLayout({
       suppressHydrationWarning
       className={`${inter.variable} ${fraunces.variable} ${jetbrainsMono.variable}`}
     >
+      <head>
+        {/* Plan 14b: Theme der neuen Oberfläche vor dem ersten Bild, nur unter /app.
+            Setzt nur data-lg-theme, nie die Klasse dark (Portal und alte Seiten bleiben). */}
+        <script dangerouslySetInnerHTML={{ __html: DARSTELLUNG_SKRIPT }} />
+      </head>
       <body className={inter.className}>
         <PlausibleScript />
         <GA4Script />

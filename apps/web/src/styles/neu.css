@@ -163,6 +163,14 @@ body:has([data-neu]) {
   background-color: #1c1c1e; /* fest */ /* gleich --seite-unten dunkel */
 }
 
+/* Dunkel schon vor der Schale: data-lg-theme setzt nur das Kopf-Skript unter /app, und
+   solange die Zugangsprüfung läuft, gibt es noch kein [data-neu]. Ohne diese Regel bliebe
+   der Body in diesem Moment hell (Aufblitzen). Beim Verlassen von /app fällt das Attribut weg. */
+:root[data-lg-theme="dark"] body {
+  background-color: #1c1c1e; /* fest */ /* gleich --seite-unten dunkel */
+  color: #f5f5f7; /* fest */ /* gleich --ink dunkel */
+}
+
 [data-neu] .neu-hintergrund-karte {
   position: absolute;
   inset: 0;

@@ -92,7 +92,7 @@ export const TEXT = {
   abschnittZugaenge: "Zugänge",
 
   darstellung: "Darstellung",
-  darstellungSatz: "Die dunkle Ansicht kommt mit dem nächsten Ausbau. Kundenportal und PDFs bleiben immer hell.",
+  darstellungSatz: "Gilt nur für dieses Konto. Kundenportal und PDFs bleiben immer hell.",
   kalender: "Kalender-Abo",
   kalenderSatz: "Deine Termine im Handy- oder Bürokalender. Der Link ist persönlich, gib ihn nicht weiter.",
   kalenderErstellen: "Abo-Link erstellen",
