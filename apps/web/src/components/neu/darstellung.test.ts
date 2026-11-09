@@ -105,6 +105,13 @@ describe("darstellung-logik", () => {
     expect(abgleichNoetig(null, "system")).toBe("system");
   });
 
+  it("dreht eine Wahl nicht zurück, die nach dem Start des Abrufs kam (Review M2)", () => {
+    // Abruf startet mit DB „hell“, dann wählt jemand „dunkel“, dann kommt die alte Antwort.
+    expect(abgleichNoetig("dunkel", "hell", true)).toBeNull();
+    expect(abgleichNoetig(null, "hell", true)).toBeNull();
+    expect(abgleichNoetig("dunkel", "hell", false)).toBe("hell");
+  });
+
   it("Toasts folgen unter /app der neuen Oberfläche, sonst next-themes", () => {
     expect(toasterTheme("/app/heute", "dark", "light")).toBe("dark");
     expect(toasterTheme("/app/heute", "light", "dark")).toBe("light");

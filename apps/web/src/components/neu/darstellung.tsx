@@ -31,6 +31,8 @@ const DUNKEL_ABFRAGE = "(prefers-color-scheme: dark)";
 let stand: Stand | null = null;
 const hoerer = new Set<() => void>();
 let abfrage: MediaQueryList | null = null;
+/** Zählt eigene Wahlen; der Abgleich verwirft eine Antwort, die älter ist als die letzte Wahl. */
+let wahlen = 0;
 
 function lesen(): Stand {
   if (!stand) {
@@ -115,6 +117,7 @@ export function useDarstellung(): {
  */
 async function darstellungSetzen(d: DarstellungSpiegel): Promise<void> {
   const vorher = lesen().darstellung;
+  wahlen += 1;
   cookieSchreiben(d);
   aendern({ darstellung: d });
   const r = await apiAufruf(`/api/v1/me/ansichten/${DARSTELLUNG_SCHLUESSEL}`, jsonAufruf("PUT", d));
@@ -133,10 +136,15 @@ export function DarstellungSync({ theme }: { theme: LgTheme }): null {
   // Einmal je Laden: anderes Gerät, Cookie fehlt oder ist veraltet.
   useEffect(() => {
     let aktiv = true;
+    const wahlenBeimStart = wahlen;
     void (async () => {
       const r = await apiAufruf<{ ansichten?: Record<string, unknown> | null }>("/api/v1/me/settings");
       if (!aktiv || !r.ok) return;
-      const ziel = abgleichNoetig(darstellungAusCookie(document.cookie), darstellungAus(r.data?.ansichten));
+      const ziel = abgleichNoetig(
+        darstellungAusCookie(document.cookie),
+        darstellungAus(r.data?.ansichten),
+        wahlen !== wahlenBeimStart
+      );
       if (!ziel) return;
       cookieSchreiben(ziel);
       if (ziel !== lesen().darstellung) aendern({ darstellung: ziel });

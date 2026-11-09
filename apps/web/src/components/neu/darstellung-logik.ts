@@ -33,8 +33,11 @@ export function themeFuer(d: DarstellungSpiegel | null, systemDunkel: boolean): 
  */
 export function abgleichNoetig(
   cookie: DarstellungSpiegel | null,
-  gespeichert: DarstellungSpiegel
+  gespeichert: DarstellungSpiegel,
+  /** Hat jemand seit dem Start des Abrufs selbst gewählt? Dann ist die Antwort veraltet (Review M2). */
+  gewaehltSeitAbruf = false
 ): DarstellungSpiegel | null {
+  if (gewaehltSeitAbruf) return null;
   return cookie === gespeichert ? null : gespeichert;
 }
 
