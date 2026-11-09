@@ -35,6 +35,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ rec
     erwartetPreisCent?: unknown;
     erwartetPreisHash?: unknown;
     modusWechselBestaetigt?: unknown;
+    ohneAdresseBestaetigt?: unknown;
   } | null;
   const erwartet = body && "erwartetPreisCent" in body ? body.erwartetPreisCent : undefined;
   if (erwartet !== undefined && !(typeof erwartet === "number" && Number.isSafeInteger(erwartet) && erwartet >= 0)) {
@@ -50,6 +51,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ rec
       ...(typeof erwartet === "number" ? { erwartetPreisCent: erwartet } : {}),
       ...(typeof hash === "string" ? { erwartetPreisHash: hash } : {}),
       ...(body?.modusWechselBestaetigt === true ? { modusWechselBestaetigt: true } : {}),
+      // Plan 15 (Bauteil 5): „Preis ohne echte Fahrzeiten“ bestätigt (nur Menschen; ein Agent bekommt 409 ADRESSE_FEHLT).
+      ...(body?.ohneAdresseBestaetigt === true ? { ohneAdresseBestaetigt: true } : {}),
     });
     return success({ version: r.version, quotation: r.quotation, gueltigkeitHinweis: r.gueltigkeitHinweis });
   } catch (err) {

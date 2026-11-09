@@ -20,6 +20,8 @@ import { KernWarnung } from "./kern-warnung";
 import { KvVorschau, PaketeAnzeige } from "./kv-vorschau";
 import { PaketPreise, PreismodusWahl, TagePreise } from "./paket-preise";
 import { ModuswechselDialog, PreisDialog } from "./preis-dialog";
+import { OhneAdresseDialog } from "./adress-dialog";
+import { ADRESSE_FEHLT_TEXT } from "@/lib/kalkulation-p15";
 import {
   sperrAusgang,
   sperrKoerper,
@@ -63,6 +65,7 @@ type Dialog =
   | { art: "preis"; start: PreisStart }
   | { art: "kv"; nurKv: boolean }
   | { art: "moduswechsel"; texte: KvTexte; meldung: string }
+  | { art: "ohne_adresse"; texte: KvTexte; meldung: string; modusWechselBestaetigt: boolean }
   | { art: "kottke" };
 
 /**
@@ -83,6 +86,8 @@ export function MargeSpalte({ ansicht, kontext }: { ansicht: KalkulationsAnsicht
   const { marge, preis, version } = ansicht;
   const portalZiel = usePortalZiel();
   const [dialog, setDialog] = useState<Dialog | null>(null);
+  /** Plan 15: die Rückfrage „ohne Adresse“ gilt auch für eine folgende Moduswechsel-Rückfrage. */
+  const ohneAdresseBisher = useRef(false);
   const basis = marge.gewaehltProzent ?? marge.vorschlagProzent ?? marge.min;
   /** Wert im Regler, solange er vom gespeicherten abweicht; null = folgt der Ansicht. */
   const [entwurf, setEntwurf] = useState<number | null>(null);
@@ -161,16 +166,26 @@ export function MargeSpalte({ ansicht, kontext }: { ansicht: KalkulationsAnsicht
   /** Lauf für Sperrbereich und KV-Dialog: auch ein ausstehender Reglerwert sperrt sie. */
   const lauf: Lauf | null = kontext.laeuft ?? (kontext.ausstehend ? "speichern" : null);
 
-  async function sperrenUndKv(texte: KvTexte, nurKv: boolean, modusWechselBestaetigt = false) {
+  async function sperrenUndKv(texte: KvTexte, nurKv: boolean, modusWechselBestaetigt = false, ohneAdresseBestaetigt = false) {
+    // Plan 15 (Bauteil 5): fehlt eine Adresse, erst nachfragen („Preis ohne echte Fahrzeiten“).
+    const fehlt = ansicht.version.adresseFehlt;
+    if (!nurKv && !ohneAdresseBestaetigt && (fehlt.beladen || fehlt.entladen)) {
+      setDialog({ art: "ohne_adresse", texte, meldung: ADRESSE_FEHLT_TEXT, modusWechselBestaetigt });
+      return;
+    }
     const basisUrl = `/api/v1/deals/${encodeURIComponent(kontext.dealId)}/calculation/versions/${kontext.versionNr}`;
     kontext.setzeLauf("sperren");
     try {
       if (!nurKv) {
         const sperre = await apiAufruf<{ version: { version: number } }>(
           `${basisUrl}/lock`,
-          jsonAufruf("POST", sperrKoerper(ansicht, { modusWechselBestaetigt }))
+          jsonAufruf("POST", sperrKoerper(ansicht, { modusWechselBestaetigt, ohneAdresseBestaetigt }))
         );
         const ausgang = sperrAusgang(sperre);
+        if (ausgang.art === "adresse_fehlt" && !ohneAdresseBestaetigt) {
+          setDialog({ art: "ohne_adresse", texte, meldung: ausgang.meldung, modusWechselBestaetigt });
+          return;
+        }
         if (ausgang.art === "moduswechsel" && !modusWechselBestaetigt) {
           // Nichts gesperrt: erst nachfragen, dann mit Bestätigung erneut (Entscheidung 5b-5).
           setDialog({ art: "moduswechsel", texte, meldung: ausgang.meldung });
@@ -358,7 +373,20 @@ export function MargeSpalte({ ansicht, kontext }: { ansicht: KalkulationsAnsicht
           laeuft={lauf !== null}
           portalZiel={portalZiel}
           onAbbrechen={() => setDialog(null)}
-          onBestaetigen={() => void sperrenUndKv(dialog.texte, false, true)}
+          onBestaetigen={() => void sperrenUndKv(dialog.texte, false, true, ohneAdresseBisher.current)}
+        />
+      ) : null}
+      {dialog?.art === "ohne_adresse" ? (
+        <OhneAdresseDialog
+          meldung={dialog.meldung}
+          fehlt={ansicht.version.adresseFehlt}
+          laeuft={lauf !== null}
+          portalZiel={portalZiel}
+          onAbbrechen={() => setDialog(null)}
+          onBestaetigen={() => {
+            ohneAdresseBisher.current = true;
+            void sperrenUndKv(dialog.texte, false, dialog.modusWechselBestaetigt, true);
+          }}
         />
       ) : null}
       {dialog?.art === "kv" ? (

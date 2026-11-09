@@ -554,6 +554,26 @@ describe("sperren", () => {
     );
   });
 
+  it("Plan 15 (Bauteil 5): ohne Entladeadresse beim Umzug: Agent 409 ADRESSE_FEHLT, Mensch erst nach Rückfrage", async () => {
+    const t = aufbau();
+    t.setzeLead({ ...lead(3), auftragsart: "umzug" });
+    await entwurfHolenOderAnlegen("ws", "deal1", MENSCH, t.deps);
+    await expect(sperren("ws", "deal1", 1, AGENT, {}, t.deps)).rejects.toMatchObject({ code: "ADRESSE_FEHLT", status: 409 });
+    await expect(sperren("ws", "deal1", 1, AGENT, { ohneAdresseBestaetigt: true }, t.deps)).rejects.toMatchObject({ code: "ADRESSE_FEHLT" });
+    await expect(sperren("ws", "deal1", 1, MENSCH, {}, t.deps)).rejects.toMatchObject({ code: "ADRESSE_FEHLT" });
+    expect(t.speicher.sperrenUndAngebot).not.toHaveBeenCalled();
+    await sperren("ws", "deal1", 1, MENSCH, { ohneAdresseBestaetigt: true }, t.deps);
+    expect(t.speicher.sperrenUndAngebot).toHaveBeenCalledTimes(1);
+  });
+
+  it("Plan 15 (Bauteil 5): Adressen nur aus dem Chat reichen, ohne Rückfrage", async () => {
+    const t = aufbau();
+    t.setzeLead({ ...lead(3), von: null, auftragsart: "umzug", chatAdressen: { von: "70372 Stuttgart", nach: "71032 Böblingen", quelleVon: "erkennung", quelleNach: "erkennung" } });
+    await entwurfHolenOderAnlegen("ws", "deal1", MENSCH, t.deps);
+    await sperren("ws", "deal1", 1, AGENT, {}, t.deps);
+    expect(t.speicher.sperrenUndAngebot).toHaveBeenCalledTimes(1);
+  });
+
   it("Agent: Übernahme als agent vermerkt", async () => {
     const t = aufbau();
     await entwurfHolenOderAnlegen("ws", "deal1", AGENT, t.deps);

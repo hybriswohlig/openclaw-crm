@@ -25,12 +25,12 @@ function text(w: unknown): string | null {
 
 // ─── Adressen ────────────────────────────────────────────────────────────────
 
-/** Braucht der Auftrag eine Entladeadresse? Ja, sobald die Zielseite aktiv ist (Umzug, Transport). */
+/** Braucht der Auftrag eine Entladeadresse? Ja bei Umzug und Transport und sobald die Zielseite aktiv ist. */
 export function brauchtEntladeadresse(anfrage: RechnerAnfrage | null | undefined): boolean {
   const a = anfrage ?? {};
   const art = text(a.auftragsart);
   if (art === "entruempelung" || art === "kuechenmontage") return false;
-  return a.nach_vorhanden === "on" || art === "umzug" || art === "transport" || art === null;
+  return a.nach_vorhanden === "on" || art === "umzug" || art === "transport";
 }
 
 /** Fehlende Adressen der Anfrage (Bauteil 5). Eine Angabe aus dem Chat zählt als vorhanden. */

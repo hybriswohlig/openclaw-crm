@@ -127,3 +127,38 @@ export function AdressDialog({
     </GlassDialog>
   );
 }
+
+/** Rückfrage vor dem Sperren ohne Belade- oder Entladeadresse (Plan 15, Bauteil 5). */
+export function OhneAdresseDialog({
+  meldung,
+  fehlt,
+  laeuft,
+  portalZiel,
+  onAbbrechen,
+  onBestaetigen,
+}: {
+  meldung: string;
+  fehlt: { beladen: boolean; entladen: boolean };
+  laeuft: boolean;
+  portalZiel: HTMLElement | undefined;
+  onAbbrechen: () => void;
+  onBestaetigen: () => void;
+}) {
+  const was = fehlt.beladen && fehlt.entladen ? "Belade- und Entladeadresse fehlen" : fehlt.beladen ? "Die Beladeadresse fehlt" : "Die Entladeadresse fehlt";
+  return (
+    <GlassDialog open onOpenChange={(offen) => !offen && !laeuft && onAbbrechen()}>
+      <GlassDialogContent container={portalZiel} closeLabel="Schließen">
+        <GlassDialogTitle className="akte-dialog-titel">Preis ohne echte Fahrzeiten</GlassDialogTitle>
+        <GlassDialogDescription className="akte-dialog-text">{was}. {meldung}</GlassDialogDescription>
+        <div className="akte-dialog-knoepfe">
+          <GlassButton type="button" variant="ghost" onClick={onAbbrechen} disabled={laeuft}>
+            Abbrechen
+          </GlassButton>
+          <GlassButton type="button" onClick={onBestaetigen} disabled={laeuft}>
+            {laeuft ? "Sperrt …" : "Trotzdem sperren"}
+          </GlassButton>
+        </div>
+      </GlassDialogContent>
+    </GlassDialog>
+  );
+}

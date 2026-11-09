@@ -159,6 +159,8 @@ export interface SperrKoerper {
   erwartetPreisCent?: number;
   erwartetPreisHash?: string;
   modusWechselBestaetigt?: true;
+  /** Plan 15: „Preis ohne echte Fahrzeiten“ bestätigt */
+  ohneAdresseBestaetigt?: true;
 }
 
 /**
@@ -169,12 +171,13 @@ export interface SperrKoerper {
  */
 export function sperrKoerper(
   ansicht: Pick<KalkulationsAnsicht, "kv" | "preis" | "preisHash">,
-  opts: { modusWechselBestaetigt?: boolean } = {}
+  opts: { modusWechselBestaetigt?: boolean; ohneAdresseBestaetigt?: boolean } = {}
 ): SperrKoerper {
   const koerper: SperrKoerper = { bestaetigtSpanne: ansicht.kv?.obergrenze ?? false };
   if (ansicht.preisHash) koerper.erwartetPreisHash = ansicht.preisHash;
   else koerper.erwartetPreisCent = ansicht.kv?.summeCent ?? ansicht.preis.gerundetCent ?? 0;
   if (opts.modusWechselBestaetigt) koerper.modusWechselBestaetigt = true;
+  if (opts.ohneAdresseBestaetigt) koerper.ohneAdresseBestaetigt = true;
   return koerper;
 }
 
@@ -184,6 +187,8 @@ export type SperrAusgang =
   | { art: "preis_geaendert"; meldung: string }
   /** Stunden-Quotation würde Festpreis: erst nachfragen, dann mit `modusWechselBestaetigt`. */
   | { art: "moduswechsel"; meldung: string }
+  /** Plan 15: Belade- oder Entladeadresse fehlt: nachfragen, dann mit `ohneAdresseBestaetigt`. */
+  | { art: "adresse_fehlt"; meldung: string }
   | { art: "fehler"; meldung: string };
 
 /** Antwort von `POST …/lock` einordnen; Texte kommen unverändert vom Dienst. */
@@ -191,6 +196,7 @@ export function sperrAusgang(antwort: ApiAntwort<unknown>): SperrAusgang {
   if (antwort.ok) return { art: "ok" };
   if (antwort.status === 409 && antwort.code === "PREIS_GEAENDERT") return { art: "preis_geaendert", meldung: antwort.message };
   if (antwort.status === 409 && antwort.code === "MODUSWECHSEL") return { art: "moduswechsel", meldung: antwort.message };
+  if (antwort.status === 409 && antwort.code === "ADRESSE_FEHLT") return { art: "adresse_fehlt", meldung: antwort.message };
   return { art: "fehler", meldung: antwort.message };
 }
 

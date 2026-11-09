@@ -63,6 +63,8 @@ import {
 } from "@/lib/kalkulation-versionen";
 import type { AngebotsEingabe, Quotation } from "@/services/quotations";
 import { meldeKorrektur, rufeRechner, type RechnerAntwort, type RechnerErgebnis } from "@/services/rechner/client";
+import { fehlendeAdressen } from "@/lib/kalkulation-annahmen";
+import { ADRESSE_FEHLT_TEXT } from "@/lib/kalkulation-p15";
 import { eingabeHash, mitEinsatzFeldern, mitPlan5Feldern, rechnerAnfrageAus, type LeadDaten, type RechnerAnfrage } from "@/services/rechner/eingabe";
 import { ergebnisVeraltet, type KalkulationsZeile } from "@/services/rechner/kalkulation";
 import { kvGueltigBis, type HebelArt, type KvPosten } from "@/services/rechner/kv-posten";
@@ -139,10 +141,13 @@ export type VersionsFehlerCode =
   | "UNGUELTIG"
   | "SPANNE"
   | "PREIS_GEAENDERT"
+  /** Plan 15 (Bauteil 5): ohne Belade- oder Entladeadresse; Mensch nach Rückfrage, Agent nie. */
+  | "ADRESSE_FEHLT"
   | Plan5FehlerCode;
 
 const FEHLER_STATUS: Record<VersionsFehlerCode, number> = {
   NICHT_GEFUNDEN: 404,
+  ADRESSE_FEHLT: 409,
   RECHNER_FEHLER: 409,
   PAKETE: 409,
   STUNDEN: 409,
@@ -940,6 +945,8 @@ export interface SperrBody {
   erwartetPreisHash?: string;
   /** Ein Mensch bestätigt, dass aus dem Stunden-KV ein Festpreis wird. */
   modusWechselBestaetigt?: boolean;
+  /** Plan 15 (Bauteil 5): ein Mensch bestätigt „Preis ohne echte Fahrzeiten“ (Belade- oder Entladeadresse fehlt). */
+  ohneAdresseBestaetigt?: boolean;
 }
 
 /** Wahlen, die der Kunde treffen kann (für Kern-Regel und fehlende Tagespreise). */
@@ -1046,6 +1053,12 @@ export async function sperren(
   }
   if (v.error !== null || !v.rechnerResult || !v.rechnerRequest) {
     throw new VersionsFehler("RECHNER_FEHLER", `Kalkulation nicht aktuell: ${v.error ?? "Noch keine Kalkulation vorhanden."}`);
+  }
+  // Plan 15 (Bauteil 5): ohne Belade- oder Entladeadresse nur nach Rückfrage (Mensch); ein Agent nie.
+  // Adressen aus dem Chat zählen als vorhanden. Die Kalkulationskarte (`nurMarge`) gilt als bestätigt.
+  const fehlt = fehlendeAdressen(v.rechnerRequest);
+  if ((fehlt.beladen || fehlt.entladen) && (autor.quelle === "agent" || (body.ohneAdresseBestaetigt !== true && body.nurMarge !== true))) {
+    throw new VersionsFehler("ADRESSE_FEHLT", ADRESSE_FEHLT_TEXT);
   }
   // Nach dem (Neu-)Rechnen: eine Zeilen-Anpassung ohne Kostenzeile wirkt nicht mehr.
   const verwaist = verwaisteZeilenUebersteuerungen(v.overrides, v.rechnerResult.kosten?.posten ?? []);

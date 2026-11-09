@@ -67,7 +67,8 @@ describe("teamGrund (Bauteil 11)", () => {
 
 describe("fehlendeAdressen (Bauteil 5)", () => {
   it("Chat-PLZ zählt als vorhanden; Entrümpelung braucht keine Entladeadresse", () => {
-    expect(fehlendeAdressen({})).toEqual({ beladen: true, entladen: true });
+    expect(fehlendeAdressen({})).toEqual({ beladen: true, entladen: false });
+    expect(fehlendeAdressen({ auftragsart: "umzug" })).toEqual({ beladen: true, entladen: true });
     expect(fehlendeAdressen({ von_adresse: "70372 Stuttgart", nach_adresse: "71032 Böblingen" })).toEqual({ beladen: false, entladen: false });
     expect(fehlendeAdressen({ von_adresse: "70372 Stuttgart", auftragsart: "entruempelung" })).toEqual({ beladen: false, entladen: false });
   });
