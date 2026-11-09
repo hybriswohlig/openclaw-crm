@@ -182,7 +182,7 @@
 }
 
 [data-neu] .heute-panel-link {
-  color: var(--blue);
+  color: var(--blue-ink);
   font-weight: 500;
   text-decoration: none;
 }
@@ -204,7 +204,7 @@
   min-width: 22px;
   padding: 2px 8px;
   border-radius: 999px;
-  background: rgba(34, 34, 36, 0.06);
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
   color: var(--ink);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
@@ -269,14 +269,14 @@
   gap: 4px;
   padding: 10px 12px;
   border-radius: 12px;
-  background: #ffffff;
+  background: var(--flaeche);
   box-shadow: inset 0 0 0 1px var(--hair);
   color: var(--ink);
   text-decoration: none;
 }
 
 [data-neu] .heute-liste-zeile:hover {
-  box-shadow: inset 0 0 0 1px rgba(0, 103, 217, 0.35);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--blue) 35%, transparent);
 }
 
 [data-neu] .heute-liste-name {
@@ -296,12 +296,12 @@
 }
 
 [data-neu] .heute-liste-text[data-ton="gold"] {
-  background: rgba(232, 150, 12, 0.15);
+  background: color-mix(in srgb, var(--gold) 15%, transparent);
   color: var(--gold-ink);
 }
 
 [data-neu] .heute-liste-text[data-ton="blau"] {
-  background: rgba(0, 103, 217, 0.1);
+  background: color-mix(in srgb, var(--blue) 10%, transparent);
   color: var(--blue-ink);
 }
 
@@ -313,7 +313,7 @@
 }
 
 [data-neu] .heute-weitere-link {
-  color: var(--blue);
+  color: var(--blue-ink);
   font-weight: 500;
   text-decoration: none;
 }

@@ -188,11 +188,15 @@ const WEISSE_SCHRIFT = /^\s*color\s*:\s*#fff(fff)?\s*;/i;
  * Meldet Deklarationen mit harter Farbe (Hex, rgb, rgba) und Akzentfarben als Textfarbe.
  * Erlaubt: Token-Definitionen (`--name: …`), weiße Schrift (`color: #fff`), Zeilen mit
  * dem Kommentar `/* fest *\/` (bewusst themenunabhängig, z. B. Logo-Kachel, Dokumentvorschau).
+ * Seit 14b auch über mehrere Zeilen: Folgezeilen einer Deklaration (etwa die Schatten unter
+ * `box-shadow:`) gehören zu ihr und werden je Zeile geprüft.
  */
 export function harteFarben(css: string, datei: string): FarbBefund[] {
   const befunde: FarbBefund[] = [];
   const zeilen = css.split("\n");
   let inKommentar = false;
+  /** Eigenschaft einer Deklaration, die noch nicht mit `;` geendet hat. */
+  let offen: string | null = null;
   zeilen.forEach((roh, i) => {
     let z = roh;
     if (inKommentar) {
@@ -208,12 +212,24 @@ export function harteFarben(css: string, datei: string): FarbBefund[] {
       inKommentar = true;
       z = z.slice(0, start);
     }
+    const decl = /^\s*([-\w]+)\s*:\s*(.*)$/.exec(z);
+    let eigenschaft: string;
+    let wert: string;
+    if (offen !== null && !decl) {
+      eigenschaft = offen;
+      wert = z;
+    } else if (decl && !/[{}]/.test(z)) {
+      eigenschaft = decl[1];
+      wert = decl[2];
+    } else {
+      offen = null;
+      return;
+    }
+    offen = /;\s*$/.test(z) ? null : eigenschaft;
     if (fest) return;
-    const decl = /^\s*([-\w]+)\s*:\s*(.+)$/.exec(z);
-    if (!decl) return;
-    if (decl[1].startsWith("--")) return;
+    if (eigenschaft.startsWith("--")) return;
     if (WEISSE_SCHRIFT.test(z)) return;
-    if (FARBE_IM_WERT.test(decl[2]) || AKZENT_ALS_TEXT.test(z)) {
+    if (FARBE_IM_WERT.test(wert) || AKZENT_ALS_TEXT.test(z)) {
       befunde.push({ datei, zeile: i + 1, text: roh.trim() });
     }
   });

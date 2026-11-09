@@ -3,9 +3,9 @@
 import { useDraggable } from "@dnd-kit/core";
 import type { PlanEintrag } from "@/lib/plan-heute";
 import { TON_TEXT, teamLuecke, teamText, teamZeigen } from "./plan-zeile-logik";
+import { KUERZEL_FARBEN } from "@/lib/dunkel-abschaltung";
 
 /** Füllungen der Team-Kürzel wie Board und Plan-Zeile: dunkle Tinten, weiße Schrift erreicht 4,5:1. */
-const KUERZEL_FARBEN = ["var(--ink)", "var(--jade-ink)", "var(--blue-ink)", "var(--violet)", "var(--gold-ink)"] as const;
 
 export type EintragWahl = (e: PlanEintrag, anker: HTMLElement) => void;
 

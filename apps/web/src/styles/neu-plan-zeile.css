@@ -45,10 +45,28 @@
   color: var(--ink-2);
 }
 
+/* Plan 14b: Tönungen im Dunkeln kräftiger, grauer Rand dunkler. */
+[data-lg-theme="dark"] [data-neu] .plan-zeile[data-ton="jade"] {
+  --plan-zeile-toenung: rgba(20, 168, 116, 0.18);
+}
+
+[data-lg-theme="dark"] [data-neu] .plan-zeile[data-ton="gold"] {
+  --plan-zeile-toenung: rgba(232, 150, 12, 0.2);
+}
+
+[data-lg-theme="dark"] [data-neu] .plan-zeile[data-ton="violett"] {
+  --plan-zeile-toenung: rgba(106, 76, 240, 0.18);
+}
+
+[data-lg-theme="dark"] [data-neu] .plan-zeile[data-ton="grau"] {
+  --plan-zeile-toenung: rgba(255, 255, 255, 0.05);
+  --plan-zeile-rand: #636366;
+}
+
 /* Noch nicht fest: gestrichelter Rahmen statt Rand und Tönung. */
 [data-neu] .plan-zeile[data-ton="gestrichelt"] {
   padding-left: 12.5px;
-  border: 1.5px dashed rgba(34, 34, 36, 0.26);
+  border: 1.5px dashed color-mix(in srgb, var(--ink) 26%, transparent);
   box-shadow: none;
   color: var(--ink-2);
 }
@@ -153,7 +171,7 @@
   gap: 6px;
   padding: 2px 9px;
   border-radius: 999px;
-  background: rgba(0, 103, 217, 0.1);
+  background: color-mix(in srgb, var(--blue) 10%, transparent);
   color: var(--blue-ink);
   font-size: 11.5px;
   font-weight: 600;
@@ -168,7 +186,7 @@
 }
 
 [data-neu] .plan-zeile-live[data-live="fertig"] {
-  background: rgba(20, 168, 116, 0.14);
+  background: color-mix(in srgb, var(--jade) 14%, transparent);
   color: var(--jade-ink);
 }
 
@@ -216,7 +234,7 @@
 
 [data-neu] .plan-zeile-akte {
   margin-left: auto;
-  color: var(--blue);
+  color: var(--blue-ink);
   font-weight: 500;
   text-decoration: none;
 }
@@ -237,7 +255,7 @@
   width: 20px;
   height: 20px;
   margin-left: -6px;
-  border: 1.5px solid #ffffff;
+  border: 1.5px solid var(--flaeche);
   border-radius: 50%;
   color: #ffffff;
   font-size: 8.5px;
@@ -250,7 +268,7 @@
 
 [data-neu] .plan-zeile-avatar-fehlt {
   border: 1.5px dashed var(--gold);
-  background: #ffffff;
+  background: var(--flaeche);
   color: var(--gold-ink);
 }
 

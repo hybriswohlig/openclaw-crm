@@ -6,6 +6,7 @@
  */
 import { SUCHE_MIN_ZEICHEN, filtern, type InboxChip, type InboxChips, type InboxEintrag, type InboxFilter, type Kurzfassung } from "@/lib/inbox-neu";
 import { renderSnippet } from "@/components/inbox/customer-link-composer";
+import { KUERZEL_FARBEN } from "@/lib/dunkel-abschaltung";
 
 // ─── Schlüssel und URLs ───────────────────────────────────────────────────────
 
@@ -192,13 +193,17 @@ export function keinLeadSetztStufe(kurz: Pick<Kurzfassung, "keinLeadStufeId" | "
 // ─── Avatar ───────────────────────────────────────────────────────────────────
 
 /**
- * Dunkle Tinten für die Kürzel, auf denen weiße Schrift 4,5:1 erreicht; kein
+ * Dunkle Tinten für die Kürzel (Vertrag `KUERZEL_FARBEN`; die erste ist `--tinte-flaeche`,
+ * hell #222224), auf denen weiße Schrift 4,5:1 erreicht; kein
  * Vermilion und kein Gold (Orange ist Artwork, Gold heißt „wartet auf uns“).
  * Fester Hash über den Namen, damit die Farbe je Kontakt stabil bleibt.
  */
-const AVATAR_FARBEN = ["#222224", "#0d6b4a", "#0054b3", "#5a3fd6", "#a8113a", "#0e6f86", "#3d4f6b"] as const;
+const AVATAR_FARBEN = KUERZEL_FARBEN;
 
-/** Info und Kein Lead einheitlich grau (4,5:1 mit Weiß). */
+/**
+ * Info und Kein Lead einheitlich grau (4,5:1 mit Weiß). Fest, weil die Fläche in beiden
+ * Themes dunkel genug für weiße Schrift bleibt (--ink-2 würde im Dunkeln hell).
+ */
 export const AVATAR_GRAU = "#66666a";
 
 export function avatarFarbe(name: string, gruppe: InboxEintrag["gruppe"]): string {

@@ -24,7 +24,7 @@
 
 [data-neu] .leiste-pille-knopf:hover,
 [data-neu] .leiste-pille-knopf[data-state="open"] {
-  background: #ffffff;
+  background: var(--flaeche);
 }
 
 [data-neu] .leiste-pille-knopf:focus-visible {
@@ -33,7 +33,7 @@
 }
 
 [data-neu] .leiste-pille-knopf[data-aktiv] {
-  box-shadow: inset 0 0 0 1.5px rgb(0 103 217 / 0.28);
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--blue) 28%, transparent);
   color: var(--blue-ink);
   font-weight: 600;
 }

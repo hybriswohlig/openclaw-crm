@@ -189,6 +189,20 @@ describe("4. harteFarben", () => {
     expect(befunde(css)).toEqual(["2:b */ background: #101010;"]);
   });
 
+  it("prüft Folgezeilen einer mehrzeiligen Deklaration (14b)", () => {
+    const css = [".a {", "  box-shadow:", "    inset 0 1px 0 rgb(255 255 255 / 0.3),", "    var(--shadow);", "  color: var(--ink);", "}"].join("\n");
+    expect(befunde(css)).toEqual(["3:inset 0 1px 0 rgb(255 255 255 / 0.3),"]);
+    const fest = [".a {", "  box-shadow:", "    inset 0 1px 0 rgb(255 255 255 / 0.3), /* fest */", "    var(--shadow);", "}"].join("\n");
+    expect(befunde(fest)).toEqual([]);
+    const token = ["[data-neu] {", "  --schatten:", "    0 1px 2px rgb(0 0 0 / 0.1),", "    0 8px 24px rgb(0 0 0 / 0.2);", "}"].join("\n");
+    expect(befunde(token)).toEqual([]);
+  });
+
+  it("endet die Fortsetzung am Semikolon", () => {
+    const css = [".a {", "  grid-template-areas:", '    "a b";', "  width: 10px;", "}", "#kopf {", "}"].join("\n");
+    expect(befunde(css)).toEqual([]);
+  });
+
   it("ignoriert Selektoren und Hex-ähnliche Namen ohne Deklaration", () => {
     expect(befunde("#kopf .a,\n.b {\n  width: 10px;\n}")).toEqual([]);
   });

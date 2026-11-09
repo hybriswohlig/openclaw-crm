@@ -17,11 +17,23 @@
   --plan-tint-violett: rgba(106, 76, 240, 0.11);
   --plan-tint-grau: rgba(34, 34, 36, 0.05);
   --plan-strich: rgba(34, 34, 36, 0.26);
+  /* Neutraler Rand und Punkt (Eintrag „grau“, Popover-Kopf). */
+  --plan-grau: #bbbbbf;
 
   display: flex;
   flex-direction: column;
   gap: 14px;
   min-width: 0;
+}
+
+/* Plan 14b: lokale Tokens im Dunkeln (Tönungen kräftiger, Striche hell). */
+[data-lg-theme="dark"] [data-neu] .plan {
+  --plan-tint-jade: rgba(20, 168, 116, 0.2);
+  --plan-tint-gold: rgba(232, 150, 12, 0.22);
+  --plan-tint-violett: rgba(106, 76, 240, 0.22);
+  --plan-tint-grau: rgba(255, 255, 255, 0.06);
+  --plan-strich: rgba(255, 255, 255, 0.28);
+  --plan-grau: #636366;
 }
 
 /* ── Kopf ────────────────────────────────────────────── */
@@ -105,13 +117,13 @@
 }
 
 [data-neu] .plan-blick-chip[aria-pressed="true"] {
-  background: var(--ink);
+  background: var(--tinte-flaeche);
   box-shadow: none;
   color: #ffffff;
 }
 
 [data-neu] .plan-blick-chip[aria-pressed="true"] i {
-  box-shadow: 0 0 0 2px rgb(255 255 255 / 0.35);
+  box-shadow: 0 0 0 2px rgb(255 255 255 / 0.35); /* fest */ /* Ring auf --tinte-flaeche */
 }
 
 /* ── Leiste ──────────────────────────────────────────── */
@@ -174,7 +186,7 @@
 }
 
 [data-neu] .plan-nav-pfeil:hover {
-  background: rgba(34, 34, 36, 0.06);
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
 }
 
 [data-neu] .plan-nav-pfeil svg {
@@ -202,7 +214,7 @@
 }
 
 [data-neu] .plan-heute-knopf:hover:not(:disabled) {
-  background: #ffffff;
+  background: var(--flaeche);
 }
 
 [data-neu] .plan-heute-knopf:disabled {
@@ -299,7 +311,7 @@
   padding: 9px 9px 8px;
   border-radius: 16px;
   background: var(--fill-3);
-  box-shadow: inset 0 0 0 1px var(--rim), 0 1px 2px rgb(0 0 0 / 0.04);
+  box-shadow: inset 0 0 0 1px var(--rim), 0 1px 2px rgb(0 0 0 / 0.04); /* fest */
 }
 
 [data-neu] .plan-spalte {
@@ -309,38 +321,38 @@
 
 [data-neu] .plan-zelle[data-wochenende],
 [data-neu] .plan-spalte[data-wochenende] {
-  background: rgba(255, 255, 255, 0.62);
+  background: color-mix(in srgb, var(--flaeche) 62%, transparent);
 }
 
 [data-neu] .plan-zelle[data-vergangen],
 [data-neu] .plan-spalte[data-vergangen] {
-  background: rgba(255, 255, 255, 0.5);
+  background: color-mix(in srgb, var(--flaeche) 50%, transparent);
 }
 
 [data-neu] .plan-zelle[data-nachbar] {
-  background: rgba(255, 255, 255, 0.42);
+  background: color-mix(in srgb, var(--flaeche) 42%, transparent);
 }
 
 [data-neu] .plan-zelle[data-heute],
 [data-neu] .plan-spalte[data-heute] {
-  box-shadow: inset 0 0 0 2px var(--blue), 0 1px 2px rgb(0 0 0 / 0.04);
+  box-shadow: inset 0 0 0 2px var(--blue), 0 1px 2px rgb(0 0 0 / 0.04); /* fest */
 }
 
 /* Während des Ziehens: jede erlaubte Ablage leicht blau, die unter dem Zeiger deutlich. */
 [data-neu] .plan-zelle[data-ablage],
 [data-neu] .plan-spalte[data-ablage] {
-  box-shadow: inset 0 0 0 1.5px rgb(0 103 217 / 0.28), 0 1px 2px rgb(0 0 0 / 0.04);
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--blue) 28%, transparent), 0 1px 2px rgb(0 0 0 / 0.04); /* fest */
 }
 
 [data-neu] .plan-zelle[data-heute][data-ablage],
 [data-neu] .plan-spalte[data-heute][data-ablage] {
-  box-shadow: inset 0 0 0 2px var(--blue), 0 1px 2px rgb(0 0 0 / 0.04);
+  box-shadow: inset 0 0 0 2px var(--blue), 0 1px 2px rgb(0 0 0 / 0.04); /* fest */
 }
 
 [data-neu] .plan-zelle[data-ueber],
 [data-neu] .plan-spalte[data-ueber] {
-  background: rgb(0 103 217 / 0.08);
-  box-shadow: inset 0 0 0 2px var(--blue), 0 1px 2px rgb(0 0 0 / 0.04);
+  background: color-mix(in srgb, var(--blue) 8%, transparent);
+  box-shadow: inset 0 0 0 2px var(--blue), 0 1px 2px rgb(0 0 0 / 0.04); /* fest */
 }
 
 [data-neu] .plan-zelle-datum {
@@ -379,7 +391,7 @@
 
 [data-neu] .plan-zelle-datum:hover,
 [data-neu] .plan-spalte-kopf:hover {
-  background: rgba(34, 34, 36, 0.06);
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
 }
 
 [data-neu] .plan-spalte-kopf {
@@ -431,7 +443,7 @@
 }
 
 [data-neu] .plan-mehr:hover {
-  background: rgb(0 103 217 / 0.08);
+  background: color-mix(in srgb, var(--blue) 8%, transparent);
 }
 
 /* ── Eintrag ─────────────────────────────────────────── */
@@ -482,7 +494,7 @@
 }
 
 [data-neu] .plan-eintrag[data-ton="grau"] {
-  border-left: 3px solid #bbbbbf;
+  border-left: 3px solid var(--plan-grau);
   color: var(--ink-2);
 }
 
@@ -519,7 +531,7 @@
 [data-neu] .plan-eintrag-ueberlagerung {
   width: 200px;
   box-shadow: var(--shadow-raised);
-  background-color: #ffffff;
+  background-color: var(--flaeche);
   cursor: grabbing;
 }
 
@@ -583,7 +595,7 @@
   width: 18px;
   height: 18px;
   margin-left: -5px;
-  border: 1.5px solid #ffffff;
+  border: 1.5px solid var(--flaeche);
   border-radius: 50%;
   color: #ffffff;
   font-size: 7.5px;
@@ -596,7 +608,7 @@
 
 [data-neu] .plan-kuerzel .plan-kuerzel-fehlt {
   border: 1.5px dashed var(--gold);
-  background: #ffffff;
+  background: var(--flaeche);
   color: var(--gold-ink);
   font-size: 9px;
 }
@@ -683,23 +695,23 @@
   width: 12px;
   height: 12px;
   border-radius: 4px;
-  background: rgba(34, 34, 36, 0.18);
+  background: color-mix(in srgb, var(--ink) 18%, transparent);
 }
 
 [data-neu] .plan-legende i[data-ton="jade"] {
-  background: rgba(20, 168, 116, 0.5);
+  background: color-mix(in srgb, var(--jade) 50%, transparent);
 }
 
 [data-neu] .plan-legende i[data-ton="gold"] {
-  background: rgba(232, 150, 12, 0.6);
+  background: color-mix(in srgb, var(--gold) 60%, transparent);
 }
 
 [data-neu] .plan-legende i[data-ton="violett"] {
-  background: rgba(106, 76, 240, 0.5);
+  background: color-mix(in srgb, var(--violet) 50%, transparent);
 }
 
 [data-neu] .plan-legende i[data-ton="gestrichelt"] {
-  border: 1.5px dashed rgba(34, 34, 36, 0.4);
+  border: 1.5px dashed color-mix(in srgb, var(--ink) 40%, transparent);
   background: transparent;
 }
 
@@ -715,7 +727,7 @@
   width: min(340px, calc(100vw - 24px));
   padding: 16px;
   /* Fast deckend: das Popover liegt über bunten Einträgen, deren Text sonst durchscheint. */
-  background: rgba(255, 255, 255, 0.95);
+  background: color-mix(in srgb, var(--flaeche) 95%, transparent);
 }
 
 [data-neu] .plan-popover-kopf {
@@ -735,7 +747,7 @@
   height: 10px;
   margin-top: 6px;
   border-radius: 50%;
-  background: #bbbbbf;
+  background: var(--plan-grau);
 }
 
 [data-neu] .plan-popover-kopf > i[data-ton="jade"] {
@@ -784,7 +796,7 @@
 }
 
 [data-neu] .plan-popover-zu:hover {
-  background: rgba(34, 34, 36, 0.06);
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
 }
 
 [data-neu] .plan-popover-zu svg {
@@ -858,7 +870,7 @@
   padding: 6px 10px;
   border: 0;
   border-radius: 10px;
-  background: #ffffff;
+  background: var(--flaeche);
   box-shadow: inset 0 0 0 1px var(--hair);
   color: var(--ink);
   font: inherit;
@@ -951,7 +963,7 @@
 }
 
 [data-neu] .plan-suche-liste button:hover {
-  background: #ffffff;
+  background: var(--flaeche);
 }
 
 [data-neu] .plan-suche-liste b {

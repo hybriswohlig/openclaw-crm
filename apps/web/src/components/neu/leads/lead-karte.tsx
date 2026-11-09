@@ -4,12 +4,12 @@ import { useDraggable } from "@dnd-kit/core";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { spaltenTon, type LeadKarte as Karte } from "@/lib/leads-board";
+import { KUERZEL_FARBEN } from "@/lib/dunkel-abschaltung";
 
 /**
  * Füllungen der Team-Kürzel nach Reihenfolge: dunkle Tinten, auf denen weiße
  * Schrift 4,5:1 erreicht (wie der Kopf der Akte); kein Vermilion, kein Gold.
  */
-const KUERZEL_FARBEN = ["var(--ink)", "var(--jade-ink)", "var(--blue-ink)", "var(--violet)", "var(--gold-ink)"] as const;
 
 /** Pfad der Akte. */
 export function akteUrl(dealId: string): string {

@@ -19,8 +19,8 @@
 
 [data-neu] .neu-banner[data-ton="rot"] {
   align-items: center;
-  background: #a8113a;
-  box-shadow: 0 8px 24px -8px rgb(168 17 58 / 0.5);
+  background: #a8113a; /* fest */ /* Alarm: weiße Schrift auf Rot in beiden Themes */
+  box-shadow: 0 8px 24px -8px rgb(168 17 58 / 0.5); /* fest */
   color: #ffffff;
 }
 
@@ -58,8 +58,8 @@
   width: 36px;
   height: 36px;
   border-radius: 50%;
-  background: var(--blue-tint, rgb(0 103 217 / 0.1));
-  color: var(--blue-ink, #0054b3);
+  background: color-mix(in srgb, var(--blue) 10%, transparent);
+  color: var(--blue-ink);
 }
 
 [data-neu] .neu-banner-zeichen svg {
@@ -102,11 +102,11 @@
 }
 
 [data-neu] .neu-banner-zu:hover {
-  background: rgb(34 34 36 / 0.06);
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
 }
 
 [data-neu] .neu-banner[data-ton="rot"] .neu-banner-zu:hover {
-  background: rgb(255 255 255 / 0.15);
+  background: rgb(255 255 255 / 0.15); /* fest */
 }
 
 [data-neu] .neu-banner-zu:focus-visible {

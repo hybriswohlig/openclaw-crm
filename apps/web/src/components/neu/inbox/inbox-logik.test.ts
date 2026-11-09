@@ -217,7 +217,7 @@ describe("Kurzfassung", () => {
 
   it("Avatarfarbe stabil je Name, grau in der Info-Gruppe", () => {
     expect(avatarFarbe("Familie Weber", "haupt")).toBe(avatarFarbe("Familie Weber", "haupt"));
-    expect(avatarFarbe("Familie Weber", "haupt")).toMatch(/^#[0-9a-f]{6}$/);
+    expect(avatarFarbe("Familie Weber", "haupt")).toMatch(/^(#[0-9a-f]{6}|var\(--tinte-flaeche\))$/);
     expect(avatarFarbe("Sixt", "info")).toBe(AVATAR_GRAU);
   });
 });
@@ -312,5 +312,25 @@ describe("laneMeldung und rueckgaengigMeldung (I3, M1)", () => {
     expect(rueckgaengigMeldung({ erfolge: 2, fehler: 0, stufe: "fehler" })).toEqual({ ok: false, titel: "Rückgängig nur teilweise.", beschreibung: "Die Stufe konnte nicht zurückgesetzt werden." });
     expect(rueckgaengigMeldung({ erfolge: 1, fehler: 1, stufe: "ok" })).toEqual({ ok: false, titel: "Rückgängig nur teilweise.", beschreibung: "1 Gespräch zurück, 1 Gespräch nicht." });
     expect(rueckgaengigMeldung({ erfolge: 0, fehler: 2, stufe: "fehler" }).beschreibung).toBe("Die Gespräche konnten nicht zurückgesetzt werden. Die Stufe konnte nicht zurückgesetzt werden.");
+  });
+});
+
+describe("avatarFarbe (Plan 14b: Farben aus dem Vertrag)", () => {
+  // Zuordnung vor 14b, Name → Farbe hell. var(--tinte-flaeche) ist hell #222224.
+  const VORHER = ["#222224", "#0d6b4a", "#0054b3", "#5a3fd6", "#a8113a", "#0e6f86", "#3d4f6b"];
+  const vorher = (name: string) => {
+    let h = 0;
+    for (const z of name) h = (h * 31 + z.codePointAt(0)!) >>> 0;
+    return VORHER[h % VORHER.length];
+  };
+  const hell = (farbe: string) => (farbe === "var(--tinte-flaeche)" ? "#222224" : farbe);
+
+  it("bleibt im hellen Theme für jeden Namen gleich", () => {
+    const namen = ["Familie Weber", "Jonas Kottke", "Ayşe Ceylan", "Müller", "Dr. Öztürk", "Anna", "B", "Herr Testmann", "Sven Schröder", "Lea-Marie Groß", "Familie Nguyễn"];
+    for (const n of namen) expect(hell(avatarFarbe(n, "haupt")), n).toBe(vorher(n));
+  });
+
+  it("Info bleibt grau (#66666a, beide Themes)", () => {
+    expect(avatarFarbe("Familie Weber", "info")).toBe("#66666a");
   });
 });

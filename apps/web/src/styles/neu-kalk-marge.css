@@ -220,7 +220,7 @@
 }
 
 [data-neu] .kalk-pakete-hinweis a {
-  color: var(--blue);
+  color: var(--blue-ink);
   font-weight: 500;
   text-decoration: none;
 }

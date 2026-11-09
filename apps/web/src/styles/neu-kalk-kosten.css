@@ -169,7 +169,7 @@
 }
 
 [data-neu] .kalk-chip:hover {
-  color: var(--blue);
+  color: var(--blue-ink);
   box-shadow: inset 0 0 0 1px var(--rim), var(--shadow);
 }
 
@@ -239,7 +239,7 @@
 }
 
 [data-neu] .kalk-art[aria-pressed="true"] {
-  background: var(--ink);
+  background: var(--tinte-flaeche);
   color: #ffffff;
   box-shadow: none;
 }

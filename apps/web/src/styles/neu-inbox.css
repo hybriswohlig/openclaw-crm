@@ -22,6 +22,12 @@
   min-width: 0;
 }
 
+/* Plan 14b: lokale Tokens im Dunkeln. */
+[data-lg-theme="dark"] [data-neu] .inbox {
+  --blue-tint: rgba(0, 103, 217, 0.24);
+  --blue-rim: rgba(122, 184, 255, 0.4);
+}
+
 /* ── Kopf ────────────────────────────────────────────── */
 
 [data-neu] .inbox-kopf {
@@ -107,13 +113,13 @@
 }
 
 [data-neu] .inbox-chip-jetzt[aria-pressed="true"] {
-  background: var(--ink);
+  background: var(--tinte-flaeche);
   box-shadow: none;
   color: #ffffff;
 }
 
 [data-neu] .inbox-chip-jetzt[aria-pressed="true"] i {
-  box-shadow: 0 0 0 2px rgb(255 255 255 / 0.35);
+  box-shadow: 0 0 0 2px rgb(255 255 255 / 0.35); /* fest */ /* Ring auf --tinte-flaeche */
 }
 
 [data-neu] .inbox-chip-jetzt:focus-visible,
@@ -295,11 +301,11 @@
 }
 
 [data-neu] .inbox-eintrag:hover {
-  background: rgb(34 34 36 / 0.04);
+  background: color-mix(in srgb, var(--ink) 4%, transparent);
 }
 
 [data-neu] .inbox-eintrag[aria-current="true"] {
-  background: #ffffff;
+  background: var(--flaeche);
   box-shadow: inset 0 0 0 1.5px var(--blue-rim), var(--shadow);
 }
 
@@ -332,7 +338,7 @@
   bottom: -2px;
   width: 12px;
   height: 12px;
-  border: 2px solid #ffffff;
+  border: 2px solid var(--flaeche);
   border-radius: 50%;
   background: var(--ink-2);
 }
@@ -400,7 +406,7 @@
   gap: 4px;
   padding: 2px 8px;
   border-radius: 999px;
-  background: rgb(34 34 36 / 0.06);
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
   color: var(--ink-2);
   font-size: 10.5px;
   font-weight: 600;
@@ -408,7 +414,7 @@
 }
 
 [data-neu] .inbox-pille[data-art="uns"] {
-  background: rgb(232 150 12 / 0.14);
+  background: var(--gold-tint);
   color: var(--gold-ink);
 }
 
@@ -530,7 +536,7 @@
 }
 
 [data-neu] .inbox-chip:hover:not(:disabled) {
-  background: #ffffff;
+  background: var(--flaeche);
   box-shadow: inset 0 0 0 1px var(--rim), var(--shadow);
 }
 
@@ -590,7 +596,7 @@
   gap: 6px;
   padding: 3px 10px;
   border-radius: 999px;
-  background: rgb(34 34 36 / 0.06);
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
   color: var(--ink);
   font-size: 12px;
   font-weight: 600;
@@ -652,7 +658,7 @@
   margin: 8px 0 0;
   padding: 8px 10px;
   border-radius: 12px;
-  background: rgb(34 34 36 / 0.05);
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
   font-size: 12.5px;
   color: var(--ink-2);
 }

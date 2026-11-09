@@ -20,6 +20,23 @@
   position: relative;
 }
 
+/* Plan 14b: lokale Tokens im Dunkeln. */
+[data-lg-theme="dark"] [data-neu] .akte-gespraech {
+  --blue-tint: rgba(0, 103, 217, 0.24);
+  --blue-rim: rgba(122, 184, 255, 0.4);
+}
+
+/* Platzhalter, solange ein Foto lädt (auch außerhalb des Gesprächs, etwa in „Fotos“). */
+[data-neu] {
+  --foto-leer-1: #e7e9ed;
+  --foto-leer-2: #cfd3da;
+}
+
+[data-lg-theme="dark"] [data-neu] {
+  --foto-leer-1: #3a3a3c;
+  --foto-leer-2: #2c2c2e;
+}
+
 /* Doppelte Klasse, damit die Regel unabhängig von der Reihenfolge der
    Stylesheets über .akte-panel (padding: 0) und .akte-panel-kopf gewinnt. */
 [data-neu] .akte-panel.akte-gespraech-panel {
@@ -152,7 +169,7 @@
   align-self: flex-start;
   border-bottom-left-radius: 6px;
   background: var(--fill-3);
-  box-shadow: inset 0 0 0 1px var(--rim), 0 1px 2px rgb(0 0 0 / 0.05);
+  box-shadow: inset 0 0 0 1px var(--rim), 0 1px 2px rgb(0 0 0 / 0.05); /* fest */
 }
 
 /* Blaue Tönung über --fill-3, damit die Blase fast deckend bleibt. */
@@ -202,7 +219,7 @@
 [data-neu] .akte-gespraech-marke {
   padding: 1px 7px;
   border-radius: 999px;
-  background: rgb(34 34 36 / 0.08);
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
   color: var(--ink);
   font-size: 10.5px;
   font-weight: 600;
@@ -226,7 +243,7 @@
   border: 0;
   border-radius: 12px;
   overflow: hidden;
-  background: linear-gradient(135deg, #e7e9ed, #cfd3da);
+  background: linear-gradient(135deg, var(--foto-leer-1), var(--foto-leer-2));
   box-shadow: inset 0 0 0 1px var(--rim);
   color: var(--ink);
   font-size: 13px;
@@ -262,7 +279,7 @@
   max-width: 100%;
   padding: 4px 10px;
   border-radius: 999px;
-  background: rgb(34 34 36 / 0.06);
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
   color: var(--blue-ink);
   font-size: 12px;
   font-weight: 500;
@@ -318,7 +335,7 @@
   border: 0;
   border-radius: 999px;
   background: color-mix(in srgb, var(--violet) 10%, transparent);
-  color: var(--violet);
+  color: var(--violet-ink);
   font: inherit;
   font-size: 12px;
   font-weight: 600;
@@ -377,7 +394,7 @@
 
 [data-neu] .akte-gespraech-kanalknopf:hover,
 [data-neu] .akte-gespraech-kanalknopf[data-state="open"] {
-  background: rgb(34 34 36 / 0.06);
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
 }
 
 [data-neu] .akte-gespraech-kanalknopf:focus-visible {
@@ -423,7 +440,7 @@
 }
 
 [data-neu] .akte-gespraech-ki:hover:not(:disabled) {
-  background: rgb(34 34 36 / 0.06);
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
   color: var(--ink);
 }
 
@@ -452,7 +469,7 @@
 }
 
 [data-neu] .akte-gespraech-senden:disabled {
-  background: rgb(34 34 36 / 0.1);
+  background: color-mix(in srgb, var(--ink) 10%, transparent);
   color: var(--ink-2);
   cursor: default;
 }
@@ -543,7 +560,7 @@
 [data-neu] .akte-gespraech-entwurf-warnung {
   padding: 1px 8px;
   border-radius: 999px;
-  background: rgb(232 150 12 / 0.16);
+  background: color-mix(in srgb, var(--gold) 16%, transparent);
   color: var(--gold-ink);
   font-size: 11px;
 }
@@ -638,7 +655,7 @@
   min-width: 38px;
   padding: 3px 7px;
   border-radius: 999px;
-  background: rgb(34 34 36 / 0.08);
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
   color: var(--ink);
   font-size: 11px;
   font-weight: 700;

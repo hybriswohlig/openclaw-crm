@@ -9,6 +9,7 @@ import type { AkteDaten } from "@/lib/akte";
 import { kundeLink } from "@/lib/handy-links";
 import { apiAufruf, jsonAufruf } from "./api";
 import { StufenMenue } from "./stufen-menue";
+import { KUERZEL_FARBEN } from "@/lib/dunkel-abschaltung";
 
 type Nachfass = AkteDaten["nachfass"];
 
@@ -16,7 +17,6 @@ type Nachfass = AkteDaten["nachfass"];
  * Füllungen der Kürzel, nach Reihenfolge im Team: dunkle Tinten, auf denen
  * weiße Schrift mindestens 4,5:1 erreicht; kein Vermilion (Orange ist Artwork).
  */
-const KUERZEL_FARBEN = ["var(--ink)", "var(--jade-ink)", "var(--blue-ink)", "var(--violet)", "var(--gold-ink)"] as const;
 
 /** „Umzug, 3 Zimmer, Stuttgart-West nach Esslingen.“ */
 export function zweiteZeile(art: string, strecke: string): string {

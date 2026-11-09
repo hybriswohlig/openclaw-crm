@@ -5,12 +5,12 @@ import "@/styles/neu-plan-zeile.css";
 import Link from "next/link";
 import type { PlanEintrag, PlanLive } from "@/lib/plan-heute";
 import { TON_TEXT, bisText, livePille, teamLuecke, teamText, teamZeigen, zeileLabel, zeitRest, zeitSpalte } from "./plan-zeile-logik";
+import { KUERZEL_FARBEN } from "@/lib/dunkel-abschaltung";
 
 /**
  * Füllungen der Team-Kürzel nach Reihenfolge (wie die Board-Karte): dunkle
  * Tinten, auf denen weiße Schrift 4,5:1 erreicht.
  */
-const KUERZEL_FARBEN = ["var(--ink)", "var(--jade-ink)", "var(--blue-ink)", "var(--violet)", "var(--gold-ink)"] as const;
 
 /**
  * Eine Zeile der Tagesansicht und der Startseite „Heute“ (Plan 8,

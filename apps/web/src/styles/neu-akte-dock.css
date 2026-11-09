@@ -130,20 +130,20 @@
   padding: 10px 16px;
   background: var(--blue);
   box-shadow:
-    inset 0 1px 0 color-mix(in srgb, #ffffff 35%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #ffffff 35%, transparent), /* fest */ /* Glanz auf --blue */
     0 6px 14px -6px color-mix(in srgb, var(--blue) 70%, transparent);
-  color: var(--akte-auf-tinte, #ffffff);
+  color: #ffffff;
   font-size: 13px;
   font-weight: 600;
 }
 
 [data-neu] .akte-dock-primaer svg {
-  stroke: var(--akte-auf-tinte, #ffffff);
+  stroke: #ffffff; /* fest */ /* weiß auf --blue in beiden Themes */
 }
 
 [data-neu] .akte-dock-primaer:hover {
-  background: var(--blue-ink, #0054b3);
-  color: var(--akte-auf-tinte, #ffffff);
+  background: #0054b3; /* fest */ /* dunkles Blau unter weißer Schrift, auch im Dunkeln */
+  color: #ffffff;
 }
 
 [data-neu] .akte-dock-primaer[aria-busy="true"] {
