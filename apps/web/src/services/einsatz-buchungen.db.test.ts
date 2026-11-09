@@ -293,7 +293,7 @@ describe.skipIf(!url)("Transporter-Buchungen (Datenbank)", () => {
       params: Promise.resolve({ ocId: kottke }),
     });
     expect(vorher.status).toBe(200);
-    expect(await vorher.json()).toEqual({ data: { buchungImPreis: false } });
+    expect(await vorher.json()).toEqual({ data: { buchungImPreis: false, darfAendern: true } });
 
     const gesetzt = await firmaSetzen(putFirma(kottke, true), { params: Promise.resolve({ ocId: kottke }) });
     expect(gesetzt.status).toBe(200);
