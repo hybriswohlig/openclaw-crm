@@ -33,7 +33,7 @@ export function ApprovalGate({ children }: { children: React.ReactNode }) {
 
         if (status === "approved") {
           if (pathname === ALLOW_PENDING_PATH) {
-            router.replace("/home");
+            router.replace("/start");
             return;
           }
           setAllowed(true);

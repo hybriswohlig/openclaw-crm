@@ -15,6 +15,7 @@ import { RechnungFluss } from "@/components/neu/akte/rechnung-fluss";
 import { ZahlungDialog } from "@/components/neu/akte/zahlung-dialog";
 import { seitentitel } from "@/components/neu/nav-config";
 import { usePortalZiel } from "@/components/neu/portal-ziel";
+import { mitAlt } from "@/lib/handy-links";
 import type {
   KasseAntwort,
   KasseSchlange,
@@ -192,7 +193,7 @@ export function KasseSeite() {
           </div>
           <p className="kasse-fuss">
             Ausgaben, Gesellschaften und Privatbewegungen:{" "}
-            <Link href="/financial">alte Finanzseite</Link>
+            <Link href={mitAlt("/financial")}>alte Finanzseite</Link>
           </p>
         </>
       ) : null}

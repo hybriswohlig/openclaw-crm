@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { mitAlt } from "@/lib/handy-links";
 import { DokumentDialog } from "./dokument-dialog";
 import { RechnungDialog, type RechnungsEingabe } from "./rechnung-dialog";
 
@@ -11,7 +12,7 @@ import { RechnungDialog, type RechnungsEingabe } from "./rechnung-dialog";
  */
 export function RechnungFluss({
   dealId,
-  altLink = `/objects/deals/${dealId}`,
+  altLink = mitAlt(`/objects/deals/${dealId}`),
   portalZiel,
   onEnde,
   onGeaendert,

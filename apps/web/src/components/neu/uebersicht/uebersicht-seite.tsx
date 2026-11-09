@@ -9,6 +9,7 @@ import { GlassSegmentedControl, GlassSegmentedControlItem } from "@/components/g
 import { apiAufruf } from "@/components/neu/akte/api";
 import { seitentitel } from "@/components/neu/nav-config";
 import type { UebersichtAntwort } from "@/lib/einstellungen-uebersicht";
+import { mitAlt } from "@/lib/handy-links";
 import { AbschlussBlock } from "./abschluss-block";
 import { AnfragenBlock } from "./anfragen-block";
 import { Kacheln } from "./kacheln";
@@ -118,7 +119,7 @@ export function UebersichtSeite() {
             <AbschlussBlock a={a} />
           </div>
           <p className="ueb-fuss">
-            Pipeline, Team, Vergleich und Sichtbarkeit: <Link href="/statistics">Alte Statistik</Link>
+            Pipeline, Team, Vergleich und Sichtbarkeit: <Link href={mitAlt("/statistics")}>Alte Statistik</Link>
           </p>
         </>
       ) : null}

@@ -3,11 +3,12 @@
 import { useState, type CSSProperties } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { mitAlt } from "@/lib/handy-links";
 import type { UiVersion } from "@/lib/ui-version";
 
 const ZIEL: Record<UiVersion, { label: string; pfad: string }> = {
   neu: { label: "Neue Oberfläche testen", pfad: "/app/heute" },
-  alt: { label: "Zur alten Oberfläche", pfad: "/home" },
+  alt: { label: "Zur alten Oberfläche", pfad: mitAlt("/home") },
 };
 
 /**

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { UI_COOKIE, altUmleitung } from "@/lib/handy-links";
+import { umleitZiel } from "@/lib/dunkel-abschaltung";
+import { UI_COOKIE, altUmleitung, uiCookieWert } from "@/lib/handy-links";
 
 // Public paths that never require a session cookie. Cron and webhook endpoints
 // must be here — they are hit by Vercel's cron scheduler and third-party
@@ -200,6 +201,20 @@ export function middleware(req: NextRequest) {
   const seitenaufruf = fetchModus === null || fetchModus === "navigate";
   if (seitenaufruf && !pathname.startsWith("/api/") && process.env.ALT_UMLEITUNG !== "aus") {
     const ziel = altUmleitung(pathname, req.nextUrl.searchParams, req.cookies.get(UI_COOKIE)?.value);
+    if (ziel) return NextResponse.redirect(new URL(ziel, req.url), 307);
+  }
+
+  // Plan 14: alte Seiten zur neuen Oberfläche. Nur GET, nur echte Seitenaufrufe, nur
+  // Cookie neu, nur ALTE_PFADE_UMLEITEN=an (UMLEITUNG_ENV; statisch gelesen, damit der
+  // Edge-Build die Variable sicher sieht). Unabhängig von ALT_UMLEITUNG; Plan 10 lief schon.
+  if (
+    seitenaufruf &&
+    !pathname.startsWith("/api/") &&
+    req.method === "GET" &&
+    uiCookieWert(req.cookies.get(UI_COOKIE)?.value) === "neu" &&
+    process.env.ALTE_PFADE_UMLEITEN === "an"
+  ) {
+    const ziel = umleitZiel(pathname, req.nextUrl.searchParams);
     if (ziel) return NextResponse.redirect(new URL(ziel, req.url), 307);
   }
 

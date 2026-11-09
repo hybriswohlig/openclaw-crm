@@ -7,6 +7,7 @@
  * Anzeige deutsch, Europe/Berlin, Trenner „·“, keine Gedankenstriche.
  */
 import { datumKurz, tagKurz } from "@/lib/anzeige";
+import { mitAlt } from "@/lib/handy-links";
 import type { LeadKategorie, LeadsFilter } from "@/lib/leads-board";
 import {
   eintraegeAm,
@@ -275,7 +276,7 @@ export function teamNamen(e: Pick<PlanEintrag, "art" | "ton" | "team" | "teamFeh
 }
 
 /** Ziel von „Team zuordnen“ (Team-Zuordnung bleibt auf /operations, Entscheidung 17). */
-export const TEAM_ZUORDNEN_URL = "/operations";
+export const TEAM_ZUORDNEN_URL = mitAlt("/operations");
 
 /** Bedeutung der Farbe als Text (Popover, Legende); Farbe nie allein. */
 export const LEGENDE: readonly { ton: PlanEintrag["ton"]; text: string }[] = [

@@ -136,3 +136,103 @@ describe("middleware: alte Handy-Links", () => {
     expect(res.headers.get("location")).toContain("redirect=%2Finbox%3Fconv%3Dc");
   });
 });
+
+describe("middleware: alte Pfade (Plan 14)", () => {
+  const neu = `${SITZUNG}; crm_ui=neu`;
+
+  function seite(
+    pfad: string,
+    opts: { cookie?: string | null; host?: string; modus?: string; method?: string } = {},
+  ) {
+    const host = opts.host ?? "darioushkottke.online";
+    const headers = new Headers({ host });
+    if (opts.cookie) headers.set("cookie", opts.cookie);
+    if (opts.modus) headers.set("sec-fetch-mode", opts.modus);
+    return new NextRequest(`https://${host}${pfad}`, { headers, method: opts.method ?? "GET" });
+  }
+
+  function bleibt(res: Response) {
+    expect(res.headers.get("location")).toBeNull();
+    expect(res.headers.get("x-middleware-next")).toBe("1");
+  }
+
+  it("leitet bei Cookie neu, Env an und Seitenaufruf auf die neue Oberfläche", () => {
+    vi.stubEnv("ALTE_PFADE_UMLEITEN", "an");
+    const faelle: [string, string][] = [
+      ["/home", "/app/heute/karte"],
+      ["/financial", "/app/kasse"],
+      ["/objects/people/p1", "/app/kunden/p1"],
+      ["/settings", "/app/einstellungen"],
+    ];
+    for (const [pfad, ziel] of faelle) {
+      const res = middleware(seite(pfad, { cookie: neu, modus: "navigate" }));
+      expect(res.status, pfad).toBe(307);
+      expect(weiter(res), pfad).toBe(ziel);
+    }
+  });
+
+  it("bleibt aus, solange die Umgebung nicht genau an ist", () => {
+    for (const wert of [undefined, "aus", "AN"] as const) {
+      vi.unstubAllEnvs();
+      if (wert) vi.stubEnv("ALTE_PFADE_UMLEITEN", wert);
+      bleibt(middleware(seite("/home", { cookie: neu, modus: "navigate" })));
+    }
+  });
+
+  it("bleibt aus ohne Cookie neu, bei POST, cors und den ausgenommenen Pfaden", () => {
+    vi.stubEnv("ALTE_PFADE_UMLEITEN", "an");
+    const still = [
+      seite("/home", { cookie: `${SITZUNG}; crm_ui=alt`, modus: "navigate" }),
+      seite("/home", { cookie: SITZUNG, modus: "navigate" }),
+      seite("/home", { cookie: neu, modus: "navigate", method: "POST" }),
+      seite("/home", { cookie: neu, modus: "cors" }),
+      seite("/home?alt=1", { cookie: neu, modus: "navigate" }),
+      seite("/settings/whatsapp", { cookie: neu, modus: "navigate" }),
+      seite("/objects/deals?create=1", { cookie: neu, modus: "navigate" }),
+      seite("/inbox?compose=1", { cookie: neu, modus: "navigate" }),
+      seite("/tasks", { cookie: neu, modus: "navigate" }),
+      seite("/app/heute", { cookie: neu, modus: "navigate" }),
+      seite("/weiter", { cookie: neu, modus: "navigate" }),
+    ];
+    for (const req of still) bleibt(middleware(req));
+  });
+
+  it("ohne Sitzung geht /home weiter auf /login", () => {
+    vi.stubEnv("ALTE_PFADE_UMLEITEN", "an");
+    const res = middleware(seite("/home", { cookie: null, modus: "navigate" }));
+    expect(res.headers.get("location")).toContain("/login");
+    expect(res.headers.get("location")).not.toContain("/app/");
+  });
+
+  it("lässt status.*-Hosts auf der Website", () => {
+    vi.stubEnv("ALTE_PFADE_UMLEITEN", "an");
+    const res = middleware(seite("/home", { cookie: neu, host: "status.kottke-umzuege.de", modus: "navigate" }));
+    expect(res.status).toBe(307);
+    expect(res.headers.get("location")).toBe("https://kottke-umzuege.de/");
+    expect(res.headers.get("location")).not.toContain("/app");
+  });
+
+  it("lässt Plan 10 vor der Pfad-Umleitung, auch bei Env an", () => {
+    vi.stubEnv("ALTE_PFADE_UMLEITEN", "an");
+    const deal = middleware(seite("/objects/deals/d1", { cookie: neu, modus: "navigate" }));
+    expect(deal.status).toBe(307);
+    expect(weiter(deal)).toBe("/weiter?deal=d1");
+    const gespraech = middleware(seite("/inbox?conv=c", { cookie: neu, modus: "navigate" }));
+    expect(gespraech.status).toBe(307);
+    expect(weiter(gespraech)).toBe("/weiter?conv=c");
+  });
+
+  it("liest dieselbe Variable wie der Vertrag (statisch, für den Edge-Build)", async () => {
+    const { UMLEITUNG_ENV } = await import("@/lib/dunkel-abschaltung");
+    expect(UMLEITUNG_ENV).toBe("ALTE_PFADE_UMLEITEN");
+  });
+
+  it("ALT_UMLEITUNG=aus schaltet nur Plan 10 ab", () => {
+    vi.stubEnv("ALTE_PFADE_UMLEITEN", "an");
+    vi.stubEnv("ALT_UMLEITUNG", "aus");
+    const home = middleware(seite("/home", { cookie: neu, modus: "navigate" }));
+    expect(home.status).toBe(307);
+    expect(weiter(home)).toBe("/app/heute/karte");
+    bleibt(middleware(seite("/objects/deals/d1", { cookie: neu, modus: "navigate" })));
+  });
+});

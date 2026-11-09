@@ -17,6 +17,7 @@ import {
   type StammdatenEingabe,
   type StammdatenFehler,
 } from "@/lib/einsatz";
+import { mitAlt } from "@/lib/handy-links";
 import { AbwesenheitListe } from "./abwesenheit-liste";
 import { abwesenheitenLaden, personAendern, personAnlegen } from "./mitarbeiter-api";
 
@@ -250,7 +251,7 @@ export function PersonPanel({
             )}
           </div>
           <p className="ma-hinweis ma-alt">
-            Login, Saldo und Buchungsverlauf: <Link href="/employees">in der alten Oberfläche</Link>.
+            Login, Saldo und Buchungsverlauf: <Link href={mitAlt("/employees")}>in der alten Oberfläche</Link>.
           </p>
         </>
       ) : null}

@@ -1,11 +1,15 @@
+import { existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   COOKIE_MAX_ALTER_S,
   DARSTELLUNG_COOKIE,
   FILL_DECKEND,
   KUERZEL_FARBEN,
+  NIE_UMLEITEN,
   TEXT_TOKENS,
   TOKENS,
+  ZUORDNUNG,
   cookieWert,
   cookieZeile,
   darstellungLesen,
@@ -16,6 +20,7 @@ import {
   minKontrast,
   themeAus,
   ueber,
+  umleitZiel,
   DETAILS_TEXT_MAX,
   NACH_ANNAHME_ERLAUBT,
   QUOTATION_GESPERRT,
@@ -186,6 +191,80 @@ describe("4. harteFarben", () => {
 
   it("ignoriert Selektoren und Hex-ähnliche Namen ohne Deklaration", () => {
     expect(befunde("#kopf .a,\n.b {\n  width: 10px;\n}")).toEqual([]);
+  });
+});
+
+// ─── 5. Umleitung alter Pfade ───────────────────────────────────────────────
+
+describe("5. Umleitung", () => {
+  const leer = new URLSearchParams();
+  const mitId = (muster: string, id: string) => muster.replace(":id", id);
+
+  it("bildet jede Zeile der Zuordnung ab", () => {
+    for (const z of ZUORDNUNG) {
+      const pfad = mitId(z.alt, "abc");
+      const erwartet = z.neu === null ? null : mitId(z.neu, "abc");
+      expect(umleitZiel(pfad, leer), z.alt).toBe(erwartet);
+    }
+  });
+
+  it("übernimmt :id kodiert", () => {
+    expect(umleitZiel("/objects/people/a b", leer)).toBe("/app/kunden/a%20b");
+    expect(umleitZiel("/objects/people/ä", leer)).toBe(`/app/kunden/${encodeURIComponent("ä")}`);
+  });
+
+  it("lässt eine Kennung mit Schrägstrich stehen", () => {
+    expect(umleitZiel("/objects/people/a/b", leer)).toBeNull();
+    expect(umleitZiel("/lists/a/b", leer)).toBeNull();
+  });
+
+  it("lässt unbekannte Unterpfade stehen", () => {
+    expect(umleitZiel("/settings/whatsapp", leer)).toBeNull();
+    expect(umleitZiel("/tasks/projects/1", leer)).toBeNull();
+    expect(umleitZiel("/employees/x", leer)).toBeNull();
+  });
+
+  it("lässt ?alt=1 für jede Zeile stehen", () => {
+    const alt = new URLSearchParams("alt=1");
+    for (const z of ZUORDNUNG) {
+      expect(umleitZiel(mitId(z.alt, "abc"), alt), z.alt).toBeNull();
+    }
+  });
+
+  it("lässt jeden Eintrag von NIE_UMLEITEN stehen, auch mit Unterpfad", () => {
+    for (const p of NIE_UMLEITEN) {
+      expect(umleitZiel(p, leer), p).toBeNull();
+      expect(umleitZiel(`${p}/x`, leer), `${p}/x`).toBeNull();
+    }
+  });
+
+  it("leitet /inbox nur ohne Abfrage um", () => {
+    expect(umleitZiel("/inbox", leer)).toBe("/app/inbox");
+    expect(umleitZiel("/inbox", new URLSearchParams("conv=c"))).toBeNull();
+    expect(umleitZiel("/inbox", new URLSearchParams("x=1"))).toBeNull();
+  });
+
+  it("lässt /objects/deals?create=1 stehen und leitet die Liste um", () => {
+    expect(umleitZiel("/objects/deals", new URLSearchParams("create=1"))).toBeNull();
+    expect(umleitZiel("/objects/deals", leer)).toBe("/app/leads");
+  });
+
+  it("lässt die Präfixe von Plan 10 stehen", () => {
+    expect(umleitZiel("/objects/deals/d1", leer)).toBeNull();
+    expect(umleitZiel("/inbox/gespraeche/1", leer)).toBeNull();
+  });
+
+  it("verwechselt /apple nicht mit /app", () => {
+    expect(umleitZiel("/apple", leer)).toBeNull();
+  });
+
+  it("hat für jedes Ziel eine Seite unter app/(neu)", () => {
+    const ziele = [...new Set(ZUORDNUNG.flatMap((z) => (z.neu ? [z.neu] : [])))];
+    for (const ziel of ziele) {
+      const rel = ziel.replace(/^\/app\//, "").replaceAll(":id", "[id]");
+      const datei = fileURLToPath(new URL(`../app/(neu)/app/${rel}/page.tsx`, import.meta.url));
+      expect(existsSync(datei), `${ziel} -> ${datei}`).toBe(true);
+    }
   });
 });
 
