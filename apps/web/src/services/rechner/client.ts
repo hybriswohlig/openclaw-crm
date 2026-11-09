@@ -80,7 +80,12 @@ export interface RechnerErgebnis {
   tagespreise?: RechnerTagespreis[];
   /** Plan 5b: nur mit `stunden_modus`; null ohne Stundensätze der Marke. */
   stunden?: RechnerStunden | null;
-  team?: { groesse: number };
+  /** `quelle` (neuer Rechner): warum das Team so groß ist (Staffel, Träger, Fahrer, Vorgabe, Arbeitstag). */
+  team?: { groesse: number; quelle?: "staffel" | "traeger" | "fahrer" | "vorgabe" | "arbeitstag" };
+  /** Plan 15: Echo des Anfragefelds `hebel_aus` (neuer Rechner); fehlt bei altem Rechner. */
+  hebelAus?: string[];
+  /** Kartonschätzung aus der Wohnfläche (Rechner), null ohne Wohnfläche oder bei genannten Kartons. */
+  kartonSchaetzung?: { wohnflaecheQm: number; kartonsProQm: number; kartonzahl: number } | null;
   schaetzung?: {
     festpreisVon: number | null; festpreisBis: number | null; annahmen: string[];
     selbstkostenVon?: number | null; selbstkostenBis?: number | null; margeProzent?: number | null;
@@ -98,8 +103,14 @@ export interface RechnerErgebnis {
     name: string; menge: number; volumenCbm: number; zerlegt?: boolean;
     demontageQuelle?: "wunsch" | "nein" | "regel" | "keine_regel" | "nicht_zerlegbar";
     ungeprueft?: boolean;
+    /** Plan 15: die übrigen Felder der aufgelösten Position (der Rechner schickt sie schon). */
+    id?: string;
+    katalogTreffer?: boolean;
+    groessenklasse?: "klein" | "mittel" | "gross" | "sperrig";
+    gewichtKg?: number;
+    mindestTraeger?: number;
   }>;
-  hinweise?: Array<{ typ: string; text: string }>;
+  hinweise?: Array<{ typ: string; text: string; positionId?: string }>;
   annahmen?: string[];
   fahrzeitHinweis?: string | null;
   fahrzeugoptionen?: Array<{
