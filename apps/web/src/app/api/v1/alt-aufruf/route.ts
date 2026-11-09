@@ -9,7 +9,8 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { badRequest, forbidden, getAuthContext, unauthorized } from "@/lib/api-utils";
-import { altAufrufMerken, altPfad, istAlterPfad, uiAusCookie, UI_COOKIE_NAME } from "@/services/alt-aufruf";
+import { UI_COOKIE } from "@/lib/handy-links";
+import { altAufrufMerken, altPfad, istAlterPfad, uiAusCookie } from "@/services/alt-aufruf";
 
 export const dynamic = "force-dynamic";
 
@@ -34,7 +35,7 @@ export async function POST(req: NextRequest) {
   await altAufrufMerken(ctx.workspaceId, ctx.userId, {
     pfad,
     mitAlt: body.mitAlt === true,
-    ui: uiAusCookie(req.cookies.get(UI_COOKIE_NAME)?.value),
+    ui: uiAusCookie(req.cookies.get(UI_COOKIE)?.value),
   });
   return new NextResponse(null, { status: 204 });
 }

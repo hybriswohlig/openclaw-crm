@@ -2,13 +2,16 @@
  * Plan 14: Dunkel und Abschaltung. Vertrag (rein: keine Datenbank, kein Netz, kein DOM-Zugriff
  * außer im Text des Kopf-Skripts). Ziel im Repo: apps/web/src/lib/dunkel-abschaltung.ts
  *
- * `DarstellungSpiegel` ist identisch mit `Darstellung` aus Plan 13 (`@/lib/einstellungen-uebersicht`).
- * Nach dem Merge von Plan 13 ersetzt der Koordinator den Spiegel durch `import type`.
+ * `DarstellungSpiegel` ist seit 14b ein Alias von `Darstellung` aus Plan 13; `ALT_PARAM` kommt aus
+ * Plan 10 (`@/lib/handy-links`). Beide Importe sind rein (Edge-tauglich, ohne Datenbank).
  */
+
+import type { Darstellung } from "@/lib/einstellungen-uebersicht";
+import { ALT_PARAM } from "@/lib/handy-links";
 
 // ─── 1. Darstellung ─────────────────────────────────────────────────────────
 
-export type DarstellungSpiegel = "hell" | "dunkel" | "system";
+export type DarstellungSpiegel = Darstellung;
 export type LgTheme = "light" | "dark";
 
 /** Spiegel-Cookie der Darstellung; das Kopf-Skript liest ihn vor dem ersten Bild. */
@@ -222,7 +225,7 @@ export function harteFarben(css: string, datei: string): FarbBefund[] {
  * liefert Plan 10 in `@/lib/handy-links`. Die Middleware ruft zuerst `altUmleitung`, dann
  * `umleitZiel`. `?alt=1` (von `mitAlt`) schaltet beide je Link ab.
  */
-export const ALT_PARAM = "alt";
+export { ALT_PARAM };
 /** Umgebungsvariable nur für die Pfade dieses Plans; alles außer "an" heißt aus. */
 export const UMLEITUNG_ENV = "ALTE_PFADE_UMLEITEN";
 
