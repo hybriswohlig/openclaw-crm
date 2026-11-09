@@ -124,6 +124,14 @@ async function seitePruefen(opts: {
         url: ursprung(baseURL),
       },
     ]);
+    // Cookie-Hinweis (global, außerhalb [data-neu]) nicht über die Seite legen.
+    await context.addInitScript(() => {
+      try {
+        localStorage.setItem("cookie-consent", "declined");
+      } catch {
+        /* egal */
+      }
+    });
     if (opts.reduce) {
       await context.addInitScript(() => {
         document.documentElement.setAttribute("data-lg-reduce-transparency", "1");
@@ -163,7 +171,7 @@ async function seitePruefen(opts: {
       }
     }
 
-    befunde.push({
+    const befund: Befund = {
       datei: opts.datei,
       pfad: opts.pfad,
       breite: opts.breite,
@@ -172,7 +180,11 @@ async function seitePruefen(opts: {
       lgTheme,
       hellFunde,
       kontrastFunde,
-    });
+    };
+    befunde.push(befund);
+    // Sofort anhängen: nach einem Fehlschlag startet Playwright einen neuen Worker, dessen
+    // befunde-Liste leer beginnt; befunde.jsonl hält alle Fälle des Laufs.
+    fs.appendFileSync(path.join(ausgabe, "befunde.jsonl"), `${JSON.stringify(befund)}\n`);
 
     expect.soft(keinUeberlauf, `${opts.datei}: Seite breiter als das Fenster`).toBe(true);
     expect(lgTheme, `${opts.datei}: data-lg-theme`).toBe(opts.theme === "hell" ? "light" : "dark");

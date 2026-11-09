@@ -205,6 +205,11 @@ export function pruefSkriptHelleFlaechen(): HellFund[] {
   for (const el of knoten) {
     if (funde.length >= 50) break;
     if (el.closest(".neu-hell-fest")) continue;
+    // Plan 14b: Knöpfe von Schalter und Regler bleiben weiß (wie iOS dunkel); Punkte und
+    // Marker unter 16 × 16 px sind Zeichen in --ink, keine Flächen.
+    if (el.matches(".lg-switch-thumb, .lg-slider-thumb")) continue;
+    const masse = el.getBoundingClientRect();
+    if (masse.width < 16 && masse.height < 16) continue;
     if (!sichtbar(el)) continue;
     const farbe = getComputedStyle(el).backgroundColor;
     const gelesen = farbeLesen(farbe);
