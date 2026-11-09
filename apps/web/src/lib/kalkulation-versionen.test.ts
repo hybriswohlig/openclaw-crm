@@ -432,3 +432,10 @@ describe("Plan 15, Bauteil 13: Umzugskartons getrennt vom Einpackservice", () =>
     expect(rechnerAnfrageAus({ ...l, packService: true })).not.toHaveProperty("umzugskartons");
   });
 });
+
+describe("Review M5: kartons und umzugskartons sind eine Eingabe", () => {
+  it("Zurücknehmen von umzugskartons nimmt auch die Alt-Übersteuerung kartons zurück", () => {
+    const a = anfrageMitUebersteuerungen({}, [ue("eingabe", "kartons", 15), ue("eingabe", "umzugskartons", null)], { referenceDate: "2026-11-09" });
+    expect(a).not.toHaveProperty("umzugskartons");
+  });
+});

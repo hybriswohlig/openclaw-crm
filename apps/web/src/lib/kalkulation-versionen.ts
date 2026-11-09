@@ -440,7 +440,8 @@ function pruefeBetrag(wert: unknown, was: string): number {
 /** Wirksame Übersteuerungen: je Art und Schlüssel die letzte der Liste (Reihenfolge der ersten Nennung bleibt). */
 function wirksame(liste: Uebersteuerung[]): Map<string, Uebersteuerung> {
   const m = new Map<string, Uebersteuerung>();
-  for (const u of liste) m.set(`${u.art}\u0000${u.key}`, u);
+  // Review M5: Altschlüssel `kartons` und `umzugskartons` sind dieselbe Eingabe (die letzte wirkt).
+  for (const u of liste) m.set(`${u.art}\u0000${u.art === "eingabe" ? eingabeSchluessel(u.key) : u.key}`, u);
   return m;
 }
 
