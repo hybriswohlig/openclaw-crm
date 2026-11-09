@@ -190,6 +190,9 @@ async function seitePruefen(opts: {
     expect(lgTheme, `${opts.datei}: data-lg-theme`).toBe(opts.theme === "hell" ? "light" : "dark");
     if (opts.theme === "dunkel") {
       expect.soft(hellFunde, `${opts.datei}: helle Flächen im Dunkeln`).toEqual([]);
+      // Review M3: Text unter 4,5:1 (großer Text 3:1) macht den Lauf rot. Hell erst, wenn die
+      // --ink-3-Altstellen aus Plan 7, 12 und 13 behoben sind; bis dahin nur Anhang.
+      expect.soft(kontrastFunde, `${opts.datei}: Kontrast unter 4,5:1 im Dunkeln`).toEqual([]);
     }
   } finally {
     await context.close();
