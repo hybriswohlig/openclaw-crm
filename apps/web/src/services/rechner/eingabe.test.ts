@@ -207,11 +207,21 @@ describe("mitEinsatzFeldern (Plan 12b)", () => {
 describe("rechnerAnfrageAus mit Adressen aus dem Chat (Plan 15, Bauteil 8)", () => {
   const chat = { von: "70372 Stuttgart", nach: "71032 Böblingen", quelleVon: "erkennung" as const, quelleNach: "erkennung" as const };
   it("Viktoria: Lead leer, beide PLZ aus dem Chat gehen an den Rechner", () => {
-    const a = rechnerAnfrageAus({ ...leer, chatAdressen: chat });
+    const a = rechnerAnfrageAus({ ...leer, auftragsart: "umzug", chatAdressen: chat });
     expect(a).toMatchObject({ von_adresse: "70372 Stuttgart", nach_adresse: "71032 Böblingen", nach_vorhanden: "on" });
   });
+  it("Review I2: ein Chat-Ziel schaltet die Zielseite nicht ein (Entrümpelung, Art offen)", () => {
+    for (const auftragsart of ["entruempelung", "kuechenmontage", null] as const) {
+      const a = rechnerAnfrageAus({ ...leer, auftragsart, chatAdressen: chat });
+      expect(a.von_adresse).toBe("70372 Stuttgart");
+      expect(a).not.toHaveProperty("nach_adresse");
+      expect(a).not.toHaveProperty("nach_vorhanden");
+    }
+    expect(rechnerAnfrageAus({ ...leer, auftragsart: "transport", chatAdressen: chat })).toMatchObject({ nach_adresse: "71032 Böblingen", nach_vorhanden: "on" });
+    expect(rechnerAnfrageAus({ ...leer, etageNach: 2, chatAdressen: chat })).toMatchObject({ nach_adresse: "71032 Böblingen" });
+  });
   it("das Lead gewinnt je Seite", () => {
-    const a = rechnerAnfrageAus({ ...leer, von: "Hauptstr. 1, 70173 Stuttgart", chatAdressen: { ...chat, von: null, quelleVon: null } });
+    const a = rechnerAnfrageAus({ ...leer, auftragsart: "umzug", von: "Hauptstr. 1, 70173 Stuttgart", chatAdressen: { ...chat, von: null, quelleVon: null } });
     expect(a).toMatchObject({ von_adresse: "Hauptstr. 1, 70173 Stuttgart", nach_adresse: "71032 Böblingen" });
   });
   it("ohne Chat-Angabe exakt wie vorher", () => {

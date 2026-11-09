@@ -81,11 +81,17 @@ export async function ladeLeadDaten(workspaceId: string, dealRecordId: string): 
     .where(eq(quotations.dealRecordId, dealRecordId))
     .limit(1);
 
+  const auftragsart = auftragsartAus({
+    gespeichert: kv?.serviceType ?? null,
+    leadType: typeof payload?.leadType === "string" ? payload.leadType : null,
+  });
   const von = ortText(dv.move_from_address);
   const nach = ortText(dv.move_to_address);
   const kartons = zahlOderNull(av.boxes_needed);
   // Plan 15 (Bauteile 8 und 13): fehlende Adressen und Kartonzahl aus dem Chat (KI-Ereignis, sonst Erkennung).
-  const chat = await ladeChatAngaben(workspaceId, dealRecordId, { von, nach, kartonsFehlen: kartons === null });
+  // Review I2: bei Entrümpelung und Küchenmontage gibt es kein Ziel, also auch keins aus dem Chat.
+  const zielGesucht = auftragsart !== "entruempelung" && auftragsart !== "kuechenmontage";
+  const chat = await ladeChatAngaben(workspaceId, dealRecordId, { von, nach, kartonsFehlen: kartons === null, zielGesucht });
   return {
     von,
     nach,
@@ -109,9 +115,6 @@ export async function ladeLeadDaten(workspaceId: string, dealRecordId: string): 
     marke: (firmaId ? (await ladeFirmenEinstellungen(workspaceId, firmaId)).rechnerMarke : null)
       ?? markeAusFirmenname(typeof firma?.values?.name === "string" ? firma.values.name : null),
     quelle: leadQuelle({ payloadSource: typeof payload?.source === "string" ? payload.source : null, konversationen }),
-    auftragsart: auftragsartAus({
-      gespeichert: kv?.serviceType ?? null,
-      leadType: typeof payload?.leadType === "string" ? payload.leadType : null,
-    }),
+    auftragsart,
   };
 }

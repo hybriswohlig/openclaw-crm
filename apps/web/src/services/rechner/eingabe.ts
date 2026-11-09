@@ -76,8 +76,14 @@ export function rechnerAnfrageAus(lead: LeadDaten, opts: { heute?: string } = {}
   };
 
   // Plan 15: fehlt im Lead eine Adresse, rechnet der Rechner mit der Angabe aus dem Chat.
+  // Review I2: ein Ziel aus dem Chat schaltet die Zielseite nie selbst ein; es gilt nur bei
+  // Umzug und Transport oder wenn die Zielseite schon aus dem Lead aktiv ist.
   const von = lead.von ?? lead.chatAdressen?.von ?? null;
-  const nach = lead.nach ?? lead.chatAdressen?.nach ?? null;
+  const ortsinternLead = !!von && /^(umzug\s+)?innerhalb\s/i.test(von.trim());
+  const zielAktiv =
+    lead.auftragsart === "umzug" || lead.auftragsart === "transport" || ortsinternLead || lead.etageNach !== null ||
+    lead.zugangNach !== null || !!lead.treppenhausNach || !!lead.halteverbotNach;
+  const nach = lead.nach ?? (zielAktiv ? lead.chatAdressen?.nach ?? null : null);
   for (const [seite, adresse, etage, zugangTitel, tragestrecke, treppenhaus] of [
     ["von", von, lead.etageVon, lead.zugangVon, lead.tragestreckeVonM, lead.treppenhausVon],
     ["nach", nach, lead.etageNach, lead.zugangNach, lead.tragestreckeNachM, lead.treppenhausNach],

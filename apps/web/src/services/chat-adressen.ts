@@ -83,17 +83,23 @@ export interface ChatAngaben {
 export async function ladeChatAngaben(
   ws: string,
   deal: string,
-  lead: { von: string | null; nach: string | null; kartonsFehlen: boolean }
+  lead: { von: string | null; nach: string | null; kartonsFehlen: boolean; zielGesucht?: boolean }
 ): Promise<ChatAngaben> {
-  const adressenFehlen = !lead.von || !lead.nach;
+  // Ohne Ziel (Entrümpelung, Küchenmontage) wird die Entladeseite nie aus dem Chat gefüllt.
+  const ohneZiel = lead.zielGesucht === false;
+  const adressenFehlen = !lead.von || (!ohneZiel && !lead.nach);
   if (!adressenFehlen && !lead.kartonsFehlen) return { adressen: null, kartons: null };
   try {
     const ki = await kiAngaben(ws, deal);
-    const kiReicht = (!adressenFehlen || ((lead.von || ki?.von) && (lead.nach || ki?.nach))) && (!lead.kartonsFehlen || ki?.kartons);
+    const kiReicht = (!adressenFehlen || ((lead.von || ki?.von) && (ohneZiel || lead.nach || ki?.nach))) && (!lead.kartonsFehlen || ki?.kartons);
     const texte = kiReicht ? null : await eingehendeTexte(ws, deal);
     let adressen: ChatAdressen | null = null;
     if (adressenFehlen) {
       const c = chatAdressenWaehlen(lead, ki, texte ? adressenAusNachrichten(texte) : null);
+      if (ohneZiel) {
+        c.nach = null;
+        c.quelleNach = null;
+      }
       adressen = c.von || c.nach ? c : null;
     }
     let kartons: ChatAngaben["kartons"] = null;
