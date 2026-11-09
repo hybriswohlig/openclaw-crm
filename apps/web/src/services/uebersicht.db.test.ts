@@ -217,6 +217,9 @@ describe.skipIf(!url)("ladeUebersicht gegen Postgres", () => {
     await zahlung({ deal: null, date: "2026-11-06", amount: "80.00", tax: "betriebseinnahme", firma: ocB });
     await zahlung({ deal: deals.alt, date: "2026-11-04", amount: "40.00", tax: "betriebseinnahme", firma: null });
     await zahlung({ deal: deals.alt, date: "2025-12-10", amount: "10.00", tax: "betriebseinnahme", firma: ocA });
+    // M3: Vormonat im gleichen Zeitraum (1. bis 8. Oktober), der 20. zählt nicht.
+    await zahlung({ deal: null, date: "2026-10-08", amount: "300.00", tax: "betriebseinnahme", firma: ocA });
+    await zahlung({ deal: null, date: "2026-10-20", amount: "500.00", tax: "betriebseinnahme", firma: ocA });
 
     await sql`
       insert into records (id, object_id, created_at) values (${deals.fremd}, ${O.fremdDeals}, '2026-11-05T10:00:00.000Z')
@@ -304,6 +307,9 @@ describe.skipIf(!url)("ladeUebersicht gegen Postgres", () => {
     expect(alle.eingegangen["2026-11"]).toBe(96_950);
     expect(alpha.eingegangen["2025-12"]).toBe(1_000);
     expect(alle.firma).toBeNull();
+    expect(alpha.vormonat).toEqual({ bis: "2026-10-08", eingegangen: 30_000 });
+    expect(beta.vormonat).toEqual({ bis: "2026-10-08", eingegangen: 0 });
+    expect(alle.eingegangen["2026-10"]).toBe(80_000);
     expect(alpha.firma).toBe(ocA);
   });
 

@@ -7,7 +7,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/db", () => ({
-  db: new Proxy({}, { get(_t, p) { if (p === "then" || typeof p === "symbol") return undefined; throw new Error(`@/db im Test (${String(p)})`); } }),
+  db: { select: () => ({ from: () => ({ where: () => ({ limit: async () => [{ buchungImPreis: true }] }) }) }) },
 }));
 vi.mock("@/lib/api-utils", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api-utils")>();
@@ -58,9 +58,19 @@ describe("GET/PUT /api/v1/einsatz/firmen/[ocId]", () => {
     expect(mocks.operatingCompanyInWorkspace).not.toHaveBeenCalled();
   });
 
-  it("PUT als Member → 403, GET bleibt erlaubt", async () => {
+  it("PUT als Member → 403 mit deutschem Text", async () => {
     mocks.getAuthContext.mockResolvedValue({ ...CTX, workspaceRole: "member" });
-    expect((await PUT(anfrage("PUT", { buchungImPreis: true }), p)).status).toBe(403);
+    const res = await PUT(anfrage("PUT", { buchungImPreis: true }), p);
+    expect(res.status).toBe(403);
+    expect((await res.json()).error.message).toBe("Nur Admins können das ändern.");
     expect(mocks.operatingCompanyInWorkspace).not.toHaveBeenCalled();
+  });
+
+  it("GET meldet darfAendern je nach Rolle", async () => {
+    const admin = await (await GET(anfrage("GET"), p)).json();
+    expect(admin.data).toEqual({ buchungImPreis: true, darfAendern: true });
+    mocks.getAuthContext.mockResolvedValue({ ...CTX, workspaceRole: "member" });
+    const member = await (await GET(anfrage("GET"), p)).json();
+    expect(member.data).toEqual({ buchungImPreis: true, darfAendern: false });
   });
 });

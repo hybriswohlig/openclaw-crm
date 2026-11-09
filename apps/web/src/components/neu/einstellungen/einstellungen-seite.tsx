@@ -10,7 +10,7 @@ import { GlassSegmentedControl, GlassSegmentedControlItem } from "@/components/g
 import { apiAufruf } from "@/components/neu/akte/api";
 import { usePortalZiel } from "@/components/neu/portal-ziel";
 import type { EinstellungenAntwort } from "@/lib/einstellungen-uebersicht";
-import { firmaKurz } from "./einstellungen-logik";
+import { ankerId, firmaKurz } from "./einstellungen-logik";
 import { FirmaKarte } from "./firma-karte";
 import { FuerMich } from "./fuer-mich";
 import { RechnerAbschnitt } from "./rechner-abschnitt";
@@ -56,6 +56,17 @@ export function EinstellungenSeite({ rechnerUrl }: { rechnerUrl: string | null }
   }, [laden]);
 
   const neuLaden = useCallback(() => laden(true), [laden]);
+
+  // Abschnitte entstehen erst nach dem Laden; der Browser findet `#kalender` oder
+  // `#rechner` beim ersten Bild nicht. Einmal nach dem ersten Laden springen.
+  const gesprungen = useRef(false);
+  useEffect(() => {
+    if (zustand.art !== "fertig" || gesprungen.current) return;
+    gesprungen.current = true;
+    const id = ankerId(window.location.hash);
+    if (!id) return;
+    requestAnimationFrame(() => document.getElementById(id)?.scrollIntoView({ block: "start" }));
+  }, [zustand.art]);
   const a = zustand.art === "fertig" ? zustand.antwort : null;
   const firmen = a?.firmen ?? [];
   const gewaehlt = firmen.find((f) => f.id === firma) ?? firmen[0] ?? null;

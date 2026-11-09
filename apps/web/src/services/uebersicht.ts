@@ -17,7 +17,9 @@ import {
   durchfuehrungsTag,
   durchgefuehrtJeMonat,
   monateBis,
+  vormonatGleicherZeitraum,
   zuflussJeMonat,
+  zuflussZeitraum,
   type UebersichtAntwort,
   type UebersichtDeal,
   type ZuflussZeile,
@@ -169,11 +171,13 @@ async function uebersichtLesen(ws: string, firma: string | null, jetzt: Date): P
   const stufen = new Map(geladen.stufen.map((s) => [s.id, s]));
   const deals = dealsAus(geladen.roh, stufen, geladen.stamm.quellen, nonLead, abgeschlossen);
   const kasse = await ladeKasse(ws, firma, jetzt, geladen);
+  const vergleich = vormonatGleicherZeitraum(heute);
   return {
     monate,
     firma,
     firmen: geladen.stamm.firmen.map((f) => ({ id: f.id, name: f.name })),
     eingegangen: zuflussJeMonat(zeilenZahlung, monate, firma),
+    vormonat: { bis: vergleich.bis, eingegangen: zuflussZeitraum(zeilenZahlung, vergleich.von, vergleich.bis, firma) },
     durchgefuehrt: durchgefuehrtJeMonat(deals, monate, firma),
     anfragen: anfragenJeMonat(deals, monate, firma),
     abschluss: abschlussJeMonat(deals, monate, firma),

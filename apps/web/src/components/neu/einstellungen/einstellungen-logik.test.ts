@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { ZAHLUNGSREGEL_STANDARD } from "@/lib/geld";
 import type { RechnerStammdaten, TarifAnsicht } from "@/lib/einstellungen-uebersicht";
 import {
+  ankerId,
   bewertungModusGesperrt,
   gleich,
   googleRueckfrage,
@@ -171,5 +172,18 @@ describe("Fixture", () => {
     const ohne = FIXTURE_ADMIN.firmen!.filter((f) => !f.googleReviewUrl);
     expect(ohne).toHaveLength(1);
     for (const f of FIXTURE_ADMIN.firmen!) if (f.portal.tagespreiseEnabled) expect(f.portal.angebotAusKalkulation).toBe(true);
+  });
+});
+
+describe("Anker (M7)", () => {
+  it("liest Ziel-IDs aus dem Hash, sonst null", () => {
+    expect(ankerId("#kalender")).toBe("kalender");
+    expect(ankerId("#rechner")).toBe("rechner");
+    expect(ankerId("#firma-32e4da5a-721b-4cda-be31-eecd7ff88893")).toBe("firma-32e4da5a-721b-4cda-be31-eecd7ff88893");
+    expect(ankerId("")).toBeNull();
+    expect(ankerId("#")).toBeNull();
+    expect(ankerId("#a b")).toBeNull();
+    expect(ankerId("#%E0%A4%A")).toBeNull();
+    expect(ankerId("#\"><img>")).toBeNull();
   });
 });

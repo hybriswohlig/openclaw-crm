@@ -174,3 +174,14 @@ export function datumText(iso: string | null): string {
 export function firmaKurz(name: string): string {
   return name.trim().split(/\s+/)[0] || name;
 }
+
+/** Ziel-ID aus `location.hash` (`#kalender`, `#rechner`, `#firma-<id>`); sonst null. */
+export function ankerId(hash: string): string | null {
+  let roh = hash.replace(/^#/, "");
+  try {
+    roh = decodeURIComponent(roh);
+  } catch {
+    return null;
+  }
+  return /^[A-Za-z][\w-]{0,99}$/.test(roh) ? roh : null;
+}

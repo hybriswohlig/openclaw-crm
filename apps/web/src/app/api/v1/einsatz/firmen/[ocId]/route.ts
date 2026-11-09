@@ -1,13 +1,15 @@
 /**
  * Schalter `buchung_im_preis` je Betriebsfirma (Plan 12b).
  * GET liest, PUT setzt (legt die Zeile an, überschreibt nur diesen Schalter).
- * PUT nur für Admins (Plan 13: Firmen-Einstellungen wie `company-settings`).
+ * PUT nur für Admins (Plan 13: Firmen-Einstellungen wie `company-settings`);
+ * GET meldet dazu `darfAendern`, damit die Oberfläche den Schalter sperrt.
  */
 import { and, eq } from "drizzle-orm";
 import type { NextRequest } from "next/server";
 import { db } from "@/db";
 import { companySettings } from "@/db/schema/company-settings";
-import { badRequest, notFound, requireAdmin, success } from "@/lib/api-utils";
+import { badRequest, forbidden, notFound, success } from "@/lib/api-utils";
+import { NUR_ADMINS } from "@/lib/einstellungen-uebersicht";
 import { einsatzVorlauf } from "@/lib/einsatz-route";
 import { operatingCompanyInWorkspace } from "@/services/customer-portal-config";
 
@@ -23,14 +25,13 @@ export async function GET(req: NextRequest, { params }: Params) {
     .from(companySettings)
     .where(and(eq(companySettings.operatingCompanyRecordId, ocId), eq(companySettings.workspaceId, vor.ctx.workspaceId)))
     .limit(1);
-  return success({ buchungImPreis: zeile?.buchungImPreis === true });
+  return success({ buchungImPreis: zeile?.buchungImPreis === true, darfAendern: vor.ctx.workspaceRole === "admin" });
 }
 
 export async function PUT(req: NextRequest, { params }: Params) {
   const vor = await einsatzVorlauf(req);
   if (vor.antwort) return vor.antwort;
-  const denied = requireAdmin(vor.ctx);
-  if (denied) return denied;
+  if (vor.ctx.workspaceRole !== "admin") return forbidden(NUR_ADMINS);
   let body: unknown;
   try {
     body = await req.json();

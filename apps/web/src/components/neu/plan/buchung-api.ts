@@ -56,7 +56,7 @@ export function stammdatenLaden(): Promise<ApiAntwort<{ stationen: RechnerStatio
   return apiAufruf("/api/v1/einsatz/rechner-stammdaten");
 }
 
-export function firmenSchalterLaden(ocId: string): Promise<ApiAntwort<{ buchungImPreis: boolean }>> {
+export function firmenSchalterLaden(ocId: string): Promise<ApiAntwort<{ buchungImPreis: boolean; darfAendern?: boolean }>> {
   return apiAufruf(`/api/v1/einsatz/firmen/${encodeURIComponent(ocId)}`);
 }
 

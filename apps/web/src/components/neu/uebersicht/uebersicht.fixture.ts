@@ -12,6 +12,7 @@ export const FIXTURE_LEER: UebersichtAntwort = {
   firma: null,
   firmen: [],
   eingegangen: leer(() => 0),
+  vormonat: { bis: "2026-10-09", eingegangen: 0 },
   durchgefuehrt: leer(() => ({ cent: 0, anzahl: 0, ohneBetrag: 0 })),
   anfragen: { quellen: [], je: leer(() => ({})), gesamt: leer(() => 0) },
   abschluss: { je: leer(() => ({ gewonnen: 0, verloren: 0, offen: 0, quoteProzent: null })), gesamt: { gewonnen: 0, verloren: 0, offen: 0, quoteProzent: null } },
@@ -27,6 +28,7 @@ export const FIXTURE_ZWOELF: UebersichtAntwort = {
     { id: "oc-c", name: "Ceylan Transporte" },
   ],
   eingegangen: Object.fromEntries(MONATE.map((m, i) => [m, i === 3 ? -42000 : 900000 + i * 85000])),
+  vormonat: { bis: "2026-10-09", eingegangen: 410000 },
   durchgefuehrt: Object.fromEntries(MONATE.map((m, i) => [m, { cent: 800000 + i * 90000, anzahl: 6 + (i % 4), ohneBetrag: i % 3 === 0 ? 1 : 0 }])),
   anfragen: {
     quellen: [

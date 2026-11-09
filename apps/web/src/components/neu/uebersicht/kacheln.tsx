@@ -23,7 +23,9 @@ export function Kacheln({ a }: { a: UebersichtAntwort }) {
   const jetzt = a.monate[a.monate.length - 1];
   const vorher = a.monate[a.monate.length - 2];
   const ein = a.eingegangen[jetzt] ?? 0;
-  const einVorher = vorher ? (a.eingegangen[vorher] ?? 0) : 0;
+  // M3: gleich viele Tage vergleichen (1. bis heute gegen 1. bis zum selben Tag des Vormonats).
+  const einVorher = a.vormonat.eingegangen;
+  const bisTag = Number(a.vormonat.bis.slice(8, 10));
   const d = a.durchgefuehrt[jetzt] ?? { cent: 0, anzahl: 0, ohneBetrag: 0 };
   const q = a.abschluss.gesamt;
   return (
@@ -31,7 +33,7 @@ export function Kacheln({ a }: { a: UebersichtAntwort }) {
       <Kachel
         titel={`Eingegangen im ${monatLang(jetzt)}`}
         wert={euro(ein)}
-        zeilen={[vorher ? `Vormonat ${euro(einVorher)}` : null, vergleichText(ein, einVorher) || null]}
+        zeilen={[vorher ? `Vormonat bis zum ${bisTag}.: ${euro(einVorher)}` : null, vergleichText(ein, einVorher) || null]}
       />
       <Kachel
         titel={`Durchgeführt im ${monatLang(jetzt)}`}

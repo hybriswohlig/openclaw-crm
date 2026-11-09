@@ -6,10 +6,12 @@ import { GlassButton } from "@/components/glassyui/glass-button";
 import { GlassPanel } from "@/components/glassyui/glass-panel";
 import { GlassSwitch } from "@/components/glassyui/glass-switch";
 import { apiAufruf } from "@/components/neu/akte/api";
+import { Rueckfrage } from "@/components/neu/einstellungen/rueckfrage";
 import { usePortalZiel } from "@/components/neu/portal-ziel";
 import { BuchungDialog } from "@/components/neu/plan/buchung-dialog";
 import { buchungenLaden, firmenSchalterLaden, firmenSchalterSetzen, type BuchungVoll } from "@/components/neu/plan/buchung-api";
 import { berlinDateString } from "@/lib/berlin-date";
+import { NUR_ADMINS } from "@/lib/einstellungen-uebersicht";
 import type { LeadFirma } from "@/lib/leads-board";
 import type { PlanAntwort, PlanEintrag } from "@/lib/plan-heute";
 
@@ -31,6 +33,9 @@ export function TransporterReiter() {
   const [firmen, setFirmen] = useState<LeadFirma[]>([]);
   const [eintraege, setEintraege] = useState<PlanEintrag[]>([]);
   const [schalter, setSchalter] = useState<Record<string, boolean>>({});
+  // Plan 13: Mietanteil ändern nur Admins; Einschalten fragt wie in den Einstellungen.
+  const [darfAendern, setDarfAendern] = useState<boolean | null>(null);
+  const [frage, setFrage] = useState<string | null>(null);
   const [dialog, setDialog] = useState<{ art: "neu" } | { art: "ansehen"; b: BuchungVoll } | null>(null);
 
   const laden = useCallback(async () => {
@@ -47,6 +52,7 @@ export function TransporterReiter() {
       setEintraege(plan.data.eintraege);
       const werte = await Promise.all(plan.data.firmen.map(async (f) => [f.id, (await firmenSchalterLaden(f.id))] as const));
       setSchalter(Object.fromEntries(werte.map(([id, r]) => [id, r.ok ? r.data.buchungImPreis : false])));
+      setDarfAendern(werte.some(([, r]) => r.ok && r.data.darfAendern === true));
     }
   }, [heute]);
 
@@ -113,12 +119,30 @@ export function TransporterReiter() {
         <ul className="ma-liste">
           {firmen.map((f) => (
             <li key={f.id} className="tr-firma">
-              <GlassSwitch size="sm" checked={schalter[f.id] === true} onCheckedChange={(an) => void umschalten(f.id, an)} aria-label={`Mietanteil im Preis für ${f.name}`} />
+              <GlassSwitch
+                size="sm"
+                checked={schalter[f.id] === true}
+                disabled={darfAendern !== true}
+                onCheckedChange={(an) => (an ? setFrage(f.id) : void umschalten(f.id, false))}
+                aria-label={`Mietanteil im Preis für ${f.name}`}
+              />
               <span>{f.name}</span>
             </li>
           ))}
         </ul>
+        {firmen.length > 0 && darfAendern === false ? <p className="ma-hinweis">{NUR_ADMINS}</p> : null}
       </GlassPanel>
+
+      <Rueckfrage
+        arten={frage ? ["mietanteil"] : null}
+        portalZiel={portalZiel}
+        onNein={() => setFrage(null)}
+        onJa={() => {
+          const id = frage;
+          setFrage(null);
+          if (id) void umschalten(id, true);
+        }}
+      />
 
       {dialog ? (
         <BuchungDialog

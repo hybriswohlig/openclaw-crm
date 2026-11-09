@@ -334,3 +334,27 @@ describe("Rechner-Stammdaten", () => {
     for (const f of ["margenregeln", "faktoren", '"lat"', '"lng"']) expect(text).not.toContain(f);
   });
 });
+
+describe("Vergleich zum Vormonat im gleichen Zeitraum (M3)", () => {
+  it("1. bis zum selben Tag, bei kürzerem Vormonat bis zu dessen Ende, über den Jahreswechsel", async () => {
+    const { vormonatGleicherZeitraum } = await import("./einstellungen-uebersicht");
+    expect(vormonatGleicherZeitraum("2026-11-09")).toEqual({ von: "2026-10-01", bis: "2026-10-09" });
+    expect(vormonatGleicherZeitraum("2026-03-31")).toEqual({ von: "2026-02-01", bis: "2026-02-28" });
+    expect(vormonatGleicherZeitraum("2028-03-30")).toEqual({ von: "2028-02-01", bis: "2028-02-29" });
+    expect(vormonatGleicherZeitraum("2026-01-15")).toEqual({ von: "2025-12-01", bis: "2025-12-15" });
+    expect(vormonatGleicherZeitraum("2026-12-31")).toEqual({ von: "2026-11-01", bis: "2026-11-30" });
+  });
+
+  it("zuflussZeitraum zählt beide Grenzen, ohne Kaution, mit Firma", async () => {
+    const { zuflussZeitraum } = await import("./einstellungen-uebersicht");
+    const zeilen = [
+      { tag: "2026-10-01", cent: 100, taxTreatment: null, firmaId: "a" },
+      { tag: "2026-10-09", cent: 200, taxTreatment: null, firmaId: "b" },
+      { tag: "2026-10-10", cent: 400, taxTreatment: null, firmaId: "a" },
+      { tag: "2026-10-05", cent: 800, taxTreatment: "nicht_steuerbar", firmaId: "a" },
+      { tag: "2026-10-06", cent: -50, taxTreatment: null, firmaId: "a" },
+    ];
+    expect(zuflussZeitraum(zeilen, "2026-10-01", "2026-10-09", null)).toBe(250);
+    expect(zuflussZeitraum(zeilen, "2026-10-01", "2026-10-09", "a")).toBe(50);
+  });
+});

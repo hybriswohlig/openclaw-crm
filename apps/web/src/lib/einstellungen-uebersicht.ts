@@ -127,6 +127,9 @@ export function apiSchluesselSortieren(a: ApiSchluesselAnsicht, b: ApiSchluessel
 
 // ─── Firmen ─────────────────────────────────────────────────────────────────
 
+/** 403-Text für Firmen-Schalter, die nur Admins ändern (auch Hinweis in der Oberfläche). */
+export const NUR_ADMINS = "Nur Admins können das ändern.";
+
 export interface PortalSchalter {
   enabled: boolean;
   signatureEnabled: boolean;
@@ -467,6 +470,29 @@ export function zuflussJeMonat(zeilen: readonly ZuflussZeile[], monate: readonly
   return aus;
 }
 
+/**
+ * Gleicher Zeitraum im Vormonat für „zum Vormonat“: 1. bis zum selben Tag; ist der
+ * Vormonat kürzer, bis zu seinem Ende. `heute` ist ein Berliner Tag `YYYY-MM-DD`.
+ */
+export function vormonatGleicherZeitraum(heute: string): { von: string; bis: string } {
+  const [j, m, t] = heute.split("-").map(Number);
+  const anfang = new Date(Date.UTC(j, m - 2, 1));
+  const letzter = new Date(Date.UTC(j, m - 1, 0)).getUTCDate();
+  const jj = anfang.getUTCFullYear();
+  const mm = String(anfang.getUTCMonth() + 1).padStart(2, "0");
+  return { von: `${jj}-${mm}-01`, bis: `${jj}-${mm}-${String(Math.min(t, letzter)).padStart(2, "0")}` };
+}
+
+/** Eingegangen von `von` bis `bis` (beide einschließlich), gleiche Regeln wie `zuflussJeMonat`. */
+export function zuflussZeitraum(zeilen: readonly ZuflussZeile[], von: string, bis: string, firma: FirmaFilter): number {
+  let summe = 0;
+  for (const z of zeilen) {
+    if (z.taxTreatment === "nicht_steuerbar" || !passt(z.firmaId, firma)) continue;
+    if (z.tag >= von && z.tag <= bis) summe += z.cent;
+  }
+  return summe;
+}
+
 export const GEWONNEN: readonly StageCategory[] = ["booked", "done_unpaid", "paid"];
 export const VERLOREN: readonly StageCategory[] = ["lost"];
 export const NOCH_OFFEN: readonly StageCategory[] = ["open_new", "open_engaged", "quoted"];
@@ -600,6 +626,8 @@ export interface UebersichtAntwort {
   firma: FirmaFilter;
   firmen: { id: string; name: string }[];
   eingegangen: Record<string, number>;
+  /** Vergleich der Kachel: Vormonat im gleichen Zeitraum (`vormonatGleicherZeitraum`). */
+  vormonat: { bis: string; eingegangen: number };
   durchgefuehrt: Record<string, DurchgefuehrtMonat>;
   anfragen: AnfragenReihe;
   abschluss: { je: Record<string, Abschluss>; gesamt: Abschluss };
