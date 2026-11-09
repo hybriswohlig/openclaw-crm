@@ -4,14 +4,14 @@
  * Beladen → Entladen in Vermilion 5 px, Stationswege gestrichelt in --ink-2
  * 3 px, Marker als Kapseln in --flaeche. Nur im Browser, darum lädt `route-karte.tsx`
  * diese Datei per next/dynamic ohne SSR. Beim Themenwechsel tauscht MapLibre den Stil
- * (setStyle); die Linienfarbe liest die Karte aus der CSS-Variable des Rahmens.
+ * (setStyle); die Farbe der Stationswege kommt direkt aus TOKENS (--ink-2 je Theme).
  */
 import { setWorkerUrl } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { Layer, Map as MapLibreKarte, Marker, Source } from "@vis.gl/react-maplibre";
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useMemo } from "react";
 import { useDarstellung } from "@/components/neu/darstellung";
-import { kartenStil } from "./karten-stil";
+import { kartenStil, stationsFarbe } from "./karten-stil";
 import type { Teilstrecke } from "./route-karte";
 import { grenzenAus, polylineDekodieren } from "./route-karte-bild-logik";
 
@@ -23,8 +23,6 @@ const VERMILION = "#f04a28";
 /** Marker sind HTML in [data-neu]: CSS-Variablen greifen direkt und wechseln mit dem Theme. */
 const FLAECHE = "var(--flaeche)";
 const INK = "var(--ink)";
-/** Rückfall, solange der Rahmen noch nicht gemessen ist (--ink-2 hell). */
-const INK_2_HELL = "#66666a";
 
 interface MarkerPunkt {
   label: string;
@@ -54,13 +52,9 @@ function markerAus(strecken: { teil: Teilstrecke; punkte: [number, number][] }[]
 
 export default function RouteKarteBild({ teilstrecken }: { teilstrecken: Teilstrecke[] }) {
   const { theme } = useDarstellung();
-  const rahmen = useRef<HTMLDivElement>(null);
-  const [ink2, setInk2] = useState(INK_2_HELL);
-  // WebGL-Farben kennen keine CSS-Variablen: --ink-2 beim Laden und je Themenwechsel lesen.
-  useLayoutEffect(() => {
-    const wert = rahmen.current ? getComputedStyle(rahmen.current).getPropertyValue("--ink-2").trim() : "";
-    if (wert) setInk2(wert);
-  }, [theme]);
+  // WebGL-Farben kennen keine CSS-Variablen; der Wert kommt je Theme aus dem Vertrag, nicht aus
+  // dem DOM (das hinge beim Themenwechsel einen Schritt hinterher, Review M1).
+  const ink2 = stationsFarbe(theme);
   const strecken = useMemo(
     () => teilstrecken.map((teil) => ({ teil, punkte: polylineDekodieren(teil.polyline) })).filter((s) => s.punkte.length > 1),
     [teilstrecken]
@@ -82,7 +76,7 @@ export default function RouteKarteBild({ teilstrecken }: { teilstrecken: Teilstr
   if (!grenzen) return <div className="kalk-karte-leer">Keine Strecke zum Anzeigen.</div>;
 
   return (
-    <div ref={rahmen} style={{ position: "absolute", inset: 0 }}>
+    <div style={{ position: "absolute", inset: 0 }}>
       <MapLibreKarte
         mapStyle={kartenStil(theme)}
         initialViewState={{ bounds: grenzen, fitBoundsOptions: { padding: { top: 28, bottom: 20, left: 20, right: 130 } } }}
