@@ -21,6 +21,8 @@ export type ActivityEventType =
   | "kalkulation.adresse_gesetzt"
   /** Plan 15: Inventarzeile von Hand korrigiert (Herkunft und Lernsignal der Fotoerkennung) */
   | "inventar.korrigiert"
+  /** Plan 15: „Pakete anbieten“ je Deal umgeschaltet */
+  | "kalkulation.pakete_geschaltet"
   | "ai.field_enrichment"
   | "ai.inventory_extracted"
   | "ai.inventory_extract_attempt"

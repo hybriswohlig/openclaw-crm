@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { badRequest, forbidden, getAuthContext, success, unauthorized } from "@/lib/api-utils";
 import { dealImWorkspace, dealNichtGefunden } from "@/lib/kalkulation-versionen-antwort";
 import { paketeAnbietenSetzen, paketSchalter } from "@/services/plan5-schalter";
+import { emitEvent } from "@/services/activity-events";
 
 /**
  * Plan 15, Bauteil 15: „Pakete anbieten“ je Deal.
@@ -28,5 +29,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ reco
   const wert = body?.wert;
   if (wert !== "standard" && wert !== "an" && wert !== "aus") return badRequest("wert muss standard, an oder aus sein");
   await paketeAnbietenSetzen(recordId, wert === "standard" ? null : wert);
+  // Review M8: wer Pakete je Deal umgeschaltet hat (Wirkung beim Kunden).
+  await emitEvent({ workspaceId: ctx.workspaceId, recordId, objectSlug: "deals", eventType: "kalkulation.pakete_geschaltet", payload: { wert }, actorId: ctx.userId ?? null });
   return success(await paketSchalter(ctx.workspaceId, recordId));
 }

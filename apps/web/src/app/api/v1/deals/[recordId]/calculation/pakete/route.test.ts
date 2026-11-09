@@ -17,6 +17,7 @@ vi.mock("@/lib/kalkulation-versionen-antwort", async (o) => ({
   dealImWorkspace: mocks.dealImWorkspace,
 }));
 vi.mock("@/services/plan5-schalter", () => ({ paketeAnbietenSetzen: mocks.setzen, paketSchalter: mocks.schalter }));
+vi.mock("@/services/activity-events", () => ({ emitEvent: vi.fn() }));
 
 import { GET, PUT } from "./route";
 
