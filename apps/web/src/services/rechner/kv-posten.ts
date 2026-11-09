@@ -66,7 +66,10 @@ export function aufzaehlen(teile: readonly string[]): string {
 export function strasseAus(adresse: unknown): string | null {
   if (typeof adresse !== "string") return null;
   const teil = adresse.split(",")[0]?.trim();
-  return teil ? teil : null;
+  // Review I1 (d): ohne Straße („70372 Stuttgart“, Chat-Angabe) keine Adresse im KV-Text,
+  // dann steht dort „Auszug“ bzw. „Einzug“.
+  if (!teil || /^\d{5}\b/.test(teil)) return null;
+  return teil;
 }
 
 /**

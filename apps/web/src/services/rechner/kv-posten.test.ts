@@ -356,3 +356,11 @@ describe("kvBausteine Küche per Schlüssel", () => {
     expect(k.hebel.map((h) => h.art)).toContain("kueche");
   });
 });
+
+describe("strasseAus (Plan 15, Review I1)", () => {
+  it("nur die Straße, nie PLZ und Ort allein (Chat-Angabe)", () => {
+    expect(strasseAus("Hauptstr. 5, 70372 Stuttgart")).toBe("Hauptstr. 5");
+    expect(strasseAus("70372 Stuttgart")).toBeNull();
+    expect(strasseAus("07031")).toBeNull();
+  });
+});

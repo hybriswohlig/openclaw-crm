@@ -63,8 +63,8 @@ import {
 } from "@/lib/kalkulation-versionen";
 import type { AngebotsEingabe, Quotation } from "@/services/quotations";
 import { meldeKorrektur, rufeRechner, type RechnerAntwort, type RechnerErgebnis } from "@/services/rechner/client";
-import { fehlendeAdressen } from "@/lib/kalkulation-annahmen";
-import { ADRESSE_FEHLT_TEXT } from "@/lib/kalkulation-p15";
+import { adressenZumSperren } from "@/lib/kalkulation-annahmen";
+import { ADRESSE_CHAT_TEXT, ADRESSE_FEHLT_TEXT } from "@/lib/kalkulation-p15";
 import { eingabeHash, mitEinsatzFeldern, mitPlan5Feldern, rechnerAnfrageAus, type LeadDaten, type RechnerAnfrage } from "@/services/rechner/eingabe";
 import { ergebnisVeraltet, type KalkulationsZeile } from "@/services/rechner/kalkulation";
 import { kvGueltigBis, type HebelArt, type KvPosten } from "@/services/rechner/kv-posten";
@@ -1056,9 +1056,10 @@ export async function sperren(
   }
   // Plan 15 (Bauteil 5): ohne Belade- oder Entladeadresse nur nach Rückfrage (Mensch); ein Agent nie.
   // Adressen aus dem Chat zählen als vorhanden. Die Kalkulationskarte (`nurMarge`) gilt als bestätigt.
-  const fehlt = fehlendeAdressen(v.rechnerRequest);
+  // Review I1: eine Adresse nur aus dem Chat ist unbestätigt und braucht dieselbe Rückfrage.
+  const fehlt = adressenZumSperren(v.rechnerRequest, lead);
   if ((fehlt.beladen || fehlt.entladen) && (autor.quelle === "agent" || (body.ohneAdresseBestaetigt !== true && body.nurMarge !== true))) {
-    throw new VersionsFehler("ADRESSE_FEHLT", ADRESSE_FEHLT_TEXT);
+    throw new VersionsFehler("ADRESSE_FEHLT", fehlt.ausChat ? ADRESSE_CHAT_TEXT : ADRESSE_FEHLT_TEXT);
   }
   // Nach dem (Neu-)Rechnen: eine Zeilen-Anpassung ohne Kostenzeile wirkt nicht mehr.
   const verwaist = verwaisteZeilenUebersteuerungen(v.overrides, v.rechnerResult.kosten?.posten ?? []);

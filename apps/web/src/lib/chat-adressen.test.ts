@@ -35,11 +35,27 @@ describe("adressenAusNachrichten", () => {
       adressenAusNachrichten(["Wir wohnen aktuell in 70372 Stuttgart.", "Die neue Wohnung ist in 73728 Esslingen"])
     ).toEqual({ von: "70372 Stuttgart", nach: "73728 Esslingen" });
   });
-  it("zwei PLZ ohne Hinweis: Reihenfolge wie im Satz", () => {
-    expect(adressenAusNachrichten(["PLZ 70372 und 71032"])).toEqual({ von: "70372", nach: "71032" });
+  it("zwei PLZ mit Ort ohne Hinweis: Reihenfolge wie im Satz; ohne Ort nie", () => {
+    expect(adressenAusNachrichten(["70372 Stuttgart und 71032 Böblingen"])).toEqual({ von: "70372 Stuttgart", nach: "71032 Böblingen" });
+    expect(adressenAusNachrichten(["PLZ 70372 und 71032"])).toEqual({ von: null, nach: null });
   });
   it("eine PLZ ohne Hinweis zählt nicht", () => {
     expect(adressenAusNachrichten(["Ich bin unter 70372 erreichbar"])).toEqual({ von: null, nach: null });
+  });
+  it("Review I1: Telefon, Vorwahl, Kundennummer und Signatur werden nie Adressen", () => {
+    expect(adressenAusNachrichten(["Abholung in 71032 Böblingen, Tel. 07031 123456"])).toEqual({ von: "71032 Böblingen", nach: null });
+    expect(
+      adressenAusNachrichten(["Wir ziehen von 71032 Böblingen nach 70372 Stuttgart.", "Viele Grüße\nMax Muster\nTel.: 07031 / 12345"])
+    ).toEqual({ von: "71032 Böblingen", nach: "70372 Stuttgart" });
+    expect(adressenAusNachrichten(["Kundennummer 45678, Auszug 70372 Stuttgart"])).toEqual({ von: "70372 Stuttgart", nach: null });
+    expect(adressenAusNachrichten(["Mobil: 01711 23456", "IBAN DE89 3704 0044 0532 0130 00", "Fax 07031 12345 Böblingen"])).toEqual({ von: null, nach: null });
+    expect(adressenAusNachrichten(["Hallo\n--\nMuster GmbH, 70173 Stuttgart, 71032 Böblingen"])).toEqual({ von: null, nach: null });
+  });
+  it("Review I1: eine spätere Nachricht ohne Hinweiswort überschreibt nichts", () => {
+    expect(adressenAusNachrichten(["von 70372 Stuttgart nach 71032 Böblingen", "Wir sind 80331 München und 10115 Berlin"])).toEqual({
+      von: "70372 Stuttgart",
+      nach: "71032 Böblingen",
+    });
   });
   it("eine spätere Nachricht korrigiert", () => {
     expect(
@@ -78,8 +94,9 @@ describe("kartonsAusNachrichten (Bauteil 13)", () => {
     expect(kartonsAusNachrichten(["Wir haben so 10 bis 15 Umzugskartons"])).toBe(15);
     expect(kartonsAusNachrichten(["ca. 10-15 Kartons"])).toBe(15);
   });
-  it("einzelne Zahl, neueste Nennung gewinnt", () => {
-    expect(kartonsAusNachrichten(["20 Kartons", "doch eher 25 Kisten"])).toBe(25);
+  it("einzelne Zahl, neueste Nennung gewinnt; Kisten und Boxen zählen nicht", () => {
+    expect(kartonsAusNachrichten(["20 Kartons", "doch eher 25 Umzugskartons"])).toBe(25);
+    expect(kartonsAusNachrichten(["5 Kisten Wasser und 3 Boxen (Lautsprecher)"])).toBeNull();
   });
   it("ohne Nennung null, Preise zählen nicht", () => {
     expect(kartonsAusNachrichten(["Was kostet ein Karton? 3 €"])).toBeNull();

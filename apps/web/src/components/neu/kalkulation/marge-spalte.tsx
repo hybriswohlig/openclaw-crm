@@ -24,7 +24,7 @@ import { OhneAdresseDialog } from "./adress-dialog";
 import { HebelAusDialog } from "./hebel-aus-dialog";
 import { PaketeSchalter } from "./pakete-schalter";
 import type { HebelArt } from "@/services/rechner/kv-posten";
-import { ADRESSE_FEHLT_TEXT } from "@/lib/kalkulation-p15";
+import { ADRESSE_CHAT_TEXT, ADRESSE_FEHLT_TEXT } from "@/lib/kalkulation-p15";
 import {
   sperrAusgang,
   sperrKoerper,
@@ -174,7 +174,7 @@ export function MargeSpalte({ ansicht, kontext }: { ansicht: KalkulationsAnsicht
     // Plan 15 (Bauteil 5): fehlt eine Adresse, erst nachfragen („Preis ohne echte Fahrzeiten“).
     const fehlt = ansicht.version.adresseFehlt;
     if (!nurKv && !ohneAdresseBestaetigt && (fehlt.beladen || fehlt.entladen)) {
-      setDialog({ art: "ohne_adresse", texte, meldung: ADRESSE_FEHLT_TEXT, modusWechselBestaetigt });
+      setDialog({ art: "ohne_adresse", texte, meldung: fehlt.ausChat ? ADRESSE_CHAT_TEXT : ADRESSE_FEHLT_TEXT, modusWechselBestaetigt });
       return;
     }
     const basisUrl = `/api/v1/deals/${encodeURIComponent(kontext.dealId)}/calculation/versions/${kontext.versionNr}`;

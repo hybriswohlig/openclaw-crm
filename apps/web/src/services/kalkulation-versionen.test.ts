@@ -566,9 +566,22 @@ describe("sperren", () => {
     expect(t.speicher.sperrenUndAngebot).toHaveBeenCalledTimes(1);
   });
 
-  it("Plan 15 (Bauteil 5): Adressen nur aus dem Chat reichen, ohne Rückfrage", async () => {
+  it("Review I1: Adressen nur aus dem Chat sind unbestätigt: Agent 409, Mensch erst nach Rückfrage", async () => {
     const t = aufbau();
     t.setzeLead({ ...lead(3), von: null, auftragsart: "umzug", chatAdressen: { von: "70372 Stuttgart", nach: "71032 Böblingen", quelleVon: "erkennung", quelleNach: "erkennung" } });
+    await entwurfHolenOderAnlegen("ws", "deal1", MENSCH, t.deps);
+    await expect(sperren("ws", "deal1", 1, AGENT, { ohneAdresseBestaetigt: true }, t.deps)).rejects.toMatchObject({
+      code: "ADRESSE_FEHLT",
+      message: expect.stringContaining("aus dem Chat"),
+    });
+    await expect(sperren("ws", "deal1", 1, MENSCH, {}, t.deps)).rejects.toMatchObject({ code: "ADRESSE_FEHLT" });
+    await sperren("ws", "deal1", 1, MENSCH, { ohneAdresseBestaetigt: true }, t.deps);
+    expect(t.speicher.sperrenUndAngebot).toHaveBeenCalledTimes(1);
+  });
+
+  it("Review I1: nach „Ins Lead übernehmen“ (Adresse im Lead) ohne Rückfrage", async () => {
+    const t = aufbau();
+    t.setzeLead({ ...lead(3), von: "70372 Stuttgart", nach: "71032 Böblingen", auftragsart: "umzug" });
     await entwurfHolenOderAnlegen("ws", "deal1", MENSCH, t.deps);
     await sperren("ws", "deal1", 1, AGENT, {}, t.deps);
     expect(t.speicher.sperrenUndAngebot).toHaveBeenCalledTimes(1);

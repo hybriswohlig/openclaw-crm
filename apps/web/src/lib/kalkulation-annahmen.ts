@@ -42,6 +42,21 @@ export function fehlendeAdressen(anfrage: RechnerAnfrage | null | undefined): { 
   };
 }
 
+/**
+ * Review I1 (c): fehlende und nur aus dem Chat stammende Adressen. Eine Chat-Adresse
+ * ist unbestätigt: Sperren fragt wie ohne Adresse nach, bis sie im Lead steht.
+ * `lead` = Adressen im Lead (null = leer).
+ */
+export function adressenZumSperren(
+  anfrage: RechnerAnfrage | null | undefined,
+  lead: { von: string | null; nach: string | null }
+): { beladen: boolean; entladen: boolean; ausChat: boolean } {
+  const fehlt = fehlendeAdressen(anfrage);
+  const chatVon = !fehlt.beladen && !lead.von;
+  const chatNach = !fehlt.entladen && brauchtEntladeadresse(anfrage) && !lead.nach && adresseFuerRoute((anfrage ?? {}).nach_adresse) !== null;
+  return { beladen: fehlt.beladen || chatVon, entladen: fehlt.entladen || chatNach, ausChat: (chatVon || chatNach) && !fehlt.beladen && !fehlt.entladen };
+}
+
 export interface AdressInfo {
   /** Text, mit dem gerechnet wurde, oder null */
   text: string | null;

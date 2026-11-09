@@ -10,13 +10,28 @@
 import type { ChatAdressen } from "./kalkulation-p15";
 
 /** Fünfstellige PLZ, nicht Teil einer längeren Zahl, nicht von Betrag oder Maß gefolgt. */
-const PLZ = /(?<![\d.,])(\d{5})(?![\d.,]?\d)(?!\s*(?:€|eur\b|euro\b|m²|m2\b|qm\b|kg\b|km\b|cm\b|m³|cbm\b|stück\b|stk\b))/giu;
+const PLZ = /(?<![\d.,/+])(\d{5})(?![\d.,]?\d)(?!\s*(?:€|eur\b|euro\b|m²|m2\b|qm\b|kg\b|km\b|cm\b|m³|cbm\b|stück\b|stk\b))/giu;
 
 /** Wörter, die nach einer PLZ keinen Ort mehr einleiten. */
 const KEIN_ORT = new Set([
   "nach", "und", "in", "im", "von", "bis", "oder", "zum", "zur", "ins", "aus", "ab", "mit", "ohne", "am", "um", "auf", "bei",
   "ist", "sind", "wir", "ich", "es", "das", "die", "der", "den", "dem", "ein", "eine", "einen", "also", "bitte", "danke",
+  // Plan 15, Review I1: keine Orte, sondern Signatur- und Hinweiswörter
+  "tel", "telefon", "fax", "mobil", "handy", "nr", "nummer", "kunden", "kundennummer", "rechnung", "rechnungsnummer", "iban",
+  "bic", "konto", "auszug", "einzug", "abholung", "umzug", "wohnung", "ziel", "beladen", "entladen", "ca", "etwa", "km", "uhr",
 ]);
+
+/** Davor steht eine Nummer, keine Adresse (Telefon, Fax, Kunden-, Rechnungsnummer, IBAN, +49, „/“). */
+const KEINE_ADRESSE_DAVOR = /(tel\.?|telefon|fax|mobil|handy|nr\.?|nummer|kunden\w*|rechnung\w*|auftrag\w*|iban|bic|konto\w*|\+49|\/)\s*[:.]?\s*$/i;
+
+/** Ab hier beginnt eine Signatur (Grußformel, „--“): der Rest der Nachricht zählt nicht. */
+const SIGNATUR = /^\s*(--\s*$|mit freundlichen|freundliche gr|viele gr|liebe gr|beste gr|herzliche gr|sch(ö|oe)ne gr|gr(ü|ue)(ß|ss)e\b|gru(ß|ss)\b|lg\b|vg\b|mfg\b|gesendet von)/i;
+
+function ohneSignatur(text: string): string {
+  const zeilen = text.split(/\r?\n/);
+  const ende = zeilen.findIndex((z) => SIGNATUR.test(z));
+  return (ende === -1 ? zeilen : zeilen.slice(0, ende)).join("\n");
+}
 
 /** PLZ gültig: 01001 bis 99998 (00xxx gibt es nicht). */
 function plzGueltig(plz: string): boolean {
@@ -49,12 +64,19 @@ interface Fund {
   index: number;
 }
 
-function plzFunde(text: string): Fund[] {
+/**
+ * PLZ-Funde. `mitOrt`: nur „PLZ Ortsname“ zählt (Erkennung in Nachrichten);
+ * ohne bleibt auch eine PLZ allein (strukturierte KI-Angabe). Nie nach Tel, Fax,
+ * Mobil, Nr, Kundennummer, IBAN, +49 oder „/“.
+ */
+function plzFunde(text: string, mitOrt: boolean): Fund[] {
   const funde: Fund[] = [];
   for (const m of text.matchAll(PLZ)) {
     const plz = m[1];
     if (!plzGueltig(plz) || m.index === undefined) continue;
+    if (KEINE_ADRESSE_DAVOR.test(text.slice(Math.max(0, m.index - 24), m.index))) continue;
     const ort = ortNach(text.slice(m.index + plz.length, m.index + plz.length + 60));
+    if (mitOrt && !ort) continue;
     funde.push({ plz, text: ort ? `${plz} ${ort}` : plz, index: m.index });
   }
   return funde;
@@ -66,7 +88,7 @@ function plzFunde(text: string): Fund[] {
  */
 export function plzOrtAus(text: string | null | undefined): string | null {
   if (typeof text !== "string" || text.trim() === "") return null;
-  return plzFunde(text)[0]?.text ?? null;
+  return plzFunde(text, false)[0]?.text ?? null;
 }
 
 const VON_HINWEIS = /\b(von|aus|ab|abhol\w*|auszug\w*|beladen\w*|beladeadresse|jetzige\w*|aktuelle\w*|alte\w*|derzeit\w*|wohne\w*|momentan)\b[^.\n]{0,40}$/i;
@@ -85,18 +107,21 @@ function seiteVor(text: string, fund: Fund, vorher: Fund | null): "von" | "nach"
 }
 
 /**
- * Erkennung in den eingehenden Kundennachrichten (älteste zuerst). Je Nachricht:
- * Hinweiswörter vor einer PLZ („von … nach …“, „Abholung“, „neue Wohnung“), sonst
- * bei genau zwei PLZ die erste als Beladen, die zweite als Entladen. Spätere
- * Nachrichten gewinnen (der Kunde korrigiert sich). Eine einzelne PLZ ohne
- * Hinweis zählt nicht.
+ * Erkennung in den eingehenden Kundennachrichten (älteste zuerst). Es zählen nur
+ * „PLZ Ortsname“, keine Nummern aus Signaturen (die Signatur wird abgeschnitten).
+ * Mit Hinweiswort davor („von … nach …“, „Abholung“, „neue Wohnung“, „ziehe nach“)
+ * ist die Seite klar, und eine spätere Nachricht ersetzt eine frühere Angabe.
+ * Ohne Hinweiswort zählen nur genau zwei verschiedene Funde einer Nachricht (erste =
+ * Beladen, zweite = Entladen), und sie füllen nur leere Seiten. Eine einzelne
+ * Angabe ohne Hinweis zählt nie.
  */
 export function adressenAusNachrichten(texte: readonly string[]): { von: string | null; nach: string | null } {
   let von: string | null = null;
   let nach: string | null = null;
-  for (const text of texte) {
-    if (typeof text !== "string" || text.trim() === "") continue;
-    const funde = plzFunde(text);
+  for (const roh of texte) {
+    if (typeof roh !== "string" || roh.trim() === "") continue;
+    const text = ohneSignatur(roh);
+    const funde = plzFunde(text, true);
     if (funde.length === 0) continue;
     let v: string | null = null;
     let n: string | null = null;
@@ -107,17 +132,18 @@ export function adressenAusNachrichten(texte: readonly string[]): { von: string 
       else if (seite === "nach" && n === null) n = f.text;
       else if (seite === null) ohneSeite.push(f);
     });
-    // Zwei PLZ ohne Hinweis: Reihenfolge wie im Satz („70372 und 71032“).
-    if (v === null && n === null && ohneSeite.length === 2 && ohneSeite[0].plz !== ohneSeite[1].plz) {
-      v = ohneSeite[0].text;
-      n = ohneSeite[1].text;
-    } else if (v !== null && n === null && ohneSeite.length === 1 && ohneSeite[0].text !== v) {
-      n = ohneSeite[0].text;
-    } else if (n !== null && v === null && ohneSeite.length === 1 && ohneSeite[0].text !== n) {
-      v = ohneSeite[0].text;
-    }
+    // Mit Hinweiswort: klare Angabe, sie ersetzt frühere.
     if (v !== null) von = v;
     if (n !== null) nach = n;
+    // Ohne Hinweiswort: nur leere Seiten füllen.
+    if (v === null && n === null && ohneSeite.length === 2 && ohneSeite[0].plz !== ohneSeite[1].plz) {
+      if (von === null) von = ohneSeite[0].text;
+      if (nach === null) nach = ohneSeite[1].text;
+    } else if (ohneSeite.length === 1) {
+      const t = ohneSeite[0].text;
+      if (v !== null && n === null && nach === null && t !== v) nach = t;
+      else if (n !== null && v === null && von === null && t !== n) von = t;
+    }
   }
   return { von, nach };
 }
@@ -149,8 +175,8 @@ export function hatChatAdresse(c: ChatAdressen | null | undefined): boolean {
   return !!c && (c.von !== null || c.nach !== null);
 }
 
-/** „10 bis 15 Kartons“, „ca. 20 Umzugskartons“, „15-20 Kisten“: Zahl bzw. Spanne vor dem Wort. */
-const KARTONS = /(?<![\d.,])(\d{1,3})(?:\s*(?:bis|-|–|oder)\s*(\d{1,3}))?\s*(?:umzugs|bücher|buecher)?(?:kartons?|kisten|boxen|umzugskisten)\b/giu;
+/** „10 bis 15 Kartons“, „ca. 20 Umzugskartons“: Zahl bzw. Spanne vor dem Wort; Kisten und Boxen zählen nicht (Review I1). */
+const KARTONS = /(?<![\d.,])(\d{1,3})(?:\s*(?:bis|-|–|oder)\s*(\d{1,3}))?\s*(?:umzugs|bücher|buecher)?kartons?\b/giu;
 
 /**
  * Plan 15, Bauteil 13: Kartonzahl aus eingehenden Kundennachrichten. Bei einer
@@ -161,7 +187,7 @@ export function kartonsAusNachrichten(texte: readonly string[]): number | null {
   let anzahl: number | null = null;
   for (const text of texte) {
     if (typeof text !== "string") continue;
-    for (const m of text.matchAll(KARTONS)) {
+    for (const m of ohneSignatur(text).matchAll(KARTONS)) {
       const a = Number(m[1]);
       const b = m[2] ? Number(m[2]) : null;
       const n = b !== null ? Math.max(a, b) : a;

@@ -53,6 +53,7 @@ import {
   annahmenKasten,
   fahrtAnsicht,
   fahrtUnterzeilen,
+  adressenZumSperren,
   fehlendeAdressen,
   positionenOhneKatalog,
   teamGrund,
@@ -212,8 +213,8 @@ export interface KalkulationsAnsicht {
     /** Plan 5b: Sperren macht aus dem Stunden-KV der Quotation einen Festpreis; die Seite fragt nach (`modusWechselBestaetigt`). */
     modusWechsel?: boolean;
     renderer: "crm" | "vps";
-    /** Plan 15 (Bauteil 5): fehlende Adressen der gerechneten Anfrage (Chat-Angaben zählen als vorhanden). */
-    adresseFehlt: { beladen: boolean; entladen: boolean };
+    /** Plan 15 (Bauteil 5, Review I1): fehlende oder nur aus dem Chat stammende Adressen; `ausChat` = nur unbestätigt, nichts fehlt. */
+    adresseFehlt: { beladen: boolean; entladen: boolean; ausChat?: boolean };
   };
   grundlage: GrundlageAnsicht;
   /** Plan 15 (Bauteil 15): „Pakete anbieten“ je Deal; null, wenn der Server ihn nicht geladen hat. */
@@ -1619,7 +1620,12 @@ export function ansichtAus(v: VersionsZeile, rest: AnsichtRest): KalkulationsAns
       preisModus: stunden ? "stunden" : "fest",
       modusWechsel: !gesperrt && regel.pricingMode === "fest" && rest.angebot?.isVariable === true,
       renderer: rest.renderer ?? "crm",
-      adresseFehlt: fehlendeAdressen(v.rechnerRequest ?? null),
+      adresseFehlt: rest.adressen
+        ? adressenZumSperren(v.rechnerRequest ?? null, {
+            von: rest.adressen.beladen.quelle === "lead" ? rest.adressen.beladen.text : null,
+            nach: rest.adressen.entladen.quelle === "lead" ? rest.adressen.entladen.text : null,
+          })
+        : fehlendeAdressen(v.rechnerRequest ?? null),
     },
     grundlage,
     paketSchalter: rest.paketSchalter ?? null,

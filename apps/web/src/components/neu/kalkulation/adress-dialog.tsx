@@ -138,17 +138,23 @@ export function OhneAdresseDialog({
   onBestaetigen,
 }: {
   meldung: string;
-  fehlt: { beladen: boolean; entladen: boolean };
+  fehlt: { beladen: boolean; entladen: boolean; ausChat?: boolean };
   laeuft: boolean;
   portalZiel: HTMLElement | undefined;
   onAbbrechen: () => void;
   onBestaetigen: () => void;
 }) {
-  const was = fehlt.beladen && fehlt.entladen ? "Belade- und Entladeadresse fehlen" : fehlt.beladen ? "Die Beladeadresse fehlt" : "Die Entladeadresse fehlt";
+  const was = fehlt.ausChat
+    ? "Die Adresse ist aus dem Chat übernommen, nicht bestätigt"
+    : fehlt.beladen && fehlt.entladen
+      ? "Belade- und Entladeadresse fehlen"
+      : fehlt.beladen
+        ? "Die Beladeadresse fehlt"
+        : "Die Entladeadresse fehlt";
   return (
     <GlassDialog open onOpenChange={(offen) => !offen && !laeuft && onAbbrechen()}>
       <GlassDialogContent container={portalZiel} closeLabel="Schließen">
-        <GlassDialogTitle className="akte-dialog-titel">Preis ohne echte Fahrzeiten</GlassDialogTitle>
+        <GlassDialogTitle className="akte-dialog-titel">{fehlt.ausChat ? "Adresse aus dem Chat, unbestätigt" : "Preis ohne echte Fahrzeiten"}</GlassDialogTitle>
         <GlassDialogDescription className="akte-dialog-text">{was}. {meldung}</GlassDialogDescription>
         <div className="akte-dialog-knoepfe">
           <GlassButton type="button" variant="ghost" onClick={onAbbrechen} disabled={laeuft}>

@@ -77,6 +77,8 @@ export interface AnnahmenKasten {
 
 // ─── Bauteil 5: Sperren ohne Adresse ─────────────────────────────────────────
 
+export const ADRESSE_CHAT_TEXT =
+  "Die Adresse stammt aus dem Chat und ist unbestätigt. Bitte ins Lead übernehmen oder bestätigen, dass der Preis damit gilt.";
 export const ADRESSE_FEHLT_TEXT =
   "Ohne Belade- oder Entladeadresse rechnet der Rechner ohne echte Fahrzeiten. Bitte Adresse eintragen oder bestätigen, dass der Preis ohne echte Fahrzeiten gilt.";
 
