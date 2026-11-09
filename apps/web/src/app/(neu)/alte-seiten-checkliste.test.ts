@@ -24,6 +24,18 @@ describe("argumenteLesen", () => {
     }
   });
 
+  it("nimmt das Datum aus umleitung-seit.txt, wenn das Argument fehlt (Review M5)", () => {
+    const r = argumenteLesen([], "2026-12-01\n");
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.wert.umleitungSeit.toISOString().slice(0, 10)).toBe("2026-12-01");
+    const arg = argumenteLesen(["--umleitung-seit", "2026-12-05"], "2026-12-01");
+    expect(arg.ok && arg.wert.umleitungSeit.toISOString().slice(0, 10)).toBe("2026-12-05");
+    const kaputt = argumenteLesen([], "irgendwann");
+    expect(kaputt.ok).toBe(false);
+    if (!kaputt.ok) expect(kaputt.fehler).toContain("umleitung-seit.txt");
+    expect(argumenteLesen([], "   ").ok).toBe(false);
+  });
+
   it("lehnt ungültige Daten ab", () => {
     for (const roh of ["2026-02-31", "2026-13-01", "07.11.2026", "2026-11-09T00:00:00", "gestern", ""]) {
       const r = argumenteLesen(["--umleitung-seit", roh]);

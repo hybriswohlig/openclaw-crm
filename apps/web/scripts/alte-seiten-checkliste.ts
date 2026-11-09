@@ -1,7 +1,11 @@
 /**
  * Plan 14, Task L: darf die alte Oberfläche gelöscht werden?
  *
- *   npx tsx apps/web/scripts/alte-seiten-checkliste.ts --umleitung-seit YYYY-MM-DD [--entschieden /email,/tasks] [--inhaber-okay YYYY-MM-DD]
+ *   npx tsx apps/web/scripts/alte-seiten-checkliste.ts
+ *
+ * Das Einschaltdatum der Umleitung steht in .superpowers/meilenstein3/umleitung-seit.txt
+ * (schreibt umleitung-an.sh beim Einschalten). Optional: --umleitung-seit YYYY-MM-DD
+ * (gewinnt), --entschieden /email,/tasks, --inhaber-okay YYYY-MM-DD.
  *
  * Liest `activity_events` (`alte_seite.aufruf` der letzten 14 Tage, `quotation.put`)
  * und druckt `loeschenErlaubt` mit allen offenen Punkten. Exit 0 in beiden Fällen
@@ -43,6 +47,8 @@ import {
 
 const WEB = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const WURZEL = path.resolve(WEB, "../..");
+/** Einschaltdatum der Umleitung (Review M5), geschrieben von .superpowers/meilenstein3/umleitung-an.sh. */
+const UMLEITUNG_DATEI = path.join(WURZEL, ".superpowers", "meilenstein3", "umleitung-seit.txt");
 const TAG_MS = 24 * 60 * 60 * 1000;
 
 function ausEnvDateien(): string | null {
@@ -117,7 +123,8 @@ function tag(datum: Date): string {
 }
 
 async function main() {
-  const gelesen = argumenteLesen(process.argv.slice(2));
+  const ausDatei = existsSync(UMLEITUNG_DATEI) ? readFileSync(UMLEITUNG_DATEI, "utf8") : null;
+  const gelesen = argumenteLesen(process.argv.slice(2), ausDatei);
   if (!gelesen.ok) {
     console.error(gelesen.fehler);
     process.exit(1);

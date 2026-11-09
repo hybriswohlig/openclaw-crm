@@ -6,7 +6,7 @@ import { ZUORDNUNG, quotationStufe, umleitZiel } from "../src/lib/dunkel-abschal
 import { altUmleitung } from "../src/lib/handy-links";
 
 export const AUFRUF =
-  "Aufruf: npx tsx apps/web/scripts/alte-seiten-checkliste.ts --umleitung-seit YYYY-MM-DD [--entschieden /email,/tasks] [--inhaber-okay YYYY-MM-DD]";
+  "Aufruf: npx tsx apps/web/scripts/alte-seiten-checkliste.ts [--umleitung-seit YYYY-MM-DD] [--entschieden /email,/tasks] [--inhaber-okay YYYY-MM-DD]\nOhne --umleitung-seit gilt das Datum aus .superpowers/meilenstein3/umleitung-seit.txt (schreibt umleitung-an.sh).";
 
 /** Zeilen der Plan-Checkliste, die das Skript nicht aus der Datenbank belegen kann. */
 export const VON_HAND = [
@@ -33,8 +33,14 @@ export function datumLesen(roh: string | undefined): Date | null {
   return dt;
 }
 
-/** `--umleitung-seit` ist Pflicht. Fehlertext beginnt mit der Aufrufzeile. */
-export function argumenteLesen(argv: string[]): { ok: true; wert: Argumente } | { ok: false; fehler: string } {
+/**
+ * `--umleitung-seit` oder ersatzweise `ausDatei` (Inhalt von umleitung-seit.txt, Review M5) ist
+ * Pflicht. Das Argument gewinnt. Fehlertext beginnt mit der Aufrufzeile.
+ */
+export function argumenteLesen(
+  argv: string[],
+  ausDatei: string | null = null
+): { ok: true; wert: Argumente } | { ok: false; fehler: string } {
   const fehler = (text: string) => ({ ok: false as const, fehler: `${AUFRUF}\n${text}` });
   let umleitung: string | undefined;
   let entschiedenRoh: string | undefined;
@@ -56,9 +62,18 @@ export function argumenteLesen(argv: string[]): { ok: true; wert: Argumente } | 
     else okayRoh = wert;
   }
 
-  if (umleitung === undefined) return fehler("--umleitung-seit fehlt (echtes Datum YYYY-MM-DD).");
-  const umleitungSeit = datumLesen(umleitung);
-  if (!umleitungSeit) return fehler("--umleitung-seit muss ein echtes Datum YYYY-MM-DD sein.");
+  const datei = ausDatei?.trim().split(/\s+/)[0] || undefined;
+  if (umleitung === undefined && datei === undefined) {
+    return fehler("--umleitung-seit fehlt (echtes Datum YYYY-MM-DD), und umleitung-seit.txt gibt es nicht.");
+  }
+  const umleitungSeit = datumLesen(umleitung ?? datei);
+  if (!umleitungSeit) {
+    return fehler(
+      umleitung === undefined
+        ? "umleitung-seit.txt enthält kein echtes Datum YYYY-MM-DD."
+        : "--umleitung-seit muss ein echtes Datum YYYY-MM-DD sein."
+    );
+  }
 
   const entschieden: string[] = [];
   if (entschiedenRoh !== undefined) {
