@@ -6,6 +6,8 @@ const mocks = vi.hoisted(() => ({
   returning: vi.fn(),
   sets: [] as Record<string, unknown>[],
   kick: vi.fn(),
+  event: vi.fn(),
+  vorher: [{ id: "item-1", name: "Gartensessel", quantity: 1, sizeClass: "mittel", volumeCbmEstimate: null, source: "foto", photoAttachmentId: "att_1" }] as unknown[],
 }));
 
 vi.mock("@/lib/api-utils", async (importOriginal) => {
@@ -15,6 +17,7 @@ vi.mock("@/lib/api-utils", async (importOriginal) => {
 
 vi.mock("@/db", () => ({
   db: {
+    select: () => ({ from: () => ({ where: () => ({ limit: async () => mocks.vorher }) }) }),
     update: () => ({
       set: (value: Record<string, unknown>) => {
         mocks.sets.push(value);
@@ -27,6 +30,8 @@ vi.mock("@/db", () => ({
 vi.mock("@/services/rechner/ausloeser", () => ({
   kalkulationAnstossen: (...args: unknown[]) => mocks.kick(...args),
 }));
+
+vi.mock("@/services/activity-events", () => ({ emitEvent: (...args: unknown[]) => mocks.event(...args) }));
 
 import { PATCH } from "./route";
 
@@ -79,5 +84,26 @@ describe("PATCH inventory item", () => {
     expect(res.status).toBe(200);
     expect(mocks.sets[0]).toMatchObject({ assemblyOwner: "none", source: "operator" });
     expect(mocks.sets[0]).not.toHaveProperty("disassemblyRequired");
+  });
+});
+
+describe("PATCH inventory item, Plan 15 (Bauteil 14)", () => {
+  it("Name korrigiert: Ereignis mit Lernsignal aus dem Foto, Größe und m³ je Stück", async () => {
+    mocks.returning.mockResolvedValue([{ id: "item-1", name: "Gartengrill", quantity: 1, sizeClass: "gross", volumeCbmEstimate: "0.5", source: "operator", photoAttachmentId: "att_1" }]);
+    const res = await patch({ name: "Gartengrill", sizeClass: "gross", volumeCbmPerPiece: 0.5 });
+    expect(res.status).toBe(200);
+    expect(mocks.sets[0]).toMatchObject({ name: "Gartengrill", sizeClass: "gross", volumeCbmEstimate: "0.5", source: "operator" });
+    expect(mocks.event.mock.calls[0][0]).toMatchObject({
+      eventType: "inventar.korrigiert",
+      actorId: "usr_dario",
+      payload: { ausFoto: true, text: expect.stringContaining("Foto erkannt: Gartensessel, korrigiert: Gartengrill") },
+    });
+  });
+  it("Nur-Lese-Schlüssel 403", async () => {
+    mocks.getAuthContext.mockResolvedValue({ userId: "u", workspaceId: "ws", authMethod: "api_key", apiKeyAccess: "read" });
+    expect((await patch({ name: "x" })).status).toBe(403);
+  });
+  it("ungültige Größe 400", async () => {
+    expect((await patch({ sizeClass: "riesig" })).status).toBe(400);
   });
 });

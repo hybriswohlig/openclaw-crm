@@ -60,6 +60,7 @@ import {
   type FahrtAnsicht,
 } from "./kalkulation-annahmen";
 import type { AnnahmenKasten, PositionOhneKatalog } from "./kalkulation-p15";
+import { inventarListe, type InventarListe } from "./kalkulation-inventar";
 
 export type GrundlageFeldTyp = "zahl" | "ganzzahl" | "aufzug" | "ja_nein" | "datum";
 
@@ -93,6 +94,8 @@ export interface GrundlageAnsicht {
   adressen: { beladen: string | null; entladen: string | null };
   /** Plan 15 (Bauteile 3, 14): Positionen ohne Katalogtreffer mit Korrektur dieser Version */
   positionenOhneKatalog: PositionOhneKatalog[];
+  /** Plan 15 (Bauteil 14): Inventarliste mit dem, was der Rechner je Teil angenommen hat */
+  inventar: InventarListe;
 }
 
 export interface SelbstkostenUnterzeile {
@@ -312,6 +315,9 @@ export interface StundenAnsicht {
 
 /** Die Felder einer Zeile aus `deal_inventory_items`, die die Ansicht liest. */
 export interface InventarZeile {
+  /** Plan 15: Zeilen-ID und Größenklasse für die Inventarliste */
+  id?: string;
+  sizeClass?: string | null;
   name: string;
   quantity: number;
   moveFlag: boolean;
@@ -357,6 +363,8 @@ export interface AnsichtRest {
   paketOptionen?: { catalogueSlug: string | null; isRecommended: boolean }[];
   /** Plan 5b: Hebel je Paket-Slug aus dem Katalog der Firma. */
   paketHebel?: Record<string, HebelArt[]>;
+  /** Plan 15: letzte Korrektur je Inventarzeile (Name, Zeit). */
+  inventarKorrekturen?: Record<string, { von: string; am: string }>;
   /** Plan 15: Herkunft der Adressen je Seite (Server). */
   adressen?: { beladen: AdressInfo; entladen: AdressInfo };
 }
@@ -820,6 +828,14 @@ function grundlageAnsicht(v: VersionsZeile, rest: AnsichtRest): GrundlageAnsicht
     zeilen,
     adressen: { beladen: text(anfrage.von_adresse), entladen: text(anfrage.nach_adresse) },
     positionenOhneKatalog: positionenOhneKatalog(e ?? null, v.overrides ?? [], (u) => autorName(u.autor, rest.namen), zeitpunktText),
+    inventar: inventarListe(rest.inventar, e ?? null, {
+      korrekturen: rest.inventarKorrekturen,
+      mehraufwand: Object.fromEntries(
+        wirksameUebersteuerungen(v.overrides ?? [])
+          .filter((u) => u.art === "zeitposten" && u.key.startsWith("teil.") && u.wert && typeof u.wert === "object")
+          .map((u) => [u.key.slice("teil.".length), (u.wert as { minuten?: number }).minuten ?? 0])
+      ),
+    }),
   };
 }
 

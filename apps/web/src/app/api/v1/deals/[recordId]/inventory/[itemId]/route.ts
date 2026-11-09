@@ -1,10 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthContext, unauthorized, notFound, success } from "@/lib/api-utils";
+import { forbidden, getAuthContext, isReadOnlyApiKey, unauthorized, notFound, success } from "@/lib/api-utils";
 import { db } from "@/db";
 import { dealInventoryItems } from "@/db/schema/inventory";
 import { and, eq } from "drizzle-orm";
 import { kalkulationAnstossen } from "@/services/rechner/ausloeser";
 import { parseInventoryOwnerPatch } from "@/services/inventory-owner";
+import { emitEvent } from "@/services/activity-events";
+import { INVENTAR_KORRIGIERT_EVENT, korrekturPayload, pruefeGroesseVolumen } from "@/lib/inventar-korrektur";
+
+const zeileWo = (itemId: string, recordId: string, ws: string) =>
+  and(eq(dealInventoryItems.id, itemId), eq(dealInventoryItems.dealRecordId, recordId), eq(dealInventoryItems.workspaceId, ws));
 
 /**
  * Operator-Korrekturen an einzelnen Inventar-Zeilen. Jede Änderung stempelt
@@ -17,9 +22,13 @@ export async function PATCH(
 ) {
   const ctx = await getAuthContext(req);
   if (!ctx) return unauthorized(req);
+  if (isReadOnlyApiKey(ctx)) return forbidden("Nur-Lese-Schlüssel darf das Inventar nicht ändern.");
 
   const { recordId, itemId } = await params;
   const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+  // Plan 15 (Bauteil 14): Stand vorher für die Korrektur (Herkunft und Lernsignal).
+  const [vorher] = await db.select().from(dealInventoryItems).where(zeileWo(itemId, recordId, ctx.workspaceId)).limit(1);
+  if (!vorher) return notFound("Inventar-Zeile nicht gefunden");
   const owners = parseInventoryOwnerPatch(body);
   if (!owners.ok) {
     return NextResponse.json({ error: owners.error }, { status: 400 });
@@ -32,6 +41,10 @@ export async function PATCH(
     updates.quantity = body.quantity;
   }
   if (typeof body.name === "string" && body.name.trim()) updates.name = body.name.trim();
+  // Plan 15: Größe und m³ je Stück (Zeile = je Stück × Menge), wenn es keinen Katalogtreffer gibt.
+  const gv = pruefeGroesseVolumen(body, typeof updates.quantity === "number" ? updates.quantity : vorher.quantity);
+  if (!gv.ok) return NextResponse.json({ error: gv.fehler }, { status: 400 });
+  Object.assign(updates, gv.patch);
   if (owners.patch.dismantlingOwner) {
     updates.dismantlingOwner = owners.patch.dismantlingOwner;
   }
@@ -58,6 +71,14 @@ export async function PATCH(
     )
     .returning();
   if (!row) return notFound("Inventar-Zeile nicht gefunden");
+  await emitEvent({
+    workspaceId: ctx.workspaceId,
+    recordId,
+    objectSlug: "deals",
+    eventType: INVENTAR_KORRIGIERT_EVENT,
+    payload: { ...korrekturPayload(itemId, vorher, row) },
+    actorId: ctx.userId ?? null,
+  });
   kalkulationAnstossen(ctx.workspaceId, recordId);
   return success(row);
 }
@@ -68,8 +89,10 @@ export async function DELETE(
 ) {
   const ctx = await getAuthContext(req);
   if (!ctx) return unauthorized(req);
+  if (isReadOnlyApiKey(ctx)) return forbidden("Nur-Lese-Schlüssel darf das Inventar nicht ändern.");
 
   const { recordId, itemId } = await params;
+  const [vorher] = await db.select().from(dealInventoryItems).where(zeileWo(itemId, recordId, ctx.workspaceId)).limit(1);
   const [row] = await db
     .delete(dealInventoryItems)
     .where(
@@ -81,6 +104,16 @@ export async function DELETE(
     )
     .returning({ id: dealInventoryItems.id });
   if (!row) return notFound("Inventar-Zeile nicht gefunden");
+  if (vorher) {
+    await emitEvent({
+      workspaceId: ctx.workspaceId,
+      recordId,
+      objectSlug: "deals",
+      eventType: INVENTAR_KORRIGIERT_EVENT,
+      payload: { ...korrekturPayload(itemId, vorher, null) },
+      actorId: ctx.userId ?? null,
+    });
+  }
   kalkulationAnstossen(ctx.workspaceId, recordId);
   return success({ deleted: row.id });
 }

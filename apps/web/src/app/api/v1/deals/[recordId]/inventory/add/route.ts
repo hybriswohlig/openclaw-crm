@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthContext, unauthorized, success } from "@/lib/api-utils";
+import { forbidden, getAuthContext, isReadOnlyApiKey, unauthorized, success } from "@/lib/api-utils";
+import { emitEvent } from "@/services/activity-events";
+import { INVENTAR_KORRIGIERT_EVENT, korrekturPayload } from "@/lib/inventar-korrektur";
 import { db } from "@/db";
 import { dealInventoryItems } from "@/db/schema/inventory";
 import { and, eq, sql } from "drizzle-orm";
@@ -16,6 +18,7 @@ export async function POST(
 ) {
   const ctx = await getAuthContext(req);
   if (!ctx) return unauthorized(req);
+  if (isReadOnlyApiKey(ctx)) return forbidden("Nur-Lese-Schlüssel darf das Inventar nicht ändern.");
 
   const { recordId } = await params;
   const body = (await req.json().catch(() => ({}))) as {
@@ -65,6 +68,14 @@ export async function POST(
       sortOrder: Number(maxSort) + 1,
     })
     .returning();
+  await emitEvent({
+    workspaceId: ctx.workspaceId,
+    recordId,
+    objectSlug: "deals",
+    eventType: INVENTAR_KORRIGIERT_EVENT,
+    payload: { ...korrekturPayload(row.id, null, row) },
+    actorId: ctx.userId ?? null,
+  });
   kalkulationAnstossen(ctx.workspaceId, recordId);
   return success(row);
 }

@@ -11,6 +11,7 @@ import { ortAus, streckeAus } from "@/lib/akte";
 import type { KvErzeugung, RenderJob } from "@/lib/angebot-wahl";
 import {
   ansichtAus,
+  zeitpunktText,
   type InboxAnhangZeile,
   type InventarZeile,
   type KalkulationsAnsicht,
@@ -56,6 +57,8 @@ export interface AnsichtOptionen {
   jetzt?: () => Date;
   /** Plan 15: letzte von der Kalkulation ins Lead geschriebene Adresse je Seite */
   ladeAdressGesetzt?: (ws: string, deal: string) => Promise<Partial<Record<"beladen" | "entladen", { adresse: string; userId: string | null; am: string }>>>;
+  /** Plan 15: letzte Korrektur je Inventarzeile */
+  ladeInventarKorrekturen?: (ws: string, deal: string) => Promise<Record<string, { userId: string | null; am: string }>>;
 }
 
 /**
@@ -149,6 +152,7 @@ async function abhaengigkeiten(o: AnsichtOptionen): Promise<Required<AnsichtOpti
       o.ladePaketOptionen ?? (async (deal) => (await import("./kalkulation-versionen-speicher")).ladePaketOptionen(deal)),
     jetzt: o.jetzt ?? (() => new Date()),
     ladeAdressGesetzt: o.ladeAdressGesetzt ?? (o.speicher ? async () => ({}) : (await db()).ladeAdressGesetzt),
+    ladeInventarKorrekturen: o.ladeInventarKorrekturen ?? (o.speicher ? async () => ({}) : (await db()).ladeInventarKorrekturen),
   };
 }
 
@@ -200,6 +204,9 @@ export async function ladeKalkulationsAnsicht(
     d.ladeEinsatz(ws, deal),
     d.ladeAdressGesetzt(ws, deal).catch(() => ({})),
   ]);
+  const inventarKorrekturen: Record<string, { userId: string | null; am: string }> = await d
+    .ladeInventarKorrekturen(ws, deal)
+    .catch(() => ({}));
   // Mit Schalter zählen die Paketoptionen selbst (Slug, Empfehlung); ohne wie vorher.
   const paketOptionen = schalter.angebotAusKalkulation ? await d.ladePaketOptionen(deal) : [];
   const hatPakete = schalter.angebotAusKalkulation ? paketOptionen.length > 0 : await d.hatPakete(deal);
@@ -210,6 +217,7 @@ export async function ladeKalkulationsAnsicht(
   const nutzer = new Set<string>();
   for (const u of v.overrides ?? []) if (u.autor.userId) nutzer.add(u.autor.userId);
   for (const g of Object.values(gesetzt)) if (g?.userId) nutzer.add(g.userId);
+  for (const k of Object.values(inventarKorrekturen)) if (k.userId) nutzer.add(k.userId);
   if (v.lockedBy) nutzer.add(v.lockedBy);
   if (v.createdBy) nutzer.add(v.createdBy);
 
@@ -220,7 +228,7 @@ export async function ladeKalkulationsAnsicht(
     d.ladeKopf(ws, deal),
     d.ladeAngebot(deal),
     v.status === "gesperrt" ? d.ladeKvDokument(ws, deal, v.id) : Promise.resolve(null),
-    nutzer.size > 0 ? d.ladeNamen([...nutzer]) : Promise.resolve({}),
+    nutzer.size > 0 ? d.ladeNamen([...nutzer]) : Promise.resolve({} as Record<string, string>),
     hatPakete ? d.ladePaketNamen(ws, deal) : Promise.resolve({}),
     d.istKottke(ws, deal),
   ]);
@@ -268,5 +276,11 @@ export async function ladeKalkulationsAnsicht(
     paketOptionen: paketOptionen.map((o) => ({ catalogueSlug: o.catalogueSlug, isRecommended: o.isRecommended })),
     paketHebel: paketHebel ?? {},
     adressen: adressInfos(v, lead, gesetzt, namen),
+    inventarKorrekturen: Object.fromEntries(
+      Object.entries(inventarKorrekturen).map(([id, k]) => [
+        id,
+        { von: (k.userId && namen[k.userId]?.split(" ")[0]) || "von Hand", am: zeitpunktText(k.am) },
+      ])
+    ),
   });
 }

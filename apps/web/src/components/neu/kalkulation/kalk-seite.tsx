@@ -12,6 +12,7 @@ import type { NeueUebersteuerungsArt } from "@/lib/angebot-wahl";
 import type { UebersteuerungsArt } from "@/lib/kalkulation-versionen";
 import { apiAufruf, jsonAufruf, type ApiAntwort } from "@/components/neu/akte/api";
 import { TerminDialogEmpfaenger } from "@/components/neu/termin/termin-dialog";
+import { AnnahmenKasten } from "./annahmen-kasten";
 import { GrundlageSpalte } from "./grundlage-spalte";
 import { KalkKopf } from "./kalk-kopf";
 import { DOKUMENT_ABGELEGT_EVENT, eventBetrifftDeal, KV_NACHLADEN_MS } from "./kv-erzeugung";
@@ -316,6 +317,7 @@ export function KalkSeite({ dealId }: { dealId: string }) {
         onNeueVersion={() => void neueVersion()}
       />
       <Hinweisband version={ansicht.version} laeuft={laeuft} onNeuRechnen={() => void neuRechnen()} />
+      <AnnahmenKasten kasten={ansicht.annahmen} />
       <div className="kalk-spalten">
         <div className="kalk-spalte">
           <GrundlageSpalte grundlage={ansicht.grundlage} kontext={kontext} />

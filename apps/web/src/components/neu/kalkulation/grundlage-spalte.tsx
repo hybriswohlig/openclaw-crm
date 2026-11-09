@@ -2,11 +2,14 @@
 
 import "@/styles/neu-kalk-grundlage.css";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { GlassPanel } from "@/components/glassyui/glass-panel";
 import { usePortalZiel } from "@/components/neu/portal-ziel";
 import type { GrundlageAnsicht, GrundlageAnsichtZeile } from "@/lib/kalkulations-ansicht";
+import { AdressDialog, AdressZeile } from "./adress-dialog";
+import { INVENTAR_OEFFNEN_EVENT } from "./annahmen-kasten";
 import { EingabeDialog } from "./eingabe-dialog";
+import { InventarDialog } from "./inventar-dialog";
 import { FotoDialog, trefferText, type Foto } from "./foto-dialog";
 import { GrundlageZeile } from "./grundlage-zeile";
 import type { KalkKontext } from "./kalk-seite";
@@ -17,7 +20,11 @@ import { StreetViewKasten, type StreetViewDaten, type StreetViewSeite } from "./
 const FOTOS_MAX = 14;
 
 /** Der Eingabe-Dialog merkt sich nur den Schlüssel: nach einem Neuladen zeigt er die frische Zeile (M5). */
-type Dialog = { art: "eingabe"; key: string } | { art: "foto"; foto: Foto; nummer: number };
+type Dialog =
+  | { art: "eingabe"; key: string }
+  | { art: "foto"; foto: Foto; nummer: number }
+  | { art: "inventar" }
+  | { art: "adresse"; seite: StreetViewSeite; wie: "uebernehmen" | "aendern" };
 
 /**
  * Linke Spalte „Grundlage“: Fotostreifen (7 Spalten, violette Treffermarken,
@@ -41,6 +48,20 @@ export function GrundlageSpalte({
   const weitere = grundlage.fotosGesamt - fotos.length;
   const eingabeZeile: GrundlageAnsichtZeile | null =
     dialog?.art === "eingabe" ? (grundlage.zeilen.find((z) => z.key === dialog.key) ?? null) : null;
+
+  // Plan 15: der Kasten „Damit hat der Rechner gerechnet“ öffnet die Inventarliste.
+  useEffect(() => {
+    const oeffnen = () => setDialog({ art: "inventar" });
+    window.addEventListener(INVENTAR_OEFFNEN_EVENT, oeffnen);
+    return () => window.removeEventListener(INVENTAR_OEFFNEN_EVENT, oeffnen);
+  }, []);
+
+  const adresse = (seite: StreetViewSeite) => {
+    const z = grundlage.zeilen.find((x) => x.key === seite);
+    return z?.adresse ? (
+      <AdressZeile seite={seite} info={z.adresse} beschaeftigt={beschaeftigt} onOeffnen={(wie) => setDialog({ art: "adresse", seite, wie })} />
+    ) : null;
+  };
 
   const streetView = (seite: StreetViewSeite) =>
     grundlage.adressen[seite] ? (
@@ -98,8 +119,24 @@ export function GrundlageSpalte({
 
       <div className="kalk-liste">
         {grundlage.zeilen.map((z) => (
-          <GrundlageZeile key={z.key} zeile={z} beschaeftigt={beschaeftigt} onBearbeiten={z.felder.length > 0 ? (zeile) => setDialog({ art: "eingabe", key: zeile.key }) : undefined}>
-            {z.key === "beladen" ? streetView("beladen") : z.key === "entladen" ? streetView("entladen") : null}
+          <GrundlageZeile
+            key={z.key}
+            zeile={z}
+            beschaeftigt={beschaeftigt}
+            onBearbeiten={
+              z.key === "volumen"
+                ? () => setDialog({ art: "inventar" })
+                : z.felder.length > 0
+                  ? (zeile) => setDialog({ art: "eingabe", key: zeile.key })
+                  : undefined
+            }
+          >
+            {z.key === "beladen" || z.key === "entladen" ? (
+              <>
+                {adresse(z.key)}
+                {streetView(z.key)}
+              </>
+            ) : null}
           </GrundlageZeile>
         ))}
       </div>
@@ -108,6 +145,25 @@ export function GrundlageSpalte({
 
       {eingabeZeile ? (
         <EingabeDialog key={`${kontext.versionNr}-${eingabeZeile.key}`} zeile={eingabeZeile} kontext={kontext} portalZiel={portalZiel} onSchliessen={() => setDialog(null)} />
+      ) : null}
+      {dialog?.art === "inventar" ? (
+        <InventarDialog
+          liste={grundlage.inventar}
+          kontext={kontext}
+          portalZiel={portalZiel}
+          onSchliessen={() => setDialog(null)}
+          onVolumen={() => setDialog({ art: "eingabe", key: "volumen" })}
+        />
+      ) : null}
+      {dialog?.art === "adresse" ? (
+        <AdressDialog
+          seite={dialog.seite}
+          info={grundlage.zeilen.find((x) => x.key === dialog.seite)?.adresse ?? { text: null, quelle: "fehlt", genau: false }}
+          art={dialog.wie}
+          kontext={kontext}
+          portalZiel={portalZiel}
+          onSchliessen={() => setDialog(null)}
+        />
       ) : null}
       {dialog?.art === "foto" ? (
         <FotoDialog foto={dialog.foto} nummer={dialog.nummer} gesamt={grundlage.fotosGesamt} portalZiel={portalZiel} onSchliessen={() => setDialog(null)} />

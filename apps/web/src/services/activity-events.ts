@@ -19,6 +19,8 @@ export type ActivityEventType =
   | "ai.insights_extracted"
   /** Plan 15: Adresse aus der Kalkulation ins Lead geschrieben */
   | "kalkulation.adresse_gesetzt"
+  /** Plan 15: Inventarzeile von Hand korrigiert (Herkunft und Lernsignal der Fotoerkennung) */
+  | "inventar.korrigiert"
   | "ai.field_enrichment"
   | "ai.inventory_extracted"
   | "ai.inventory_extract_attempt"

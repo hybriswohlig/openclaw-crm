@@ -95,3 +95,20 @@ export async function ladeAdressGesetzt(
   }
   return aus;
 }
+
+/** Plan 15 (Bauteil 14): letzte Korrektur je Inventarzeile (Ereignis `inventar.korrigiert`), mit Autor und Zeit. */
+export async function ladeInventarKorrekturen(ws: string, deal: string): Promise<Record<string, { userId: string | null; am: string }>> {
+  const { activityEvents } = await import("@/db/schema");
+  const rows = await db
+    .select({ payload: activityEvents.payload, actorId: activityEvents.actorId, createdAt: activityEvents.createdAt })
+    .from(activityEvents)
+    .where(and(eq(activityEvents.workspaceId, ws), eq(activityEvents.recordId, deal), eq(activityEvents.eventType, "inventar.korrigiert")))
+    .orderBy(desc(activityEvents.createdAt))
+    .limit(300);
+  const aus: Record<string, { userId: string | null; am: string }> = {};
+  for (const r of rows) {
+    const id = (r.payload as { itemId?: unknown }).itemId;
+    if (typeof id === "string" && !aus[id]) aus[id] = { userId: r.actorId ?? null, am: r.createdAt.toISOString() };
+  }
+  return aus;
+}

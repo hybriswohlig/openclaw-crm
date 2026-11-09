@@ -101,6 +101,17 @@ export interface RechnerErgebnis {
   stunden?: RechnerStunden | null;
   /** `quelle` (neuer Rechner): warum das Team so groß ist (Staffel, Träger, Fahrer, Vorgabe, Arbeitstag). */
   team?: { groesse: number; quelle?: "staffel" | "traeger" | "fahrer" | "vorgabe" | "arbeitstag" };
+  /** Plan 15: Katalog- und Zeitwerte je Position (neuer Rechner, immer; `positionId` wie in `positionen`). */
+  positionenDetails?: Array<{
+    positionId: string;
+    katalogKey: string | null;
+    katalogTreffer: boolean;
+    groessenklasse: "klein" | "mittel" | "gross" | "sperrig";
+    mindestTraeger: number;
+    trageMin: number;
+    demontageMin: number | null;
+    montageMin: number | null;
+  }>;
   /** Plan 15: Fahrt der Empfehlung je Strecke (neuer Rechner, immer). */
   fahrtAufschluesselung?: FahrtAufschluesselung | null;
   /** Plan 15: Echo von `umzugskartons` (neuer Rechner). */
@@ -126,7 +137,8 @@ export interface RechnerErgebnis {
     name: string; menge: number; volumenCbm: number; zerlegt?: boolean;
     demontageQuelle?: "wunsch" | "nein" | "regel" | "keine_regel" | "nicht_zerlegbar";
     ungeprueft?: boolean;
-    /** Plan 15: die übrigen Felder der aufgelösten Position (der Rechner schickt sie schon). */
+    /** Plan 15: Felder einer aufgelösten Position (Katalog, Größe, Träger: aus `positionenDetails`). */
+    positionId?: string;
     id?: string;
     katalogTreffer?: boolean;
     groessenklasse?: "klein" | "mittel" | "gross" | "sperrig";
