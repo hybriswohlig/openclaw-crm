@@ -333,6 +333,42 @@ test.describe("Prüfraster", () => {
     }
   }
 
+  // Plan 12c: Karten-Ansicht im Einsatz-Dialog (Filter, Pins, Namensliste, Leiste ohne Wohnort) in beiden Themes.
+  for (const breite of PRUEFRASTER_BREITEN) {
+    for (const theme of themes) {
+      test(`einsatz-karte ${breite} ${theme}`, async ({ browser }, testInfo) => {
+        await seitePruefen({
+          browser,
+          testInfo,
+          pfad: `/app/leads/${kennungen.deal}`,
+          datei: `einsatz-karte-${breite}-${theme}.png`,
+          breite,
+          theme,
+          oeffnen: async (page) => {
+            await page.evaluate(() => {
+              try {
+                localStorage.setItem("neu.einsatz.ansicht", "karte");
+              } catch {
+                /* egal */
+              }
+            });
+            await page.getByRole("button", { name: "Einsatz planen, Team zuweisen" }).click({ timeout: 60_000 });
+            await page.locator(".ezk").waitFor({ state: "visible", timeout: 30_000 });
+            await page.locator(".ezk-filter").waitFor({ state: "visible", timeout: 30_000 });
+            // Namensliste eines Pins öffnen, wenn die Karte Pins zeigt (headless oft ohne WebGL).
+            const pin = page.locator(".ezk-pin").first();
+            if (await pin.isVisible().catch(() => false)) await pin.click();
+            else {
+              const ohne = page.locator(".ezk-ohne-person").first();
+              if (await ohne.isVisible().catch(() => false)) await ohne.click();
+            }
+            await page.waitForTimeout(1500);
+          },
+        });
+      });
+    }
+  }
+
   if (themes.includes("dunkel")) {
     test("akte reduce dunkel", async ({ browser }, testInfo) => {
       await seitePruefen({
