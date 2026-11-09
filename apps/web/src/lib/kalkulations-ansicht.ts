@@ -589,7 +589,9 @@ function grundlageKontext(v: VersionsZeile, namen: Record<string, string>): Grun
   const eingaben = new Map<string, Uebersteuerung>();
   for (const u of wirksameUebersteuerungen(v.overrides ?? [])) {
     // Altschlüssel `kartons` (bis Plan 15 Einpackservice) gilt als Umzugskartons.
-    if (u.art === "eingabe" && typeof u.wert !== "object") eingaben.set(eingabeSchluessel(u.key), u);
+    // Review M4: in gesperrten Versionen war `kartons` der Einpackservice (so wurde gerechnet).
+    const key = v.status === "gesperrt" && u.key === "kartons" ? "einpacken" : eingabeSchluessel(u.key);
+    if (u.art === "eingabe" && typeof u.wert !== "object") eingaben.set(key, u);
   }
   return {
     // Eine wirksame Übersteuerung gewinnt, auch wenn die letzte Rechnung sie noch nicht kennt.
