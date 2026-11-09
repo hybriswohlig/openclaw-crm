@@ -178,3 +178,14 @@ describe("Review M3 und M14", () => {
     expect(f.hinweis).toBeNull();
   });
 });
+
+describe("Review M11: Platzhalter sind keine Adresse", () => {
+  it("unbekannt, folgt, k.A. fehlen; Ort oder PLZ reichen", () => {
+    for (const t of ["unbekannt", "folgt", "k.A.", "kommt noch", "?", "stuttgart"]) {
+      expect(fehlendeAdressen({ von_adresse: t }).beladen, t).toBe(true);
+    }
+    expect(fehlendeAdressen({ von_adresse: "Stuttgart" }).beladen).toBe(false);
+    expect(fehlendeAdressen({ von_adresse: "70372" }).beladen).toBe(false);
+    expect(fehlendeAdressen({ von_adresse: "Umzug innerhalb Böblingen" }).beladen).toBe(false);
+  });
+});

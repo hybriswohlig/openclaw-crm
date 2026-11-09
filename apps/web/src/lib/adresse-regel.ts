@@ -20,5 +20,10 @@ export function istAdresseGenau(text: string): boolean {
 export function adresseFuerRoute(text: unknown): string | null {
   if (typeof text !== "string") return null;
   const t = text.replace(/\s+/g, " ").trim().replace(/^(umzug\s+)?(innerhalb|in)(\s+von)?\s+/i, "");
-  return /\p{L}{2,}|\d{5}/u.test(t) ? t : null;
+  // Review M11: Platzhalter wie „unbekannt“, „folgt“, „k.A.“ sind keine Adresse; ein Ort
+  // braucht einen Großbuchstaben am Wortanfang oder eine PLZ.
+  if (PLATZHALTER.test(t)) return null;
+  return /\d{5}|(^|[\s,(])\p{Lu}\p{L}+/u.test(t) ? t : null;
 }
+
+const PLATZHALTER = /^(unbekannt|folgt|kommt noch|k\.?\s?a\.?|keine angabe|offen|tbd|n\/?a|\?+|-+|x+)$/i;
