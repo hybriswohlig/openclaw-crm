@@ -89,6 +89,8 @@ export const TOKENS: Record<string, { hell: string; dunkel: string }> = {
   "--jade-ink": { hell: "#0d6b4a", dunkel: "#4fd8a4" },
   "--blue-ink": { hell: "#0054b3", dunkel: "#7ab8ff" },
   "--violet-ink": { hell: "#5a3fd6", dunkel: "#b4a5ff" },
+  /** Heller Gold-Ton als Fläche (Hinweis, „wartet“); dunkel etwas kräftiger, damit er sichtbar bleibt. */
+  "--gold-tint": { hell: "rgba(232, 150, 12, 0.14)", dunkel: "rgba(232, 150, 12, 0.22)" },
   "--seite-oben": { hell: "#faf9f7", dunkel: "#242426" },
   "--seite-unten": { hell: "#e6e8ec", dunkel: "#1c1c1e" },
   "--silber-1": { hell: "#d2d5da", dunkel: "#3a3d42" },

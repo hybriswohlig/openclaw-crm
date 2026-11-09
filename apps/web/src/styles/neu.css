@@ -22,6 +22,7 @@
   --jade-ink: #0d6b4a;
   --blue-ink: #0054b3;
   --violet-ink: #5a3fd6;
+  --gold-tint: rgba(232, 150, 12, 0.14);
   --seite-oben: #faf9f7;
   --seite-unten: #e6e8ec;
   --silber-1: #d2d5da;
@@ -64,6 +65,7 @@
   --jade-ink: #4fd8a4;
   --blue-ink: #7ab8ff;
   --violet-ink: #b4a5ff;
+  --gold-tint: rgba(232, 150, 12, 0.22);
   --seite-oben: #242426;
   --seite-unten: #1c1c1e;
   --silber-1: #3a3d42;
@@ -88,6 +90,7 @@
   --jade-ink: #0d6b4a;
   --blue-ink: #0054b3;
   --violet-ink: #5a3fd6;
+  --gold-tint: rgba(232, 150, 12, 0.14);
   --seite-oben: #faf9f7;
   --seite-unten: #e6e8ec;
   --silber-1: #d2d5da;
@@ -239,7 +242,7 @@ body:has([data-neu]) {
   height: 34px;
   flex-shrink: 0;
   border-radius: 10px;
-  background: var(--ink);
+  background: var(--tinte-flaeche);
   color: #ffffff;
   font-size: 15px;
   font-weight: 700;
@@ -307,13 +310,13 @@ body:has([data-neu]) {
 
 [data-neu] .neu-nav-eintrag[aria-current="page"] {
   background: var(--fill-3);
-  color: var(--blue);
+  color: var(--blue-ink);
   font-weight: 600;
   box-shadow: inset 0 0 0 1px var(--rim), var(--shadow);
 }
 
 [data-neu] .neu-nav-eintrag[aria-current="page"] svg {
-  stroke: var(--blue);
+  stroke: var(--blue-ink);
 }
 
 [data-neu] .neu-nav-zaehler {
@@ -324,7 +327,7 @@ body:has([data-neu]) {
 }
 
 [data-neu] .neu-nav-eintrag[aria-current="page"] .neu-nav-zaehler {
-  color: var(--blue);
+  color: var(--blue-ink);
 }
 
 [data-neu] .neu-seitenleiste-fuss {

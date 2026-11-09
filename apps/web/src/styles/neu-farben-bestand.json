@@ -554,13 +554,5 @@
   {
     "datei": "neu-termin.css",
     "text": "background: rgb(34 34 36 / 0.06);"
-  },
-  {
-    "datei": "neu.css",
-    "text": "color: var(--blue);"
-  },
-  {
-    "datei": "neu.css",
-    "text": "color: var(--blue);"
   }
 ]
