@@ -169,7 +169,7 @@ export default function EinsatzKarteBild(props: EinsatzKarteBildProps) {
           />
         </Source>
         {entladen ? (
-          <Marker longitude={entladen.punkt[0]} latitude={entladen.punkt[1]} anchor="center">
+          <Marker longitude={entladen.punkt[0]} latitude={entladen.punkt[1]} anchor="center" style={{ pointerEvents: "none" }}>
             <div className="ezk-auftrag" data-art="entladen">
               <i aria-hidden="true" />
               <span className="ezk-auftrag-text">
@@ -184,8 +184,9 @@ export default function EinsatzKarteBild(props: EinsatzKarteBildProps) {
             {renderPin(g)}
           </Marker>
         ))}
+        {/* Auftragspunkte nehmen keine Klicks: Pins am selben Ort bleiben greifbar. */}
         {beladen ? (
-          <Marker longitude={beladen.punkt[0]} latitude={beladen.punkt[1]} anchor="center" style={{ zIndex: 1 }}>
+          <Marker longitude={beladen.punkt[0]} latitude={beladen.punkt[1]} anchor="center" style={{ pointerEvents: "none" }}>
             <div className="ezk-auftrag" data-art="beladen">
               <div ref={ablageRef} className="ezk-ablage" data-heiss={ablageHeiss || undefined} aria-hidden="true" />
               <i aria-hidden="true" />

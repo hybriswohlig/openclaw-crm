@@ -2,7 +2,7 @@
 
 import "@/styles/neu-einsatz.css";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { GlassButton } from "@/components/glassyui/glass-button";
 import { GlassDialog, GlassDialogContent, GlassDialogDescription, GlassDialogTitle } from "@/components/glassyui/glass-dialog";
@@ -135,8 +135,12 @@ export function EinsatzDialog({
     setKarte(r.ok ? { art: "da", karte: r.data } : { art: "fehler", meldung: r.message });
   }, [dealId]);
 
+  // Einmal je Dialog (auch im Strict Mode nur ein Aufruf); „Noch einmal laden“ ruft karteHolen direkt.
+  const karteAngefragt = useRef(false);
   useEffect(() => {
-    if (ansichtArt === "karte" && karte === null) void karteHolen();
+    if (ansichtArt !== "karte" || karte !== null || karteAngefragt.current) return;
+    karteAngefragt.current = true;
+    void karteHolen();
   }, [ansichtArt, karte, karteHolen]);
 
   function ansichtWaehlen(a: EinsatzAnsichtArt) {
