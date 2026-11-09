@@ -125,7 +125,8 @@ export async function einsatzFenster(
 
 // ─── Laden ───────────────────────────────────────────────────────────────────
 
-type VersionRoh = {
+export type VersionRoh = {
+  id: string;
   version: number;
   status: "entwurf" | "gesperrt";
   rechnerRequest: unknown;
@@ -137,6 +138,7 @@ type VersionRoh = {
 export async function massgeblicheVersion(ws: string, deal: string, ex: DbExecutor = db): Promise<VersionRoh | null> {
   const rows = await ex
     .select({
+      id: dealCalculationVersions.id,
       version: dealCalculationVersions.version,
       status: dealCalculationVersions.status,
       rechnerRequest: dealCalculationVersions.rechnerRequest,
@@ -209,7 +211,35 @@ export interface EinsatzLadeOptionen {
   jetzt?: Date;
 }
 
-export async function ladeEinsatz(ws: string, deal: string, o: EinsatzLadeOptionen = {}): Promise<EinsatzAnsicht> {
+/**
+ * Personen mit Lage, Version und Fenster. Ohne Anfahrt: die Karte ruft das,
+ * damit kein Distance-Matrix-Aufruf entsteht. `ladeEinsatz` rechnet damit
+ * weiter, ohne die Datenbank ein zweites Mal zu fragen.
+ */
+export interface EinsatzLage {
+  jetzt: Date;
+  kopf: { name: string | null; firmaId: string | null };
+  version: VersionRoh | null;
+  anfrage: RechnerAnfrage | null;
+  ergebnis: RechnerErgebnis | null;
+  beladen: string | null;
+  entladen: string | null;
+  datum: string | null;
+  tage: string[];
+  einsaetze: FesterEinsatz[];
+  termin: string | null;
+  fest: boolean;
+  abwesenheiten: Abwesenheit[];
+  kapazitaet: EinsatzAnsicht["kapazitaet"];
+  team: EinsatzZuteilung[];
+  teamIds: string[];
+  /** Alle Personen des Workspace, auch inaktive. */
+  personenAlle: EinsatzPerson[];
+  /** Aktive Personen plus Mitglieder des heutigen Teams. */
+  personen: EinsatzPersonLage[];
+}
+
+export async function ladeEinsatzLage(ws: string, deal: string, o: { jetzt?: Date } = {}): Promise<EinsatzLage> {
   const jetzt = o.jetzt ?? new Date();
   const heute = berlinDateString(jetzt);
   const { ladeDealKopf } = await import("./kalkulations-ansicht-db");
@@ -257,6 +287,51 @@ export async function ladeEinsatz(ws: string, deal: string, o: EinsatzLadeOption
       stempeltGerade: stempel.has(p.id),
     };
   });
+
+  return {
+    jetzt,
+    kopf,
+    version: v,
+    anfrage,
+    ergebnis,
+    beladen,
+    entladen,
+    datum,
+    tage,
+    einsaetze,
+    termin,
+    fest,
+    abwesenheiten,
+    kapazitaet,
+    team,
+    teamIds,
+    personenAlle: personen,
+    personen: personenLage,
+  };
+}
+
+export async function ladeEinsatz(ws: string, deal: string, o: EinsatzLadeOptionen = {}): Promise<EinsatzAnsicht> {
+  const lage = await ladeEinsatzLage(ws, deal, o);
+  const {
+    jetzt,
+    kopf,
+    version: v,
+    anfrage,
+    ergebnis,
+    beladen,
+    entladen,
+    datum,
+    tage,
+    einsaetze,
+    termin,
+    fest,
+    abwesenheiten,
+    kapazitaet,
+    team,
+    teamIds,
+    personenAlle: personen,
+    personen: personenLage,
+  } = lage;
 
   const rechner = rechnerDatenAus(anfrage, ergebnis);
   const groesse = rechner?.groesse ?? 0;

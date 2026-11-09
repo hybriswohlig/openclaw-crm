@@ -707,4 +707,81 @@ describe("Karte", () => {
     expect(ziehenErgebnis("belegt", false)).toBe("rueckfrage_belegt");
     expect(ziehenErgebnis("frei", false)).toBe("hinzufuegen");
   });
+
+  it("gleicher Ort: frei vor belegt vor abwesend, freiZahl", () => {
+    const { gruppen } = pinGruppen([
+      jemand({ employeeId: "z", name: "Zoe", lage: "frei", ortSchluessel: "ort" }),
+      jemand({ employeeId: "a", name: "Anna", lage: "abwesend", ortSchluessel: "ort" }),
+      jemand({ employeeId: "b2", name: "Bert", lage: "belegt", ortSchluessel: "ort" }),
+      jemand({ employeeId: "b1", name: "Bert", lage: "belegt", ortSchluessel: "ort" }),
+      jemand({ employeeId: "c", name: "Cia", lage: "frei", ortSchluessel: "ort" }),
+    ]);
+    expect(gruppen).toHaveLength(1);
+    expect(gruppen[0]!.freiZahl).toBe(2);
+    expect(gruppen[0]!.personen.map((p) => p.employeeId)).toEqual(["c", "z", "b1", "b2", "a"]);
+  });
+
+  it("gleicher Punkt ohne Schlüssel auf vier Nachkommastellen", () => {
+    const { gruppen, ohnePunkt } = pinGruppen([
+      jemand({ employeeId: "5", name: "Cia", lage: "abwesend", ortSchluessel: null, punkt: [9.12341, 48.50001] }),
+      jemand({ employeeId: "6", name: "Dan", lage: "frei", ortSchluessel: null, punkt: [9.12344, 48.50004] }),
+      jemand({ employeeId: "7", name: "Eva", lage: "frei", ortSchluessel: null, punkt: [9.12346, 48.50006] }),
+    ]);
+    expect(ohnePunkt).toEqual([]);
+    expect(gruppen.map((g) => g.schluessel)).toEqual(["9.1234,48.5000", "9.1235,48.5001"]);
+    expect(gruppen[0]!.personen.map((p) => p.employeeId)).toEqual(["6", "5"]);
+    expect(gruppen[0]!.freiZahl).toBe(1);
+  });
+
+  it("ohne Punkt steht neben der Karte, frei vor belegt", () => {
+    const { gruppen, ohnePunkt } = pinGruppen([
+      jemand({ employeeId: "1", name: "Zoe", lage: "frei", punkt: null }),
+      jemand({ employeeId: "2", name: "Anna", lage: "belegt", punkt: null, ortSchluessel: null, ortText: null }),
+      jemand({ employeeId: "3", name: "Bert", lage: "frei", ortSchluessel: "a-ort" }),
+    ]);
+    expect(gruppen.map((g) => g.schluessel)).toEqual(["a-ort"]);
+    expect(ohnePunkt.map((p) => p.name)).toEqual(["Zoe", "Anna"]);
+  });
+
+  it("jede Person genau einmal, in einer Gruppe oder ohne Punkt", () => {
+    const leute = [
+      jemand({ employeeId: "1", name: "Zoe", lage: "belegt", ortSchluessel: "b-ort" }),
+      jemand({ employeeId: "2", name: "Anna", lage: "frei", ortSchluessel: "b-ort" }),
+      jemand({ employeeId: "3", name: "Ohne", lage: "frei", punkt: null, ortSchluessel: null }),
+      jemand({ employeeId: "4", name: "Bert", lage: "abwesend", punkt: null, ortSchluessel: "x" }),
+      jemand({ employeeId: "5", name: "Cia", lage: "frei", ortSchluessel: null, punkt: [8, 47] }),
+    ];
+    const { gruppen, ohnePunkt } = pinGruppen(leute);
+    const ids = [...gruppen.flatMap((g) => g.personen), ...ohnePunkt].map((p) => p.employeeId);
+    expect(ids).toHaveLength(leute.length);
+    expect(new Set(ids)).toEqual(new Set(leute.map((p) => p.employeeId)));
+    expect(ohnePunkt.map((p) => p.employeeId)).toEqual(["3", "4"]);
+  });
+
+  it("kartenGrenzen mit Linie, ohne Linie und ohne Punkte", () => {
+    expect(kartenGrenzen({ beladen: null, entladen: null, linie: [] }, [])).toBeNull();
+    expect(
+      kartenGrenzen(
+        { beladen: { punkt: [9, 48], text: "S", quelle: "ort" }, entladen: null, linie: [] },
+        [{ schluessel: "p", punkt: [10, 49], ortText: "", personen: [], freiZahl: 0 }],
+      ),
+    ).toEqual([[9, 48], [10, 49]]);
+    expect(
+      kartenGrenzen(
+        {
+          beladen: { punkt: [9, 48], text: "S", quelle: "route" },
+          entladen: { punkt: [9.5, 48.5], text: "E", quelle: "route" },
+          linie: [[8, 47], [11, 50]],
+        },
+        [],
+      ),
+    ).toEqual([[8, 47], [11, 50]]);
+  });
+
+  it("ziehenErgebnis je Lage und ob die Person schon im Team ist", () => {
+    for (const lage of ["frei", "belegt", "abwesend"] as const) expect(ziehenErgebnis(lage, true)).toBe("schon_im_team");
+    expect(ziehenErgebnis("frei", false)).toBe("hinzufuegen");
+    expect(ziehenErgebnis("belegt", false)).toBe("rueckfrage_belegt");
+    expect(ziehenErgebnis("abwesend", false)).toBe("rueckfrage_abwesend");
+  });
 });

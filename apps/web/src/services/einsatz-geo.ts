@@ -10,7 +10,7 @@
  */
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { einsatzWege } from "@/db/schema";
+import { einsatzOrte, einsatzWege } from "@/db/schema";
 import {
   adresseSchluessel,
   cacheGueltig,
@@ -18,6 +18,7 @@ import {
   ortSchluessel,
   type Anfahrt,
   type EinsatzPerson,
+  type Punkt,
 } from "@/lib/einsatz";
 import { matrixVonOrten, type MatrixZelle } from "./drive-time";
 
@@ -191,4 +192,156 @@ export async function anfahrtenLaden(
       anMinQuelle: anMin === null ? null : verkehr !== undefined ? "verkehr" : "geschaetzt",
     };
   });
+}
+
+// ─── Kartenpunkte je Ort (12c) ───────────────────────────────────────────────
+
+/** Ein Ort, der einen Kartenpunkt braucht. An Google geht nur `text`, nie ein Name. */
+export interface OrtAnfrage {
+  schluessel: string;
+  text: string;
+  plz: string | null;
+}
+
+export interface OrtZeile {
+  ortSchluessel: string;
+  lat: number;
+  lng: number;
+  berechnetAm: Date;
+}
+
+export interface OrteSpeicher {
+  lesen(ws: string, schluessel: string[]): Promise<OrtZeile[]>;
+  schreiben(ws: string, zeilen: Array<Omit<OrtZeile, "berechnetAm">>): Promise<void>;
+}
+
+export const dbOrteSpeicher: OrteSpeicher = {
+  async lesen(ws, schluessel) {
+    if (schluessel.length === 0) return [];
+    const rows = await db
+      .select()
+      .from(einsatzOrte)
+      .where(and(eq(einsatzOrte.workspaceId, ws), inArray(einsatzOrte.ortSchluessel, schluessel)));
+    return rows.map((r) => ({
+      ortSchluessel: r.ortSchluessel,
+      lat: r.lat,
+      lng: r.lng,
+      berechnetAm: r.berechnetAm,
+    }));
+  },
+  async schreiben(ws, zeilen) {
+    if (zeilen.length === 0) return;
+    await db
+      .insert(einsatzOrte)
+      .values(zeilen.map((z) => ({ workspaceId: ws, ortSchluessel: z.ortSchluessel, lat: z.lat, lng: z.lng })))
+      .onConflictDoUpdate({
+        target: [einsatzOrte.workspaceId, einsatzOrte.ortSchluessel],
+        set: { lat: sql`excluded.lat`, lng: sql`excluded.lng`, berechnetAm: sql`now()` },
+      });
+  },
+};
+
+/** Höchstens so viele Geocoding-Aufrufe je `ortPunkte`. Der Rest wartet auf den nächsten Aufruf. */
+export const ORTE_JE_AUFRUF = 25;
+
+export const GEOCODING_URL = "https://maps.googleapis.com/maps/api/geocode/json";
+
+type GeoAntwort = {
+  status?: string;
+  results?: Array<{ geometry?: { location?: { lat?: unknown; lng?: unknown } } }>;
+};
+
+/**
+ * Mittelpunkte je Ortsschlüssel. Gültiger Cache ohne Google; fehlende oder
+ * abgelaufene höchstens `ORTE_JE_AUFRUF` mal neu. Ohne Schlüssel, bei
+ * `REQUEST_DENIED`, `OVER_QUERY_LIMIT`, HTTP- oder Netzfehler: sofort aufhören,
+ * abgelaufene Punkte behalten, nichts werfen. `ZERO_RESULTS`: dieser Ort ohne
+ * Punkt, danach weiter. Punkt ist [Längengrad, Breitengrad].
+ */
+export async function ortPunkte(
+  ws: string,
+  orte: OrtAnfrage[],
+  o: {
+    jetzt?: Date;
+    speicher?: OrteSpeicher;
+    abruf?: (url: string) => Promise<Response>;
+    schluessel?: string | null;
+  } = {},
+): Promise<{ punkte: Map<string, Punkt>; ohne: string[] }> {
+  const jetzt = o.jetzt ?? new Date();
+  const speicher = o.speicher ?? dbOrteSpeicher;
+  const abruf = o.abruf ?? fetch;
+  const schluessel = o.schluessel === undefined ? process.env.GOOGLE_MAPS_API_KEY || null : o.schluessel;
+
+  const einzig: OrtAnfrage[] = [];
+  const gesehen = new Set<string>();
+  for (const ort of orte) {
+    if (gesehen.has(ort.schluessel)) continue;
+    gesehen.add(ort.schluessel);
+    einzig.push(ort);
+  }
+
+  const cache = new Map<string, OrtZeile>();
+  if (einzig.length > 0) {
+    try {
+      for (const z of await speicher.lesen(ws, einzig.map((e) => e.schluessel))) cache.set(z.ortSchluessel, z);
+    } catch {
+      // Ohne Cache weiter wie mit leerem Cache.
+    }
+  }
+
+  const punkte = new Map<string, Punkt>();
+  const neu: Array<Omit<OrtZeile, "berechnetAm">> = [];
+  let aufrufe = 0;
+  let abbruch = false;
+
+  const altBehalten = (ort: OrtAnfrage) => {
+    const alt = cache.get(ort.schluessel);
+    if (alt) punkte.set(ort.schluessel, [alt.lng, alt.lat]);
+  };
+
+  for (const ort of einzig) {
+    const alt = cache.get(ort.schluessel);
+    if (alt && cacheGueltig(alt.berechnetAm, jetzt)) {
+      punkte.set(ort.schluessel, [alt.lng, alt.lat]);
+      continue;
+    }
+    if (!schluessel || abbruch || aufrufe >= ORTE_JE_AUFRUF) {
+      altBehalten(ort);
+      continue;
+    }
+    aufrufe += 1;
+    const url =
+      `${GEOCODING_URL}?address=${encodeURIComponent(`${ort.text}, Deutschland`)}` +
+      `&components=${encodeURIComponent(ort.plz ? `country:DE|postal_code:${ort.plz}` : "country:DE")}` +
+      `&language=de&key=${schluessel}`;
+    let daten: GeoAntwort | null = null;
+    try {
+      const res = await abruf(url);
+      if (!res.ok) {
+        abbruch = true;
+        altBehalten(ort);
+        continue;
+      }
+      daten = (await res.json()) as GeoAntwort;
+    } catch {
+      abbruch = true;
+      altBehalten(ort);
+      continue;
+    }
+    const status = daten?.status;
+    if (status === "REQUEST_DENIED" || status === "OVER_QUERY_LIMIT") {
+      abbruch = true;
+      altBehalten(ort);
+      continue;
+    }
+    const loc = status === "OK" ? daten?.results?.[0]?.geometry?.location : undefined;
+    if (typeof loc?.lat === "number" && typeof loc.lng === "number") {
+      punkte.set(ort.schluessel, [loc.lng, loc.lat]);
+      neu.push({ ortSchluessel: ort.schluessel, lat: loc.lat, lng: loc.lng });
+    }
+  }
+
+  if (neu.length > 0) await speicher.schreiben(ws, neu).catch(() => undefined);
+  return { punkte, ohne: einzig.filter((ort) => !punkte.has(ort.schluessel)).map((ort) => ort.schluessel) };
 }
