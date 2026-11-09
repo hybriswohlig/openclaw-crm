@@ -2,8 +2,10 @@
 
 import type { KvErzeugung } from "@/lib/angebot-wahl";
 import type { KalkulationsAnsicht } from "@/lib/kalkulations-ansicht";
+import type { HebelArt } from "@/services/rechner/kv-posten";
 import { euro } from "@/components/neu/akte/format";
 import { kvMarke } from "./kv-erzeugung";
+import "@/styles/neu-kalk-p15.css";
 
 /** „4 Posten, Summe 2.480 €“, bei Vorschau und Spanne mit Zusatz. */
 export function kvUnterzeile(kv: NonNullable<KalkulationsAnsicht["kv"]>): string {
@@ -23,10 +25,13 @@ export function KvVorschau({
   kv,
   kvFehler,
   erzeugung,
+  werkzeug,
 }: {
   kv: KalkulationsAnsicht["kv"];
   kvFehler: string | null;
   erzeugung?: KvErzeugung;
+  /** Plan 15 (Bauteil 6): „×“ an Hebel-Posten und „+ Posten“ */
+  werkzeug?: { beschaeftigt: boolean; onAus: (hebel: HebelArt, text: string) => void; onPlus: (art: "zeitposten" | "material_frei") => void };
 }) {
   const marke = erzeugung ? kvMarke(erzeugung) : null;
   return (
@@ -47,7 +52,21 @@ export function KvVorschau({
           kv.posten.map((p, i) => (
             <div key={`${p.text}-${i}`} className="kalk-kvl">
               <span className="kalk-kvl-t">{p.text}</span>
-              <span className="kalk-kvl-a">{euro(p.betragCent)}</span>
+              <span className="kalk-kvl-a">
+                {euro(p.betragCent)}
+                {werkzeug && p.hebel ? (
+                  <button
+                    type="button"
+                    className="kalk-kvl-x"
+                    disabled={werkzeug.beschaeftigt}
+                    onClick={() => werkzeug.onAus(p.hebel!, p.text)}
+                    aria-label={`${p.text} herausnehmen`}
+                    title="Herausnehmen"
+                  >
+                    ×
+                  </button>
+                ) : null}
+              </span>
               {p.herkunft ? <span className="kalk-kvl-f">{p.herkunft}</span> : null}
             </div>
           ))
@@ -56,6 +75,16 @@ export function KvVorschau({
             {kvFehler ?? "Der KV lässt sich aus dieser Version noch nicht bilden."}
           </p>
         )}
+        {werkzeug ? (
+          <div className="kalk-kurzgruende kalk-kv-plus">
+            <button type="button" className="kalk-kleinknopf" disabled={werkzeug.beschaeftigt} onClick={() => werkzeug.onPlus("zeitposten")}>
+              + Zeitposten
+            </button>
+            <button type="button" className="kalk-kleinknopf" disabled={werkzeug.beschaeftigt} onClick={() => werkzeug.onPlus("material_frei")}>
+              + Material
+            </button>
+          </div>
+        ) : null}
       </div>
     </>
   );

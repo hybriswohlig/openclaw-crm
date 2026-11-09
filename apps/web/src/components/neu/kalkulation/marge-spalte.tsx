@@ -21,6 +21,8 @@ import { KvVorschau, PaketeAnzeige } from "./kv-vorschau";
 import { PaketPreise, PreismodusWahl, TagePreise } from "./paket-preise";
 import { ModuswechselDialog, PreisDialog } from "./preis-dialog";
 import { OhneAdresseDialog } from "./adress-dialog";
+import { HebelAusDialog } from "./hebel-aus-dialog";
+import type { HebelArt } from "@/services/rechner/kv-posten";
 import { ADRESSE_FEHLT_TEXT } from "@/lib/kalkulation-p15";
 import {
   sperrAusgang,
@@ -66,6 +68,7 @@ type Dialog =
   | { art: "kv"; nurKv: boolean }
   | { art: "moduswechsel"; texte: KvTexte; meldung: string }
   | { art: "ohne_adresse"; texte: KvTexte; meldung: string; modusWechselBestaetigt: boolean }
+  | { art: "hebel_aus"; hebel: HebelArt; posten: string }
   | { art: "kottke" };
 
 /**
@@ -312,7 +315,20 @@ export function MargeSpalte({ ansicht, kontext }: { ansicht: KalkulationsAnsicht
       {plan5 ? <PreismodusWahl modus={version.preisModus} beschaeftigt={lauf !== null} onPreis={preisOeffnen} /> : null}
       {stundenModus ? null : (
         <>
-          <KvVorschau kv={ansicht.kv} kvFehler={ansicht.kvFehler} erzeugung={version.kvErzeugung} />
+          <KvVorschau
+            kv={ansicht.kv}
+            kvFehler={ansicht.kvFehler}
+            erzeugung={version.kvErzeugung}
+            werkzeug={
+              version.status === "entwurf" || kontext.bearbeitbar
+                ? {
+                    beschaeftigt: lauf !== null,
+                    onAus: (hebel, posten) => setDialog({ art: "hebel_aus", hebel, posten }),
+                    onPlus: (art) => setDialog({ art: "anpassung", start: { art } }),
+                  }
+                : undefined
+            }
+          />
           <KernWarnung kern={ansicht.kern} kvDarstellung={ansicht.kvDarstellung} beschaeftigt={lauf !== null} onPreis={preisOeffnen} />
         </>
       )}
@@ -326,7 +342,12 @@ export function MargeSpalte({ ansicht, kontext }: { ansicht: KalkulationsAnsicht
           </>
         )
       ) : (
-        <PaketeAnzeige pakete={ansicht.pakete} preisModus={version.preisModus} link={ansicht.angebotsformularLink} />
+        <>
+          <PaketeAnzeige pakete={ansicht.pakete} preisModus={version.preisModus} link={ansicht.angebotsformularLink} />
+          <p className="kalk-hinweis-klein">
+            Pakete (Basis, Komfort, Premium) sind für diese Firma aus. <a href="/app/einstellungen#einst-firmen">Einstellungen, Kundenportal</a>
+          </p>
+        </>
       )}
       <VerwaisteAnpassungen
         verwaist={ansicht.verwaist}
@@ -375,6 +396,9 @@ export function MargeSpalte({ ansicht, kontext }: { ansicht: KalkulationsAnsicht
           onAbbrechen={() => setDialog(null)}
           onBestaetigen={() => void sperrenUndKv(dialog.texte, false, true, ohneAdresseBisher.current)}
         />
+      ) : null}
+      {dialog?.art === "hebel_aus" ? (
+        <HebelAusDialog hebel={dialog.hebel} posten={dialog.posten} kontext={kontext} portalZiel={portalZiel} onSchliessen={() => setDialog(null)} />
       ) : null}
       {dialog?.art === "ohne_adresse" ? (
         <OhneAdresseDialog
