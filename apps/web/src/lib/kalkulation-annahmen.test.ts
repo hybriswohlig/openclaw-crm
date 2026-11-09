@@ -162,3 +162,19 @@ describe("positionenOhneKatalog (Bauteil 3)", () => {
     expect(p).toMatchObject({ key: "eckbank", name: "Eckbank", groessenklasse: "sperrig", korrektur: { groessenklasse: "gross", volumenCbm: 1, grund: "Foto geprüft", von: "Dario" } });
   });
 });
+
+describe("Review M3 und M14", () => {
+  it("von Hand ist nicht geschätzt; ohne Ziel keine Tourzeilen", () => {
+    const e: RechnerErgebnis = {
+      ...zweiTouren,
+      fahrtAufschluesselung: { anfahrt: { km: 9, min: 15, quelle: "manuell" }, strecke: { km: 0, min: 0, quelle: "keine" }, rueckfahrt: { km: 9, min: 15, quelle: "manuell" }, fahrten: 1, wege: 1, fahrtMin: 30 },
+    };
+    const f = fahrtAnsicht(e, {})!;
+    expect(f.strecken.map((s) => [s.key, s.quelleText, s.geschaetzt])).toEqual([
+      ["anfahrt", "von Hand", false],
+      ["rueckfahrt", "von Hand", false],
+    ]);
+    expect(f.strecken[1].von).toBe("Beladen");
+    expect(f.hinweis).toBeNull();
+  });
+});

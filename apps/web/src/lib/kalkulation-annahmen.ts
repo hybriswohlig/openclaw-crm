@@ -152,20 +152,23 @@ export function fahrtAnsicht(e: RechnerErgebnis | null, anfrage: RechnerAnfrage 
       km: s.km,
       quelle: s.quelle,
       quelleText: quelleText(s.quelle, istGenau),
-      geschaetzt: s.quelle !== "google",
+      // Review M3: von Hand ist nicht geschätzt.
+      geschaetzt: s.quelle === "angenommen" || s.quelle === "ortsintern" || s.quelle === "keine",
       feld,
     });
   zeile("anfahrt", "anfahrt", null, "Station", "Beladen", f.anfahrt, beladenGenau, "fahrt.anfahrt_min");
   const touren = Math.max(1, f.fahrten);
-  if (f.wege > 0) {
+  // Review M14: ohne Ziel (Strecke „keine“) keine Tourzeilen.
+  if (f.wege > 0 && f.strecke.quelle !== "keine") {
     for (let t = 1; t <= touren; t++) {
       zeile(`tour.${t}`, "tour", t, "Beladen", "Entladen", f.strecke, beladenGenau && entladenGenau, "fahrt.strecke_min");
       if (t < touren) zeile(`rueckweg.${t}`, "rueckweg", t, "Entladen", "Beladen", f.strecke, beladenGenau && entladenGenau, "fahrt.strecke_min");
     }
   }
-  zeile("rueckfahrt", "rueckfahrt", null, f.wege > 0 ? ziel : "Beladen", "Station", f.rueckfahrt, entladenGenau, "fahrt.rueckfahrt_min");
+  const mitTour = f.wege > 0 && f.strecke.quelle !== "keine";
+  zeile("rueckfahrt", "rueckfahrt", null, mitTour ? ziel : "Beladen", "Station", f.rueckfahrt, entladenGenau, "fahrt.rueckfahrt_min");
 
-  const summe = f.anfahrt.min + f.wege * f.strecke.min + f.rueckfahrt.min;
+  const summe = f.anfahrt.min + (mitTour ? f.wege * f.strecke.min : 0) + f.rueckfahrt.min;
   const team = e.team?.groesse ?? null;
   const puffer = e.kosten?.personalStunden?.pufferProzent ?? null;
   const minJePerson = f.fahrtMin;
