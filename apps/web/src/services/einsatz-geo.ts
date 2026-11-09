@@ -270,7 +270,8 @@ export async function ortPunkte(
 ): Promise<{ punkte: Map<string, Punkt>; ohne: string[] }> {
   const jetzt = o.jetzt ?? new Date();
   const speicher = o.speicher ?? dbOrteSpeicher;
-  const abruf = o.abruf ?? fetch;
+  // Ein hängender Google-Aufruf darf die Karte nicht aufhalten: 8 s je Ort, dann wie Netzfehler.
+  const abruf = o.abruf ?? ((url: string) => fetch(url, { signal: AbortSignal.timeout(8_000) }));
   const schluessel = o.schluessel === undefined ? process.env.GOOGLE_MAPS_API_KEY || null : o.schluessel;
 
   const einzig: OrtAnfrage[] = [];
