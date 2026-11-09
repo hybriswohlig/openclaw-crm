@@ -74,7 +74,7 @@ describe("ansichtAus: Grundlage", () => {
   const a = ansichtAus(weberVersion(), rest());
 
   it("Zeilen in der Reihenfolge des Mockups", () => {
-    expect(a.grundlage.zeilen.map((z) => z.key)).toEqual(["volumen", "beladen", "entladen", "halteverbot", "kartons", "montage", "team", "termin"]);
+    expect(a.grundlage.zeilen.map((z) => z.key)).toEqual(["volumen", "beladen", "entladen", "halteverbot", "umzugskartons", "einpacken", "montage", "team", "termin"]);
     expect(a.grundlage.adressen).toEqual({ beladen: "Rotebühlstr. 112, 70178 Stuttgart", entladen: "Plochinger Str. 8, 73730 Esslingen" });
   });
 
@@ -117,10 +117,14 @@ describe("ansichtAus: Grundlage", () => {
     expect([mit(true, false), mit(false, true), mit(false, false)]).toEqual(["beim Beladen", "beim Entladen", "keins"]);
   });
 
-  it("Kartons: 60 Stück, Ganzzahlfeld", () => {
-    expect(zeile(a, "kartons")).toMatchObject({
-      wert: "60 Stück", herkunft: [{ art: "KUNDE", text: "KUNDE" }],
-      felder: [{ key: "kartons", label: "Kartons", typ: "ganzzahl", wert: 60 }],
+  it("Kartons (Plan 15): gespeicherte `kartons` waren Einpackservice; Umzugskartons eigene Zeile", () => {
+    expect(zeile(a, "einpacken")).toMatchObject({
+      wert: "60 Kartons", herkunft: [{ art: "KUNDE", text: "KUNDE" }],
+      felder: [{ key: "einpacken", label: "Kartons, die wir packen", typ: "ganzzahl", wert: 60 }],
+    });
+    expect(zeile(a, "umzugskartons")).toMatchObject({
+      wert: "keine",
+      felder: [{ key: "umzugskartons", label: "Umzugskartons", typ: "ganzzahl", wert: null }],
     });
   });
 

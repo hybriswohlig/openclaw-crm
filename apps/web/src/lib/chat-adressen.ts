@@ -148,3 +148,31 @@ export function chatAdressenWaehlen(
 export function hatChatAdresse(c: ChatAdressen | null | undefined): boolean {
   return !!c && (c.von !== null || c.nach !== null);
 }
+
+/** „10 bis 15 Kartons“, „ca. 20 Umzugskartons“, „15-20 Kisten“: Zahl bzw. Spanne vor dem Wort. */
+const KARTONS = /(?<![\d.,])(\d{1,3})(?:\s*(?:bis|-|–|oder)\s*(\d{1,3}))?\s*(?:umzugs|bücher|buecher)?(?:kartons?|kisten|boxen|umzugskisten)\b/giu;
+
+/**
+ * Plan 15, Bauteil 13: Kartonzahl aus eingehenden Kundennachrichten. Bei einer
+ * Spanne zählt der obere Wert; die neueste Nennung gewinnt. Nur Umzugskartons
+ * zum Transport, nie Einpackservice. null ohne Nennung.
+ */
+export function kartonsAusNachrichten(texte: readonly string[]): number | null {
+  let anzahl: number | null = null;
+  for (const text of texte) {
+    if (typeof text !== "string") continue;
+    for (const m of text.matchAll(KARTONS)) {
+      const a = Number(m[1]);
+      const b = m[2] ? Number(m[2]) : null;
+      const n = b !== null ? Math.max(a, b) : a;
+      if (n > 0 && n <= 500) anzahl = n;
+    }
+  }
+  return anzahl;
+}
+
+/** Kartonzahl aus der KI (Zahl oder Text), sonst null. */
+export function kartonsAusKi(wert: unknown): number | null {
+  const n = typeof wert === "number" ? wert : typeof wert === "string" ? Number(wert.trim()) : NaN;
+  return Number.isInteger(n) && n > 0 && n <= 500 ? n : null;
+}

@@ -38,7 +38,23 @@ export const GRUNDLAGE_FELDER = {
   "entladen.tragweg": "nach_tragestrecke",
   "halteverbot.beladen": "von_halteverbot",
   "halteverbot.entladen": "nach_halteverbot",
-  kartons: "einpack_kartons",
+  /** Plan 15 (Bauteil 13): Umzugskartons zum Transport (der Kunde packt). Altschlüssel `kartons` gilt als dieser. */
+  umzugskartons: "umzugskartons",
+  /** Plan 15 (Bauteil 13): Einpackservice, das Team packt (Hebel „Einpacken“ im KV). */
+  einpacken: "einpack_kartons",
+  /** Plan 15 (Bauteil 4) */
+  zimmer: "zimmer",
+  wohnflaeche: "wohnflaeche_qm",
+  /** Plan 15 (Bauteil 11): Fahrzeiten je Strecke als Handwerte (gewinnen im Rechner über Google). */
+  "fahrt.anfahrt_min": "anfahrt_min",
+  "fahrt.anfahrt_km": "anfahrt_km",
+  "fahrt.strecke_min": "strecke_min",
+  "fahrt.strecke_km": "strecke_km",
+  "fahrt.rueckfahrt_min": "rueckfahrt_min",
+  "fahrt.rueckfahrt_km": "rueckfahrt_km",
+  /** Plan 15 (Bauteil 6): Hebel aus (false) über `hebel_aus`. */
+  "hebel.montage": "hebel_aus",
+  "hebel.kueche": "hebel_aus",
   team: "teamgroesse",
   termin: "umzugsdatum",
   /** Plan 12a (E7): „Anfahrt Team“ aus dem Einsatz, nur als Übersteuerung mit Grund, Euro. */
@@ -65,6 +81,8 @@ export type UebersteuerungsArt =
   | "satz"
   | "zeitposten"
   | "material_frei"
+  // Plan 15 (Bauteil 3): Größenklasse, Volumen, Gewicht einer Position ohne Katalogtreffer.
+  | "position"
   // Plan 5b (Entscheidung 4): nur `preismodus` geht an den Rechner.
   | NeueUebersteuerungsArt;
 
@@ -73,6 +91,26 @@ export interface PreisWert {
   betrag: number;
   bezeichnung?: undefined;
   minuten?: undefined;
+}
+
+/** Wert der Übersteuerung `position` (Plan 15, Bauteil 3), je Stück. */
+export interface PositionWert {
+  groessenklasse?: "klein" | "mittel" | "gross" | "sperrig";
+  volumenCbm?: number;
+  gewichtKg?: number;
+  bezeichnung?: undefined;
+  betrag?: undefined;
+  minuten?: undefined;
+}
+
+/** Schlüssel einer Position: Name klein, Leerzeichen zusammengezogen. */
+export function positionSchluessel(name: string): string {
+  return name.trim().replace(/\s+/g, " ").toLocaleLowerCase("de-DE");
+}
+
+/** Altschlüssel `kartons` (bis Plan 15 Einpackservice) gilt in Entwürfen als Umzugskartons. */
+export function eingabeSchluessel(key: string): string {
+  return key === "kartons" ? "umzugskartons" : key;
 }
 
 /** Wert von Zeitposten und freiem Material. */
@@ -87,8 +125,10 @@ export interface Uebersteuerung {
   art: UebersteuerungsArt;
   key: string;
   rechnerwert: number | string | boolean | null;
-  /** Paket- und Tagespreis: `{ betrag }` in Euro; Darstellung und Preismodus als Text. */
-  wert: number | string | boolean | PostenWert | PreisWert | null;
+  /** Paket- und Tagespreis: `{ betrag }` in Euro; Darstellung und Preismodus als Text; Position: Korrektur. */
+  wert: number | string | boolean | PostenWert | PreisWert | PositionWert | null;
+  /** Plan 15 (Bauteil 13): Migration 0065 hat den Altschlüssel `kartons` (Einpackservice) zu `umzugskartons` umgedeutet. */
+  umgedeutet?: "kartons";
   grund: string;
   autor: { userId: string | null; quelle: "mensch" | "agent" };
   zeit: string;
@@ -113,6 +153,7 @@ export class UebersteuerungFehler extends Error {
 
 const ARTEN: readonly UebersteuerungsArt[] = [
   "eingabe",
+  "position",
   "zeile",
   "marge",
   "satz",
@@ -183,11 +224,42 @@ function pruefeEingabe(key: GrundlageKey, wert: unknown): number | string | bool
     case "halteverbot.entladen":
       if (typeof wert !== "boolean") throw new UebersteuerungFehler("Halteverbot muss ja oder nein sein");
       return wert;
-    case "kartons": {
+    case "umzugskartons":
+    case "einpacken": {
       const n = zahl(wert);
-      if (n === null || !Number.isInteger(n) || n < 0) throw new UebersteuerungFehler("Kartons müssen eine ganze Zahl ab 0 sein");
+      if (n === null || !Number.isInteger(n) || n < 0 || n > 2000) throw new UebersteuerungFehler("Kartons müssen eine ganze Zahl von 0 bis 2.000 sein");
       return n;
     }
+    case "zimmer": {
+      const n = zahl(wert);
+      if (n === null || n < 1 || n > 30 || Math.abs(n * 2 - Math.round(n * 2)) > 1e-9) {
+        throw new UebersteuerungFehler("Zimmer zwischen 1 und 30 (halbe Zimmer erlaubt)");
+      }
+      return n;
+    }
+    case "wohnflaeche": {
+      const n = zahl(wert);
+      if (n === null || n < 5 || n > 2000) throw new UebersteuerungFehler("Wohnfläche zwischen 5 und 2.000 m²");
+      return n;
+    }
+    case "fahrt.anfahrt_min":
+    case "fahrt.strecke_min":
+    case "fahrt.rueckfahrt_min": {
+      const n = zahl(wert);
+      if (n === null || !Number.isInteger(n) || n < 1 || n > 600) throw new UebersteuerungFehler("Fahrzeit: ganze Minuten von 1 bis 600");
+      return n;
+    }
+    case "fahrt.anfahrt_km":
+    case "fahrt.strecke_km":
+    case "fahrt.rueckfahrt_km": {
+      const n = zahl(wert);
+      if (n === null || n <= 0 || n > 2000) throw new UebersteuerungFehler("Strecke: Kilometer größer als 0, höchstens 2.000");
+      return Math.round(n * 10) / 10;
+    }
+    case "hebel.montage":
+    case "hebel.kueche":
+      if (typeof wert !== "boolean") throw new UebersteuerungFehler("Hebel muss an (true) oder aus (false) sein");
+      return wert;
     case "team": {
       const n = zahl(wert);
       if (n === null || !Number.isInteger(n) || n < 1 || n > 20) {
@@ -258,8 +330,14 @@ export function pruefeUebersteuerung(e: { art: string; key: string; wert: unknow
 
   switch (art) {
     case "eingabe": {
-      if (!istGrundlageKey(key)) throw new UebersteuerungFehler(`Unbekanntes Feld: ${key}`);
-      return { art, key, wert: e.wert === null ? null : pruefeEingabe(key, e.wert), grund };
+      const k = eingabeSchluessel(key);
+      if (!istGrundlageKey(k)) throw new UebersteuerungFehler(`Unbekanntes Feld: ${key}`);
+      return { art, key: k, wert: e.wert === null ? null : pruefeEingabe(k, e.wert), grund };
+    }
+    case "position": {
+      const k = positionSchluessel(key);
+      if (k === "" || k.length > 120) throw new UebersteuerungFehler("Position: Name fehlt");
+      return { art, key: k, wert: e.wert === null ? null : pruefePosition(e.wert), grund };
     }
     case "zeile": {
       if (key === "") throw new UebersteuerungFehler("Schlüssel fehlt");
@@ -326,6 +404,31 @@ export function pruefeUebersteuerung(e: { art: string; key: string; wert: unknow
   }
 }
 
+const GROESSEN = new Set(["klein", "mittel", "gross", "sperrig"]);
+
+function pruefePosition(wert: unknown): PositionWert {
+  if (!wert || typeof wert !== "object" || Array.isArray(wert)) throw new UebersteuerungFehler("Position: ungültige Korrektur");
+  const roh = wert as Record<string, unknown>;
+  const aus: PositionWert = {};
+  if (roh.groessenklasse !== undefined && roh.groessenklasse !== null && roh.groessenklasse !== "") {
+    const g = typeof roh.groessenklasse === "string" ? roh.groessenklasse.toLowerCase().replace(/ß/g, "ss") : "";
+    if (!GROESSEN.has(g)) throw new UebersteuerungFehler("Größenklasse muss klein, mittel, gross oder sperrig sein");
+    aus.groessenklasse = g as PositionWert["groessenklasse"];
+  }
+  if (roh.volumenCbm !== undefined && roh.volumenCbm !== null && roh.volumenCbm !== "") {
+    const n = zahl(roh.volumenCbm);
+    if (n === null || n <= 0 || n > 30) throw new UebersteuerungFehler("Volumen je Stück: größer als 0, höchstens 30 m³");
+    aus.volumenCbm = Math.round(n * 1000) / 1000;
+  }
+  if (roh.gewichtKg !== undefined && roh.gewichtKg !== null && roh.gewichtKg !== "") {
+    const n = zahl(roh.gewichtKg);
+    if (n === null || n <= 0 || n > 2000) throw new UebersteuerungFehler("Gewicht je Stück: größer als 0, höchstens 2.000 kg");
+    aus.gewichtKg = Math.round(n * 10) / 10;
+  }
+  if (Object.keys(aus).length === 0) throw new UebersteuerungFehler("Position: Größenklasse, Volumen oder Gewicht angeben");
+  return aus;
+}
+
 /** Betrag in Euro aus Zahl, Text oder `{ betrag }`; größer als 0. */
 function pruefeBetrag(wert: unknown, was: string): number {
   const roh = wert && typeof wert === "object" && !Array.isArray(wert) ? (wert as Record<string, unknown>).betrag : wert;
@@ -368,6 +471,10 @@ export function anfrageMitUebersteuerungen(
   let zeilenArt = false;
   let zeitpostenArt = false;
   let materialArt = false;
+  const hebelAus = new Set<string>(
+    typeof basis.hebel_aus === "string" ? (JSON.parse(basis.hebel_aus) as string[]) : []
+  );
+  const positionen = new Map<string, PositionWert>();
 
   for (const u of wirksame(liste).values()) {
     if (u.art === "zeile") zeilenArt = true;
@@ -377,22 +484,33 @@ export function anfrageMitUebersteuerungen(
 
     switch (u.art) {
       case "eingabe": {
-        if (!istGrundlageKey(u.key)) break;
-        const feld = GRUNDLAGE_FELDER[u.key];
-        if (u.key === "halteverbot.beladen" || u.key === "halteverbot.entladen") {
+        // Altschlüssel `kartons` (Plan 15): Umzugskartons, nicht mehr Einpackservice.
+        const key = eingabeSchluessel(u.key);
+        if (!istGrundlageKey(key)) break;
+        const feld = GRUNDLAGE_FELDER[key];
+        if (key === "halteverbot.beladen" || key === "halteverbot.entladen") {
           if (u.wert === true) a[feld] = "on";
           else delete a[feld];
-        } else if (u.key === "kartons") {
+        } else if (key === "einpacken") {
           delete a.einpack_ohne_anzahl;
           if (u.wert === 0) delete a[feld];
           else a[feld] = String(u.wert);
+        } else if (key === "hebel.montage" || key === "hebel.kueche") {
+          const hebel = key === "hebel.montage" ? "montage" : "kueche";
+          if (u.wert === false) hebelAus.add(hebel);
+          else hebelAus.delete(hebel);
         } else if (typeof u.wert !== "object") {
           a[feld] = String(u.wert);
         }
         // Angaben zum Ziel schalten die Zielseite ein (wie rechnerAnfrageAus).
-        if (u.key.startsWith("entladen.") || (u.key === "halteverbot.entladen" && u.wert === true)) a.nach_vorhanden = "on";
+        if (key.startsWith("entladen.") || (key === "halteverbot.entladen" && u.wert === true)) a.nach_vorhanden = "on";
         break;
       }
+      case "position":
+        if (u.wert && typeof u.wert === "object" && !("bezeichnung" in u.wert && u.wert.bezeichnung)) {
+          positionen.set(u.key, u.wert as PositionWert);
+        }
+        break;
       case "zeile":
         if (typeof u.wert === "number") zeilen.push({ key: u.key, betrag: u.wert });
         break;
@@ -425,6 +543,22 @@ export function anfrageMitUebersteuerungen(
     if (werte.length > 0) a[feld] = werte;
     else delete a[feld];
   };
+  // Plan 15 (Bauteil 6): Hebel aus, sortiert (stabiler Hash); leer = Feld weg.
+  if (hebelAus.size > 0) a.hebel_aus = JSON.stringify([...hebelAus].sort());
+  else delete a.hebel_aus;
+  // Plan 15 (Bauteil 3): Korrektur je Position ohne Katalogtreffer (Name wie im Inventar).
+  if (positionen.size > 0 && Array.isArray(a.positionen_freitext)) {
+    a.positionen_freitext = a.positionen_freitext.map((p) => {
+      const k = positionen.get(positionSchluessel(String(p.name ?? "")));
+      if (!k) return p;
+      return {
+        ...p,
+        ...(k.groessenklasse ? { groessenklasse: k.groessenklasse } : {}),
+        ...(k.volumenCbm ? { volumenCbm: k.volumenCbm } : {}),
+        ...(k.gewichtKg ? { gewichtKg: k.gewichtKg } : {}),
+      };
+    });
+  }
   setzeListe("zeilen_uebersteuerung", zeilenArt, zeilen);
   setzeListe("zeitposten", zeitpostenArt, zeitposten);
   setzeListe("material_frei", materialArt, material);
@@ -471,7 +605,24 @@ export function grundlageAus(lead: LeadDaten, ergebnis: RechnerErgebnis | null, 
     "entladen.tragweg": ausLead(lead.tragestreckeNachM),
     "halteverbot.beladen": ausLead(lead.halteverbot),
     "halteverbot.entladen": ausLead(lead.halteverbotNach ?? false),
-    kartons: ausLead(lead.packService && lead.kartons ? lead.kartons : null),
+    umzugskartons: lead.packService
+      ? { wert: null, herkunft: "STANDARD" }
+      : lead.kartons
+        ? { wert: lead.kartons, herkunft: "KUNDE" }
+        : lead.chatKartons
+          ? { wert: lead.chatKartons.anzahl, herkunft: "CHAT" }
+          : { wert: null, herkunft: "STANDARD" },
+    einpacken: ausLead(lead.packService && lead.kartons ? lead.kartons : null),
+    zimmer: ausLead(lead.zimmer),
+    wohnflaeche: ausLead(lead.wohnflaecheQm),
+    "fahrt.anfahrt_min": { wert: null, herkunft: "STANDARD" },
+    "fahrt.anfahrt_km": { wert: null, herkunft: "STANDARD" },
+    "fahrt.strecke_min": { wert: null, herkunft: "STANDARD" },
+    "fahrt.strecke_km": { wert: null, herkunft: "STANDARD" },
+    "fahrt.rueckfahrt_min": { wert: null, herkunft: "STANDARD" },
+    "fahrt.rueckfahrt_km": { wert: null, herkunft: "STANDARD" },
+    "hebel.montage": { wert: true, herkunft: "STANDARD" },
+    "hebel.kueche": { wert: true, herkunft: "STANDARD" },
     team: { wert: team, herkunft: team === null ? "STANDARD" : "REGEL" },
     termin: ausLead(lead.umzugsdatum),
     anfahrt_team: { wert: null, herkunft: "STANDARD" },
@@ -480,7 +631,7 @@ export function grundlageAus(lead: LeadDaten, ergebnis: RechnerErgebnis | null, 
   };
 
   return GRUNDLAGE_KEYS.map((key) => {
-    const u = wirksamFuer(liste, "eingabe", key);
+    const u = wirksamFuer(liste, "eingabe", key) ?? (key === "umzugskartons" ? wirksamFuer(liste, "eingabe", "kartons") : undefined);
     if (u && u.wert !== null && typeof u.wert !== "object") {
       return { key, wert: u.wert, herkunft: "MANUELL" as const, autor: autorText(u) };
     }
@@ -530,9 +681,19 @@ export function rechnerwertFuer(
   };
   switch (art) {
     case "eingabe": {
+      key = eingabeSchluessel(key);
       if (!istGrundlageKey(key)) return null;
       const feld = GRUNDLAGE_FELDER[key];
       if (key === "halteverbot.beladen" || key === "halteverbot.entladen") return text(feld) === "on";
+      if (key === "hebel.montage" || key === "hebel.kueche") {
+        const aus = text(feld);
+        return !(aus ? (JSON.parse(aus) as string[]).includes(key.slice("hebel.".length)) : false);
+      }
+      if (key.startsWith("fahrt.")) {
+        const f = ergebnis?.fahrtAufschluesselung;
+        const [teil, einheit] = key.slice("fahrt.".length).split("_") as ["anfahrt" | "strecke" | "rueckfahrt", "min" | "km"];
+        return f ? f[teil][einheit] : zahl(text(feld));
+      }
       if (key === "volumen") return ergebnis?.volumen?.nettoCbm ?? zahl(text(feld));
       if (key === "team") return ergebnis?.team?.groesse ?? zahl(text(feld));
       if (key === "termin" || key === "beladen.aufzug" || key === "entladen.aufzug" || key === "station" || key === "fahrzeugklasse") {
@@ -553,6 +714,10 @@ export function rechnerwertFuer(
     case "zeitposten":
     case "material_frei":
       return null;
+    case "position": {
+      const p = (ergebnis?.positionen ?? []).find((x) => positionSchluessel(x.name) === key);
+      return p ? p.volumenCbm : null;
+    }
     case "paketpreis": {
       const p = (ergebnis?.paketpreise ?? []).find((x) => x.slug === key);
       return p?.festpreis ?? null;

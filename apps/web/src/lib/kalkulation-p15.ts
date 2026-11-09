@@ -61,7 +61,7 @@ export interface PositionOhneKatalog {
 
 // ─── Bauteil 1: Kasten „Damit hat der Rechner gerechnet“ ─────────────────────
 
-export type AnnahmeGruppeKey = "adressen" | "etagen" | "volumen" | "team" | "fahrzeit";
+export type AnnahmeGruppeKey = "adressen" | "etagen" | "volumen" | "team" | "fahrzeit" | "weitere";
 
 export interface AnnahmeZeile {
   text: string;

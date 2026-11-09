@@ -212,7 +212,7 @@ describe("anfrageMitUebersteuerungen", () => {
         ue("eingabe", "volumen", 18.5),
         ue("eingabe", "team", 3),
         ue("eingabe", "termin", "2026-12-03"),
-        ue("eingabe", "kartons", 40),
+        ue("eingabe", "einpacken", 40),
         ue("material_frei", "folie", { bezeichnung: "Stretchfolie", betrag: 12.5 }),
       ],
       ref
@@ -257,9 +257,11 @@ describe("grundlageAus", () => {
     expect(herkunft(grundlageAus(lead(), null, []), "termin")).toBe("KUNDE");
   });
 
-  it("zeigt eine Eingabe-Übersteuerung als manuell", () => {
-    const z = grundlageAus(lead({ packService: true, kartons: 20 }), null, [ue("eingabe", "kartons", 35)]).find((r) => r.key === "kartons");
-    expect(z).toMatchObject({ key: "kartons", wert: 35, herkunft: "MANUELL", autor: "user-1" });
+  it("zeigt eine Eingabe-Übersteuerung als manuell (Altschlüssel kartons gilt als Umzugskartons)", () => {
+    const z = grundlageAus(lead({ packService: true, kartons: 20 }), null, [ue("eingabe", "kartons", 35)]).find((r) => r.key === "umzugskartons");
+    expect(z).toMatchObject({ key: "umzugskartons", wert: 35, herkunft: "MANUELL", autor: "user-1" });
+    const e = grundlageAus(lead({ packService: true, kartons: 20 }), null, []).find((r) => r.key === "einpacken");
+    expect(e).toMatchObject({ wert: 20, herkunft: "KUNDE" });
   });
 
   it("Erdgeschoss ohne Etage ergibt Etage 0 vom Kunden, wie in der Anfrage", () => {
@@ -292,7 +294,18 @@ describe("grundlageAus", () => {
       "entladen.tragweg",
       "halteverbot.beladen",
       "halteverbot.entladen",
-      "kartons",
+      "umzugskartons",
+      "einpacken",
+      "zimmer",
+      "wohnflaeche",
+      "fahrt.anfahrt_min",
+      "fahrt.anfahrt_km",
+      "fahrt.strecke_min",
+      "fahrt.strecke_km",
+      "fahrt.rueckfahrt_min",
+      "fahrt.rueckfahrt_km",
+      "hebel.montage",
+      "hebel.kueche",
       "team",
       "termin",
       "anfahrt_team",
@@ -382,5 +395,40 @@ describe("rechnerwertFuer", () => {
     expect(rechnerwertFuer("satz", "fahrt", { satz_fahrt: "15" }, ergebnis)).toBe(15);
     expect(rechnerwertFuer("zeitposten", "klavier", {}, ergebnis)).toBeNull();
     expect(rechnerwertFuer("zeile", "halteverbot", {}, null)).toBeNull();
+  });
+});
+
+describe("Plan 15, Bauteil 13: Umzugskartons getrennt vom Einpackservice", () => {
+  const ref = { referenceDate: "2026-11-09" };
+  it("Inhaber trägt 15 Kartons ein: Umzugskartons an den Rechner, kein Einpackservice", () => {
+    const a = anfrageMitUebersteuerungen(rechnerAnfrageAus(lead({ packService: false, kartons: null })), [ue("eingabe", "umzugskartons", 15)], ref);
+    expect(a.umzugskartons).toBe("15");
+    expect(a).not.toHaveProperty("einpack_kartons");
+  });
+  it("Altschlüssel kartons gilt als Umzugskartons", () => {
+    const a = anfrageMitUebersteuerungen(rechnerAnfrageAus(lead({ packService: false, kartons: null })), [ue("eingabe", "kartons", 15)], ref);
+    expect(a.umzugskartons).toBe("15");
+    expect(a).not.toHaveProperty("einpack_kartons");
+    expect(pruefeUebersteuerung({ art: "eingabe", key: "kartons", wert: 12, grund: "g" })).toMatchObject({ key: "umzugskartons", wert: 12 });
+  });
+  it("Einpackservice 15: einpack_kartons (Hebel Einpacken), 0 schaltet ihn ab", () => {
+    const a = anfrageMitUebersteuerungen(rechnerAnfrageAus(lead({ packService: false, kartons: null })), [ue("eingabe", "einpacken", 15)], ref);
+    expect(a.einpack_kartons).toBe("15");
+    const aus = anfrageMitUebersteuerungen(rechnerAnfrageAus(lead({ packService: true, kartons: 20 })), [ue("eingabe", "einpacken", 0)], ref);
+    expect(aus).not.toHaveProperty("einpack_kartons");
+  });
+  it("Lead: Kartons ohne Einpackservice sind Umzugskartons, mit Einpackservice bleibt es wie bisher", () => {
+    expect(rechnerAnfrageAus(lead({ packService: false, kartons: 30 }))).toMatchObject({ umzugskartons: "30" });
+    const mitService = rechnerAnfrageAus(lead({ packService: true, kartons: 30 }));
+    expect(mitService).toMatchObject({ einpack_kartons: "30" });
+    expect(mitService).not.toHaveProperty("umzugskartons");
+  });
+  it("Chat „10-15 Kartons“: 15 Umzugskartons, unbestätigt, nie Einpackservice", () => {
+    const l = lead({ packService: false, kartons: null, chatKartons: { anzahl: 15, quelle: "erkennung" } });
+    const a = rechnerAnfrageAus(l);
+    expect(a.umzugskartons).toBe("15");
+    expect(a).not.toHaveProperty("einpack_kartons");
+    expect(grundlageAus(l, null, []).find((z) => z.key === "umzugskartons")).toMatchObject({ wert: 15, herkunft: "CHAT" });
+    expect(rechnerAnfrageAus({ ...l, packService: true })).not.toHaveProperty("umzugskartons");
   });
 });

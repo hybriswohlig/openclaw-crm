@@ -13,7 +13,7 @@ import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { activityEvents } from "@/db/schema";
 import { inboxConversations, inboxMessages } from "@/db/schema/inbox";
-import { adressenAusNachrichten, chatAdressenWaehlen } from "@/lib/chat-adressen";
+import { adressenAusNachrichten, chatAdressenWaehlen, kartonsAusKi, kartonsAusNachrichten } from "@/lib/chat-adressen";
 import type { ChatAdressen } from "@/lib/kalkulation-p15";
 
 /** Höchstens so viele eingehende Nachrichten werden gelesen (die neuesten). */
@@ -23,8 +23,8 @@ function textOderNull(w: unknown): string | null {
   return typeof w === "string" && w.trim() !== "" ? w.trim() : null;
 }
 
-/** Von der KI zuletzt herausgezogene Adressen (Ereignis-Payload `adressen`), sonst null. */
-export async function kiAdressen(ws: string, deal: string): Promise<{ von: string | null; nach: string | null } | null> {
+/** Letztes KI-Ereignis mit Plan-15-Feldern (`adressen`, `kartons`), sonst null. */
+async function kiAngaben(ws: string, deal: string): Promise<{ von: string | null; nach: string | null; kartons: number | null } | null> {
   const [e] = await db
     .select({ payload: activityEvents.payload })
     .from(activityEvents)
@@ -38,9 +38,16 @@ export async function kiAdressen(ws: string, deal: string): Promise<{ von: strin
     )
     .orderBy(desc(activityEvents.createdAt))
     .limit(1);
-  const a = (e?.payload as { adressen?: { von?: unknown; nach?: unknown } } | undefined)?.adressen;
-  if (!a || typeof a !== "object") return null;
-  return { von: textOderNull(a.von), nach: textOderNull(a.nach) };
+  const p = e?.payload as { adressen?: { von?: unknown; nach?: unknown }; kartons?: unknown } | undefined;
+  if (!p) return null;
+  const a: { von?: unknown; nach?: unknown } = p.adressen && typeof p.adressen === "object" ? p.adressen : {};
+  return { von: textOderNull(a.von), nach: textOderNull(a.nach), kartons: kartonsAusKi(p.kartons) };
+}
+
+/** Von der KI zuletzt herausgezogene Adressen (Ereignis-Payload `adressen`), sonst null. */
+export async function kiAdressen(ws: string, deal: string): Promise<{ von: string | null; nach: string | null } | null> {
+  const k = await kiAngaben(ws, deal);
+  return k ? { von: k.von, nach: k.nach } : null;
 }
 
 /** Texte der eingehenden Nachrichten der Gespräche dieses Deals, älteste zuerst. */
@@ -62,24 +69,54 @@ export async function eingehendeTexte(ws: string, deal: string): Promise<string[
   return zeilen.map((z) => z.body ?? "").reverse();
 }
 
+export interface ChatAngaben {
+  adressen: ChatAdressen | null;
+  /** Bauteil 13: Umzugskartons aus dem Chat (oberer Wert einer Spanne), unbestätigt. */
+  kartons: { anzahl: number; quelle: "ki" | "erkennung" } | null;
+}
+
 /**
- * Chat-Adressen für die Seiten, die im Lead fehlen. Fehlt keine, wird nichts
- * gelesen. Wirft nie: ohne Chat-Angabe rechnet der Rechner wie bisher.
+ * Chat-Angaben für das, was im Lead fehlt: Adressen je Seite und die Kartonzahl.
+ * Fehlt nichts, wird nichts gelesen. Wirft nie: ohne Chat-Angabe rechnet der
+ * Rechner wie bisher.
  */
+export async function ladeChatAngaben(
+  ws: string,
+  deal: string,
+  lead: { von: string | null; nach: string | null; kartonsFehlen: boolean }
+): Promise<ChatAngaben> {
+  const adressenFehlen = !lead.von || !lead.nach;
+  if (!adressenFehlen && !lead.kartonsFehlen) return { adressen: null, kartons: null };
+  try {
+    const ki = await kiAngaben(ws, deal);
+    const kiReicht = (!adressenFehlen || ((lead.von || ki?.von) && (lead.nach || ki?.nach))) && (!lead.kartonsFehlen || ki?.kartons);
+    const texte = kiReicht ? null : await eingehendeTexte(ws, deal);
+    let adressen: ChatAdressen | null = null;
+    if (adressenFehlen) {
+      const c = chatAdressenWaehlen(lead, ki, texte ? adressenAusNachrichten(texte) : null);
+      adressen = c.von || c.nach ? c : null;
+    }
+    let kartons: ChatAngaben["kartons"] = null;
+    if (lead.kartonsFehlen) {
+      if (ki?.kartons) kartons = { anzahl: ki.kartons, quelle: "ki" };
+      else {
+        const n = texte ? kartonsAusNachrichten(texte) : null;
+        if (n) kartons = { anzahl: n, quelle: "erkennung" };
+      }
+    }
+    return { adressen, kartons };
+  } catch (err) {
+    console.error("[chat-adressen]", err);
+    return { adressen: null, kartons: null };
+  }
+}
+
+/** Nur die Adressen (Bauteil 8). */
 export async function ladeChatAdressen(
   ws: string,
   deal: string,
   lead: { von: string | null; nach: string | null }
 ): Promise<ChatAdressen | null> {
   if (lead.von && lead.nach) return null;
-  try {
-    const ki = await kiAdressen(ws, deal);
-    const kiReicht = (lead.von || ki?.von) && (lead.nach || ki?.nach);
-    const erkennung = kiReicht ? null : adressenAusNachrichten(await eingehendeTexte(ws, deal));
-    const c = chatAdressenWaehlen(lead, ki, erkennung);
-    return c.von || c.nach ? c : null;
-  } catch (err) {
-    console.error("[chat-adressen]", err);
-    return null;
-  }
+  return (await ladeChatAngaben(ws, deal, { ...lead, kartonsFehlen: false })).adressen;
 }

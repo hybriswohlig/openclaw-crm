@@ -602,6 +602,8 @@ export async function applyDealInsights(
           // Plan 15 (Bauteil 8): zuletzt erkannte Adressen, auch wenn sie nicht ins Lead
           // geschrieben wurden. Die Kalkulation rechnet damit, solange das Lead leer ist.
           adressen: { von: ext.move_from_address ?? null, nach: ext.move_to_address ?? null },
+          // Bauteil 13: zuletzt erkannte Kartonzahl (Umzugskartons zum Transport, nie Einpackservice).
+          kartons: ext.boxes_needed ?? null,
         },
         actorId: appliedBy,
       });

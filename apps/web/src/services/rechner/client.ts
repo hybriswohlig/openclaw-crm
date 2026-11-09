@@ -32,6 +32,23 @@ export interface KostenPosten {
   stabilKey?: string;
 }
 
+/** Quelle einer Fahrstrecke im Rechner. */
+export type FahrtQuelle = "google" | "manuell" | "ortsintern" | "angenommen" | "keine";
+export interface FahrtStrecke {
+  km: number;
+  min: number;
+  quelle: FahrtQuelle;
+}
+/** Plan 15: Anfahrt, `wege` × Strecke (2 × Touren − 1), Rückfahrt; `fahrtMin` je Person wie gerechnet. */
+export interface FahrtAufschluesselung {
+  anfahrt: FahrtStrecke;
+  strecke: FahrtStrecke;
+  rueckfahrt: FahrtStrecke;
+  fahrten: number;
+  wege: number;
+  fahrtMin: number;
+}
+
 export interface MargeVorschlag {
   prozent: number;
   gruende: Array<{ text: string; punkte: number }>;
@@ -82,6 +99,10 @@ export interface RechnerErgebnis {
   stunden?: RechnerStunden | null;
   /** `quelle` (neuer Rechner): warum das Team so groß ist (Staffel, Träger, Fahrer, Vorgabe, Arbeitstag). */
   team?: { groesse: number; quelle?: "staffel" | "traeger" | "fahrer" | "vorgabe" | "arbeitstag" };
+  /** Plan 15: Fahrt der Empfehlung je Strecke (neuer Rechner, immer). */
+  fahrtAufschluesselung?: FahrtAufschluesselung | null;
+  /** Plan 15: Echo von `umzugskartons` (neuer Rechner). */
+  umzugskartons?: number;
   /** Plan 15: Echo des Anfragefelds `hebel_aus` (neuer Rechner); fehlt bei altem Rechner. */
   hebelAus?: string[];
   /** Kartonschätzung aus der Wohnfläche (Rechner), null ohne Wohnfläche oder bei genannten Kartons. */

@@ -12,7 +12,7 @@ import { auftragsartAus } from "@/lib/auftragsart";
 import { getRecord } from "@/services/records";
 import { getDealInventory } from "@/services/deal-inventory";
 import { ladeFirmenEinstellungen } from "@/services/company-settings";
-import { ladeChatAdressen } from "@/services/chat-adressen";
+import { ladeChatAngaben } from "@/services/chat-adressen";
 import type { LeadDaten } from "./eingabe";
 import { leadQuelle, markeAusFirmenname } from "./quelle";
 import { datumText, groesseAusLead, inventarAusZeilen, ortText, referenzId, zahlOderNull } from "./lead-daten-helfer";
@@ -83,12 +83,14 @@ export async function ladeLeadDaten(workspaceId: string, dealRecordId: string): 
 
   const von = ortText(dv.move_from_address);
   const nach = ortText(dv.move_to_address);
-  // Plan 15 (Bauteil 8): fehlende Adressen aus dem Chat (KI-Ereignis, sonst Erkennung).
-  const chatAdressen = von && nach ? null : await ladeChatAdressen(workspaceId, dealRecordId, { von, nach });
+  const kartons = zahlOderNull(av.boxes_needed);
+  // Plan 15 (Bauteile 8 und 13): fehlende Adressen und Kartonzahl aus dem Chat (KI-Ereignis, sonst Erkennung).
+  const chat = await ladeChatAngaben(workspaceId, dealRecordId, { von, nach, kartonsFehlen: kartons === null });
   return {
     von,
     nach,
-    chatAdressen,
+    chatAdressen: chat.adressen,
+    chatKartons: chat.kartons,
     etageVon: zahlOderNull(dv.floors_from),
     etageNach: zahlOderNull(dv.floors_to),
     zugangVon: await optionsTitel(dv.elevator_from),
@@ -102,7 +104,7 @@ export async function ladeLeadDaten(workspaceId: string, dealRecordId: string): 
     halteverbot: av.parking_halteverbot_needed === true,
     halteverbotNach: av.parking_halteverbot_to === true,
     packService: av.packing_service === true,
-    kartons: zahlOderNull(av.boxes_needed),
+    kartons,
     inventar: inventarAusZeilen(inventar),
     marke: (firmaId ? (await ladeFirmenEinstellungen(workspaceId, firmaId)).rechnerMarke : null)
       ?? markeAusFirmenname(typeof firma?.values?.name === "string" ? firma.values.name : null),

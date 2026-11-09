@@ -41,7 +41,9 @@ import {
   versionsPreiseAusZeile,
   wirksameUebersteuerungen,
   type SperrRegel,
+  eingabeSchluessel,
   type GrundlageKey,
+  type PositionWert,
   type Herkunft,
   type Uebersteuerung,
   type UebersteuerungsArt,
@@ -441,7 +443,18 @@ const GRUNDLAGE_LABEL: Record<GrundlageKey, string> = {
   "entladen.tragweg": "Tragweg beim Entladen",
   "halteverbot.beladen": "Halteverbot beim Beladen",
   "halteverbot.entladen": "Halteverbot beim Entladen",
-  kartons: "Kartons",
+  umzugskartons: "Umzugskartons (packt der Kunde)",
+  einpacken: "Einpackservice (wir packen)",
+  zimmer: "Zimmer",
+  wohnflaeche: "Wohnfläche",
+  "fahrt.anfahrt_min": "Anfahrt Station → Beladen in min",
+  "fahrt.anfahrt_km": "Anfahrt in km",
+  "fahrt.strecke_min": "Weg Beladen → Entladen in min",
+  "fahrt.strecke_km": "Weg Beladen → Entladen in km",
+  "fahrt.rueckfahrt_min": "Rückfahrt zur Station in min",
+  "fahrt.rueckfahrt_km": "Rückfahrt in km",
+  "hebel.montage": "Montage",
+  "hebel.kueche": "Küche",
   team: "Team",
   termin: "Termin",
   anfahrt_team: "Anfahrt Team",
@@ -473,10 +486,34 @@ function grundlageWertText(key: GrundlageKey, wert: unknown): string {
     case "halteverbot.beladen":
     case "halteverbot.entladen":
       return wert === true ? "ja" : "nein";
-    case "kartons": {
+    case "umzugskartons":
+    case "einpacken": {
       const n = zahl(wert);
       return n === null ? String(wert) : `${GANZ.format(n)} Stück`;
     }
+    case "zimmer": {
+      const n = zahl(wert);
+      return n === null ? String(wert) : `${KOMMA1.format(n)} Zimmer`;
+    }
+    case "wohnflaeche": {
+      const n = zahl(wert);
+      return n === null ? String(wert) : `${GANZ.format(n)} m²`;
+    }
+    case "fahrt.anfahrt_min":
+    case "fahrt.strecke_min":
+    case "fahrt.rueckfahrt_min": {
+      const n = zahl(wert);
+      return n === null ? String(wert) : `${GANZ.format(n)} min`;
+    }
+    case "fahrt.anfahrt_km":
+    case "fahrt.strecke_km":
+    case "fahrt.rueckfahrt_km": {
+      const n = zahl(wert);
+      return n === null ? String(wert) : `${KOMMA1.format(n)} km`;
+    }
+    case "hebel.montage":
+    case "hebel.kueche":
+      return wert === false ? "aus" : "an";
     case "team": {
       const n = zahl(wert);
       return n === null ? String(wert) : personenText(n);
@@ -500,10 +537,12 @@ interface GrundlageKontext {
 }
 
 function grundlageKontext(v: VersionsZeile, namen: Record<string, string>): GrundlageKontext {
-  const inputs = new Map((v.inputs ?? []).map((z) => [z.key, z]));
+  // Gespeicherte Grundlage vor Plan 15: `kartons` war der Einpackservice (aus dem Lead).
+  const inputs = new Map((v.inputs ?? []).map((z) => [(z.key as string) === "kartons" ? "einpacken" : z.key, z]));
   const eingaben = new Map<string, Uebersteuerung>();
   for (const u of wirksameUebersteuerungen(v.overrides ?? [])) {
-    if (u.art === "eingabe" && typeof u.wert !== "object") eingaben.set(u.key, u);
+    // Altschlüssel `kartons` (bis Plan 15 Einpackservice) gilt als Umzugskartons.
+    if (u.art === "eingabe" && typeof u.wert !== "object") eingaben.set(eingabeSchluessel(u.key), u);
   }
   return {
     // Eine wirksame Übersteuerung gewinnt, auch wenn die letzte Rechnung sie noch nicht kennt.
@@ -586,7 +625,8 @@ function grundlageAnsicht(v: VersionsZeile, rest: AnsichtRest): GrundlageAnsicht
 
   const hvBeladen = k.wert("halteverbot.beladen") === true;
   const hvEntladen = k.wert("halteverbot.entladen") === true;
-  const kartons = zahl(k.wert("kartons"));
+  const umzugskartons = zahl(k.wert("umzugskartons"));
+  const einpackenWert = zahl(k.wert("einpacken"));
 
   // Montage: zerlegte Positionen des Rechners; Eigentümer im Inventar = von Hand festgelegt.
   const positionen = e?.positionen ?? [];
@@ -632,13 +672,22 @@ function grundlageAnsicht(v: VersionsZeile, rest: AnsichtRest): GrundlageAnsicht
       ],
     },
     {
-      key: "kartons",
-      label: "Kartons",
-      wert: kartons !== null && kartons > 0 ? `${GANZ.format(kartons)} Stück` : "keine",
-      herkunft: [k.herkunft("kartons")],
-      warum: null,
-      bearbeitet: k.bearbeitet(["kartons"]),
-      felder: [feld("kartons", "Kartons", "ganzzahl", k)],
+      key: "umzugskartons",
+      label: "Umzugskartons (packt der Kunde)",
+      wert: umzugskartons !== null && umzugskartons > 0 ? `${GANZ.format(umzugskartons)} Stück` : "keine",
+      herkunft: [k.herkunft("umzugskartons")].map((h) => (h.art === "CHAT" ? { art: "CHAT" as const, text: "CHAT, unbestätigt" } : h)),
+      warum: "Volumen und Tragezeit, kein Einpackservice",
+      bearbeitet: k.bearbeitet(["umzugskartons"]),
+      felder: [feld("umzugskartons", "Umzugskartons", "ganzzahl", k)],
+    },
+    {
+      key: "einpacken",
+      label: "Einpackservice (wir packen)",
+      wert: einpackenWert !== null && einpackenWert > 0 ? `${GANZ.format(einpackenWert)} Kartons` : "nein",
+      herkunft: [k.herkunft("einpacken")],
+      warum: einpackenWert !== null && einpackenWert > 0 ? "steht als Einpacken im KV" : null,
+      bearbeitet: k.bearbeitet(["einpacken"]),
+      felder: [feld("einpacken", "Kartons, die wir packen", "ganzzahl", k)],
     },
     {
       key: "montage",
@@ -1049,7 +1098,7 @@ function istAlteArt(u: Uebersteuerung): u is AlteUebersteuerung {
 function anpassungText(u: AlteUebersteuerung, v: VersionsZeile): string {
   switch (u.art) {
     case "eingabe": {
-      const key = u.key as GrundlageKey;
+      const key = eingabeSchluessel(u.key) as GrundlageKey;
       const label = GRUNDLAGE_LABEL[key] ?? u.key;
       return `${label}: ${GRUNDLAGE_LABEL[key] ? grundlageWertText(key, u.wert) : String(u.wert)}`;
     }
@@ -1077,6 +1126,15 @@ function anpassungText(u: AlteUebersteuerung, v: VersionsZeile): string {
     case "material_frei": {
       const w = u.wert && typeof u.wert === "object" ? u.wert : null;
       return `${w?.bezeichnung ?? u.key}: ${euroText(cent(w?.betrag ?? 0))}`;
+    }
+    case "position": {
+      const w = (u.wert && typeof u.wert === "object" ? u.wert : {}) as PositionWert;
+      const teile = [
+        w.groessenklasse ? (w.groessenklasse === "gross" ? "groß" : w.groessenklasse) : null,
+        w.volumenCbm ? `${KOMMA2.format(w.volumenCbm)} m³` : null,
+        w.gewichtKg ? `${GANZ.format(w.gewichtKg)} kg` : null,
+      ].filter(Boolean);
+      return `Position ${u.key}: ${teile.join(", ")}`;
     }
   }
 }

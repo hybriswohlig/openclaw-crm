@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { adressenAusNachrichten, chatAdressenWaehlen, plzOrtAus } from "./chat-adressen";
+import { adressenAusNachrichten, chatAdressenWaehlen, kartonsAusKi, kartonsAusNachrichten, plzOrtAus } from "./chat-adressen";
 
 describe("plzOrtAus", () => {
   it("nimmt PLZ und Ort aus einer vollen Adresse", () => {
@@ -70,5 +70,25 @@ describe("chatAdressenWaehlen", () => {
   });
   it("ohne Angaben alles null", () => {
     expect(chatAdressenWaehlen({ von: null, nach: null }, null, null)).toEqual({ von: null, nach: null, quelleVon: null, quelleNach: null });
+  });
+});
+
+describe("kartonsAusNachrichten (Bauteil 13)", () => {
+  it("Spanne: der obere Wert", () => {
+    expect(kartonsAusNachrichten(["Wir haben so 10 bis 15 Umzugskartons"])).toBe(15);
+    expect(kartonsAusNachrichten(["ca. 10-15 Kartons"])).toBe(15);
+  });
+  it("einzelne Zahl, neueste Nennung gewinnt", () => {
+    expect(kartonsAusNachrichten(["20 Kartons", "doch eher 25 Kisten"])).toBe(25);
+  });
+  it("ohne Nennung null, Preise zählen nicht", () => {
+    expect(kartonsAusNachrichten(["Was kostet ein Karton? 3 €"])).toBeNull();
+    expect(kartonsAusNachrichten([])).toBeNull();
+  });
+  it("KI-Wert", () => {
+    expect(kartonsAusKi(15)).toBe(15);
+    expect(kartonsAusKi("12")).toBe(12);
+    expect(kartonsAusKi(null)).toBeNull();
+    expect(kartonsAusKi(0)).toBeNull();
   });
 });

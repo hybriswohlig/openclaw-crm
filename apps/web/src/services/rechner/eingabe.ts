@@ -41,6 +41,8 @@ export interface LeadDaten {
    * („PLZ Ort“, unbestätigt). Gilt nur, wo `von` bzw. `nach` leer ist.
    */
   chatAdressen?: ChatAdressen | null;
+  /** Plan 15 (Bauteil 13): Umzugskartons aus dem Chat (oberer Wert einer Spanne), nur wenn `kartons` fehlt. */
+  chatKartons?: { anzahl: number; quelle: "ki" | "erkennung" } | null;
   /** Firma des Leads, für den Margenvorschlag */
   marke?: Marke | null;
   /** Herkunft des Leads, für den Margenvorschlag */
@@ -103,6 +105,10 @@ export function rechnerAnfrageAus(lead: LeadDaten, opts: { heute?: string } = {}
   if (lead.halteverbot) a.von_halteverbot = "on";
   if (lead.halteverbotNach) a.nach_halteverbot = "on";
   if (lead.packService && lead.kartons) setze("einpack_kartons", lead.kartons);
+  // Plan 15 (Bauteil 13): Kartons ohne Einpackservice sind Umzugskartons zum Transport (Volumen,
+  // Tragezeit); fehlt die Zahl im Lead, die aus dem Chat. Nie Einpackservice.
+  const umzugskartons = lead.packService ? null : lead.kartons ?? lead.chatKartons?.anzahl ?? null;
+  if (umzugskartons !== null && umzugskartons > 0) setze("umzugskartons", umzugskartons);
   // Einpackservice gebucht, aber keine Kartonzahl: nicht still weglassen, sondern kenntlich machen
   // (der Rechner ignoriert das Feld, die Karte im CRM warnt).
   if (lead.packService && !lead.kartons) a.einpack_ohne_anzahl = "on";
