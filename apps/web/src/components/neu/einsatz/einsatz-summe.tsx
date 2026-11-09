@@ -22,6 +22,8 @@ export function EinsatzSumme({
   onEntfernen,
   onLeitung,
   onAnfahrtUebernehmen,
+  laengsteAnfahrt,
+  leerText = "Noch niemand. Haken in der Liste setzen.",
 }: {
   team: AuswahlEintrag[];
   namen: Record<string, string>;
@@ -33,6 +35,9 @@ export function EinsatzSumme({
   onEntfernen: (id: string) => void;
   onLeitung: (id: string) => void;
   onAnfahrtUebernehmen?: (euro: number) => void;
+  /** 12c: „Längste Anfahrt: 31 min, A. Keller“ unter dem Team. */
+  laengsteAnfahrt?: string | null;
+  leerText?: string;
 }) {
   const anfahrt = kosten.find((k) => k.key === "anfahrt_team");
   const lohn = kosten.filter((k) => k.key !== "anfahrt_team");
@@ -43,8 +48,9 @@ export function EinsatzSumme({
         <h3 id="ez-summe-titel">Team und Lohn</h3>
         <p>rechnet bei jeder Änderung neu</p>
       </div>
-      <div className="ez-team" aria-label="Team">
-        {team.length === 0 ? <span className="ez-team-leer">Noch niemand. Haken in der Liste setzen.</span> : null}
+      {/* 12c: Ablageziel der Karte (`data-ablage`), hervorgehoben über `data-heiss`. */}
+      <div className="ez-team" aria-label="Team" data-ablage="team">
+        {team.length === 0 ? <span className="ez-team-leer">{leerText}</span> : null}
         {team.map((t) => {
           const name = namen[t.employeeId] ?? "Unbekannt";
           return (
@@ -67,6 +73,7 @@ export function EinsatzSumme({
           );
         })}
       </div>
+      {laengsteAnfahrt ? <p className="ez-laengste">{laengsteAnfahrt}</p> : null}
       <div className="ez-kette">
         {lohn.map((k) => (
           <div key={k.key} className="ez-zeile">

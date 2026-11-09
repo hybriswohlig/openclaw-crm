@@ -5,17 +5,23 @@ import "@/styles/neu-einsatz.css";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { GlassButton } from "@/components/glassyui/glass-button";
-import {
-  GlassDialog,
-  GlassDialogContent,
-  GlassDialogDescription,
-  GlassDialogTitle,
-} from "@/components/glassyui/glass-dialog";
+import { GlassDialog, GlassDialogContent, GlassDialogDescription, GlassDialogTitle } from "@/components/glassyui/glass-dialog";
 import { usePortalZiel } from "@/components/neu/portal-ziel";
 import { tagKurz } from "@/lib/anzeige";
-import type { DoppelKonflikt } from "@/lib/einsatz";
+import type { DoppelKonflikt, EinsatzKarte } from "@/lib/einsatz";
 import type { EinsatzAnsicht, EinsatzPersonLage } from "@/lib/einsatz-ansicht";
-import { anfahrtUebernehmen, EINSATZ_DIALOG_EVENT, einsatzLaden, teamBestaetigen } from "./einsatz-api";
+import { anfahrtUebernehmen, EINSATZ_DIALOG_EVENT, einsatzLaden, ladeKarte, teamBestaetigen } from "./einsatz-api";
+import { EinsatzKartenAnsicht, type KarteLaden } from "./einsatz-karte";
+import {
+  ansichtLesen,
+  ansichtMerken,
+  laengsteAnfahrt,
+  verlaufMerken,
+  verlaufZurueck,
+  VERLAUF_LEER,
+  type EinsatzAnsichtArt,
+  type Verlauf,
+} from "./einsatz-karte-logik";
 import { EinsatzFahrwahl } from "./einsatz-fahrwahl";
 import { EinsatzFahrzeug, type FahrzeugBuchung } from "./einsatz-fahrzeug";
 import { EinsatzListe } from "./einsatz-liste";
@@ -35,6 +41,7 @@ import {
   type Rueckfrage,
 } from "./einsatz-logik";
 import { EinsatzSumme } from "./einsatz-summe";
+import { ablegen } from "./einsatz-ziehen";
 
 export { einsatzDialogOeffnen } from "./einsatz-api";
 
@@ -78,12 +85,15 @@ export function EinsatzDialog({
   onSchliessen,
   onGespeichert,
   vorgabe,
+  vorgabeKarte,
 }: {
   dealId: string;
   onSchliessen: () => void;
   onGespeichert?: () => void | Promise<void>;
   /** Für Sichtprüfung und Tests: Ansicht ohne Laden. */
   vorgabe?: EinsatzAnsicht;
+  /** Für Sichtprüfung und Tests: Karte ohne Laden (12c). */
+  vorgabeKarte?: EinsatzKarte;
 }) {
   const portalZiel = usePortalZiel();
   const [laden, setLaden] = useState<Laden>(vorgabe ? { art: "da", ansicht: vorgabe } : { art: "laedt" });
@@ -92,6 +102,11 @@ export function EinsatzDialog({
   const [speichert, setSpeichert] = useState(false);
   const [aktualisiert, setAktualisiert] = useState(false);
   const [anfahrtLaeuft, setAnfahrtLaeuft] = useState(false);
+  // 12c: zweite Ansicht, gemerkt je Browser; Karte erst beim ersten Umschalten laden.
+  const [ansichtArt, setAnsichtArt] = useState<EinsatzAnsichtArt>(() => ansichtLesen());
+  const [karte, setKarte] = useState<KarteLaden | null>(vorgabeKarte ? { art: "da", karte: vorgabeKarte } : null);
+  // Rückgängig nach jeder Teamänderung (Karte und Liste), bis „Team bestätigen“.
+  const [verlauf, setVerlauf] = useState<Verlauf>(VERLAUF_LEER);
 
   const holen = useCallback(
     async (frisch: boolean, auswahlBehalten: boolean) => {
@@ -102,7 +117,10 @@ export function EinsatzDialog({
         return;
       }
       setLaden({ art: "da", ansicht: r.data });
-      if (!auswahlBehalten) setAuswahl(startAuswahl(r.data));
+      if (!auswahlBehalten) {
+        setAuswahl(startAuswahl(r.data));
+        setVerlauf(VERLAUF_LEER);
+      }
     },
     [dealId],
   );
@@ -111,10 +129,36 @@ export function EinsatzDialog({
     if (!vorgabe) void holen(false, false);
   }, [holen, vorgabe]);
 
+  const karteHolen = useCallback(async () => {
+    setKarte({ art: "laedt" });
+    const r = await ladeKarte(dealId);
+    setKarte(r.ok ? { art: "da", karte: r.data } : { art: "fehler", meldung: r.message });
+  }, [dealId]);
+
+  useEffect(() => {
+    if (ansichtArt === "karte" && karte === null) void karteHolen();
+  }, [ansichtArt, karte, karteHolen]);
+
+  function ansichtWaehlen(a: EinsatzAnsichtArt) {
+    setAnsichtArt(a);
+    ansichtMerken(a);
+  }
+
   const ansicht = laden.art === "da" ? laden.ansicht : null;
   const summe = useMemo(() => (ansicht && auswahl ? summeAus(auswahl, ansicht) : null), [ansicht, auswahl]);
   const namen = useMemo(() => Object.fromEntries((ansicht?.personen ?? []).map((p) => [p.id, p.name])), [ansicht]);
   const tagText = ansicht ? tageText(ansicht.tage) : null;
+  const laengste = useMemo(
+    () =>
+      ansicht && auswahl
+        ? laengsteAnfahrt(
+            auswahl.team.map((t) => t.employeeId),
+            ansicht.anfahrten,
+            namen,
+          )
+        : null,
+    [ansicht, auswahl, namen],
+  );
 
   if (!ansicht || !auswahl || !summe) {
     return (
@@ -144,6 +188,30 @@ export function EinsatzDialog({
   const rechner = ansicht.rechner;
   const vorschlagIds = ansicht.teamVorschlag.team.map((t) => t.employeeId);
 
+  /** Teamänderung mit Rückgängig-Schritt (Minuten von Hand zählen nicht). */
+  function aendern(neu: Auswahl) {
+    if (!auswahl || neu === auswahl) return;
+    setVerlauf((v) => verlaufMerken(v, auswahl, neu));
+    setAuswahl(neu);
+  }
+
+  function zurueck() {
+    const z = verlaufZurueck(verlauf);
+    if (!z) return;
+    setVerlauf(z[0]);
+    setAuswahl(z[1]);
+    setRueckfrage(null);
+  }
+
+  /** Ablegen auf der Karte (Pin auf Beladen oder Team-Liste, „Ins Team“). */
+  function aufKarteAblegen(p: EinsatzPersonLage) {
+    if (!auswahl) return;
+    const r = ablegen(p, auswahl, rechner, tagText ?? "Umzugstag");
+    if (r.art === "hinzufuegen") aendern(r.auswahl);
+    else if (r.art === "rueckfrage") setRueckfrage(r.rueckfrage);
+    else toast(r.text);
+  }
+
   function umschalten(p: EinsatzPersonLage) {
     if (!auswahl) return;
     if (imTeam(auswahl, p.id)) {
@@ -151,7 +219,7 @@ export function EinsatzDialog({
         toast.error(`${p.name} ist gerade für diesen Auftrag eingestempelt und kann nicht entfernt werden.`);
         return;
       }
-      setAuswahl(auswahlEntfernen(auswahl, p.id, rechner));
+      aendern(auswahlEntfernen(auswahl, p.id, rechner));
       return;
     }
     const frage = rueckfrageFuer(p, tagText ?? "Umzugstag", auswahl);
@@ -159,12 +227,13 @@ export function EinsatzDialog({
       setRueckfrage(frage);
       return;
     }
-    setAuswahl(auswahlHinzufuegen(auswahl, p.id, rechner));
+    aendern(auswahlHinzufuegen(auswahl, p.id, rechner));
   }
 
   async function bestaetigen(zusaetzlich: string[] = []) {
     if (!auswahl || !ansicht) return;
-    const naechste = zusaetzlich.length > 0 ? { ...auswahl, bestaetigtAmTag: [...new Set([...auswahl.bestaetigtAmTag, ...zusaetzlich])] } : auswahl;
+    const naechste =
+      zusaetzlich.length > 0 ? { ...auswahl, bestaetigtAmTag: [...new Set([...auswahl.bestaetigtAmTag, ...zusaetzlich])] } : auswahl;
     setAuswahl(naechste);
     setSpeichert(true);
     const r = await teamBestaetigen(dealId, teamBody(naechste));
@@ -207,7 +276,16 @@ export function EinsatzDialog({
   }
 
   const buchungen: FahrzeugBuchung[] = [
-    ...(ansicht.buchung ? [{ id: ansicht.buchung.id, text: ansicht.buchung.text, anteilCent: Math.ceil(ansicht.buchung.mieteCent / Math.max(1, ansicht.buchung.geplanteAuftraege)), zugeordnet: true }] : []),
+    ...(ansicht.buchung
+      ? [
+          {
+            id: ansicht.buchung.id,
+            text: ansicht.buchung.text,
+            anteilCent: Math.ceil(ansicht.buchung.mieteCent / Math.max(1, ansicht.buchung.geplanteAuftraege)),
+            zugeordnet: true,
+          },
+        ]
+      : []),
     ...ansicht.buchungenAmTag
       .filter((b) => b.id !== ansicht.buchung?.id)
       .map((b) => ({ id: b.id, text: b.text, anteilCent: Math.ceil(b.mieteCent / Math.max(1, b.geplanteAuftraege)), zugeordnet: false })),
@@ -232,8 +310,14 @@ export function EinsatzDialog({
                 {tagKurz(k.tag)}: {k.text}
               </span>
             ))}
-            {/* Platz für den Umschalter „Liste | Karte“ (Plan 12c). */}
-            <span className="ez-ansicht-platz" />
+            <span className="ez-ansicht" role="group" aria-label="Ansicht">
+              <button type="button" aria-pressed={ansichtArt === "liste"} onClick={() => ansichtWaehlen("liste")}>
+                Liste
+              </button>
+              <button type="button" aria-pressed={ansichtArt === "karte"} onClick={() => ansichtWaehlen("karte")}>
+                Karte
+              </button>
+            </span>
           </div>
         </header>
 
@@ -261,7 +345,7 @@ export function EinsatzDialog({
                   const f = rueckfrage;
                   setRueckfrage(null);
                   if (f.art === "konflikt") void bestaetigen(f.ids);
-                  else setAuswahl(auswahlHinzufuegen(auswahl, f.person.id, rechner, { trotzdem: true }));
+                  else aendern(auswahlHinzufuegen(auswahl, f.person.id, rechner, { trotzdem: true }));
                 }}
               >
                 Trotzdem einteilen
@@ -270,51 +354,65 @@ export function EinsatzDialog({
           </div>
         ) : null}
 
-        <div className="ez-spalten">
-          <section className="ez-karte ez-liste-karte" aria-labelledby="ez-liste-titel">
-            <div className="ez-karte-kopf ez-karte-kopf-zeile">
-              <div>
-                <h3 id="ez-liste-titel">{tagText ? `Mitarbeiter am ${tagText}` : "Mitarbeiter"}</h3>
-                <p>
-                  {ansicht.teamVorschlag.team.length > 0
-                    ? `Vorschlag aus der Kalkulation: ${ansicht.teamVorschlag.team.length} ${ansicht.teamVorschlag.team.length === 1 ? "Person" : "Personen"}. Gold markiert, nur vorbelegt.`
-                    : "Kein Vorschlag: Haken setzen."}
-                </p>
-              </div>
-              <div className="ez-knoepfe-klein">
-                {ansicht.teamVorschlag.team.length > 0 ? (
-                  <button type="button" className="ez-link" onClick={() => setAuswahl(vorschlagUebernehmen(ansicht))}>
-                    Vorschlag übernehmen
-                  </button>
-                ) : null}
-                <button
-                  type="button"
-                  className="ez-link"
-                  disabled={aktualisiert}
-                  aria-busy={aktualisiert || undefined}
-                  onClick={async () => {
-                    setAktualisiert(true);
-                    await holen(true, true);
-                    setAktualisiert(false);
-                  }}
-                >
-                  {aktualisiert ? "Fahrzeiten werden geholt …" : "Fahrzeiten aktualisieren"}
-                </button>
-              </div>
-            </div>
-            <EinsatzListe
-              personen={ansicht.personen}
-              anfahrten={ansicht.anfahrten}
-              team={auswahl.team}
-              vorschlag={vorschlagIds}
-              onUmschalten={umschalten}
-              onMinuten={(id, teil, wert) => setAuswahl(minutenSetzen(auswahl, id, teil, wert, rechner))}
+        <div className="ez-spalten" data-ansicht={ansichtArt}>
+          {ansichtArt === "karte" ? (
+            <EinsatzKartenAnsicht
+              ansicht={ansicht}
+              laden={karte ?? { art: "laedt" }}
+              auswahl={auswahl}
+              summe={summe}
+              tagText={tagText}
+              portalZiel={portalZiel}
+              onAblegen={aufKarteAblegen}
+              onEntfernen={(p) => umschalten(p)}
+              onNeuLaden={() => void karteHolen()}
             />
-            <p className="ez-notiz">
-              Anfahrt mit Verkehr für 07:00 Uhr am Umzugstag; „ca.“ ist aus den Kilometern geschätzt. Gespeichert sind nur Kilometer je
-              Ort, keine Straße.
-            </p>
-          </section>
+          ) : (
+            <section className="ez-karte ez-liste-karte" aria-labelledby="ez-liste-titel">
+              <div className="ez-karte-kopf ez-karte-kopf-zeile">
+                <div>
+                  <h3 id="ez-liste-titel">{tagText ? `Mitarbeiter am ${tagText}` : "Mitarbeiter"}</h3>
+                  <p>
+                    {ansicht.teamVorschlag.team.length > 0
+                      ? `Vorschlag aus der Kalkulation: ${ansicht.teamVorschlag.team.length} ${ansicht.teamVorschlag.team.length === 1 ? "Person" : "Personen"}. Gold markiert, nur vorbelegt.`
+                      : "Kein Vorschlag: Haken setzen."}
+                  </p>
+                </div>
+                <div className="ez-knoepfe-klein">
+                  {ansicht.teamVorschlag.team.length > 0 ? (
+                    <button type="button" className="ez-link" onClick={() => aendern(vorschlagUebernehmen(ansicht))}>
+                      Vorschlag übernehmen
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    className="ez-link"
+                    disabled={aktualisiert}
+                    aria-busy={aktualisiert || undefined}
+                    onClick={async () => {
+                      setAktualisiert(true);
+                      await holen(true, true);
+                      setAktualisiert(false);
+                    }}
+                  >
+                    {aktualisiert ? "Fahrzeiten werden geholt …" : "Fahrzeiten aktualisieren"}
+                  </button>
+                </div>
+              </div>
+              <EinsatzListe
+                personen={ansicht.personen}
+                anfahrten={ansicht.anfahrten}
+                team={auswahl.team}
+                vorschlag={vorschlagIds}
+                onUmschalten={umschalten}
+                onMinuten={(id, teil, wert) => setAuswahl(minutenSetzen(auswahl, id, teil, wert, rechner))}
+              />
+              <p className="ez-notiz">
+                Anfahrt mit Verkehr für 07:00 Uhr am Umzugstag; „ca.“ ist aus den Kilometern geschätzt. Gespeichert sind nur Kilometer je
+                Ort, keine Straße.
+              </p>
+            </section>
+          )}
 
           <aside className="ez-leiste">
             <EinsatzSumme
@@ -329,8 +427,10 @@ export function EinsatzDialog({
                 const p = ansicht.personen.find((x) => x.id === id);
                 if (p) umschalten(p);
               }}
-              onLeitung={(id) => setAuswahl(leitungSetzen(auswahl, id))}
+              onLeitung={(id) => aendern(leitungSetzen(auswahl, id))}
               onAnfahrtUebernehmen={ansicht.version ? (e) => void anfahrtInKalkulation(e) : undefined}
+              laengsteAnfahrt={laengste}
+              leerText={ansichtArt === "karte" ? "Noch niemand. Pin hierher ziehen." : undefined}
             />
             <EinsatzFahrzeug
               tagText={tagText}
@@ -346,6 +446,15 @@ export function EinsatzDialog({
 
         <footer className="ez-fuss">
           <p>Erst danach sehen die Mitarbeiter den Auftrag in ihrer App.</p>
+          <GlassButton
+            type="button"
+            variant="ghost"
+            onClick={zurueck}
+            disabled={speichert || verlauf.vorher.length === 0}
+            aria-label={verlauf.vorher.length > 0 ? `Rückgängig, letzte Teamänderung (${verlauf.vorher.length} möglich)` : "Rückgängig"}
+          >
+            Rückgängig
+          </GlassButton>
           <GlassButton type="button" variant="ghost" onClick={onSchliessen} disabled={speichert}>
             Abbrechen
           </GlassButton>

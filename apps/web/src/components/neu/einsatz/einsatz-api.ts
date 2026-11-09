@@ -3,11 +3,16 @@
  * („Team bestätigen“) und die Übersteuerung „Anfahrt Team“.
  */
 import { apiAufruf, jsonAufruf, type ApiAntwort } from "@/components/neu/akte/api";
-import type { DoppelKonflikt, Zuteilung } from "@/lib/einsatz";
+import type { DoppelKonflikt, EinsatzKarte, Zuteilung } from "@/lib/einsatz";
 import type { EinsatzAnsicht, EinsatzBestaetigenBody } from "@/lib/einsatz-ansicht";
 
 export function einsatzLaden(dealId: string, frisch = false): Promise<ApiAntwort<EinsatzAnsicht>> {
   return apiAufruf<EinsatzAnsicht>(`/api/v1/deals/${encodeURIComponent(dealId)}/einsatz${frisch ? "?frisch=1" : ""}`);
+}
+
+/** 12c: Karten-Ansicht, erst beim ersten Umschalten geladen (Geocoding nur dann). */
+export function ladeKarte(dealId: string): Promise<ApiAntwort<EinsatzKarte>> {
+  return apiAufruf<EinsatzKarte>(`/api/v1/deals/${encodeURIComponent(dealId)}/einsatz/karte`);
 }
 
 export type BestaetigenAntwort =
