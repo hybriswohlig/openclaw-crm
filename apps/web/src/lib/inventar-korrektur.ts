@@ -80,3 +80,13 @@ export function korrekturPayload(itemId: string, vorher: InventarStand | null, n
     art === "entfernt" ? `${kopf}, entfernt (falsch erkannt)` : art === "hinzugefuegt" ? `Hinzugefügt: ${n?.name}` : [kopf, ...teile].join(", ");
   return { itemId, art, ausFoto, fotoId: (vorher ?? nachher)?.photoAttachmentId ?? null, vorher: v, nachher: n, text };
 }
+
+/**
+ * Review M12: ändert sich nur die Menge, bleibt das Volumen je Stück gleich (die Zeile
+ * trägt das Gesamtvolumen). null, wenn nichts zu skalieren ist.
+ */
+export function volumenBeiMenge(alt: { quantity: number; volumeCbmEstimate: string | number | null }, neueMenge: number): string | null {
+  const gesamt = zahl(alt.volumeCbmEstimate);
+  if (gesamt === null || gesamt <= 0 || alt.quantity <= 0 || neueMenge === alt.quantity) return null;
+  return String(Math.round((gesamt / alt.quantity) * neueMenge * 1000) / 1000);
+}

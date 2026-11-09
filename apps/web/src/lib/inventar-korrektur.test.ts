@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { korrekturPayload, pruefeGroesseVolumen, type InventarStand } from "./inventar-korrektur";
+import { korrekturPayload, pruefeGroesseVolumen, volumenBeiMenge, type InventarStand } from "./inventar-korrektur";
 
 const foto: InventarStand = { name: "Gartensessel", quantity: 2, sizeClass: "mittel", volumeCbmEstimate: "1.2", source: "foto", photoAttachmentId: "att_1" };
 
@@ -21,5 +21,13 @@ describe("pruefeGroesseVolumen", () => {
     expect(pruefeGroesseVolumen({ sizeClass: "riesig" }, 1)).toMatchObject({ ok: false });
     expect(pruefeGroesseVolumen({ volumeCbmPerPiece: 0 }, 1)).toMatchObject({ ok: false });
     expect(pruefeGroesseVolumen({}, 1)).toEqual({ ok: true, patch: {} });
+  });
+});
+
+describe("volumenBeiMenge (Review M12)", () => {
+  it("Volumen je Stück bleibt beim Ändern der Menge", () => {
+    expect(volumenBeiMenge({ quantity: 4, volumeCbmEstimate: "0.8" }, 6)).toBe("1.2");
+    expect(volumenBeiMenge({ quantity: 4, volumeCbmEstimate: null }, 6)).toBeNull();
+    expect(volumenBeiMenge({ quantity: 4, volumeCbmEstimate: "0.8" }, 4)).toBeNull();
   });
 });

@@ -6,7 +6,7 @@ import { and, eq } from "drizzle-orm";
 import { kalkulationAnstossen } from "@/services/rechner/ausloeser";
 import { parseInventoryOwnerPatch } from "@/services/inventory-owner";
 import { emitEvent } from "@/services/activity-events";
-import { INVENTAR_KORRIGIERT_EVENT, korrekturPayload, pruefeGroesseVolumen } from "@/lib/inventar-korrektur";
+import { INVENTAR_KORRIGIERT_EVENT, korrekturPayload, pruefeGroesseVolumen, volumenBeiMenge } from "@/lib/inventar-korrektur";
 
 const zeileWo = (itemId: string, recordId: string, ws: string) =>
   and(eq(dealInventoryItems.id, itemId), eq(dealInventoryItems.dealRecordId, recordId), eq(dealInventoryItems.workspaceId, ws));
@@ -45,6 +45,11 @@ export async function PATCH(
   const gv = pruefeGroesseVolumen(body, typeof updates.quantity === "number" ? updates.quantity : vorher.quantity);
   if (!gv.ok) return NextResponse.json({ error: gv.fehler }, { status: 400 });
   Object.assign(updates, gv.patch);
+  // Review M12: Menge geändert ohne neues Volumen → Gesamtvolumen mitskalieren (je Stück gleich).
+  if (typeof updates.quantity === "number" && !("volumeCbmEstimate" in gv.patch)) {
+    const skaliert = volumenBeiMenge(vorher, updates.quantity);
+    if (skaliert !== null) updates.volumeCbmEstimate = skaliert;
+  }
   if (owners.patch.dismantlingOwner) {
     updates.dismantlingOwner = owners.patch.dismantlingOwner;
   }
