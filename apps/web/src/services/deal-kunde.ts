@@ -9,7 +9,7 @@
  * vorher wird über Telefon und E-Mail eine bestehende Person gesucht.
  */
 import { canonicalizeEmail, canonicalizePhone, isRelayEmail } from "@/lib/identity/canonical";
-import { stripLeadTitleDecorations } from "@/lib/deal-doc-data";
+import { formatLocation, stripLeadTitleDecorations } from "@/lib/deal-doc-data";
 import { nameAusWert } from "@/lib/personen-name";
 import {
   KundeFehler,
@@ -229,6 +229,17 @@ async function speichereKundeJetzt(ws: string, dealId: string, e: KundeEingabe, 
           await upsertIdentifier(ws, personId, "email", neuerAnker.email, emailCanon, "operator", "claimed");
         }
       }
+    }
+  }
+
+  // Ceylan druckt die Adresse der Person als Kundenanschrift (Review M3): die Auszugsadresse
+  // dorthin mitschreiben, wenn die Person keine eigene hat oder bisher dieselbe wie der Auszug.
+  if (e.auszug && people && personId) {
+    const pv = ((await getRecord(people.id, personId))?.values ?? {}) as Werte;
+    const altLoc = formatLocation(pv.location);
+    if (altLoc === "—" || altLoc === formatLocation(dv.move_from_address)) {
+      await updateRecord(people.id, personId, { location: ortAusTeilen(e.auszug) }, userId);
+      geaendert.push("person_anschrift");
     }
   }
 

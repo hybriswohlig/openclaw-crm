@@ -6,7 +6,11 @@ import "@/styles/neu-kalkulation-5b.css";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { GlassPanel } from "@/components/glassyui/glass-panel";
+import { AngabenDialog } from "@/components/neu/akte/angaben-dialog";
 import { DokumentDialog } from "@/components/neu/akte/dokument-dialog";
+import { dokumentStart } from "@/components/neu/akte/dokument-start";
+import type { LeadContext } from "@/lib/deal-doc-data";
+import type { KvHinweisDaten, Vorpruefung } from "@/lib/kv-vorpruefung";
 import { usePortalZiel } from "@/components/neu/portal-ziel";
 import type { KalkulationsAnsicht } from "@/lib/kalkulations-ansicht";
 import { apiAufruf, jsonAufruf } from "@/components/neu/akte/api";
@@ -67,6 +71,7 @@ type Dialog =
   | { art: "anpassung"; start: AnpassungStart }
   | { art: "preis"; start: PreisStart }
   | { art: "kv"; nurKv: boolean }
+  | { art: "angaben"; nurKv: boolean; pruefung: Vorpruefung }
   | { art: "moduswechsel"; texte: KvTexte; meldung: string }
   | { art: "ohne_adresse"; texte: KvTexte; meldung: string; modusWechselBestaetigt: boolean }
   | { art: "hebel_aus"; hebel: HebelArt; posten: string }
@@ -233,6 +238,22 @@ export function MargeSpalte({ ansicht, kontext }: { ansicht: KalkulationsAnsicht
     }
   }
 
+  /**
+   * Vorprüfung vor Sperren und KV, für Kottke und Ceylan (Review M3): fehlen Name,
+   * Kundenanschrift, Einzug oder Datum, erst „Es fehlen noch Angaben“, dann der KV-Dialog.
+   * Kann die Prüfung nicht laden, geht es wie bisher weiter (der Dokumentdialog prüft für Kottke noch einmal).
+   */
+  async function kvMitVorpruefung(nurKv: boolean) {
+    const a = await apiAufruf<{ leadContext?: LeadContext | null; kvHinweise?: KvHinweisDaten | null }>(
+      `/api/v1/deals/${encodeURIComponent(kontext.dealId)}/auftrag`
+    );
+    if (a.ok) {
+      const start = dokumentStart(kontext.dealId, a.data?.leadContext ?? null, a.data?.kvHinweise ?? null, "KV");
+      if (start.art === "angaben") return setDialog({ art: "angaben", nurKv, pruefung: start.pruefung });
+    }
+    setDialog({ art: "kv", nurKv });
+  }
+
   const plan5 = ansicht.schalter.angebotAusKalkulation;
   // Entscheidung 7: Stunden-KV statt Festpreis. Marge, Formel und gerundeter Preis
   // gelten dann nicht (Sätze und Mindeststunden kommen aus den Rechner-Einstellungen).
@@ -363,8 +384,8 @@ export function MargeSpalte({ ansicht, kontext }: { ansicht: KalkulationsAnsicht
         dealId={kontext.dealId}
         version={version}
         laeuft={lauf}
-        onSperren={() => setDialog({ art: "kv", nurKv: false })}
-        onKv={() => setDialog({ art: "kv", nurKv: true })}
+        onSperren={() => void kvMitVorpruefung(false)}
+        onKv={() => void kvMitVorpruefung(true)}
         onNeueVersion={() => void kontext.neueVersion()}
         onNeuRechnen={() => void kontext.neuRechnen()}
         tagespreise={tagesKnopf}
@@ -408,6 +429,20 @@ export function MargeSpalte({ ansicht, kontext }: { ansicht: KalkulationsAnsicht
           onBestaetigen={() => {
             ohneAdresseBisher.current = true;
             void sperrenUndKv(dialog.texte, false, dialog.modusWechselBestaetigt, true);
+          }}
+        />
+      ) : null}
+      {dialog?.art === "angaben" ? (
+        <AngabenDialog
+          dealId={kontext.dealId}
+          art="KV"
+          pruefung={dialog.pruefung}
+          portalZiel={portalZiel}
+          onSchliessen={() => setDialog(null)}
+          onWeiter={() => {
+            const nurKv = dialog.nurKv;
+            setDialog({ art: "kv", nurKv });
+            void kontext.neuLaden();
           }}
         />
       ) : null}

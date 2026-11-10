@@ -663,6 +663,9 @@ async function ladeModellMitVersion(input: {
   if (!customerAddress && companyId) {
     customerAddress = await loadCompanyAddress(workspaceId, companyId);
   }
+  // Wie die VPS-Vorlage (Kottke): ohne eigene Adresse der Person oder Firma ist die
+  // Auszugsadresse die Kundenanschrift (KV-Anschrift, Review M3).
+  if (!customerAddress) customerAddress = addressLine(deal.values.move_from_address);
   const inventoryNotes =
     typeof deal.values.inventory_notes === "string" ? deal.values.inventory_notes : "";
   const dealTitle = typeof deal.values.name === "string" ? deal.values.name : "";

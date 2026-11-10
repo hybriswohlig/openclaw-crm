@@ -52,6 +52,7 @@ describe.skipIf(!url)("Kunde und Adressen (DB)", { timeout: 30_000 }, () => {
     await attribut(obj.people, "name", "personal_name");
     await attribut(obj.people, "phone_numbers", "phone_number", true);
     await attribut(obj.people, "email_addresses", "email_address", true);
+    await attribut(obj.people, "location", "location");
     await sql`insert into records (id, object_id) values (${deal.viktoria}, ${obj.deals}), (${deal.ohnePerson}, ${obj.deals}), (${person}, ${obj.people})`;
     const wert = (rec: string, a: string, spalte: "text_value" | "json_value" | "referenced_record_id" | "date_value", v: unknown) =>
       sql`insert into record_values (id, record_id, attribute_id, ${sql(spalte)}) values (${randomUUID()}, ${rec}, ${attr[a]}, ${spalte === "json_value" ? sql.json(v as never) : (v as string)})`;
@@ -121,7 +122,10 @@ describe.skipIf(!url)("Kunde und Adressen (DB)", { timeout: 30_000 }, () => {
     expect(k.datum).toBe("2026-11-28");
     expect(angestossen).toHaveBeenCalledWith(ws, deal.viktoria);
     const [e] = await sql`select payload from activity_events where record_id = ${deal.viktoria} and event_type = 'deal.kunde_bearbeitet'`;
-    expect(e.payload).toEqual({ felder: ["move_from_address", "name", "email"], quelle: "vorpruefung" });
+    expect(e.payload).toEqual({ felder: ["move_from_address", "name", "email", "person_anschrift"], quelle: "vorpruefung" });
+    // Ceylan-Renderer liest Person.location: die Kundenanschrift steht auch dort.
+    const [loc] = await sql`select json_value from record_values where record_id = ${person} and attribute_id = ${attr[`${obj.people}.location`]}`;
+    expect(loc.json_value).toMatchObject({ line1: "Hauptstr. 1", postcode: "72218", city: "Wildberg" });
     // Lead-Titel war der Alias: zieht mit.
     const [titel] = await sql`select text_value from record_values where record_id = ${deal.viktoria} and attribute_id = ${attr[`${obj.deals}.name`]}`;
     expect(titel.text_value).toBe("Viktoria Muster");
