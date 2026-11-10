@@ -60,6 +60,7 @@ import {
   type SperrRegel,
   type TagKonfig,
   type Uebersteuerung,
+  type MontageWert,
 } from "@/lib/kalkulation-versionen";
 import type { AngebotsEingabe, Quotation } from "@/services/quotations";
 import { meldeKorrektur, rufeRechner, type RechnerAntwort, type RechnerErgebnis } from "@/services/rechner/client";
@@ -777,12 +778,21 @@ export async function uebersteuern(
         : erste
           ? erste.rechnerwert
           : rechnerwertFuer(geprueft.art, geprueft.key, vorherAnfrage ?? {}, vorherErgebnis);
+    // Review I3: die Wahl je Möbel ist eine Liste unter einem Schlüssel; die letzte ersetzt die ganze
+    // Liste. Mit der wirksamen Wahl im Ziel-Entwurf zusammenführen (neue gewinnt je Möbel), sonst setzte
+    // eine Wahl an einer gesperrten Version still die Wahl anderer Möbel im Entwurf zurück.
+    let wert = geprueft.wert;
+    if (geprueft.art === "montage" && wert && typeof wert === "object" && "positionen" in wert) {
+      const alt = wirksamerWert(ziel.overrides, "montage", geprueft.key);
+      const altePositionen = alt && typeof alt === "object" && "positionen" in alt ? (alt as MontageWert).positionen : {};
+      wert = { positionen: { ...altePositionen, ...(wert as MontageWert).positionen } };
+    }
     const neue: Uebersteuerung = {
       id: crypto.randomUUID(),
       art: geprueft.art,
       key: geprueft.key,
       rechnerwert,
-      wert: geprueft.wert,
+      wert,
       grund: geprueft.grund,
       autor: { userId: autor.userId, quelle: autor.quelle },
       zeit: d.jetzt().toISOString(),
