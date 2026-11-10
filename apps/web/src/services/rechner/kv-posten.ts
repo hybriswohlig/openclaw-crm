@@ -168,9 +168,32 @@ function ownerLeistung(
   return { owner: "none" };
 }
 
+/** Bis zu acht Möbel stehen mit Namen im KV, sonst die sieben aufwendigsten und „und N weitere Möbel“. */
+const MOEBEL_MIT_NAMEN = 8;
 function moebelText(namen: readonly string[]): string {
-  if (namen.length <= 4) return aufzaehlen(namen);
-  return `${namen.slice(0, 3).join(", ")} und ${namen.length - 3} weitere Möbel`;
+  if (namen.length <= MOEBEL_MIT_NAMEN) return aufzaehlen(namen);
+  const n = MOEBEL_MIT_NAMEN - 1;
+  return `${namen.slice(0, n).join(", ")} und ${namen.length - n} weitere Möbel`;
+}
+
+/**
+ * Zerlegte Möbel, aufwendigste zuerst (Demontage + Montage je Stück aus
+ * `positionenDetails`, sonst Volumen), damit Betten und Schränke nicht hinter
+ * „weitere Möbel“ verschwinden.
+ */
+function zerlegteMoebel(e: Pick<RechnerErgebnis, "positionen" | "positionenDetails">): string[] {
+  const details = new Map((e.positionenDetails ?? []).map((d) => [d.positionId, d]));
+  const gewicht = new Map<string, number>();
+  for (const p of e.positionen ?? []) {
+    if (!p.zerlegt) continue;
+    const name = p.name.trim();
+    if (!name) continue;
+    const d = details.get(p.positionId ?? p.id ?? "");
+    const min = d ? (d.demontageMin ?? 0) + (d.montageMin ?? 0) : 0;
+    const wert = min * 1000 + (p.volumenCbm ?? 0);
+    gewicht.set(name, Math.max(gewicht.get(name) ?? -1, wert));
+  }
+  return [...gewicht.entries()].sort((a, b) => b[1] - a[1]).map(([name]) => name);
 }
 
 /**
@@ -180,7 +203,7 @@ function moebelText(namen: readonly string[]): string {
  */
 export function kvBausteine(input: {
   festpreis: number;
-  ergebnis: Pick<RechnerErgebnis, "preis" | "kosten" | "zeiten" | "team" | "positionen" | "fahrzeugoptionen" | "empfehlungOptionId">;
+  ergebnis: Pick<RechnerErgebnis, "preis" | "kosten" | "zeiten" | "team" | "positionen" | "positionenDetails" | "fahrzeugoptionen" | "empfehlungOptionId">;
   anfrage: RechnerAnfrage;
   optionen?: KvOptionen;
   festpreisIstEndpreis?: boolean;
@@ -207,7 +230,7 @@ export function kvBausteine(input: {
   const nurKunde = new Set(
     [...besitzer.dismantleCustomer, ...besitzer.assembleCustomer].filter((n) => !besitzer.companyNames.includes(n))
   );
-  let montageMoebel = [...new Set((e.positionen ?? []).filter((p) => p.zerlegt).map((p) => p.name.trim()).filter(Boolean))];
+  let montageMoebel = zerlegteMoebel(e);
   if (jePosition) {
     montageMoebel = [...new Set([...besitzer.companyNames, ...montageMoebel.filter((n) => !nurKunde.has(n))])];
   } else if (besitzer.explicit && besitzer.companyNames.length > 0) {

@@ -33,14 +33,14 @@ describe("kvBausteine", () => {
     const k = kvBausteine({ festpreis: 2260, ergebnis, anfrage });
     expect(k.posten).toEqual([
       { description: "Umzugsteam (4 Personen) & Transporter, inkl. Anfahrt, aller Kilometer, Möbelschutz und Tragewege", quantity: 1, unitRate: 1840 },
-      { description: "Demontage & Montage (Schreibtisch, Boxspringbett und Esstisch)", quantity: 1, unitRate: 120 },
+      { description: "Demontage & Montage (Boxspringbett, Esstisch und Schreibtisch)", quantity: 1, unitRate: 120 },
       { description: "Halteverbotszone inkl. Beantragung und Schildern (Lerchenstraße 78 und Friedenstraße 5)", quantity: 2, unitRate: 150 },
     ]);
     expect(k.posten.reduce((s, p) => s + p.unitRate * p.quantity, 0)).toBe(2260);
     expect(k.summe).toBe(2260);
     expect(k.leistungen.parkingPickup).toMatchObject({ owner: "company" });
     expect(k.leistungen.parkingDestination?.note).toContain("Friedenstraße 5");
-    expect(k.leistungen.dismantling).toEqual({ owner: "company", note: "Schreibtisch, Boxspringbett und Esstisch." });
+    expect(k.leistungen.dismantling).toEqual({ owner: "company", note: "Boxspringbett, Esstisch und Schreibtisch." });
     expect(k.leistungen.packing).toMatchObject({ owner: "customer" });
   });
 
@@ -362,5 +362,44 @@ describe("strasseAus (Plan 15, Review I1)", () => {
     expect(strasseAus("Hauptstr. 5, 70372 Stuttgart")).toBe("Hauptstr. 5");
     expect(strasseAus("70372 Stuttgart")).toBeNull();
     expect(strasseAus("07031")).toBeNull();
+  });
+});
+
+describe("kvBausteine: zerlegte Möbel im KV-Text", () => {
+  // Fall Viktoria (10.11.): sieben zerlegte Möbel, der KV nannte nur drei und versteckte Betten und Schränke.
+  const namen = [
+    ["Esstisch dunkel ausziehbar", 20, 25],
+    ["Kinderhochbett mit Spielzelt", 45, 60],
+    ["Schreibtisch weiß mit Schubladencontainer", 20, 25],
+    ["Doppelbett mit Polsterkopfteil", 30, 45],
+    ["Kleiderschrank 3-türig mit Spiegel", 60, 90],
+    ["Outdoor-Ecksofa Lounge", 30, 30],
+    ["Schwebetürenschrank weiß", 70, 100],
+  ] as const;
+  const ergebnis = {
+    preis: { festpreis: 1540, posten: [] },
+    zeiten: { demontage: 330, montage: 450 },
+    positionen: namen.map(([name], i) => ({ name, menge: 1, volumenCbm: 1, zerlegt: true, positionId: `p${i}` })),
+    positionenDetails: namen.map(([, de, mo], i) => ({
+      positionId: `p${i}`, katalogKey: null, katalogTreffer: true, groessenklasse: "gross" as const,
+      mindestTraeger: 2, trageMin: 10, demontageMin: de, montageMin: mo,
+    })),
+  };
+  it("nennt alle sieben, aufwendigste zuerst", () => {
+    const k = kvBausteine({ festpreis: 1540, ergebnis: ergebnis as never, anfrage: { montage_je_position: "1" } as never });
+    const text = k.posten.find((p) => p.description.startsWith("Demontage"))?.description;
+    expect(text).toBe(
+      "Demontage & Montage (Schwebetürenschrank weiß, Kleiderschrank 3-türig mit Spiegel, Kinderhochbett mit Spielzelt, Doppelbett mit Polsterkopfteil, Outdoor-Ecksofa Lounge, Esstisch dunkel ausziehbar und Schreibtisch weiß mit Schubladencontainer)"
+    );
+  });
+  it("ab neun Möbeln: sieben mit Namen und „weitere“", () => {
+    const mehr = {
+      ...ergebnis,
+      positionen: [...ergebnis.positionen, { name: "Regal A", menge: 1, volumenCbm: 0.2, zerlegt: true, positionId: "x1" }, { name: "Regal B", menge: 1, volumenCbm: 0.1, zerlegt: true, positionId: "x2" }],
+    };
+    const k = kvBausteine({ festpreis: 1540, ergebnis: mehr as never, anfrage: { montage_je_position: "1" } as never });
+    const text = k.posten.find((p) => p.description.startsWith("Demontage"))?.description ?? "";
+    expect(text.startsWith("Demontage & Montage (Schwebetürenschrank weiß, Kleiderschrank")).toBe(true);
+    expect(text.endsWith("und 2 weitere Möbel)")).toBe(true);
   });
 });
