@@ -29,7 +29,9 @@ export async function apiAufruf<T>(url: string, init?: RequestInit): Promise<Api
     typeof fehler === "string" ? fehler : typeof fehler === "object" && fehler ? fehler.message : undefined;
   const message =
     typeof text === "string" && text.trim() !== "" ? text : `Der Server hat mit Fehler ${res.status} geantwortet.`;
-  return { ok: false, status: res.status, code, message, ...(typeof fehler === "object" && fehler ? { fehler: fehler as Record<string, unknown> } : {}) };
+  // Zusatzfelder des Fehlers (z. B. `kandidaten` bei PERSON_GEFUNDEN) nur, wenn es welche gibt.
+  const extra = typeof fehler === "object" && fehler && Object.keys(fehler).some((k) => k !== "code" && k !== "message");
+  return { ok: false, status: res.status, code, message, ...(extra ? { fehler: fehler as Record<string, unknown> } : {}) };
 }
 
 /** `fetch`-Optionen für einen JSON-Körper; `kopf` für zusätzliche Header. */
