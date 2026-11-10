@@ -10,6 +10,7 @@ import { apiAufruf, jsonAufruf } from "@/components/neu/akte/api";
 import type { InventarListe, InventarListeZeile } from "@/lib/kalkulation-inventar";
 import { GROESSENKLASSE_TEXT, GROESSENKLASSEN } from "@/lib/kalkulation-p15";
 import { Herkunftsmarke } from "./grundlage-zeile";
+import { MontageWahlListe } from "./montage-wahl";
 import type { KalkKontext } from "./kalk-seite";
 
 const K2 = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 2 });
@@ -53,6 +54,7 @@ export function InventarDialog({
   const [form, setForm] = useState<Form | null>(null);
   const [laeuft, setLaeuft] = useState(false);
   const [fehler, setFehler] = useState<string | null>(null);
+  const [montage, setMontage] = useState(false);
   const beschaeftigt = laeuft || kontext.laeuft !== null;
   const basis = `/api/v1/deals/${encodeURIComponent(kontext.dealId)}/inventory`;
 
@@ -186,6 +188,10 @@ export function InventarDialog({
         {!kontext.bearbeitbar ? (
           <p className="kalk-dialog-hinweis">Korrekturen ändern die Lead-Daten und gelten ab dem nächsten Entwurf; diese Version bleibt.</p>
         ) : null}
+        {montage ? (
+          <MontageWahlListe zeilen={liste.zeilen} kontext={kontext} onFertig={() => setMontage(false)} />
+        ) : (
+        <>
         <ul className="kalk-inventar" aria-label="Inventarzeilen">
           {liste.zeilen.map((z, i) => (
             <li
@@ -232,6 +238,7 @@ export function InventarDialog({
                 {z.trageMin !== null ? <span>Tragen {K2.format(z.trageMin)} min</span> : null}
                 {z.katalog ? <span>{arbeitText("Demontage", z.demontage)}</span> : null}
                 {z.katalog ? <span>{arbeitText("Montage", z.montage)}</span> : null}
+                {z.montageGewaehlt ? <span className="kalk-inv-team">Demontage/Montage gewählt</span> : null}
                 {z.mindestTraeger !== null ? (
                   <span className={z.bestimmtTeam ? "kalk-inv-team" : undefined}>
                     {z.mindestTraeger} {z.mindestTraeger === 1 ? "Träger" : "Träger"}
@@ -275,10 +282,15 @@ export function InventarDialog({
               Volumen vorgeben
             </GlassButton>
           ) : null}
+          <GlassButton type="button" variant="ghost" disabled={beschaeftigt || !liste.zeilen.some((z) => z.mitnehmen && z.katalog)} onClick={() => setMontage(true)}>
+            Demontage/Montage wählen
+          </GlassButton>
           <GlassButton type="button" onClick={onSchliessen} disabled={beschaeftigt}>
             Fertig
           </GlassButton>
         </div>
+        </>
+        )}
       </GlassDialogContent>
     </GlassDialog>
   );

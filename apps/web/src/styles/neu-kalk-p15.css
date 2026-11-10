@@ -395,3 +395,111 @@
   padding: 4px 10px;
   font-size: 13px;
 }
+
+/* ── Demontage/Montage je Möbel (KV-Meldung 10.11.) ──── */
+
+[data-neu] .kalk-mw {
+  display: grid;
+  gap: 8px;
+}
+
+[data-neu] .kalk-mw-kopf {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+[data-neu] .kalk-mw-titel {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+[data-neu] .kalk-mw-schnell {
+  display: flex;
+  gap: 6px;
+}
+
+[data-neu] .kalk-mw-zeile {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 6px 14px;
+  align-items: center;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--rim);
+  color: var(--ink);
+  font-size: 13px;
+}
+
+[data-neu] .kalk-mw-zeile[data-geaendert] {
+  box-shadow: inset 0 0 0 1.5px var(--blue);
+}
+
+[data-neu] .kalk-mw-seite {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+[data-neu] .kalk-mw-label {
+  min-width: 48px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+[data-neu] .kalk-mw-knopf {
+  min-height: 30px;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--rim);
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+[data-neu] .kalk-mw-knopf[aria-pressed="true"] {
+  background: var(--flaeche);
+  box-shadow: inset 0 0 0 1.5px var(--blue);
+  color: var(--ink);
+  font-weight: 600;
+}
+
+[data-neu] .kalk-mw-knopf:focus-visible,
+[data-neu] .kalk-mw-mehr:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+[data-neu] .kalk-mw-knopf:disabled {
+  cursor: progress;
+}
+
+[data-neu] .kalk-mw-mehr {
+  justify-self: start;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--blue-ink);
+  font: inherit;
+  font-size: 12.5px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+@media (max-width: 720px) {
+  [data-neu] .kalk-mw-zeile {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  [data-neu] .kalk-mw-seite {
+    flex-wrap: wrap;
+  }
+}
