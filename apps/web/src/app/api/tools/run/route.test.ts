@@ -19,6 +19,7 @@ const m = vi.hoisted(() => {
     sperren: vi.fn(),
     lesen: vi.fn(),
     dbUpdate: vi.fn(),
+    leadAuszug: vi.fn((_deal: unknown): unknown => null),
   };
 });
 
@@ -43,6 +44,11 @@ vi.mock("@/services/deal-photos", () => ({ findDealInternalPhotosByIds: vi.fn(as
 vi.mock("@/services/doc-customer-name", () => ({
   rewriteKundeParamsFromDeal: async (_ws: string, p: Record<string, unknown>) => p,
 }));
+vi.mock("@/services/doc-kunde-adresse", async (importOriginal) => {
+  const echt = await importOriginal<typeof import("@/services/doc-kunde-adresse")>();
+  // Lead-Auszug je Deal, wie ihn der Server lesen würde.
+  return { ...echt, kundeAdresseErgaenzen: async (_ws: string, p: Record<string, unknown>) => echt.adresseErgaenzt(p, m.leadAuszug(p._deal_record_id)) };
+});
 vi.mock("@/services/document-job-context", () => ({
   attachDocumentJobContext: m.attachDocumentJobContext,
   assertDealInWorkspace: m.assertDealInWorkspace,
@@ -93,6 +99,7 @@ beforeEach(() => {
   }));
   m.verwerfen.mockResolvedValue(undefined);
   m.vorschlag.mockResolvedValue(null);
+  m.leadAuszug.mockImplementation(() => null);
 });
 
 describe("POST /api/tools/run: Job-Register", () => {
@@ -306,5 +313,31 @@ describe("POST /api/tools/run: keine Jobs, die absehbar scheitern (KV-Anschrift)
   it("die Auftragsanweisung braucht keine Kundenanschrift", async () => {
     const res = await run("auftragsanweisung", { kunde: { nachname: "Muster" }, _deal_record_id: "deal_1" });
     expect(res.status).toBe(200);
+  });
+});
+
+describe("POST /api/tools/run: Kundenanschrift serverseitig ergänzen (Review M2)", () => {
+  it("fehlt kunde.adresse, hat das Lead aber einen Auszug: Job läuft mit dieser Anschrift", async () => {
+    m.leadAuszug.mockImplementation((d) => (d === "deal_v" ? { line1: "Hauptstr. 1", postcode: "72218", city: "Wildberg" } : null));
+    const res = await run("rechnungen-und-auftragsbestaetigungen", { document_type: "KV", kunde: { nachname: "Muster" }, _deal_record_id: "deal_v" });
+    expect(res.status).toBe(200);
+    const gesendet = JSON.parse(String(fetchMock.mock.calls[0][1].body));
+    expect(gesendet.params.kunde.adresse).toBe("Hauptstr. 1, 72218, Wildberg");
+  });
+
+  it("MCP mit nur auftrag.strecke_von: läuft weiter", async () => {
+    const res = await run("rechnungen-und-auftragsbestaetigungen", {
+      document_type: "KV",
+      kunde: { nachname: "Muster" },
+      auftrag: { strecke_von: "Königstr. 1, 70173 Stuttgart" },
+    });
+    expect(res.status).toBe(200);
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1].body)).params.kunde.adresse).toBe("Königstr. 1, 70173 Stuttgart");
+  });
+
+  it("eine mitgeschickte Anschrift bleibt", async () => {
+    m.leadAuszug.mockImplementation(() => ({ line1: "Anders 9", postcode: "70372", city: "Stuttgart" }));
+    await run("rechnungen-und-auftragsbestaetigungen", { document_type: "KV", _deal_record_id: "deal_1" });
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1].body)).params.kunde.adresse).toBe("Hauptstr. 1, 72218 Wildberg");
   });
 });

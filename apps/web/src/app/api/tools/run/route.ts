@@ -10,6 +10,7 @@ import { dealInvoices } from "@/db/schema/deal-invoices";
 import { and, eq, inArray } from "drizzle-orm";
 import { findDealInternalPhotosByIds } from "@/services/deal-photos";
 import { rewriteKundeParamsFromDeal } from "@/services/doc-customer-name";
+import { kundeAdresseErgaenzen } from "@/services/doc-kunde-adresse";
 import {
   assertDealInWorkspace,
   attachDocumentJobContext,
@@ -124,6 +125,12 @@ export async function POST(req: NextRequest) {
     if (body.skill === "rechnungen-und-auftragsbestaetigungen") {
       // Nie einen Job starten, der absehbar scheitert: ohne Kundenanschrift oder Namen
       // bricht die Vorlage mit „skill exited with code 2 … Kundenanschrift fehlt“ ab.
+      // Anschrift wie den Namen serverseitig aus dem Lead (sonst aus auftrag.strecke_von) ergänzen.
+      try {
+        params = await kundeAdresseErgaenzen(ctx.workspaceId, params);
+      } catch (err) {
+        console.warn("[tools/run] Kundenanschrift aus dem Lead nicht geladen:", err);
+      }
       const fehlt = fehlendeVpsAngaben(params);
       if (fehlt.length > 0) {
         return NextResponse.json(
