@@ -33,6 +33,7 @@ describe("Einzug ohne Straße und „Einzug noch offen“ (Inhaber 10.11.)", () 
   it.each([
     ["nur PLZ und Ort", { postcode: "71032", city: "Böblingen", countryCode: "DE" }, "71032 Böblingen"],
     ["nur Ort", { postcode: "", city: "Böblingen", countryCode: "DE" }, "Böblingen"],
+    ["nur PLZ", { postcode: "71032", city: "", countryCode: "DE" }, "71032"],
     ["PLZ und Ort als Text in line1 (Plan 15)", { line1: "71032 Böblingen" }, "71032 Böblingen"],
     ["noch offen", { ...EINZUG_OFFEN_WERT }, "wird noch abgestimmt"],
   ])("%s: Vorprüfung lässt den KV durch, VPS bekommt strecke_nach als Textzeile", (_, nach, text) => {
@@ -62,6 +63,9 @@ describe("Einzug ohne Straße und „Einzug noch offen“ (Inhaber 10.11.)", () 
   it("Eingabe: Einzug nur mit Ort gültig, falsche PLZ nicht; Kundenanschrift braucht weiter die PLZ", () => {
     expect(pruefeKundeEingabe({ einzug: { strasse: "", plz: "", ort: "Böblingen" } }).einzug).toEqual({ strasse: "", plz: "", ort: "Böblingen" });
     expect(() => pruefeKundeEingabe({ einzug: { strasse: "", plz: "7103", ort: "Böblingen" } })).toThrow(KundeFehler);
+    // Entscheidung 10.11.: PLZ und/oder Ort, eins reicht; keins von beiden nicht.
+    expect(pruefeKundeEingabe({ einzug: { strasse: "", plz: "71032", ort: "" } }).einzug).toEqual({ strasse: "", plz: "71032", ort: "" });
+    expect(() => pruefeKundeEingabe({ einzug: { strasse: "Bahnhofstr. 5", plz: "", ort: "" } })).toThrow(/PLZ oder Ort/);
     expect(() => pruefeKundeEingabe({ auszug: { strasse: "", plz: "", ort: "Böblingen" } })).toThrow(/PLZ/);
     expect(pruefeKundeEingabe({ einzugOffen: true }).einzugOffen).toBe(true);
     expect(() => pruefeKundeEingabe({ einzugOffen: true, einzug: { strasse: "", plz: "71032", ort: "Böblingen" } })).toThrow(/entweder/);
@@ -76,6 +80,8 @@ describe("Einzug ohne Straße und „Einzug noch offen“ (Inhaber 10.11.)", () 
     // Nur Ort genügt.
     const nurOrt = { ...entwurfAus(k), einzug: { strasse: "", plz: "", ort: "Böblingen" } };
     expect(feldLeer(nurOrt, "einzug")).toBe(false);
+    expect(feldLeer({ ...entwurfAus(k), einzug: { strasse: "", plz: "71032", ort: "" } }, "einzug")).toBe(false);
+    expect(feldLeer({ ...entwurfAus(k), einzug: { strasse: "Bahnhofstr. 5", plz: "", ort: "" } }, "einzug")).toBe(true);
     expect(aenderungen(nurOrt, k)).toEqual({ einzug: { strasse: "", plz: "", ort: "Böblingen" } });
     // Wieder eine Adresse: Schalter aus und Einzug gehen zusammen.
     const offen = { ...k, einzugOffen: true };

@@ -46,8 +46,8 @@ const adresseGleich = (a: AdressTeile, b: AdressTeile) =>
 
 /** Ist das Feld im Entwurf leer? Eine Adresse braucht mindestens PLZ und Ort. */
 export function feldLeer(e: KundeEntwurf, f: KundeFeld): boolean {
-  // Einzug (Inhaber 10.11.): „noch offen“ oder nur der Ort genügt; die Kundenanschrift braucht PLZ und Ort.
-  if (f === "einzug") return !e.einzugOffen && !e.einzug.ort.trim();
+  // Einzug (Entscheidung 10.11.): „noch offen“ oder PLZ und/oder Ort; die Kundenanschrift braucht PLZ und Ort.
+  if (f === "einzug") return !e.einzugOffen && !e.einzug.ort.trim() && !e.einzug.plz.trim();
   if (f === "auszug") return !e[f].plz.trim() || !e[f].ort.trim();
   return !e[f].trim();
 }

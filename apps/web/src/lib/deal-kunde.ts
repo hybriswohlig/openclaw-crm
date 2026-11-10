@@ -126,14 +126,16 @@ export function ortNormal(ort: string): string {
 }
 
 /** Prüft eine Adresse; wirft `KundeFehler` mit Text für die Oberfläche. */
-export function pruefeAdresse(roh: unknown, label: string, opts: { plzPflicht?: boolean } = {}): AdressTeile {
+export function pruefeAdresse(roh: unknown, label: string, opts: { nurPlzOderOrt?: boolean } = {}): AdressTeile {
   const o = (roh && typeof roh === "object" ? roh : {}) as Record<string, unknown>;
   const a = { strasse: text(o.strasse, 120), plz: text(o.plz, 5), ort: ortNormal(text(o.ort, 80)) };
   const zusatz = text(o.zusatz, 80);
-  // Einzug (Inhaber 10.11.): PLZ darf fehlen („nur Ort“), eine eingetragene muss stimmen.
-  if ((opts.plzPflicht !== false || a.plz) && !plzGueltig(a.plz)) throw new KundeFehler(`${label}: PLZ mit fünf Ziffern eintragen, z. B. 70372.`);
-  if (!a.ort) throw new KundeFehler(`${label}: Ort eintragen, z. B. Stuttgart.`);
-  if (!ortGueltig(a.ort, false)) throw new KundeFehler(`${label}: Im Ort nur den Ortsnamen eintragen, ohne Ziffern, z. B. Stuttgart.`);
+  // Einzug (Entscheidung 10.11.): PLZ und/oder Ort, eins von beiden reicht; Eingetragenes muss stimmen.
+  const locker = opts.nurPlzOderOrt === true;
+  if (locker && !a.plz && !a.ort) throw new KundeFehler(`${label}: PLZ oder Ort eintragen, z. B. 70372 oder Stuttgart.`);
+  if ((!locker || a.plz) && !plzGueltig(a.plz)) throw new KundeFehler(`${label}: PLZ mit fünf Ziffern eintragen, z. B. 70372.`);
+  if (!locker && !a.ort) throw new KundeFehler(`${label}: Ort eintragen, z. B. Stuttgart.`);
+  if (a.ort && !ortGueltig(a.ort, false)) throw new KundeFehler(`${label}: Im Ort nur den Ortsnamen eintragen, ohne Ziffern, z. B. Stuttgart.`);
   const problem = strasseProblem(a.strasse);
   if (problem) throw new KundeFehler(`${label}: Die Straße ${problem}. Bitte nur Straße und Hausnummer eintragen.`);
   return zusatz ? { ...a, zusatz } : a;
@@ -166,7 +168,7 @@ export function pruefeKundeEingabe(body: unknown): KundeEingabe {
     e.email = m;
   }
   if (b.auszug !== undefined) e.auszug = pruefeAdresse(b.auszug, "Auszug");
-  if (b.einzug !== undefined) e.einzug = pruefeAdresse(b.einzug, "Einzug", { plzPflicht: false });
+  if (b.einzug !== undefined) e.einzug = pruefeAdresse(b.einzug, "Einzug", { nurPlzOderOrt: true });
   if (b.einzugOffen === true || b.einzugOffen === false) e.einzugOffen = b.einzugOffen;
   if (e.einzugOffen === true && e.einzug) throw new KundeFehler("Einzug: entweder eine Adresse oder „Einzug noch offen“.");
   if (b.datum !== undefined) {
