@@ -9,6 +9,7 @@ import { anfahrtText, pinGruppen, UMKREIS_KM, type EinsatzKarte, type KartenPers
 import type { EinsatzAnsicht, EinsatzPersonLage } from "@/lib/einsatz-ansicht";
 import type { KartenSteuerung } from "./einsatz-karte-bild";
 import {
+  escapeFangen,
   FILTER_VORGABE,
   kartenPersonenFiltern,
   umkreisLesen,
@@ -264,8 +265,17 @@ export function EinsatzKartenAnsicht({
     zug.current = z;
   }, []);
 
+  // Wer die Namensliste geöffnet hat (Pin oder Name), bekommt beim Schließen den Fokus zurück.
+  const ausloeser = useRef<HTMLElement | null>(null);
+  const blattSchliessen = useCallback(() => {
+    setOffen(null);
+    const el = ausloeser.current;
+    if (el?.isConnected) requestAnimationFrame(() => el.focus({ preventScroll: true }));
+  }, []);
+
   const oeffnen = useCallback((neu: Exclude<Offen, null>) => {
     if (klickSperre.current) return;
+    if (document.activeElement instanceof HTMLElement) ausloeser.current = document.activeElement;
     setOffen((alt) => (alt && alt.art === neu.art && JSON.stringify(alt) === JSON.stringify(neu) ? null : neu));
   }, []);
 
@@ -437,7 +447,7 @@ export function EinsatzKartenAnsicht({
             ansicht={ansicht}
             auswahl={auswahl}
             tagText={tagText}
-            onSchliessen={() => setOffen(null)}
+            onSchliessen={blattSchliessen}
             onZiehenStart={ziehenStart}
             onAblegen={onAblegen}
             onEntfernen={onEntfernen}
@@ -514,6 +524,10 @@ function PersonenBlatt({
 }) {
   const erster = useRef<HTMLButtonElement | null>(null);
   const ids = personen.map((p) => p.employeeId).join(",");
+  // Escape schließt nur die Namensliste, nie den Dialog (Review I1).
+  const schliessenRef = useRef(onSchliessen);
+  schliessenRef.current = onSchliessen;
+  useEffect(() => escapeFangen(window, () => schliessenRef.current()), []);
   // Fokus auf „Ins Team“ beim Öffnen (Tastaturweg), nicht bei jeder Teamänderung.
   useEffect(() => {
     erster.current?.focus({ preventScroll: true });
@@ -524,12 +538,6 @@ function PersonenBlatt({
       className="ezk-blatt"
       role="dialog"
       aria-label={personen.length > 1 ? `${personen.length} Personen in ${ort ?? "einem Ort"}` : (personen[0]?.name ?? "Person")}
-      onKeyDown={(e) => {
-        if (e.key === "Escape") {
-          e.stopPropagation();
-          onSchliessen();
-        }
-      }}
     >
       <div className="ezk-blatt-kopf">
         <b>{personen.length > 1 ? `${personen.length} in ${ort ?? "einem Ort"}` : (ort ?? "ohne Wohnort")}</b>

@@ -1,8 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { pinGruppen } from "@/lib/einsatz";
 import {
   ansichtLesen,
   ansichtMerken,
+  escapeFangen,
   minutenBehalten,
   FILTER_VORGABE,
   gruppenLage,
@@ -274,5 +275,36 @@ describe("Rückgängig", () => {
     for (let i = 0; i < VERLAUF_MAX + 5; i++) v = verlaufMerken(v, { team: [], bestaetigtAmTag: [String(i)] }, leer);
     expect(v.vorher).toHaveLength(VERLAUF_MAX);
     expect(v.vorher[0]!.bestaetigtAmTag).toEqual(["5"]);
+  });
+});
+
+describe("Escape in der Namensliste (Review I1)", () => {
+  const taste = (key: string) => Object.assign(new Event("keydown", { cancelable: true }), { key });
+
+  it("schließt nur die Liste: Capture-Listener stoppt das Ereignis vor dem Dialog", () => {
+    const ziel = new EventTarget();
+    let zu = 0;
+    let dialog = 0;
+    ziel.addEventListener("keydown", () => dialog++);
+    const ab = escapeFangen(ziel, () => zu++);
+    const e = taste("Escape");
+    ziel.dispatchEvent(e);
+    expect(zu).toBe(1);
+    expect(e.defaultPrevented).toBe(true);
+    ziel.dispatchEvent(taste("Enter"));
+    expect(zu).toBe(1);
+    ab();
+    ziel.dispatchEvent(taste("Escape"));
+    expect(zu).toBe(1);
+  });
+
+  it("stopPropagation verhindert, dass der Escape-Listener des Dialogs am Dokument greift", () => {
+    const e = taste("Escape");
+    const stop = vi.spyOn(e, "stopPropagation");
+    const ziel = new EventTarget();
+    const ab = escapeFangen(ziel, () => {});
+    ziel.dispatchEvent(e);
+    expect(stop).toHaveBeenCalled();
+    ab();
   });
 });

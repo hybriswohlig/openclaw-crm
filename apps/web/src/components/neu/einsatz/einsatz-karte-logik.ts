@@ -185,3 +185,22 @@ export function verlaufZurueck(v: Verlauf): [Verlauf, Auswahl] | null {
   if (!letzte) return null;
   return [{ vorher: v.vorher.slice(0, -1) }, letzte];
 }
+
+// ─── Escape in der Namensliste ───────────────────────────────────────────────
+
+/**
+ * Solange die Namensliste offen ist, schließt Escape nur sie (Review I1). Der
+ * Listener sitzt in der Capture-Phase am `window` und läuft damit vor dem
+ * Escape-Listener des Dialogs (Radix hört in der Capture-Phase am `document`).
+ * Gibt die Abmeldung zurück.
+ */
+export function escapeFangen(ziel: Pick<EventTarget, "addEventListener" | "removeEventListener">, schliessen: () => void): () => void {
+  const bei = (e: Event) => {
+    if ((e as KeyboardEvent).key !== "Escape") return;
+    e.stopPropagation();
+    e.preventDefault();
+    schliessen();
+  };
+  ziel.addEventListener("keydown", bei, { capture: true });
+  return () => ziel.removeEventListener("keydown", bei, { capture: true });
+}
