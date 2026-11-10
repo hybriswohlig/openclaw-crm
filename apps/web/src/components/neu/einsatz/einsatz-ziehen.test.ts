@@ -3,6 +3,7 @@ import { pinGruppen } from "@/lib/einsatz";
 import {
   ansichtLesen,
   ansichtMerken,
+  minutenBehalten,
   FILTER_VORGABE,
   gruppenLage,
   kartenPersonenFiltern,
@@ -256,6 +257,16 @@ describe("Rückgängig", () => {
     const z2 = verlaufZurueck(z1[0])!;
     expect(z2[1]).toBe(s0);
     expect(verlaufZurueck(z2[0])).toBeNull();
+  });
+
+  it("Rückgängig nimmt nur das Team zurück, getippte Minuten der Verbleibenden bleiben", () => {
+    const s0 = startAuswahl(a);
+    const s1 = auswahlHinzufuegen(s0, "ma_dr", a.rechner);
+    const getippt = minutenSetzen(s1, "ma_ak", "arbeit", 300, a.rechner);
+    const zurueck = minutenBehalten(s0, getippt);
+    expect(zurueck.team.map((t) => t.employeeId)).toEqual(s0.team.map((t) => t.employeeId));
+    expect(zurueck.team.find((t) => t.employeeId === "ma_ak")).toMatchObject({ arbeitMin: 300, vonHand: { arbeit: true } });
+    expect(zurueck.team.find((t) => t.employeeId === "ma_mk")!.arbeitMin).toBe(s0.team.find((t) => t.employeeId === "ma_mk")!.arbeitMin);
   });
 
   it("höchstens VERLAUF_MAX Schritte", () => {

@@ -16,6 +16,7 @@ import {
   ansichtLesen,
   ansichtMerken,
   laengsteAnfahrt,
+  minutenBehalten,
   verlaufMerken,
   verlaufZurueck,
   VERLAUF_LEER,
@@ -203,7 +204,7 @@ export function EinsatzDialog({
     const z = verlaufZurueck(verlauf);
     if (!z) return;
     setVerlauf(z[0]);
-    setAuswahl(z[1]);
+    setAuswahl(auswahl ? minutenBehalten(z[1], auswahl) : z[1]);
     setRueckfrage(null);
   }
 

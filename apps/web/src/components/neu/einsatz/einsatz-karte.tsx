@@ -156,11 +156,18 @@ export function EinsatzKartenAnsicht({
       teamFlaechenHeiss(false);
       setGeist(null);
       if (!z.aktiv) return;
-      // Nach einem Ziehen keinen Klick auswerten (sonst öffnet sich die Namensliste).
+      // Nach einem Ziehen keinen Klick auswerten: weder die Namensliste noch Knöpfe am
+      // Ablageziel („leiten“, „×“), über denen losgelassen wurde.
       klickSperre.current = true;
+      const schlucken = (e: MouseEvent) => {
+        e.stopPropagation();
+        e.preventDefault();
+      };
+      window.addEventListener("click", schlucken, true);
       setTimeout(() => {
         klickSperre.current = false;
-      }, 0);
+        window.removeEventListener("click", schlucken, true);
+      }, 350);
       if (!ablegen) return;
       const ziel = trefferZiel(ablegen, ziele());
       const p = details.get(z.k.employeeId);
@@ -297,7 +304,8 @@ export function EinsatzKartenAnsicht({
     umkreisMerken(km);
   };
 
-  const vorschau = geist ? ziehenVorschau(details.get(geist.k.employeeId)!, auswahl, ansicht) : null;
+  const geistPerson = geist ? details.get(geist.k.employeeId) : undefined;
+  const vorschau = geistPerson ? ziehenVorschau(geistPerson, auswahl, ansicht) : null;
   const kompakt = kompaktText(auswahl.team.length, summe.vergleich.summeCent, summe.vergleich.differenzCent);
 
   if (laden.art !== "da") {

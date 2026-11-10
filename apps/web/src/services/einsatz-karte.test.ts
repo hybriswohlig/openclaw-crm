@@ -121,6 +121,13 @@ describe("ladeEinsatzKarte", () => {
     }
   });
 
+  it("Ort bekannt, aber ohne Kartenpunkt (etwa ohne Geocoding-Freigabe): kein Route-Hinweis", async () => {
+    setze([], { von_adresse: "Königstraße 12, 70173 Stuttgart" });
+    const karte = await ladeEinsatzKarte("w1", "d1", { jetzt: JETZT, orte: orteFest({}), lead: leerLead, routen: async () => null });
+    expect(karte.beladen).toBeNull();
+    expect(karte.hinweise).toEqual(["Auftragsort ohne Kartenpunkt."]);
+  });
+
   it("keine Route: Stadtpunkt aus der Version, Text ohne Straße, Beladen vor den Personen", async () => {
     setze(
       [person({ id: "p1", name: NAME, kuerzel: "", plz: "70176", wohnort: "Stuttgart" })],

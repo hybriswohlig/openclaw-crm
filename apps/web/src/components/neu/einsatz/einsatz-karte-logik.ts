@@ -159,6 +159,26 @@ export function verlaufMerken(v: Verlauf, alt: Auswahl, neu: Auswahl): Verlauf {
   return { vorher: [...v.vorher, alt].slice(-VERLAUF_MAX) };
 }
 
+/**
+ * Rückgängig nimmt nur Mitgliedschaft und Rolle zurück: von Hand getippte
+ * Minuten der Personen, die im alten Stand auch im Team sind, bleiben.
+ */
+export function minutenBehalten(alt: Auswahl, aktuell: Auswahl): Auswahl {
+  return {
+    ...alt,
+    team: alt.team.map((t) => {
+      const jetzt = aktuell.team.find((x) => x.employeeId === t.employeeId);
+      if (!jetzt) return t;
+      return {
+        ...t,
+        fahrtMin: jetzt.vonHand.fahrt ? jetzt.fahrtMin : t.fahrtMin,
+        arbeitMin: jetzt.vonHand.arbeit ? jetzt.arbeitMin : t.arbeitMin,
+        vonHand: { fahrt: jetzt.vonHand.fahrt || t.vonHand.fahrt, arbeit: jetzt.vonHand.arbeit || t.vonHand.arbeit },
+      };
+    }),
+  };
+}
+
 /** Einen Schritt zurück: `[neuer Verlauf, Auswahl]`, null ohne Schritt. */
 export function verlaufZurueck(v: Verlauf): [Verlauf, Auswahl] | null {
   const letzte = v.vorher[v.vorher.length - 1];

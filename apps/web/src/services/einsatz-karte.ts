@@ -32,6 +32,7 @@ export interface KartenLead {
 }
 
 const ROUTE_HINWEIS = "Noch keine Route: erst die Kalkulation rechnen.";
+const AUFTRAG_OHNE_PUNKT = "Auftragsort ohne Kartenpunkt.";
 
 function textVon(w: unknown): string | null {
   return typeof w === "string" && w.trim() !== "" ? w.trim() : null;
@@ -197,7 +198,9 @@ export async function ladeEinsatzKarte(
   }));
 
   const hinweise: string[] = [];
-  if (!beladen && !entladen && linie.length === 0) hinweise.push(ROUTE_HINWEIS);
+  // „Noch keine Route“ nur, wenn gar kein Ort bekannt ist (Auftrag 10.11. Punkt 1); ist ein Ort
+  // bekannt, fehlt nur der Kartenpunkt (etwa ohne Freigabe der Geocoding API).
+  if (!beladen && !entladen && linie.length === 0) hinweise.push(beladenOrt || entladenOrt ? AUFTRAG_OHNE_PUNKT : ROUTE_HINWEIS);
   const fehlendeOrte = new Set(personen.filter((p) => p.ortSchluessel && !p.punkt).map((p) => p.ortSchluessel));
   const orteText = orteHinweis(fehlendeOrte.size);
   if (orteText) hinweise.push(orteText);

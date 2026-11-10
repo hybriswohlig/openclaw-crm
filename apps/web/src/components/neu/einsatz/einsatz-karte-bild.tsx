@@ -133,7 +133,7 @@ export default function EinsatzKarteBild(props: EinsatzKarteBildProps) {
   );
 
   if (!start.current) {
-    return <div className="ezk-leer">Keine Orte zum Anzeigen. Wohnorte unter Mitarbeiter eintragen.</div>;
+    return <div className="ezk-leer">Noch kein Ort mit Kartenpunkt.</div>;
   }
   return (
     <div className="ezk-bild-rahmen">
