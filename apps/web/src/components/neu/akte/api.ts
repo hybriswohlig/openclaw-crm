@@ -6,7 +6,7 @@
 
 export type ApiAntwort<T> =
   | { ok: true; data: T }
-  | { ok: false; status: number; code: string | null; message: string };
+  | { ok: false; status: number; code: string | null; message: string; fehler?: Record<string, unknown> };
 
 interface Fehlerkoerper {
   data?: unknown;
@@ -29,7 +29,7 @@ export async function apiAufruf<T>(url: string, init?: RequestInit): Promise<Api
     typeof fehler === "string" ? fehler : typeof fehler === "object" && fehler ? fehler.message : undefined;
   const message =
     typeof text === "string" && text.trim() !== "" ? text : `Der Server hat mit Fehler ${res.status} geantwortet.`;
-  return { ok: false, status: res.status, code, message };
+  return { ok: false, status: res.status, code, message, ...(typeof fehler === "object" && fehler ? { fehler: fehler as Record<string, unknown> } : {}) };
 }
 
 /** `fetch`-Optionen für einen JSON-Körper; `kopf` für zusätzliche Header. */

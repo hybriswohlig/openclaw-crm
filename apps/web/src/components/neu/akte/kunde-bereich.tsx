@@ -6,10 +6,10 @@ import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { GlassButton } from "@/components/glassyui/glass-button";
 import { GlassPanel } from "@/components/glassyui/glass-panel";
-import type { DealKunde } from "@/lib/deal-kunde";
+import type { DealKunde, KundeEingabe } from "@/lib/deal-kunde";
 import { ALLE_FELDER, aenderungen, entwurfAus, type KundeEntwurf, type KundeFeld } from "@/lib/kunde-entwurf";
-import { apiAufruf, jsonAufruf } from "./api";
-import { AusDemChatKnopf, KUNDE_GEAENDERT_EVENT, KundeFelder, kundeWert } from "./kunde-felder";
+import { apiAufruf } from "./api";
+import { AusDemChatKnopf, KUNDE_GEAENDERT_EVENT, KundeFelder, PersonFrage, kundeSpeichern, kundeWert, type PersonKandidat } from "./kunde-felder";
 
 const ZEILEN: Array<{ feld: KundeFeld; label: string }> = [
   { feld: "name", label: "Name" },
@@ -45,6 +45,7 @@ export function KundeBereich({
   const [entwurf, setEntwurf] = useState<KundeEntwurf>(entwurfAus(null));
   const [vorgeschlagen, setVorgeschlagen] = useState<KundeFeld[]>([]);
   const [speichert, setSpeichert] = useState(false);
+  const [frage, setFrage] = useState<{ kandidaten: PersonKandidat[]; body: KundeEingabe } | null>(null);
   const panel = useRef<HTMLDivElement | null>(null);
 
   const bearbeitet = useRef(bearbeiten);
@@ -87,30 +88,40 @@ export function KundeBereich({
   }, [offen]);
 
   function abbrechen() {
+    setFrage(null);
     setEntwurf(entwurfAus(kunde));
     setVorgeschlagen([]);
     setFehler(null);
     setBearbeiten(false);
   }
 
-  async function speichern(e: React.FormEvent) {
-    e.preventDefault();
-    const body = aenderungen(entwurf, kunde);
-    if (Object.keys(body).length === 0) return abbrechen();
+  /** Doppelklick, Enter während des Speicherns: nur ein Aufruf (sonst zwei neue Personen). */
+  const laeuftRef = useRef(false);
+
+  async function senden(body: KundeEingabe) {
+    if (laeuftRef.current) return;
+    laeuftRef.current = true;
     setSpeichert(true);
     setFehler(null);
-    const r = await apiAufruf<DealKunde>(
-      `/api/v1/deals/${encodeURIComponent(dealId)}/kunde`,
-      jsonAufruf("PUT", { ...body, quelle: vorgeschlagen.length > 0 ? "chat" : "akte" })
-    );
+    const r = await kundeSpeichern(dealId, body);
+    laeuftRef.current = false;
     setSpeichert(false);
-    if (!r.ok) return setFehler(r.message);
-    setKunde(r.data);
-    setEntwurf(entwurfAus(r.data));
+    if (r.art === "frage") return setFrage({ kandidaten: r.kandidaten, body });
+    setFrage(null);
+    if (r.art === "fehler") return setFehler(r.text);
+    setKunde(r.kunde);
+    setEntwurf(entwurfAus(r.kunde));
     setVorgeschlagen([]);
     setBearbeiten(false);
     toast.success("Kundendaten gespeichert.");
     await onGespeichert();
+  }
+
+  async function speichern(e: React.FormEvent) {
+    e.preventDefault();
+    const body = aenderungen(entwurf, kunde);
+    if (Object.keys(body).length === 0) return abbrechen();
+    await senden({ ...body, quelle: vorgeschlagen.length > 0 ? "chat" : "akte" });
   }
 
   const fehltFuerKv = kunde ? KV_PFLICHT.filter((f) => !kundeWert(kunde, f)) : [];
@@ -180,14 +191,23 @@ export function KundeBereich({
             <p className="kunde-hinweis">Noch keine Person verknüpft: Speichern legt sie mit Name, Telefon und E-Mail an.</p>
           ) : null}
           {fehler ? <p className="akte-dialog-fehler">{fehler}</p> : null}
-          <div className="akte-dialog-knoepfe">
-            <GlassButton type="button" variant="ghost" onClick={abbrechen} disabled={speichert}>
-              Abbrechen
-            </GlassButton>
-            <GlassButton type="submit" disabled={speichert} aria-busy={speichert || undefined}>
-              {speichert ? "Speichert …" : "Speichern"}
-            </GlassButton>
-          </div>
+          {frage ? (
+            <PersonFrage
+              kandidaten={frage.kandidaten}
+              name={entwurf.name}
+              disabled={speichert}
+              onWahl={(personWahl) => void senden({ ...frage.body, personWahl })}
+            />
+          ) : (
+            <div className="akte-dialog-knoepfe">
+              <GlassButton type="button" variant="ghost" onClick={abbrechen} disabled={speichert}>
+                Abbrechen
+              </GlassButton>
+              <GlassButton type="submit" disabled={speichert} aria-busy={speichert || undefined}>
+                {speichert ? "Speichert …" : "Speichern"}
+              </GlassButton>
+            </div>
+          )}
         </form>
       ) : null}
 

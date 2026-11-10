@@ -1,7 +1,7 @@
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { badRequest, forbidden, getAuthContext, notFound, success, unauthorized } from "@/lib/api-utils";
 import { pruefeKundeEingabe } from "@/lib/deal-kunde";
-import { KundeFehler, ladeKunde, speichereKunde } from "@/services/deal-kunde";
+import { KundeFehler, PersonGefunden, ladeKunde, speichereKunde } from "@/services/deal-kunde";
 
 export const dynamic = "force-dynamic";
 
@@ -35,6 +35,10 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ reco
     return success(await speichereKunde(ctx.workspaceId, recordId, eingabe, ctx.userId ?? null));
   } catch (err) {
     if (err instanceof KundeFehler) return badRequest(err.message);
+    if (err instanceof PersonGefunden) {
+      // Nichts gespeichert: die Oberfläche fragt „verknüpfen oder neue Person?“ und schickt personWahl mit.
+      return NextResponse.json({ error: { code: "PERSON_GEFUNDEN", message: err.message, kandidaten: err.kandidaten } }, { status: 409 });
+    }
     throw err;
   }
 }

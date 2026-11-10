@@ -4,9 +4,9 @@ import "@/styles/neu-akte-kunde.css";
 
 import { useEffect, useId, useRef, useState } from "react";
 import { GlassButton } from "@/components/glassyui/glass-button";
-import type { AdressTeile, DealKunde, KundeVorschlag } from "@/lib/deal-kunde";
+import type { AdressTeile, DealKunde, KundeEingabe, KundeVorschlag } from "@/lib/deal-kunde";
 import { feldLeer, vorschlagEinsetzen, vorschlagHinweis, type KundeEntwurf, type KundeFeld } from "@/lib/kunde-entwurf";
-import { apiAufruf } from "./api";
+import { apiAufruf, jsonAufruf } from "./api";
 
 /** Browser-Event nach dem Speichern von Kundendaten; `detail` ist die Deal-ID. */
 export const KUNDE_GEAENDERT_EVENT = "crm-deal-kunde-geaendert";
@@ -211,4 +211,68 @@ export function kundeWert(k: DealKunde, f: KundeFeld): string | null {
     return `${d}.${m}.${y}`;
   }
   return k[f] || null;
+}
+
+export interface PersonKandidat {
+  personId: string;
+  name: string;
+}
+
+export type SpeicherErgebnis =
+  | { art: "ok"; kunde: DealKunde }
+  | { art: "frage"; kandidaten: PersonKandidat[] }
+  | { art: "fehler"; text: string };
+
+/** PUT …/kunde; 409 PERSON_GEFUNDEN wird zur Rückfrage „verknüpfen oder neue Person?“. */
+export async function kundeSpeichern(dealId: string, body: KundeEingabe): Promise<SpeicherErgebnis> {
+  const r = await apiAufruf<DealKunde>(`/api/v1/deals/${encodeURIComponent(dealId)}/kunde`, jsonAufruf("PUT", body));
+  if (r.ok) {
+    window.dispatchEvent(new CustomEvent(KUNDE_GEAENDERT_EVENT, { detail: dealId }));
+    return { art: "ok", kunde: r.data };
+  }
+  const kandidaten = r.fehler?.kandidaten;
+  if (r.code === "PERSON_GEFUNDEN" && Array.isArray(kandidaten) && kandidaten.length > 0) {
+    return { art: "frage", kandidaten: kandidaten as PersonKandidat[] };
+  }
+  return { art: "fehler", text: r.message };
+}
+
+/**
+ * Rückfrage, wenn Telefon oder E-Mail schon zu einer Person gehören (nie still verknüpfen).
+ * „Neue Person anlegen“ ist der erste Knopf; verknüpft wird nur auf ausdrücklichen Klick.
+ */
+export function PersonFrage({
+  kandidaten,
+  name,
+  disabled,
+  onWahl,
+}: {
+  kandidaten: PersonKandidat[];
+  /** Eingetragener Name (oder leer). */
+  name: string;
+  disabled: boolean;
+  onWahl: (w: KundeEingabe["personWahl"]) => void;
+}) {
+  const erster = kandidaten[0]!;
+  return (
+    <div className="kunde-frage" role="alertdialog" aria-label="Person schon vorhanden">
+      <p>
+        Es gibt schon <b>{erster.name}</b> mit dieser Nummer. Verknüpfen oder neue Person anlegen?
+      </p>
+      <p className="kunde-hinweis">
+        Verknüpfen: Der KV lautet dann auf {erster.name}
+        {name.trim() && name.trim() !== erster.name ? `, „${name.trim()}“ bleibt als Lead-Name` : ""}.
+      </p>
+      <div className="akte-dialog-knoepfe">
+        <GlassButton type="button" onClick={() => onWahl("neu")} disabled={disabled}>
+          {name.trim() ? `Neue Person „${name.trim()}“ anlegen` : "Neue Person anlegen"}
+        </GlassButton>
+        {kandidaten.map((k) => (
+          <GlassButton key={k.personId} type="button" variant="ghost" onClick={() => onWahl({ verknuepfen: k.personId })} disabled={disabled}>
+            Mit {k.name} verknüpfen
+          </GlassButton>
+        ))}
+      </div>
+    </div>
+  );
 }

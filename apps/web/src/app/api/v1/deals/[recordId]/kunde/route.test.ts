@@ -9,7 +9,12 @@ vi.mock("@/lib/api-utils", async (importOriginal) => ({
 }));
 vi.mock("@/services/deal-kunde", async () => {
   const { KundeFehler } = await import("@/lib/deal-kunde");
-  return { KundeFehler, ladeKunde: m.ladeKunde, speichereKunde: m.speichereKunde };
+  class PersonGefunden extends Error {
+    constructor(readonly kandidaten: Array<{ personId: string; name: string }>) {
+      super(`Es gibt schon ${kandidaten[0]?.name} mit dieser Nummer oder E-Mail.`);
+    }
+  }
+  return { KundeFehler, PersonGefunden, ladeKunde: m.ladeKunde, speichereKunde: m.speichereKunde };
 });
 
 import { GET, PUT } from "./route";
@@ -60,5 +65,19 @@ describe("/api/v1/deals/:id/kunde", () => {
     }
     expect(m.speichereKunde).not.toHaveBeenCalled();
     expect(m.ladeKunde).not.toHaveBeenCalled();
+  });
+
+  it("Telefon gehört schon jemandem: 409 PERSON_GEFUNDEN mit Kandidaten, personWahl geht an den Dienst", async () => {
+    const { PersonGefunden } = (await import("@/services/deal-kunde")) as unknown as {
+      PersonGefunden: new (k: Array<{ personId: string; name: string }>) => Error;
+    };
+    m.speichereKunde.mockRejectedValueOnce(new PersonGefunden([{ personId: "p_erika", name: "Erika Muster" }]));
+    const res = await put({ name: "Viktoria Muster", telefon: "07031 12345" });
+    expect(res.status).toBe(409);
+    const j = await res.json();
+    expect(j.error.code).toBe("PERSON_GEFUNDEN");
+    expect(j.error.kandidaten).toEqual([{ personId: "p_erika", name: "Erika Muster" }]);
+    await put({ name: "Viktoria Muster", telefon: "07031 12345", personWahl: "neu" });
+    expect(m.speichereKunde.mock.calls.at(-1)?.[2]).toMatchObject({ personWahl: "neu" });
   });
 });

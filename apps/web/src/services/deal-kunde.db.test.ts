@@ -26,7 +26,7 @@ describe.skipIf(!url)("Kunde und Adressen (DB)", { timeout: 30_000 }, () => {
   const ws = randomUUID();
   const fremd = randomUUID();
   const obj = { deals: randomUUID(), people: randomUUID(), fremdDeals: randomUUID() };
-  const deal = { viktoria: randomUUID(), ohnePerson: randomUUID(), zwei: randomUUID(), einer: randomUUID() };
+  const deal = { viktoria: randomUUID(), ohnePerson: randomUUID(), zwei: randomUUID(), einer: randomUUID(), ohnePerson2: randomUUID() };
   const p2 = randomUUID();
   const p3 = randomUUID();
   const person = randomUUID();
@@ -64,7 +64,7 @@ describe.skipIf(!url)("Kunde und Adressen (DB)", { timeout: 30_000 }, () => {
     await wert(person, `${obj.people}.phone_numbers`, "text_value", "0171 2345678");
     await wert(deal.ohnePerson, `${obj.deals}.name`, "text_value", "Familie Kraus — Calw → Nagold");
     // Zwei bestehende Personen: eine mit Telefon, eine mit E-Mail.
-    await sql`insert into records (id, object_id) values (${deal.zwei}, ${obj.deals}), (${deal.einer}, ${obj.deals}), (${p2}, ${obj.people}), (${p3}, ${obj.people})`;
+    await sql`insert into records (id, object_id) values (${deal.zwei}, ${obj.deals}), (${deal.einer}, ${obj.deals}), (${deal.ohnePerson2}, ${obj.deals}), (${p2}, ${obj.people}), (${p3}, ${obj.people})`;
     await wert(p2, `${obj.people}.name`, "json_value", { fullName: "Alter Name" });
     await wert(p3, `${obj.people}.name`, "json_value", { fullName: "Dritte Person" });
     const { upsertIdentifier } = await import("./inbox-crm-link");
@@ -164,16 +164,35 @@ describe.skipIf(!url)("Kunde und Adressen (DB)", { timeout: 30_000 }, () => {
     expect(k.telefon).toBe("0711 987654");
   });
 
-  it("Telefon und E-Mail treffen zwei verschiedene Personen: keine verknüpfen, neue anlegen", async () => {
-    const k = await dienst.speichereKunde(ws, deal.zwei, { name: "Neue Kundin", telefon: "0151 2222222", email: "dritte@beispiel.de" }, null);
-    expect(k.personId).not.toBeNull();
-    expect([p2, p3]).not.toContain(k.personId);
-    expect(k.name).toBe("Neue Kundin");
+  it("Telefon gehört schon einer anderen Person: nichts still verknüpft, Rückfrage mit Namen", async () => {
+    const fehler = await dienst.speichereKunde(ws, deal.einer, { name: "Viktoria Muster", telefon: "0151 2222222" }, null).catch((e) => e);
+    expect(fehler).toBeInstanceOf(dienst.PersonGefunden);
+    expect(fehler.kandidaten).toEqual([{ personId: p2, name: "Alter Name" }]);
+    // Nichts gespeichert, keine Person verknüpft.
+    expect((await dienst.ladeKunde(ws, deal.einer))?.personId).toBeNull();
   });
 
-  it("eine gefundene bestehende Person wird verknüpft, aber nicht umbenannt", async () => {
-    const k = await dienst.speichereKunde(ws, deal.einer, { name: "Ganz Anders", telefon: "0151 2222222" }, null);
+  it("Wahl „neu“: neue Person mit dem eingetragenen Namen, die andere bleibt unberührt", async () => {
+    const k = await dienst.speichereKunde(ws, deal.einer, { name: "Viktoria Muster", telefon: "0151 2222222", personWahl: "neu" }, null);
+    expect(k.personId).not.toBeNull();
+    expect([p2, p3]).not.toContain(k.personId);
+    expect(k.name).toBe("Viktoria Muster");
+    // Die Nummer gehört weiter p2 im Identitätsgraphen.
+    const besitzer = await sql`select person_record_id from person_identifiers where workspace_id = ${ws} and kind = 'phone' and value_raw = '0151 2222222'`;
+    expect(besitzer.map((b) => b.person_record_id)).toEqual([p2]);
+  });
+
+  it("Wahl „verknüpfen“: bestehende Person behält ihren Namen, der eingetragene steht am Lead", async () => {
+    const k = await dienst.speichereKunde(ws, deal.zwei, { name: "Viktoria Muster", telefon: "0151 2222222", personWahl: { verknuepfen: p2 } }, null);
     expect(k.personId).toBe(p2);
     expect(k.name).toBe("Alter Name");
+    const [titel] = await sql`select text_value from record_values where record_id = ${deal.zwei} and attribute_id = ${attr[`${obj.deals}.name`]}`;
+    expect(titel.text_value).toBe("Viktoria Muster");
+  });
+
+  it("Wahl „verknüpfen“ mit einer Person, die nicht passt: Fehler, nichts gespeichert", async () => {
+    await expect(
+      dienst.speichereKunde(ws, deal.ohnePerson2, { name: "X Y", telefon: "0151 2222222", personWahl: { verknuepfen: p3 } }, null)
+    ).rejects.toThrow("passt nicht");
   });
 });

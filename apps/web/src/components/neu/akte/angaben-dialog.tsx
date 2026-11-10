@@ -2,7 +2,7 @@
 
 import "@/styles/neu-akte-kunde.css";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { GlassButton } from "@/components/glassyui/glass-button";
 import {
   GlassDialog,
@@ -10,11 +10,11 @@ import {
   GlassDialogDescription,
   GlassDialogTitle,
 } from "@/components/glassyui/glass-dialog";
-import type { DealKunde } from "@/lib/deal-kunde";
+import type { DealKunde, KundeEingabe } from "@/lib/deal-kunde";
 import { aenderungen, entwurfAus, feldAusPflicht, feldLeer, type KundeEntwurf, type KundeFeld } from "@/lib/kunde-entwurf";
 import type { DokumentArt as VorpruefungArt, Vorpruefung } from "@/lib/kv-vorpruefung";
-import { apiAufruf, jsonAufruf } from "./api";
-import { AusDemChatKnopf, KUNDE_GEAENDERT_EVENT, KundeFelder } from "./kunde-felder";
+import { apiAufruf } from "./api";
+import { AusDemChatKnopf, KundeFelder, PersonFrage, kundeSpeichern, type PersonKandidat } from "./kunde-felder";
 
 const DOK: Record<VorpruefungArt, { name: string; knopf: string }> = {
   KV: { name: "den Kostenvoranschlag", knopf: "KV" },
@@ -51,6 +51,7 @@ export function AngabenDialog({
   const [laden, setLaden] = useState(true);
   const [speichert, setSpeichert] = useState(false);
   const [fehler, setFehler] = useState<string | null>(null);
+  const [frage, setFrage] = useState<{ kandidaten: PersonKandidat[]; body: KundeEingabe } | null>(null);
 
   useEffect(() => {
     let aktuell = true;
@@ -68,17 +69,26 @@ export function AngabenDialog({
 
   const bereit = !laden && felder.every((f) => !feldLeer(entwurf, f));
 
+  const laeuftRef = useRef(false);
+
+  async function senden(body: KundeEingabe) {
+    if (laeuftRef.current) return;
+    laeuftRef.current = true;
+    setSpeichert(true);
+    setFehler(null);
+    const r = await kundeSpeichern(dealId, body);
+    laeuftRef.current = false;
+    setSpeichert(false);
+    if (r.art === "frage") return setFrage({ kandidaten: r.kandidaten, body });
+    setFrage(null);
+    if (r.art === "fehler") return setFehler(r.text);
+    onWeiter();
+  }
+
   async function speichern(e: React.FormEvent) {
     e.preventDefault();
     if (!bereit || speichert) return;
-    setSpeichert(true);
-    setFehler(null);
-    const body = { ...aenderungen(entwurf, kunde, felder), quelle: vorgeschlagen.length > 0 ? "chat" : "vorpruefung" };
-    const r = await apiAufruf<DealKunde>(`/api/v1/deals/${encodeURIComponent(dealId)}/kunde`, jsonAufruf("PUT", body));
-    setSpeichert(false);
-    if (!r.ok) return setFehler(r.message);
-    window.dispatchEvent(new CustomEvent(KUNDE_GEAENDERT_EVENT, { detail: dealId }));
-    onWeiter();
+    await senden({ ...aenderungen(entwurf, kunde, felder), quelle: vorgeschlagen.length > 0 ? "chat" : "vorpruefung" });
   }
 
   return (
@@ -119,7 +129,15 @@ export function AngabenDialog({
             </ul>
           ) : null}
           {fehler ? <p className="akte-dialog-fehler">{fehler}</p> : null}
-          <div className="akte-dialog-knoepfe">
+          {frage ? (
+            <PersonFrage
+              kandidaten={frage.kandidaten}
+              name={entwurf.name}
+              disabled={speichert}
+              onWahl={(personWahl) => void senden({ ...frage.body, personWahl })}
+            />
+          ) : null}
+          <div className="akte-dialog-knoepfe" hidden={!!frage}>
             <GlassButton type="button" variant="ghost" onClick={onSchliessen} disabled={speichert}>
               Abbrechen
             </GlassButton>

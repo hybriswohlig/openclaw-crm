@@ -206,3 +206,23 @@
     grid-template-columns: 84px minmax(0, 1fr);
   }
 }
+
+[data-neu] .kunde-frage {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: var(--gold-tint);
+  color: var(--ink);
+  font-size: 13.5px;
+}
+
+[data-neu] .kunde-frage p {
+  margin: 0;
+}
+
+[data-neu] .kunde-frage .akte-dialog-knoepfe {
+  margin-top: 8px;
+}

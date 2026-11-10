@@ -43,6 +43,11 @@ export interface KundeEingabe {
   datum?: string;
   /** Woher die Werte kommen (nur für das Ereignis). */
   quelle?: "akte" | "vorpruefung" | "chat";
+  /**
+   * Antwort auf „Es gibt schon … mit dieser Nummer“ (nur ohne verknüpfte Person):
+   * „neu“ legt eine neue Person an, `verknuepfen` nimmt die genannte bestehende.
+   */
+  personWahl?: "neu" | { verknuepfen: string };
 }
 
 export class KundeFehler extends Error {}
@@ -121,6 +126,11 @@ export function pruefeKundeEingabe(body: unknown): KundeEingabe {
     e.datum = d;
   }
   if (b.quelle === "akte" || b.quelle === "vorpruefung" || b.quelle === "chat") e.quelle = b.quelle;
+  if (b.personWahl === "neu") e.personWahl = "neu";
+  else if (b.personWahl && typeof b.personWahl === "object") {
+    const id = (b.personWahl as Record<string, unknown>).verknuepfen;
+    if (typeof id === "string" && id.trim()) e.personWahl = { verknuepfen: id.trim() };
+  }
   return e;
 }
 

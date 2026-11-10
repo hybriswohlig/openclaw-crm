@@ -22,6 +22,13 @@ import {
 
 export { KundeFehler };
 
+/** Telefon oder E-Mail gehören schon jemandem: die Oberfläche fragt „verknüpfen oder neue Person?“. */
+export class PersonGefunden extends Error {
+  constructor(readonly kandidaten: Array<{ personId: string; name: string }>) {
+    super(`Es gibt schon ${kandidaten[0]?.name ?? "eine Person"} mit dieser Nummer oder E-Mail.`);
+  }
+}
+
 type Werte = Record<string, unknown>;
 
 function datumText(v: unknown): string | null {
@@ -97,7 +104,22 @@ const nurZiffern = (s: string) => s.replace(/[^\d+]/g, "");
  * Speichert die gegebenen Felder. Wirft `KundeFehler` (400) bei fehlendem Deal
  * oder wenn Telefon/E-Mail ohne Namen und ohne Person kommen.
  */
-export async function speichereKunde(ws: string, dealId: string, e: KundeEingabe, userId: string | null): Promise<DealKunde> {
+/** Speichervorgänge je Deal nacheinander (zwei gleichzeitige sollen nicht zwei Personen anlegen). */
+const reihe = new Map<string, Promise<unknown>>();
+
+export function speichereKunde(ws: string, dealId: string, e: KundeEingabe, userId: string | null): Promise<DealKunde> {
+  const schluessel = `${ws}:${dealId}`;
+  const vorher = reihe.get(schluessel) ?? Promise.resolve();
+  const lauf = vorher.catch(() => {}).then(() => speichereKundeJetzt(ws, dealId, e, userId));
+  const ende = lauf.catch(() => {});
+  reihe.set(schluessel, ende);
+  void ende.then(() => {
+    if (reihe.get(schluessel) === ende) reihe.delete(schluessel);
+  });
+  return lauf;
+}
+
+async function speichereKundeJetzt(ws: string, dealId: string, e: KundeEingabe, userId: string | null): Promise<DealKunde> {
   const { getRecord, updateRecord, createRecord } = await import("@/services/records");
   const { emitEvent } = await import("@/services/activity-events");
   const { kalkulationAnstossen } = await import("@/services/rechner/ausloeser");
@@ -117,7 +139,7 @@ export async function speichereKunde(ws: string, dealId: string, e: KundeEingabe
   const geaendert: string[] = Object.keys(dealInput);
   let personId = ersteId(dv.associated_people);
   const neuerAnker: { telefon?: string; email?: string } = {};
-  /** Über Telefon/E-Mail gefundene bestehende Person: wird verknüpft, aber nie umbenannt. */
+  /** Auf Wahl verknüpfte bestehende Person: wird nie umbenannt, der eingetragene Name geht an den Lead. */
   let bestehendVerknuepft = false;
 
   if (kontakt) {
@@ -128,13 +150,24 @@ export async function speichereKunde(ws: string, dealId: string, e: KundeEingabe
     const telCanon = e.telefon ? canonicalizePhone(e.telefon) : null;
 
     if (!personId) {
-      // Erst eine bestehende Person über Telefon oder E-Mail suchen, sonst neu anlegen.
+      // Nie still mit einer bestehenden Person verknüpfen (Review I2): passt Telefon oder E-Mail zu
+      // jemandem, fragt die Oberfläche nach. Verknüpft wird nur auf ausdrückliche Wahl, sonst neue Person.
       const treffer = telCanon || emailCanon ? [...new Set(await findPersonsByCanonical(ws, telCanon ? [telCanon] : [], emailCanon))] : [];
-      // Nur bei genau einem Treffer verknüpfen: zwei Personen (Telefon hier, E-Mail dort) sind unklar,
-      // dann lieber eine neue Person als die falsche.
-      if (treffer.length === 1) {
-        personId = treffer[0];
+      const wahl = e.personWahl;
+      if (wahl && wahl !== "neu") {
+        if (!treffer.includes(wahl.verknuepfen)) throw new KundeFehler("Diese Person passt nicht zu Telefon oder E-Mail. Bitte neu speichern.");
+        personId = wahl.verknuepfen;
         bestehendVerknuepft = true;
+        geaendert.push("person_verknuepft");
+      } else if (treffer.length > 0 && wahl !== "neu") {
+        const kandidaten = await Promise.all(
+          treffer.slice(0, 3).map(async (id) => {
+            const v = ((await getRecord(people.id, id))?.values ?? {}) as Werte;
+            const name = typeof v.name === "string" ? v.name.trim() : nameAusWert(null, v.name) ?? "";
+            return { personId: id, name: name || "eine Person ohne Namen" };
+          })
+        );
+        throw new PersonGefunden(kandidaten);
       } else {
         const name = e.name ?? stripLeadTitleDecorations(typeof dv.name === "string" ? dv.name : null);
         if (!name) throw new KundeFehler("Bitte zuerst den Namen eintragen.");
@@ -150,8 +183,12 @@ export async function speichereKunde(ws: string, dealId: string, e: KundeEingabe
     const personInput: Werte = {};
     if (e.name !== undefined) {
       const alt = typeof aktuell.name === "string" ? aktuell.name : nameAusWert(null, aktuell.name) ?? "";
-      // Eine gefundene bestehende Person nur benennen, wenn sie noch keinen Namen hat.
-      if (alt.trim().toLowerCase() !== e.name.toLowerCase() && !(bestehendVerknuepft && alt.trim())) {
+      if (bestehendVerknuepft && alt.trim() && alt.trim().toLowerCase() !== e.name.toLowerCase()) {
+        // Verknüpfte bestehende Person behält ihren Namen; der eingetragene Name wird nicht verworfen,
+        // er steht danach als Lead-Name.
+        dealInput.name = e.name;
+        geaendert.push("lead_name");
+      } else if (alt.trim().toLowerCase() !== e.name.toLowerCase()) {
         personInput.name = nameTeile(e.name);
         // Lead-Titel war der alte Name (z. B. der Anzeigen-Alias): mitziehen, wie die KI-Übernahme.
         const titel = typeof dv.name === "string" ? dv.name.trim() : "";
