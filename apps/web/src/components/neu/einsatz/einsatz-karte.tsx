@@ -24,6 +24,7 @@ import {
   HALTEN_TOLERANZ_PX,
   kompaktText,
   ablageZiel,
+  geistPosition,
   ziehenVorschau,
   ZIEHEN_AB_PX,
   type AblageZiel,
@@ -104,6 +105,7 @@ export function EinsatzKartenAnsicht({
     x: number;
     y: number;
     ziel: AblageZiel | null;
+    touch: boolean;
   } | null>(null);
   const wurzel = useRef<HTMLDivElement | null>(null);
   const ablage = useRef<HTMLDivElement | null>(null);
@@ -199,7 +201,7 @@ export function EinsatzKartenAnsicht({
       e.preventDefault();
       const ziel = ablageZiel({ x: e.clientX, y: e.clientY }, z.start, ziele());
       teamFlaechenHeiss(ziel === "team");
-      setGeist({ k: z.k, x: e.clientX, y: e.clientY, ziel });
+      setGeist({ k: z.k, x: e.clientX, y: e.clientY, ziel, touch: z.touch });
     }
     const loslassen = (e: PointerEvent) => {
       if (zug.current && e.pointerId === zug.current.pointerId) beenden({ x: e.clientX, y: e.clientY });
@@ -252,7 +254,7 @@ export function EinsatzKartenAnsicht({
         z.aktiv = true;
         steuerung.current?.schieben(false);
         setOffen(null);
-        setGeist({ k, x: z.start.x, y: z.start.y, ziel: null });
+        setGeist({ k, x: z.start.x, y: z.start.y, ziel: null, touch: true });
         try {
           navigator.vibrate?.(12);
         } catch {
@@ -315,6 +317,7 @@ export function EinsatzKartenAnsicht({
   };
 
   const geistPerson = geist ? details.get(geist.k.employeeId) : undefined;
+  const geistOrt = geist ? geistPosition(geist, typeof window === "undefined" ? 1440 : window.innerWidth, geist.touch) : null;
   const vorschau = geistPerson ? ziehenVorschau(geistPerson, auswahl, ansicht) : null;
   const kompakt = kompaktText(auswahl.team.length, summe.vergleich.summeCent, summe.vergleich.differenzCent);
 
@@ -480,7 +483,12 @@ export function EinsatzKartenAnsicht({
 
       {geist && portalZiel
         ? createPortal(
-            <div className="ezk-geist" style={{ left: geist.x, top: geist.y }} aria-hidden="true">
+            <div
+              className="ezk-geist"
+              style={{ left: geistOrt!.left, top: geistOrt!.top }}
+              data-ueber={geistOrt!.ueber || undefined}
+              aria-hidden="true"
+            >
               <span className="ezk-geist-pin" data-lage={imTeam(auswahl, geist.k.employeeId) ? "team" : geist.k.lage}>
                 <span className="ezk-pin-kreis">{geist.k.kuerzel}</span>
                 {geist.k.name}

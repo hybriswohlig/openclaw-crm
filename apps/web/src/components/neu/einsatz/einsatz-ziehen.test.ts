@@ -21,7 +21,7 @@ import {
 } from "./einsatz-karte-logik";
 import { FIXTURE_ANSICHT, FIXTURE_KARTE, FIXTURE_PERSONEN } from "./einsatz-karte.fixture";
 import { auswahlHinzufuegen, minutenSetzen, startAuswahl, summeAus, teamBody, type Auswahl } from "./einsatz-logik";
-import { ablageZiel, ablegen, abstandText, kompaktText, trefferZiel, ziehenVorschau, ABLAGE_RADIUS_PX } from "./einsatz-ziehen";
+import { ablageZiel, ablegen, geistPosition, abstandText, kompaktText, trefferZiel, ziehenVorschau, ABLAGE_RADIUS_PX } from "./einsatz-ziehen";
 
 const a = FIXTURE_ANSICHT;
 const p = (id: string) => FIXTURE_PERSONEN.find((x) => x.id === id)!;
@@ -61,6 +61,18 @@ describe("ablageZiel (Review M4)", () => {
   it("lange Züge treffen wie trefferZiel", () => {
     expect(ablageZiel({ x: 100, y: 100 }, { x: 300, y: 300 }, { auftrag, team: [] })).toBe("auftrag");
     expect(ablageZiel({ x: 400, y: 400 }, { x: 300, y: 300 }, { auftrag, team: [] })).toBeNull();
+  });
+});
+
+describe("geistPosition (Review M5)", () => {
+  it("bei 390 px am Rand geklemmt, nie abgeschnitten", () => {
+    expect(geistPosition({ x: 10, y: 300 }, 390, false)).toEqual({ left: 130, top: 300, ueber: false });
+    expect(geistPosition({ x: 385, y: 300 }, 390, false)).toEqual({ left: 260, top: 300, ueber: false });
+    expect(geistPosition({ x: 200, y: 300 }, 390, false).left).toBe(200);
+    expect(geistPosition({ x: 50, y: 300 }, 240, false).left).toBe(120);
+  });
+  it("Touch: über dem Finger", () => {
+    expect(geistPosition({ x: 200, y: 300 }, 390, true)).toEqual({ left: 200, top: 244, ueber: true });
   });
 });
 

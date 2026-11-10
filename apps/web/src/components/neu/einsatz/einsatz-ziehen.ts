@@ -64,6 +64,21 @@ export function ablageZiel(
   return trefferZiel(p, ziele);
 }
 
+/** Halbe Breite der Vorschau am Zeiger (CSS `.ezk-geist-text` max. 260 px). */
+export const GEIST_HALB_PX = 130;
+/** Touch: so weit über dem Finger steht die Vorschau, damit er sie nicht verdeckt. */
+export const GEIST_UEBER_FINGER_PX = 56;
+
+/**
+ * Wo die Vorschau steht (Review M5): waagrecht so geklemmt, dass sie ganz im
+ * Fenster bleibt; bei Touch über dem Finger (unterer Rand `GEIST_UEBER_FINGER_PX`
+ * darüber), bei Maus mittig am Zeiger.
+ */
+export function geistPosition(p: Bildpunkt, fensterBreite: number, touch: boolean): { left: number; top: number; ueber: boolean } {
+  const left = fensterBreite <= 2 * GEIST_HALB_PX ? fensterBreite / 2 : Math.min(Math.max(p.x, GEIST_HALB_PX), fensterBreite - GEIST_HALB_PX);
+  return touch ? { left, top: p.y - GEIST_UEBER_FINGER_PX, ueber: true } : { left, top: p.y, ueber: false };
+}
+
 export type Ablegen =
   | { art: "hinzufuegen"; auswahl: Auswahl }
   | { art: "rueckfrage"; rueckfrage: Rueckfrage }

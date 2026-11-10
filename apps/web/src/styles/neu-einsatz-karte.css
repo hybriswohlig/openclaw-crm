@@ -558,6 +558,12 @@
   pointer-events: none;
 }
 
+/* Touch: ganz über dem Finger, Text oben, Pin unten am Finger (Review M5). */
+[data-neu] .ezk-geist[data-ueber] {
+  flex-direction: column-reverse;
+  transform: translate(-50%, -100%);
+}
+
 [data-neu] .ezk-geist-pin {
   display: inline-flex;
   align-items: center;
