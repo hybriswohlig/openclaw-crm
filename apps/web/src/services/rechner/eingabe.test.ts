@@ -228,3 +228,21 @@ describe("rechnerAnfrageAus mit Adressen aus dem Chat (Plan 15, Bauteil 8)", () 
     expect(rechnerAnfrageAus({ ...leer, chatAdressen: null })).toEqual(rechnerAnfrageAus(leer));
   });
 });
+
+describe("rechnerAnfrageAus: Einzug noch offen (Review I1)", () => {
+  const chat = { von: null, nach: "71640 Ludwigsburg", quelleVon: null, quelleNach: "ki" as const };
+  it("kein Ziel aus dem Chat, Zielseite ohne Adresse bei Umzug (Strecke geschätzt, Montage am Ziel bleibt)", () => {
+    const a = rechnerAnfrageAus({ ...leer, von: "Hauptstr. 1, 71032 Böblingen", auftragsart: "umzug", einzugOffen: true, chatAdressen: chat });
+    expect(a).not.toHaveProperty("nach_adresse");
+    expect(a.nach_vorhanden).toBe("on");
+    // Ohne den Schalter nimmt der Rechner wie bisher das Chat-Ziel.
+    expect(rechnerAnfrageAus({ ...leer, von: "Hauptstr. 1, 71032 Böblingen", auftragsart: "umzug", chatAdressen: chat }).nach_adresse).toBe("71640 Ludwigsburg");
+  });
+  it("auch ohne Chat-Ziel und ohne Etage: Zielseite an (sonst 380 € statt 670 €, gemessen im Review)", () => {
+    expect(rechnerAnfrageAus({ ...leer, von: "Hauptstr. 1, 71032 Böblingen", auftragsart: "umzug", einzugOffen: true }).nach_vorhanden).toBe("on");
+    expect(rechnerAnfrageAus({ ...leer, von: "Hauptstr. 1, 71032 Böblingen", auftragsart: "umzug" }).nach_vorhanden).toBeUndefined();
+  });
+  it("Entrümpelung und Küchenmontage: keine Zielseite", () => {
+    expect(rechnerAnfrageAus({ ...leer, von: "Hauptstr. 1, 71032 Böblingen", auftragsart: "entruempelung", einzugOffen: true }).nach_vorhanden).toBeUndefined();
+  });
+});

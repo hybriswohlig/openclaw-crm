@@ -91,7 +91,8 @@ export async function ladeLeadDaten(workspaceId: string, dealRecordId: string): 
   const kartons = zahlOderNull(av.boxes_needed);
   // Plan 15 (Bauteile 8 und 13): fehlende Adressen und Kartonzahl aus dem Chat (KI-Ereignis, sonst Erkennung).
   // Review I2: bei Entrümpelung und Küchenmontage gibt es kein Ziel, also auch keins aus dem Chat.
-  const zielGesucht = auftragsart !== "entruempelung" && auftragsart !== "kuechenmontage";
+  const offen = einzugOffen(dv.move_to_address);
+  const zielGesucht = auftragsart !== "entruempelung" && auftragsart !== "kuechenmontage" && !offen;
   const chat = await ladeChatAngaben(workspaceId, dealRecordId, { von, nach, kartonsFehlen: kartons === null, zielGesucht });
   return {
     von,
@@ -110,7 +111,8 @@ export async function ladeLeadDaten(workspaceId: string, dealRecordId: string): 
     tragestreckeNachM: zahlOderNull(av.walking_distance_to_m),
     halteverbot: av.parking_halteverbot_needed === true,
     // Einzug noch offen (Inhaber 10.11.): keine Halteverbotszone am Einzug.
-    halteverbotNach: av.parking_halteverbot_to === true && !einzugOffen(dv.move_to_address),
+    halteverbotNach: av.parking_halteverbot_to === true && !offen,
+    einzugOffen: offen,
     packService: av.packing_service === true,
     kartons,
     inventar: inventarAusZeilen(inventar),

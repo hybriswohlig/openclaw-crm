@@ -34,6 +34,11 @@ export interface LeadDaten {
   halteverbot: boolean;
   /** Halteverbot am Zielort (Auftragsfeld parking_halteverbot_to) */
   halteverbotNach?: boolean;
+  /**
+   * „Einzug noch offen“ (Inhaber 10.11.): kein Ziel aus dem Chat; bei Umzug und Transport
+   * rechnet der Rechner mit Zielseite ohne Adresse (Strecke geschätzt, Montage am Ziel bleibt).
+   */
+  einzugOffen?: boolean;
   packService: boolean;
   kartons: number | null;
   /**
@@ -83,7 +88,8 @@ export function rechnerAnfrageAus(lead: LeadDaten, opts: { heute?: string } = {}
   const zielAktiv =
     lead.auftragsart === "umzug" || lead.auftragsart === "transport" || ortsinternLead || lead.etageNach !== null ||
     lead.zugangNach !== null || !!lead.treppenhausNach || !!lead.halteverbotNach;
-  const nach = lead.nach ?? (zielAktiv ? lead.chatAdressen?.nach ?? null : null);
+  // Einzug noch offen (Review I1): nie ein Ziel aus dem Chat, das der KV dann nicht nennt.
+  const nach = lead.einzugOffen ? null : lead.nach ?? (zielAktiv ? lead.chatAdressen?.nach ?? null : null);
   for (const [seite, adresse, etage, zugangTitel, tragestrecke, treppenhaus] of [
     ["von", von, lead.etageVon, lead.zugangVon, lead.tragestreckeVonM, lead.treppenhausVon],
     ["nach", nach, lead.etageNach, lead.zugangNach, lead.tragestreckeNachM, lead.treppenhausNach],
@@ -99,6 +105,9 @@ export function rechnerAnfrageAus(lead: LeadDaten, opts: { heute?: string } = {}
   // (der Rechner nimmt dann denselben Ort als Ziel bzw. meldet die fehlende Adresse).
   const ortsintern = !!von && /^(umzug\s+)?innerhalb\s/i.test(von.trim());
   if (nach || ortsintern || lead.etageNach !== null || lead.zugangNach !== null || a.nach_treppenhaus || lead.halteverbotNach) a.nach_vorhanden = "on";
+  // Einzug noch offen bei Umzug/Transport: Zielseite ohne Adresse, sonst rechnete der Rechner ohne Ziel
+  // (keine Strecke, keine Montage am Ziel) und der KV wäre zu billig.
+  if (lead.einzugOffen && lead.auftragsart !== "entruempelung" && lead.auftragsart !== "kuechenmontage") a.nach_vorhanden = "on";
   setze("umzugsdatum", lead.umzugsdatum);
   setze("marke", lead.marke);
   setze("quelle", lead.quelle);

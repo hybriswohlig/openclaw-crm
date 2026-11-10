@@ -101,7 +101,8 @@ async function leadStandard(ws: string, deal: string): Promise<KartenLead | null
     von: textVon(lead.von),
     nach: textVon(lead.nach),
     chatVon: textVon(lead.chatAdressen?.von),
-    chatNach: textVon(lead.chatAdressen?.nach),
+    // Einzug noch offen: kein Ziel aus dem Chat auf der Karte (Review M6).
+    chatNach: lead.einzugOffen ? null : textVon(lead.chatAdressen?.nach),
   };
 }
 
