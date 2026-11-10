@@ -60,9 +60,11 @@ export function KundeBereich({
       void apiAufruf<DealKunde>(`/api/v1/deals/${encodeURIComponent(dealId)}/kunde`).then((r) => {
         if (!aktuell) return;
         if (!r.ok) return setFehler(r.message);
+        // Während des Bearbeitens nichts tauschen: Entwurf und Vergleichsstand müssen zusammenpassen,
+        // sonst schriebe Speichern alte Formularwerte über das, was inzwischen gespeichert wurde.
+        if (still && bearbeitet.current) return;
         setKunde(r.data);
-        // Beim ersten Laden immer, danach einen offenen Entwurf nie überschreiben.
-        if (!still || !bearbeitet.current) setEntwurf(entwurfAus(r.data));
+        setEntwurf(entwurfAus(r.data));
       });
     };
     laden(false);

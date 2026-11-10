@@ -2,7 +2,7 @@
 
 import "@/styles/neu-akte-kunde.css";
 
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { GlassButton } from "@/components/glassyui/glass-button";
 import type { AdressTeile, DealKunde, KundeVorschlag } from "@/lib/deal-kunde";
 import { feldLeer, vorschlagEinsetzen, vorschlagHinweis, type KundeEntwurf, type KundeFeld } from "@/lib/kunde-entwurf";
@@ -160,14 +160,24 @@ export function AusDemChatKnopf({
 }) {
   const [laeuft, setLaeuft] = useState(false);
   const [hinweis, setHinweis] = useState<{ text: string; fehler: boolean } | null>(null);
+  // Die KI braucht bis zu einer Minute: Vorschläge kommen auf den Entwurf von jetzt, nicht vom Klick,
+  // und nie in einen anderen Deal, falls inzwischen gewechselt wurde.
+  const stand = useRef({ entwurf, dealId });
+  stand.current = { entwurf, dealId };
+  useEffect(() => {
+    setHinweis(null);
+    setLaeuft(false);
+  }, [dealId]);
 
   async function holen() {
+    const fuer = dealId;
     setLaeuft(true);
     setHinweis(null);
-    const r = await apiAufruf<KundeVorschlag>(`/api/v1/deals/${encodeURIComponent(dealId)}/kunde/vorschlag`, { method: "POST" });
+    const r = await apiAufruf<KundeVorschlag>(`/api/v1/deals/${encodeURIComponent(fuer)}/kunde/vorschlag`, { method: "POST" });
+    if (stand.current.dealId !== fuer) return;
     setLaeuft(false);
     if (!r.ok) return setHinweis({ text: r.message, fehler: true });
-    const { entwurf: neu, gesetzt } = vorschlagEinsetzen(entwurf, r.data, felder);
+    const { entwurf: neu, gesetzt } = vorschlagEinsetzen(stand.current.entwurf, r.data, felder);
     onVorschlag(neu, gesetzt);
     setHinweis({ text: vorschlagHinweis(r.data, gesetzt), fehler: false });
   }

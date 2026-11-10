@@ -117,6 +117,8 @@ export async function speichereKunde(ws: string, dealId: string, e: KundeEingabe
   const geaendert: string[] = Object.keys(dealInput);
   let personId = ersteId(dv.associated_people);
   const neuerAnker: { telefon?: string; email?: string } = {};
+  /** Über Telefon/E-Mail gefundene bestehende Person: wird verknüpft, aber nie umbenannt. */
+  let bestehendVerknuepft = false;
 
   if (kontakt) {
     if (!people) throw new KundeFehler("Personen-Objekt fehlt.");
@@ -127,9 +129,12 @@ export async function speichereKunde(ws: string, dealId: string, e: KundeEingabe
 
     if (!personId) {
       // Erst eine bestehende Person über Telefon oder E-Mail suchen, sonst neu anlegen.
-      const treffer = telCanon || emailCanon ? await findPersonsByCanonical(ws, telCanon ? [telCanon] : [], emailCanon) : [];
-      if (treffer[0]) {
+      const treffer = telCanon || emailCanon ? [...new Set(await findPersonsByCanonical(ws, telCanon ? [telCanon] : [], emailCanon))] : [];
+      // Nur bei genau einem Treffer verknüpfen: zwei Personen (Telefon hier, E-Mail dort) sind unklar,
+      // dann lieber eine neue Person als die falsche.
+      if (treffer.length === 1) {
         personId = treffer[0];
+        bestehendVerknuepft = true;
       } else {
         const name = e.name ?? stripLeadTitleDecorations(typeof dv.name === "string" ? dv.name : null);
         if (!name) throw new KundeFehler("Bitte zuerst den Namen eintragen.");
@@ -145,7 +150,8 @@ export async function speichereKunde(ws: string, dealId: string, e: KundeEingabe
     const personInput: Werte = {};
     if (e.name !== undefined) {
       const alt = typeof aktuell.name === "string" ? aktuell.name : nameAusWert(null, aktuell.name) ?? "";
-      if (alt.trim().toLowerCase() !== e.name.toLowerCase()) {
+      // Eine gefundene bestehende Person nur benennen, wenn sie noch keinen Namen hat.
+      if (alt.trim().toLowerCase() !== e.name.toLowerCase() && !(bestehendVerknuepft && alt.trim())) {
         personInput.name = nameTeile(e.name);
         // Lead-Titel war der alte Name (z. B. der Anzeigen-Alias): mitziehen, wie die KI-Übernahme.
         const titel = typeof dv.name === "string" ? dv.name.trim() : "";

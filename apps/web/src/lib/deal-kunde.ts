@@ -49,7 +49,7 @@ export class KundeFehler extends Error {}
 
 const BUCHSTABE = /\p{L}/u;
 /** Nummern, die nie eine Adresse sind (Plan 15, Review I1). */
-const KEINE_ADRESSE = /(\+\d|\btel\b|telefon|\bfax\b|mobil|handy|kunden\s*-?\s*n(?:umme)?r|kundennummer|rechnungsn|\biban\b|\bbic\b|@|https?:|\d{6,})/iu;
+const KEINE_ADRESSE = /(\+\d|\btel\b|telefon|\bfax\b|mobil|handy|kunden\s*-?\s*n(?:umme)?r|kundennummer|rechnung\w*\s*\d|auftrags?\s*-?\s*n(?:umme)?r|\biban\b|\bbic\b|@|https?:|\d{6,})/iu;
 /** Signatur- und Grußwörter: dann ist es keine Adresse, sondern der Rest einer Nachricht. */
 const SIGNATUR = /(mit freundlichen|freundliche gr|viele gr|liebe gr|beste gr|gr(ü|ue)(ß|ss)e|\bmfg\b|\blg\b|gesendet von)/iu;
 

@@ -26,7 +26,9 @@ describe.skipIf(!url)("Kunde und Adressen (DB)", { timeout: 30_000 }, () => {
   const ws = randomUUID();
   const fremd = randomUUID();
   const obj = { deals: randomUUID(), people: randomUUID(), fremdDeals: randomUUID() };
-  const deal = { viktoria: randomUUID(), ohnePerson: randomUUID() };
+  const deal = { viktoria: randomUUID(), ohnePerson: randomUUID(), zwei: randomUUID(), einer: randomUUID() };
+  const p2 = randomUUID();
+  const p3 = randomUUID();
   const person = randomUUID();
   const attr: Record<string, string> = {};
 
@@ -61,6 +63,14 @@ describe.skipIf(!url)("Kunde und Adressen (DB)", { timeout: 30_000 }, () => {
     await wert(person, `${obj.people}.name`, "json_value", { firstName: "Viktoria", lastName: "", fullName: "Viktoria" });
     await wert(person, `${obj.people}.phone_numbers`, "text_value", "0171 2345678");
     await wert(deal.ohnePerson, `${obj.deals}.name`, "text_value", "Familie Kraus — Calw → Nagold");
+    // Zwei bestehende Personen: eine mit Telefon, eine mit E-Mail.
+    await sql`insert into records (id, object_id) values (${deal.zwei}, ${obj.deals}), (${deal.einer}, ${obj.deals}), (${p2}, ${obj.people}), (${p3}, ${obj.people})`;
+    await wert(p2, `${obj.people}.name`, "json_value", { fullName: "Alter Name" });
+    await wert(p3, `${obj.people}.name`, "json_value", { fullName: "Dritte Person" });
+    const { upsertIdentifier } = await import("./inbox-crm-link");
+    const { canonicalizePhone, canonicalizeEmail } = await import("@/lib/identity/canonical");
+    await upsertIdentifier(ws, p2, "phone", "0151 2222222", canonicalizePhone("0151 2222222"), "operator", "claimed");
+    await upsertIdentifier(ws, p3, "email", "dritte@beispiel.de", canonicalizeEmail("dritte@beispiel.de"), "operator", "claimed");
     dienst = await import("./deal-kunde");
     docData = await import("@/lib/deal-doc-data");
   });
@@ -152,5 +162,18 @@ describe.skipIf(!url)("Kunde und Adressen (DB)", { timeout: 30_000 }, () => {
     expect(k.name).toBe("Familie Kraus");
     expect(k.nameAusPerson).toBe(true);
     expect(k.telefon).toBe("0711 987654");
+  });
+
+  it("Telefon und E-Mail treffen zwei verschiedene Personen: keine verknüpfen, neue anlegen", async () => {
+    const k = await dienst.speichereKunde(ws, deal.zwei, { name: "Neue Kundin", telefon: "0151 2222222", email: "dritte@beispiel.de" }, null);
+    expect(k.personId).not.toBeNull();
+    expect([p2, p3]).not.toContain(k.personId);
+    expect(k.name).toBe("Neue Kundin");
+  });
+
+  it("eine gefundene bestehende Person wird verknüpft, aber nicht umbenannt", async () => {
+    const k = await dienst.speichereKunde(ws, deal.einer, { name: "Ganz Anders", telefon: "0151 2222222" }, null);
+    expect(k.personId).toBe(p2);
+    expect(k.name).toBe("Alter Name");
   });
 });

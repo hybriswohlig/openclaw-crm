@@ -45,7 +45,7 @@ describe("pruefeKundeEingabe", () => {
   });
 
   it("Plan-15-Regel: Telefon-, Kundennummer, IBAN und Signatur sind keine Straße", () => {
-    for (const strasse of ["Tel. 0711 123456", "+49 171 2345678", "Kundennummer 4711", "IBAN DE12 3456", "Mit freundlichen Grüßen"]) {
+    for (const strasse of ["Tel. 0711 123456", "+49 171 2345678", "Kundennummer 4711", "Rechnung 4711", "Auftragsnr. 77", "IBAN DE12 3456", "Mit freundlichen Grüßen"]) {
       expect(() => pruefeKundeEingabe({ auszug: { strasse, plz: "70372", ort: "Stuttgart" } })).toThrow(KundeFehler);
     }
   });
