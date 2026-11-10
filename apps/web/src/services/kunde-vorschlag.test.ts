@@ -1,18 +1,21 @@
 import { describe, expect, it, vi } from "vitest";
-import { kundeVorschlag, type VorschlagQuellen } from "./kunde-vorschlag";
+import { kiEingabe, kundeVorschlag, type KiFelder, type VorschlagQuellen } from "./kunde-vorschlag";
 
 function quellen(over: Partial<VorschlagQuellen> = {}): VorschlagQuellen {
   return {
+    eingang: vi.fn(async () => ({ texte: ["Hallo"], stand: "1:m1" })),
+    gespeichert: vi.fn(async () => null),
+    speichern: vi.fn(async () => {}),
     ki: vi.fn(async () => null),
-    kiGespeichert: vi.fn(async () => null),
-    texte: vi.fn(async () => []),
+    kiAnalyse: vi.fn(async () => null),
     ...over,
   };
 }
 
 describe("kundeVorschlag (Aus dem Chat übernehmen)", () => {
-  it("Viktoria: die KI liest Name, E-Mail und Adressen mit Straße aus dem Chat", async () => {
+  it("Viktoria: die KI liest Name, E-Mail und Adressen mit Straße aus den eingehenden Nachrichten", async () => {
     const q = quellen({
+      eingang: vi.fn(async () => ({ texte: ["Ich bin Viktoria Muster", "Hauptstraße 1, 72218 Wildberg"], stand: "2:m2" })),
       ki: vi.fn(async () => ({
         customer_name: "Viktoria Muster",
         customer_email: "V.Muster@beispiel.de",
@@ -30,16 +33,41 @@ describe("kundeVorschlag (Aus dem Chat übernehmen)", () => {
       einzug: { strasse: "Bahnhofstr. 5", plz: "71032", ort: "Böblingen" },
       hinweis: null,
     });
-    // Mit beiden Adressen aus der KI wird nichts weiter gelesen.
-    expect(q.kiGespeichert).not.toHaveBeenCalled();
-    expect(q.texte).not.toHaveBeenCalled();
+    // Die KI bekommt nur die eingehenden Nachrichten; das Ergebnis wird mit dem Nachrichtenstand gespeichert.
+    expect(q.ki).toHaveBeenCalledWith("ws", ["Ich bin Viktoria Muster", "Hauptstraße 1, 72218 Wildberg"]);
+    expect(q.speichern).toHaveBeenCalledWith("ws", "d1", expect.objectContaining({ stand: "2:m2" }));
+    expect(q.kiAnalyse).not.toHaveBeenCalled();
   });
 
-  it("Rückfall: gespeicherte KI-Adresse, dann Erkennung in den Nachrichten (nur PLZ und Ort)", async () => {
+  it("keine neue Nachricht seit der letzten Auswertung: gespeicherte nehmen, keine KI", async () => {
+    const gespeichert: KiFelder = { customer_name: "Viktoria Muster", move_from_address: "Hauptstr. 1, 72218 Wildberg" };
+    const q = quellen({ gespeichert: vi.fn(async () => ({ stand: "1:m1", ki: gespeichert })) });
+    const v = await kundeVorschlag("ws", "d1", q);
+    expect(v.name).toBe("Viktoria Muster");
+    expect(q.ki).not.toHaveBeenCalled();
+    // Neue Nachricht: frische Auswertung.
+    const neu = quellen({ eingang: vi.fn(async () => ({ texte: ["Hallo", "neu"], stand: "2:m2" })), gespeichert: vi.fn(async () => ({ stand: "1:m1", ki: gespeichert })) });
+    await kundeVorschlag("ws", "d1", neu);
+    expect(neu.ki).toHaveBeenCalledTimes(1);
+  });
+
+  it("gleichzeitige Klicks: eine KI-Auswertung je Deal", async () => {
+    let fertig: (k: KiFelder) => void = () => {};
+    const ki = vi.fn(() => new Promise<KiFelder>((r) => (fertig = r)));
+    const q = quellen({ ki });
+    const a = kundeVorschlag("ws", "d1", q);
+    const b = kundeVorschlag("ws", "d1", q);
+    await vi.waitFor(() => expect(ki).toHaveBeenCalledTimes(1));
+    fertig({ customer_name: "Viktoria Muster" });
+    expect((await a).name).toBe("Viktoria Muster");
+    expect((await b).name).toBe("Viktoria Muster");
+    expect(ki).toHaveBeenCalledTimes(1);
+  });
+
+  it("Rückfall: Adresse der letzten KI-Analyse, dann Erkennung (nur PLZ und Ort)", async () => {
     const q = quellen({
-      ki: vi.fn(async () => ({ customer_name: null, move_from_address: null, move_to_address: null })),
-      kiGespeichert: vi.fn(async () => ({ von: "Königstr. 1, 70173 Stuttgart", nach: null })),
-      texte: vi.fn(async () => ["Hallo, wir ziehen nach 71032 Böblingen.\nViele Grüße\nTel 0711 123456, 70999 Irgendwo"]),
+      eingang: vi.fn(async () => ({ texte: ["Hallo, wir ziehen nach 71032 Böblingen.\nViele Grüße\nTel 0711 123456, 70999 Irgendwo"], stand: "1:x" })),
+      kiAnalyse: vi.fn(async () => ({ von: "Königstr. 1, 70173 Stuttgart", nach: null })),
     });
     const v = await kundeVorschlag("ws", "d1", q);
     expect(v.auszug).toEqual({ strasse: "Königstr. 1", plz: "70173", ort: "Stuttgart" });
@@ -65,7 +93,7 @@ describe("kundeVorschlag (Aus dem Chat übernehmen)", () => {
     expect(v.email).toBeNull();
   });
 
-  it("KI-Fehler: Erkennung trotzdem, sonst ein Hinweis", async () => {
+  it("KI-Fehler: Erkennung trotzdem; ohne Kundennachricht ein Hinweis, keine KI", async () => {
     const kaputt = vi.fn(async () => {
       throw new Error("VPS weg");
     });
@@ -75,10 +103,19 @@ describe("kundeVorschlag (Aus dem Chat übernehmen)", () => {
     const erkannt = await kundeVorschlag(
       "ws",
       "d1",
-      quellen({ ki: kaputt, texte: vi.fn(async () => ["Wir ziehen von 70372 Stuttgart nach 71032 Böblingen"]) })
+      quellen({ ki: kaputt, eingang: vi.fn(async () => ({ texte: ["Wir ziehen von 70372 Stuttgart nach 71032 Böblingen"], stand: "1:y" })) })
     );
     expect(erkannt.quelle).toBe("erkennung");
     expect(erkannt.auszug).toEqual({ strasse: "", plz: "70372", ort: "Stuttgart" });
-    expect(erkannt.einzug).toEqual({ strasse: "", plz: "71032", ort: "Böblingen" });
+    const ohne = quellen({ eingang: vi.fn(async () => ({ texte: [], stand: "0:-" })) });
+    expect((await kundeVorschlag("ws", "d1", ohne)).hinweis).toBe("In diesem Deal gibt es noch keine Nachricht vom Kunden.");
+    expect(ohne.ki).not.toHaveBeenCalled();
+  });
+
+  it("KI-Eingabe: neueste Nachrichten, gekürzt und nummeriert", () => {
+    const t = kiEingabe(["alt", "x".repeat(3000), "neu"]);
+    expect(t.startsWith("[Nachricht 1]\nalt")).toBe(true);
+    expect(t).toContain("[Nachricht 3]\nneu");
+    expect(t.length).toBeLessThan(1700);
   });
 });

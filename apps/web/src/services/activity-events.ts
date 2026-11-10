@@ -21,6 +21,8 @@ export type ActivityEventType =
   | "kalkulation.adresse_gesetzt"
   /** Kunde und Adressen in der Akte oder Vorprüfung ergänzt; payload { felder, quelle }, keine Werte */
   | "deal.kunde_bearbeitet"
+  /** Letzte KI-Auswertung der eingehenden Nachrichten für „Aus dem Chat übernehmen“ (still, Cache je Nachrichtenstand) */
+  | "deal.kunde_vorschlag"
   /** Plan 15: Inventarzeile von Hand korrigiert (Herkunft und Lernsignal der Fotoerkennung) */
   | "inventar.korrigiert"
   /** Plan 15: „Pakete anbieten“ je Deal umgeschaltet */
