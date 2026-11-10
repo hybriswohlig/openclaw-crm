@@ -203,7 +203,7 @@ export function kundeWert(k: DealKunde, f: KundeFeld): string | null {
     const a = k[f];
     if (!a) return null;
     const ort = [a.plz, a.ort].filter(Boolean).join(" ");
-    return [a.strasse, ort].filter(Boolean).join(", ") || null;
+    return [a.strasse, a.zusatz, ort].filter(Boolean).join(", ") || null;
   }
   if (f === "datum") {
     if (!k.datum) return null;

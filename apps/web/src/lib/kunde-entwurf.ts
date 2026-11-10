@@ -71,10 +71,12 @@ export function vorschlagEinsetzen(
   for (const f of ["auszug", "einzug"] as const) {
     const w = v[f];
     if (!darf(f) || !w) continue;
+    const gleichePlz = w.plz === e[f].plz;
     const ziel: AdressTeile = {
-      strasse: w.strasse || (w.plz === e[f].plz ? e[f].strasse : ""),
+      strasse: w.strasse || (gleichePlz ? e[f].strasse : ""),
       plz: w.plz,
       ort: w.ort,
+      ...(gleichePlz && e[f].zusatz ? { zusatz: e[f].zusatz } : {}),
     };
     if (!adresseGleich(ziel, e[f])) {
       neu[f] = ziel;
@@ -98,7 +100,9 @@ export function aenderungen(
   for (const f of felder) {
     if (f === "auszug" || f === "einzug") {
       if (!adresseLeer(e[f]) && !adresseGleich(e[f], alt[f])) {
-        out[f] = { strasse: e[f].strasse.trim(), plz: e[f].plz.trim(), ort: e[f].ort.trim() };
+        // Zusatz („3. OG“) aus dem gespeicherten Stand mitschicken, damit er erhalten bleibt.
+        const zusatz = e[f].zusatz?.trim();
+        out[f] = { strasse: e[f].strasse.trim(), plz: e[f].plz.trim(), ort: e[f].ort.trim(), ...(zusatz ? { zusatz } : {}) };
       }
       continue;
     }

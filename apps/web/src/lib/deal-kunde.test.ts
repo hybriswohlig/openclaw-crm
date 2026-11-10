@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   KundeFehler,
+  ortNormal,
+  strasseProblem,
   adressZeile,
   nameTeile,
   ortAusTeilen,
@@ -112,5 +114,66 @@ describe("Vorschläge aus dem Chat", () => {
     expect(vorschlagEmail("abc123@mail.kleinanzeigen.de")).toBeNull();
     expect(vorschlagTelefon("0171 2345678")).toBe("0171 2345678");
     expect(vorschlagTelefon("Ruf mich an")).toBeNull();
+  });
+});
+
+describe("Review I3: Nummern nie als Straße oder PLZ", () => {
+  it("die drei Beispiele aus dem Review", () => {
+    expect(vorschlagAdresse("0711 123 456 Hauptstr. 5, 70372 Stuttgart")).toEqual({ strasse: "", plz: "70372", ort: "Stuttgart" });
+    expect(vorschlagAdresse("Auftrag 4711 Hauptstr. 5 72218 Wildberg")).toEqual({ strasse: "", plz: "72218", ort: "Wildberg" });
+    expect(vorschlagAdresse("Kundennummer 72218 Wildberg")).toBeNull();
+  });
+
+  it("Telefonnummern in allen Schreibweisen", () => {
+    for (const t of ["0711 123 456", "0711/123456", "0711-123-456", "+49 711 123456", "+49711123456", "(0711) 12 34 56", "0171.2345678"]) {
+      expect(strasseProblem(`${t} Hauptstr. 5`), t).not.toBeNull();
+      expect(strasseProblem(`Hauptstr. 5 ${t}`), t).not.toBeNull();
+    }
+    // Telefonnummer direkt vor einer fünfstelligen Zahl: keine PLZ.
+    expect(vorschlagAdresse("Tel 0711 12345 Stuttgart")).toBeNull();
+    expect(vorschlagAdresse("ruf an: 0171 23456 Wildberg")).toBeNull();
+  });
+
+  it("Auftrags-, Kunden-, Rechnungs- und Vorgangsnummern samt Wort", () => {
+    for (const t of ["Auftrag 4711", "Auftragsnr. 77", "Auftrags-Nr: 12", "Kd.-Nr. 12", "Kunden-Nr 99", "Rechnung 2026-17", "Rechnungsnummer 5", "Vorgang 812", "Vorgangsnummer: 1"]) {
+      expect(strasseProblem(`${t} Hauptstr. 5`), t).not.toBeNull();
+    }
+    for (const t of ["Rechnungsnummer 72218 Wildberg", "Vorgang: 70372 Stuttgart", "Nr. 72218 Wildberg", "Auftragsnr 71032 Böblingen"]) {
+      expect(vorschlagAdresse(t), t).toBeNull();
+    }
+    // Eine echte Adresse nach einer Kundennummer wird trotzdem gefunden.
+    expect(vorschlagAdresse("Kundennummer 12345, Königstr. 1, 70173 Stuttgart")).toEqual({ strasse: "Königstr. 1", plz: "70173", ort: "Stuttgart" });
+  });
+
+  it("echte Straßen bleiben erlaubt", () => {
+    for (const t of ["Hauptstr. 5", "Hauptstraße Nr. 5", "Am Kundenweg 3", "Auftragsweg 12a", "Hotelgasse 2", "Bahnhofstr. 12-14", "Im Tal 1/2"]) {
+      expect(strasseProblem(t), t).toBeNull();
+    }
+    expect(vorschlagAdresse("Viktoria Muster, Hauptstr. 5, 72218 Wildberg")).toEqual({ strasse: "Hauptstr. 5", plz: "72218", ort: "Wildberg" });
+    expect(vorschlagAdresse("Hauptstr. 125 70372 Stuttgart")).toEqual({ strasse: "Hauptstr. 125", plz: "70372", ort: "Stuttgart" });
+  });
+
+  it("PUT sagt verständlich, was nicht stimmt", () => {
+    expect(() => pruefeKundeEingabe({ auszug: { strasse: "0711 123 456 Hauptstr. 5", plz: "70372", ort: "Stuttgart" } })).toThrow(
+      "Auszug: Die Straße enthält eine Telefonnummer oder eine andere lange Nummer. Bitte nur Straße und Hausnummer eintragen."
+    );
+    expect(() => pruefeKundeEingabe({ einzug: { strasse: "Auftrag 4711 Hauptstr. 5", plz: "72218", ort: "Wildberg" } })).toThrow(
+      "Einzug: Die Straße enthält eine Auftrags-, Kunden-, Rechnungs- oder Vorgangsnummer. Bitte nur Straße und Hausnummer eintragen."
+    );
+    expect(() => pruefeKundeEingabe({ auszug: { strasse: "", plz: "72218", ort: "72218" } })).toThrow("Im Ort nur den Ortsnamen");
+  });
+
+  it("Ort klein geschrieben wird angenommen und groß gesetzt (Review M6)", () => {
+    expect(ortNormal("stuttgart")).toBe("Stuttgart");
+    expect(ortNormal("frankfurt am Main")).toBe("Frankfurt am Main");
+    expect(pruefeKundeEingabe({ auszug: { strasse: "Hauptstr. 1", plz: "72218", ort: "wildberg" } }).auszug?.ort).toBe("Wildberg");
+  });
+
+  it("Zusatz (line2, „3. OG“) bleibt beim Lesen und Schreiben erhalten (Review M9)", () => {
+    const t = teileAusOrt({ line1: "Hauptstr. 1", line2: "3. OG", postcode: "72218", city: "Wildberg" });
+    expect(t).toEqual({ strasse: "Hauptstr. 1", plz: "72218", ort: "Wildberg", zusatz: "3. OG" });
+    expect(ortAusTeilen(t!)).toEqual({ line1: "Hauptstr. 1", line2: "3. OG", postcode: "72218", city: "Wildberg", countryCode: "DE" });
+    expect(pruefeKundeEingabe({ auszug: { strasse: "Hauptstr. 2", plz: "72218", ort: "Wildberg", zusatz: "3. OG" } }).auszug?.zusatz).toBe("3. OG");
+    expect(adressZeile(t)).toBe("Hauptstr. 1, 3. OG, 72218 Wildberg");
   });
 });

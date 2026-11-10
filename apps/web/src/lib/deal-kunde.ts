@@ -18,6 +18,8 @@ export interface AdressTeile {
   strasse: string;
   plz: string;
   ort: string;
+  /** Adresszusatz aus der Adresssuche (`line2`, z. B. „3. OG“): bleibt beim Ändern erhalten. */
+  zusatz?: string;
 }
 
 export interface DealKunde {
@@ -53,20 +55,40 @@ export interface KundeEingabe {
 export class KundeFehler extends Error {}
 
 const BUCHSTABE = /\p{L}/u;
-/** Nummern, die nie eine Adresse sind (Plan 15, Review I1). */
-const KEINE_ADRESSE = /(\+\d|\btel\b|telefon|\bfax\b|mobil|handy|kunden\s*-?\s*n(?:umme)?r|kundennummer|rechnung\w*\s*\d|auftrags?\s*-?\s*n(?:umme)?r|\biban\b|\bbic\b|@|https?:|\d{6,})/iu;
 /** Signatur- und Grußwörter: dann ist es keine Adresse, sondern der Rest einer Nachricht. */
 const SIGNATUR = /(mit freundlichen|freundliche gr|viele gr|liebe gr|beste gr|gr(ü|ue)(ß|ss)e|\bmfg\b|\blg\b|gesendet von)/iu;
+/** Wörter vor einer Nummer, die nie Teil einer Adresse ist (Review I3). Ohne „Nr.“ allein: „Hauptstr. Nr. 5“ gibt es. */
+const NUMMERWORT =
+  "kunden-?(?:nummer|nr|konto)|kd\\.?-?\\s?nr|auftrags?-?(?:nummer|nr)?|rechnungs?-?(?:nummer|nr)?|vorgangs?-?(?:nummer|nr)?|" +
+  "bestell-?(?:nummer|nr)|referenz(?:nummer)?|ticket|aktenzeichen|az|tel|telefon|fax|mobil|handy|whatsapp|iban|bic";
+/** Nummernwort, gefolgt von einer Zahl („Auftrag 4711“, „Kd.-Nr. 12“, „Tel: 0711 …“). */
+const NUMMER_MIT_ZAHL = new RegExp(`(?:^|[^\\p{L}])(?:${NUMMERWORT})\\.?\\s*[:#.\\-]?\\s*\\d`, "iu");
+/** Unmittelbar vor einer PLZ: dann ist es keine PLZ („Kundennummer 72218“, „Nr. 72218“). */
+const NUMMER_DAVOR = new RegExp(`(?:^|[^\\p{L}])(?:${NUMMERWORT}|nr|nummer)\\.?\\s*[:#.\\-]?\\s*$`, "iu");
+/** Telefonnummer: sechs oder mehr Ziffern, auch mit Leerzeichen, Schrägstrich, Punkt oder Bindestrich dazwischen, oder +49. */
+const TELEFON = /(\+\s?\d|\d(?:[\s/.\-]*\d){5,})/u;
+/** Eine Zahlengruppe vor dem Straßennamen („0711 123 Hauptstr. 5“, „4711 Hauptstr.“). */
+const ZAHL_VORN = /^\s*[+\d][\d\s/.\-]*\s+\p{L}/u;
 
 function text(x: unknown, max: number): string {
   return typeof x === "string" ? x.replace(/\s+/g, " ").trim().slice(0, max) : "";
 }
 
-/** true, wenn der Text als Straßenteil taugt (Buchstaben, keine Telefon- oder Kundennummer, keine Signatur). */
-export function strasseGueltig(s: string): boolean {
+/** Was mit dem Straßenteil nicht stimmt, als Satzteil; null, wenn er taugt (leer taugt auch). */
+export function strasseProblem(s: string): string | null {
   const t = s.trim();
-  if (t === "") return true;
-  return t.length <= 120 && BUCHSTABE.test(t) && !KEINE_ADRESSE.test(t) && !SIGNATUR.test(t);
+  if (t === "") return null;
+  if (t.length > 120) return "ist zu lang";
+  if (!BUCHSTABE.test(t)) return "braucht einen Straßennamen";
+  if (/@|https?:|www\./i.test(t) || SIGNATUR.test(t)) return "enthält keine Adresse";
+  if (TELEFON.test(t) || ZAHL_VORN.test(t)) return "enthält eine Telefonnummer oder eine andere lange Nummer";
+  if (NUMMER_MIT_ZAHL.test(t)) return "enthält eine Auftrags-, Kunden-, Rechnungs- oder Vorgangsnummer";
+  return null;
+}
+
+/** true, wenn der Text als Straßenteil taugt (Buchstaben, keine Telefon-, Auftrags- oder Kundennummer, keine Signatur). */
+export function strasseGueltig(s: string): boolean {
+  return strasseProblem(s) === null;
 }
 
 /** Fünfstellige deutsche PLZ (01001 bis 99998). */
@@ -76,18 +98,37 @@ export function plzGueltig(plz: string): boolean {
   return n >= 1001 && n <= 99998;
 }
 
-function ortGueltig(ort: string): boolean {
-  return ort.length >= 2 && ort.length <= 80 && /^\p{Lu}/u.test(ort) && !/\d{3,}/.test(ort) && !KEINE_ADRESSE.test(ort) && !SIGNATUR.test(ort);
+/** Ortsname: Buchstaben, keine Nummern, keine Signatur. `streng` (Text aus dem Chat): großer Anfangsbuchstabe. */
+function ortGueltig(ort: string, streng = true): boolean {
+  return (
+    ort.length >= 2 &&
+    ort.length <= 80 &&
+    (!streng || /^\p{Lu}/u.test(ort)) &&
+    /^\p{L}/u.test(ort) &&
+    !/\d/.test(ort) &&
+    !NUMMER_MIT_ZAHL.test(ort) &&
+    !/@/.test(ort) &&
+    !SIGNATUR.test(ort)
+  );
+}
+
+/** „stuttgart“ → „Stuttgart“ (nur der erste Buchstabe; „Frankfurt am Main“ bleibt). */
+export function ortNormal(ort: string): string {
+  const t = ort.trim();
+  return t ? t.charAt(0).toLocaleUpperCase("de-DE") + t.slice(1) : t;
 }
 
 /** Prüft eine Adresse; wirft `KundeFehler` mit Text für die Oberfläche. */
 export function pruefeAdresse(roh: unknown, label: string): AdressTeile {
   const o = (roh && typeof roh === "object" ? roh : {}) as Record<string, unknown>;
-  const a = { strasse: text(o.strasse, 120), plz: text(o.plz, 5), ort: text(o.ort, 80) };
-  if (!plzGueltig(a.plz)) throw new KundeFehler(`${label}: PLZ mit fünf Ziffern eintragen.`);
-  if (!ortGueltig(a.ort)) throw new KundeFehler(`${label}: Ort eintragen.`);
-  if (!strasseGueltig(a.strasse)) throw new KundeFehler(`${label}: Straße und Hausnummer prüfen, das sieht nach einer Telefon- oder Kundennummer aus.`);
-  return a;
+  const a = { strasse: text(o.strasse, 120), plz: text(o.plz, 5), ort: ortNormal(text(o.ort, 80)) };
+  const zusatz = text(o.zusatz, 80);
+  if (!plzGueltig(a.plz)) throw new KundeFehler(`${label}: PLZ mit fünf Ziffern eintragen, z. B. 70372.`);
+  if (!a.ort) throw new KundeFehler(`${label}: Ort eintragen, z. B. Stuttgart.`);
+  if (!ortGueltig(a.ort, false)) throw new KundeFehler(`${label}: Im Ort nur den Ortsnamen eintragen, ohne Ziffern, z. B. Stuttgart.`);
+  const problem = strasseProblem(a.strasse);
+  if (problem) throw new KundeFehler(`${label}: Die Straße ${problem}. Bitte nur Straße und Hausnummer eintragen.`);
+  return zusatz ? { ...a, zusatz } : a;
 }
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
@@ -144,12 +185,14 @@ export function teileAusOrt(v: unknown): AdressTeile | null {
   let strasse = s(o.line1);
   let plz = s(o.postcode);
   let ort = s(o.city);
+  const zusatz = s(o.line2);
   // „72218 Wildberg“ nur in line1 (Text ohne Komma gespeichert): PLZ und Ort herauslösen.
   if (!plz && !ort && strasse) {
     const t = teileAusText(strasse);
     if (t) ({ strasse, plz, ort } = t);
   }
-  return strasse || plz || ort ? { strasse, plz, ort } : null;
+  if (!strasse && !plz && !ort) return null;
+  return zusatz ? { strasse, plz, ort, zusatz } : { strasse, plz, ort };
 }
 
 /** „Hauptstr. 1, 72218 Wildberg“, „72218 Wildberg“ oder „Hauptstr. 1 72218 Wildberg“ als Felder. */
@@ -164,15 +207,16 @@ export function teileAusText(roh: string): AdressTeile | null {
 }
 
 /** Formularfelder als gespeicherter Ortswert des Leads (Form wie die Adresssuche). */
-export function ortAusTeilen(a: AdressTeile): { line1?: string; postcode: string; city: string; countryCode: string } {
+export function ortAusTeilen(a: AdressTeile): { line1?: string; line2?: string; postcode: string; city: string; countryCode: string } {
   const strasse = a.strasse.trim();
-  return { ...(strasse ? { line1: strasse } : {}), postcode: a.plz.trim(), city: a.ort.trim(), countryCode: "DE" };
+  const zusatz = a.zusatz?.trim() ?? "";
+  return { ...(strasse ? { line1: strasse } : {}), ...(zusatz ? { line2: zusatz } : {}), postcode: a.plz.trim(), city: a.ort.trim(), countryCode: "DE" };
 }
 
 /** Eine Zeile für Anzeige und KV: „Hauptstr. 1, 72218 Wildberg“. */
 export function adressZeile(a: AdressTeile | null): string {
   if (!a) return "";
-  return [a.strasse.trim(), [a.plz.trim(), a.ort.trim()].filter(Boolean).join(" ")].filter(Boolean).join(", ");
+  return [a.strasse.trim(), a.zusatz?.trim(), [a.plz.trim(), a.ort.trim()].filter(Boolean).join(" ")].filter(Boolean).join(", ");
 }
 
 /** „Maria Anna Schmitt“ → Vorname „Maria Anna“, Nachname „Schmitt“. */
@@ -197,17 +241,37 @@ export interface KundeVorschlag {
   hinweis: string | null;
 }
 
-/** Adresse aus der KI oder Erkennung, nur wenn sie den Regeln genügt; sonst null. */
+/**
+ * Adresse aus der KI oder Erkennung, nur wenn sie den Regeln genügt; sonst null.
+ * Es zählt die erste fünfstellige Zahl, vor der kein Nummernwort und keine
+ * Zahlengruppe steht („Kundennummer 72218“, „0711 12345“ sind keine PLZ), mit
+ * einem Ortsnamen dahinter. Die Straße ist das Stück davor (nach dem letzten
+ * Komma) und nur, wenn sie die Straßenregeln erfüllt; sonst bleiben PLZ und Ort.
+ */
 export function vorschlagAdresse(roh: string | null | undefined): AdressTeile | null {
   if (typeof roh !== "string" || roh.trim() === "") return null;
   // Signatur ab Grußformel abschneiden, bevor gelesen wird.
-  const ohne = roh.split(/\r?\n/).filter((z, i, alle) => !alle.slice(0, i + 1).some((x) => SIGNATUR.test(x))).join(" ");
-  const t = teileAusText(ohne);
-  if (!t || !plzGueltig(t.plz) || !ortGueltig(t.ort.split(/[,;]/)[0].trim())) return null;
-  const ort = t.ort.split(/[,;]/)[0].trim();
-  // Eine Straße mit Nummer davor (Telefon, Kundennummer) verwerfen, PLZ und Ort behalten.
-  const strasse = strasseGueltig(t.strasse) && /\d/.test(t.strasse) && /\p{L}{2,}/u.test(t.strasse) ? t.strasse : "";
-  return { strasse, plz: t.plz, ort };
+  const zeilen = roh.split(/\r?\n/);
+  const ende = zeilen.findIndex((z) => SIGNATUR.test(z));
+  const t = (ende === -1 ? zeilen : zeilen.slice(0, ende)).join(", ").replace(/\s+/g, " ").trim();
+  for (const m of t.matchAll(/(?<![\d+])(\d{5})(?!\d)/g)) {
+    const plz = m[1];
+    const davor = t.slice(0, m.index);
+    if (!plzGueltig(plz) || NUMMER_DAVOR.test(davor)) continue;
+    // Zahlengruppe direkt davor (mehr als drei Ziffern samt Trennern): Teil einer Telefonnummer.
+    const gruppe = /[\d\s/.\-]*$/.exec(davor)?.[0] ?? "";
+    if (gruppe.replace(/\D/g, "").length > 3 || /\+\s*[\d\s]*$/.test(davor)) continue;
+    const ort = t
+      .slice((m.index ?? 0) + plz.length)
+      .replace(/^[\s,]+/, "")
+      .split(/[,;()]/)[0]
+      .trim();
+    if (!ortGueltig(ort)) continue;
+    const stueck = (davor.replace(/[,;\s]+$/, "").split(/[,;]/).pop() ?? "").trim();
+    const strasse = strasseGueltig(stueck) && /\d/.test(stueck) && /\p{L}{2,}/u.test(stueck) ? stueck : "";
+    return { strasse, plz, ort };
+  }
+  return null;
 }
 
 /** Name aus der KI, nur wenn es nach einem Namen aussieht. */
