@@ -15,6 +15,7 @@ import { apiAufruf } from "./api";
 import { BewertungDialog } from "./bewertung-dialog";
 import { DokumentDialog } from "./dokument-dialog";
 import { GespraechPanel } from "./gespraech-panel";
+import { KundeBereich } from "./kunde-bereich";
 import { TerminDialog } from "@/components/neu/termin/termin-dialog";
 import { VorlageDialog } from "./vorlage-dialog";
 import { ZahlungDialog } from "./zahlung-dialog";
@@ -64,6 +65,8 @@ type Zustand =
 export function AkteSeite({ dealId }: { dealId: string }) {
   const [zustand, setZustand] = useState<Zustand>({ art: "laden" });
   const [dialog, setDialog] = useState<Dialog | null>(null);
+  /** Link „Angaben ergänzen“ (Hintergrund-Job, Kalkulation): `?angaben=1` öffnet „Kunde und Adressen“. */
+  const [angabenOffen, setAngabenOffen] = useState(false);
   const portalZiel = usePortalZiel();
   const lauf = useRef(0);
   const hatAkte = useRef(false);
@@ -101,6 +104,10 @@ export function AkteSeite({ dealId }: { dealId: string }) {
       lauf.current++;
     };
   }, [dealId, laden]);
+
+  useEffect(() => {
+    setAngabenOffen(new URLSearchParams(window.location.search).get("angaben") === "1");
+  }, [dealId]);
 
   const neuLaden = useCallback(() => laden(dealId), [laden, dealId]);
   /** Für Kopf, Stufenmenü, Ablauf, Dock und Dialoge, die nur auf das Ende warten. */
@@ -148,6 +155,7 @@ export function AkteSeite({ dealId }: { dealId: string }) {
       />
       <Zahlenreihe kacheln={akte.kacheln} />
       <ZahlungenPanel dealId={dealId} zahlung={akte.zahlung} portalZiel={portalZiel} onNeuLaden={neuLadenStill} />
+      <KundeBereich dealId={dealId} offen={angabenOffen} onGespeichert={neuLadenStill} />
       <div className="akte-koerper">
         <section className="akte-gespraech" data-slot="gespraech" aria-label="Gespräch">
           <GespraechPanel

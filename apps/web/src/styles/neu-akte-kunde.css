@@ -33,6 +33,26 @@
   margin-top: 0;
 }
 
+[data-neu] .kunde-knopf-klein {
+  padding: 6px 11px;
+  font-size: 12px;
+}
+
+[data-neu] button.kunde-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+[data-neu] button.kunde-link:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
 [data-neu] .kunde-zeilen {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));

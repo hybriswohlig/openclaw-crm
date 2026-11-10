@@ -8,6 +8,9 @@ import type { AdressTeile, DealKunde, KundeVorschlag } from "@/lib/deal-kunde";
 import { feldLeer, vorschlagEinsetzen, vorschlagHinweis, type KundeEntwurf, type KundeFeld } from "@/lib/kunde-entwurf";
 import { apiAufruf } from "./api";
 
+/** Browser-Event nach dem Speichern von Kundendaten; `detail` ist die Deal-ID. */
+export const KUNDE_GEAENDERT_EVENT = "crm-deal-kunde-geaendert";
+
 const LABEL: Record<KundeFeld, string> = {
   name: "Name",
   telefon: "Telefon",

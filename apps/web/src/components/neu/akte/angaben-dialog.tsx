@@ -14,7 +14,7 @@ import type { DealKunde } from "@/lib/deal-kunde";
 import { aenderungen, entwurfAus, feldAusPflicht, feldLeer, type KundeEntwurf, type KundeFeld } from "@/lib/kunde-entwurf";
 import type { DokumentArt as VorpruefungArt, Vorpruefung } from "@/lib/kv-vorpruefung";
 import { apiAufruf, jsonAufruf } from "./api";
-import { AusDemChatKnopf, KundeFelder } from "./kunde-felder";
+import { AusDemChatKnopf, KUNDE_GEAENDERT_EVENT, KundeFelder } from "./kunde-felder";
 
 const DOK: Record<VorpruefungArt, { name: string; knopf: string }> = {
   KV: { name: "den Kostenvoranschlag", knopf: "KV" },
@@ -77,6 +77,7 @@ export function AngabenDialog({
     const r = await apiAufruf<DealKunde>(`/api/v1/deals/${encodeURIComponent(dealId)}/kunde`, jsonAufruf("PUT", body));
     setSpeichert(false);
     if (!r.ok) return setFehler(r.message);
+    window.dispatchEvent(new CustomEvent(KUNDE_GEAENDERT_EVENT, { detail: dealId }));
     onWeiter();
   }
 
