@@ -13,6 +13,18 @@ describe("ortAusAdresse", () => {
     ["Böblingen", null, "Böblingen"],
     ["Hauptstraße 5, Leonberg", null, "Leonberg"],
     ["70173", "70173", null],
+    // Review M2 und M3 (Fälle aus review-tmp/orte.mjs)
+    ["70173 Stuttgart 3. OG", "70173", "Stuttgart"],
+    ["Böblingen, Hauptstraße", null, "Böblingen"],
+    ["Hauptstraße 5, Böblingen", null, "Böblingen"],
+    ["Neustadt", null, "Neustadt"],
+    ["Am Markt, Neustadt", null, "Neustadt"],
+    ["Neustadt, Am Markt", null, "Neustadt"],
+    ["70173 Stuttgart-West, Deutschland", "70173", "Stuttgart-West"],
+    ["Königstr. 1 70173 Stuttgart", "70173", "Stuttgart"],
+    ["70173 Hauptstraße 5", "70173", null],
+    ["Leonberg, Gartenweg", null, "Leonberg"],
+    ["Im Tal, Esslingen", null, "Esslingen"],
     ["Hauptstraße 5", null, null],
     ["", null, null],
     [null, null, null],
@@ -22,11 +34,12 @@ describe("ortAusAdresse", () => {
 });
 
 describe("kartenOrtSchluessel", () => {
-  it("mit PLZ wie ortSchluessel, nur Ort mit Vorsilbe, sonst null", () => {
+  it("mit PLZ wie ortSchluessel, nur Ort oder nur PLZ mit Vorsilbe, sonst null", () => {
     expect(kartenOrtSchluessel("70176", " Stuttgart ")).toBe("70176 stuttgart");
     expect(kartenOrtSchluessel(null, "Böblingen")).toBe("ort:böblingen");
     expect(kartenOrtSchluessel("123", "Böblingen")).toBe("ort:böblingen");
-    expect(kartenOrtSchluessel("70176", null)).toBeNull();
+    expect(kartenOrtSchluessel("70176", null)).toBe("plz:70176");
+    expect(kartenOrtSchluessel("123", null)).toBeNull();
     expect(kartenOrtSchluessel(null, " ")).toBeNull();
   });
 });

@@ -995,6 +995,8 @@ export interface KartenAuftragPunkt {
   /** Ort oder Ortsteil, z. B. „Stuttgart-West“. */
   text: string;
   quelle: AuftragPunktQuelle;
+  /** Ort ohne PLZ gesucht (mehrdeutig, etwa „Neustadt“): nur ungefähr (Review M3). */
+  ungefaehr?: boolean;
 }
 
 /** Antwort von `GET /api/v1/deals/[recordId]/einsatz/karte`. */
@@ -1087,27 +1089,40 @@ export function ortAusAdresse(adresse: string | null | undefined): { plz: string
     .replace(/^(umzug\s+)?(innerhalb|in)(\s+von)?\s+/i, "")
     .replace(/,?\s*(deutschland|germany)$/i, "");
   if (t === "") return { plz: null, ort: null };
-  const mitPlz = /(?:^|[\s,])(\d{5})\s+([^,;\d]+?)\s*(?:[,;]|$)/.exec(t);
+  // „70173 Stuttgart“, auch mit Zusatz danach („70173 Stuttgart 3. OG“): der Ort endet vor Komma, Semikolon oder Ziffer.
+  const mitPlz = /(?:^|[\s,])(\d{5})\s+([^,;\d]+)/.exec(t);
   if (mitPlz) {
-    const ort = mitPlz[2]!.trim();
-    return { plz: mitPlz[1]!, ort: ort === "" ? null : ort };
+    const ort = mitPlz[2]!.trim().replace(/[\s.-]+$/, "");
+    if (ort !== "" && /^\p{Lu}/u.test(ort) && !istStrasse(ort)) return { plz: mitPlz[1]!, ort };
   }
-  const nurPlz = /(?:^|[\s,])(\d{5})(?:$|[\s,])/.exec(t);
-  // Ohne PLZ: letzter Teil ohne Ziffern, mit Großbuchstaben am Anfang (keine Straße mit Hausnummer).
+  const nurPlz = /(?:^|[\s,])(\d{5})(?=$|[\s,;])/.exec(t);
+  // Ohne lesbaren Ort hinter der PLZ: letzter Teil ohne Ziffern, mit Großbuchstaben am Anfang, der keine Straße ist.
   const teile = t.split(/[,;]/).map((x) => x.trim()).filter(Boolean);
-  const ort = [...teile].reverse().find((x) => !/\d/.test(x) && /^\p{Lu}\p{L}/u.test(x)) ?? null;
-  return { plz: nurPlz ? nurPlz[1]! : null, ort: ort && (teile.length > 1 || !/(str\.|straße|strasse|weg|gasse|platz)\b/i.test(ort)) ? ort : null };
+  const ort = [...teile].reverse().find((x) => !/\d/.test(x) && /^\p{Lu}\p{L}/u.test(x) && !istStrasse(x)) ?? null;
+  return { plz: nurPlz ? nurPlz[1]! : null, ort };
+}
+
+/** Sieht wie eine Straße aus (Endung oder „Am Markt“, „In der Au“), nie als Ort lesen (Review M3). */
+function istStrasse(teil: string): boolean {
+  const t = teil.trim();
+  return (
+    /(stra(ß|ss)e|str\.?|weg|gasse|platz|allee|ring|damm|ufer|steig|pfad|chaussee)$/i.test(t) ||
+    /^(am|an der|an den|im|in der|in den|auf der|auf dem|zum|zur|unter den|hinter der|hinter dem)\s/i.test(t)
+  );
 }
 
 /**
  * Cache-Schlüssel eines Kartenpunkts in `einsatz_orte`: mit PLZ wie
- * `ortSchluessel` („70176 stuttgart“), nur mit Ort „ort:böblingen“; sonst null.
+ * `ortSchluessel` („70176 stuttgart“), nur mit Ort „ort:böblingen“, nur mit
+ * PLZ „plz:70173“ (Review M2); sonst null.
  */
 export function kartenOrtSchluessel(plz: string | null | undefined, ort: string | null | undefined): string | null {
   const mit = ortSchluessel(plz, ort);
   if (mit) return mit;
   const o = (ort ?? "").trim().replace(/\s+/g, " ").toLocaleLowerCase("de");
-  return o === "" ? null : `ort:${o}`;
+  if (o !== "") return `ort:${o}`;
+  const p = (plz ?? "").trim();
+  return PLZ_MUSTER.test(p) ? `plz:${p}` : null;
 }
 
 /** Umkreis um Beladen (Luftlinie, grobe Orientierung), wählbar; 0 = aus. */

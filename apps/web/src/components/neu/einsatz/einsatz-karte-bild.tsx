@@ -46,7 +46,7 @@ export interface EinsatzKarteBildProps {
 
 function quelleText(p: KartenAuftragPunkt): string | null {
   if (p.quelle === "chat") return "ungefähr, aus dem Chat";
-  if (p.quelle === "ort") return "Ortsmitte";
+  if (p.quelle === "ort") return p.ungefaehr ? "Ortsmitte, ungefähr" : "Ortsmitte";
   return null;
 }
 

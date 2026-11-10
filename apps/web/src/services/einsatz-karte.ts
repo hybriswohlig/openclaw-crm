@@ -39,17 +39,26 @@ function textVon(w: unknown): string | null {
 }
 
 function anzeige(adresse: string | null, ersatz: string): string {
-  const ort = adresse ? ortAusAdresse(adresse).ort?.trim() : "";
-  return ort ? ort : ersatz;
+  const { plz, ort } = adresse ? ortAusAdresse(adresse) : { plz: null, ort: null };
+  if (ort?.trim()) return ort.trim();
+  // Review M2: nur die PLZ ist lesbar.
+  return plz ? `PLZ ${plz}` : ersatz;
+}
+
+/** Ort ohne PLZ ist mehrdeutig („Neustadt“): Punkt nur ungefähr (Review M3). */
+function nurOrt(adresse: string | null): boolean {
+  if (!adresse) return false;
+  const { plz, ort } = ortAusAdresse(adresse);
+  return !plz && !!ort;
 }
 
 function ortAnfrage(adresse: string): OrtAnfrage | null {
   const { plz, ort } = ortAusAdresse(adresse);
-  if (!ort) return null;
-  const schluessel = kartenOrtSchluessel(plz, ort);
-  if (!schluessel) return null;
   const plz5 = plz && PLZ_MUSTER.test(plz) ? plz : null;
-  const text = ortText({ plz: plz5, wohnort: ort });
+  const schluessel = kartenOrtSchluessel(plz5, ort);
+  if (!schluessel) return null;
+  // Review M2: PLZ allein reicht (Google mit components=postal_code).
+  const text = ort ? ortText({ plz: plz5, wohnort: ort }) : plz5;
   if (!text) return null;
   return { schluessel, text, plz: plz5 };
 }
@@ -183,8 +192,20 @@ export async function ladeEinsatzKarte(
   } else {
     const beladenPunkt = beladenOrt ? punkte.get(beladenOrt.schluessel) : undefined;
     const entladenPunkt = entladenOrt ? punkte.get(entladenOrt.schluessel) : undefined;
-    if (beladenPunkt) beladen = { punkt: beladenPunkt, text: anzeige(beladenAdresse, "Beladen"), quelle: beladenQuelle };
-    if (entladenPunkt) entladen = { punkt: entladenPunkt, text: anzeige(entladenAdresse, "Entladen"), quelle: entladenQuelle };
+    if (beladenPunkt)
+      beladen = {
+        punkt: beladenPunkt,
+        text: anzeige(beladenAdresse, "Beladen"),
+        quelle: beladenQuelle,
+        ...(nurOrt(beladenAdresse) ? { ungefaehr: true } : {}),
+      };
+    if (entladenPunkt)
+      entladen = {
+        punkt: entladenPunkt,
+        text: anzeige(entladenAdresse, "Entladen"),
+        quelle: entladenQuelle,
+        ...(nurOrt(entladenAdresse) ? { ungefaehr: true } : {}),
+      };
   }
 
   const personen: KartenPerson[] = meta.map(({ p, schluessel, anzeigeText }) => ({

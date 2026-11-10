@@ -121,6 +121,23 @@ describe("ladeEinsatzKarte", () => {
     }
   });
 
+  it("nur PLZ lesbar: Anfrage mit PLZ, Anzeige „PLZ 70173“ (Review M2)", async () => {
+    setze([], { von_adresse: "70173" });
+    const orte = orteFest({ "plz:70173": [9.18, 48.78] });
+    const karte = await ladeEinsatzKarte("w1", "d1", { jetzt: JETZT, orte, lead: leerLead, routen: async () => null });
+    expect((orte.mock.calls[0]![1] as OrtAnfrage[])[0]).toEqual({ schluessel: "plz:70173", text: "70173", plz: "70173" });
+    expect(karte.beladen).toEqual({ punkt: [9.18, 48.78], text: "PLZ 70173", quelle: "ort" });
+  });
+
+  it("Ort ohne PLZ ist ungefähr, Straße wird nie Ort (Review M3)", async () => {
+    setze([], { von_adresse: "Böblingen, Hauptstraße", nach_adresse: "70173 Stuttgart" });
+    const orte = orteFest({ "ort:böblingen": [9.0, 48.68], "70173 stuttgart": [9.18, 48.78] });
+    const karte = await ladeEinsatzKarte("w1", "d1", { jetzt: JETZT, orte, lead: leerLead, routen: async () => null });
+    expect((orte.mock.calls[0]![1] as OrtAnfrage[]).map((x) => x.schluessel)).toEqual(["ort:böblingen", "70173 stuttgart"]);
+    expect(karte.beladen).toEqual({ punkt: [9.0, 48.68], text: "Böblingen", quelle: "ort", ungefaehr: true });
+    expect(karte.entladen).toEqual({ punkt: [9.18, 48.78], text: "Stuttgart", quelle: "ort" });
+  });
+
   it("Ort bekannt, aber ohne Kartenpunkt (etwa ohne Geocoding-Freigabe): kein Route-Hinweis", async () => {
     setze([], { von_adresse: "Königstraße 12, 70173 Stuttgart" });
     const karte = await ladeEinsatzKarte("w1", "d1", { jetzt: JETZT, orte: orteFest({}), lead: leerLead, routen: async () => null });
