@@ -10,6 +10,7 @@ const KUNDE: DealKunde = {
   email: null,
   auszug: null,
   einzug: { strasse: "", plz: "71032", ort: "Böblingen" },
+  einzugOffen: false,
   datum: "2026-11-28",
 };
 

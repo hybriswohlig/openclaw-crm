@@ -39,6 +39,8 @@ export function formatLocation(v: unknown): string {
   if (typeof v === "object") {
     const o = v as Record<string, unknown>;
     const teil = (x: unknown) => (typeof x === "string" ? x.trim() : "");
+    // Ohne Straße (Einzug nur mit PLZ und Ort, Inhaber 10.11.): „71032 Böblingen“ statt „71032, Böblingen“.
+    if (!teil(o.line1)) return [teil(o.postcode), teil(o.city)].filter(Boolean).join(" ") || "—";
     return [teil(o.line1), teil(o.postcode), teil(o.city)].filter(Boolean).join(", ") || "—";
   }
   return "—";

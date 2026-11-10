@@ -429,3 +429,18 @@ describe("attachDocumentJobContext: Umzugsgutliste Demontage/Montage aus der Kal
     }
   });
 });
+
+describe("attachDocumentJobContext: Strecke geht unverändert an den VPS (Inhaber 10.11.)", () => {
+  it("Einzug ohne Straße und „wird noch abgestimmt“ bleiben Textzeilen in auftrag.strecke_nach", async () => {
+    jobMocks.getQuotation.mockResolvedValue(null);
+    for (const nach of ["71032 Böblingen", "Böblingen", "wird noch abgestimmt"]) {
+      const { params: p } = await attachDocumentJobContext("ws_1", {
+        _deal_record_id: "deal_1",
+        document_type: "KV",
+        firma: "kottke",
+        auftrag: { strecke_von: "Westfalenstr. 1, 71640, Ludwigsburg", strecke_nach: nach },
+      });
+      expect(p.auftrag).toEqual({ strecke_von: "Westfalenstr. 1, 71640, Ludwigsburg", strecke_nach: nach });
+    }
+  });
+});

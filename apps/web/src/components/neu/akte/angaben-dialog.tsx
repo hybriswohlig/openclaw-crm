@@ -69,7 +69,7 @@ export function AngabenDialog({
   }, [dealId]);
 
   // KV-Meldung 10.11.: Einzug gleich Auszug zählt wie fehlend.
-  const einzugGleich = felder.includes("einzug") && gleicheAdresse(ortAusTeilen(entwurf.auszug), ortAusTeilen(entwurf.einzug));
+  const einzugGleich = felder.includes("einzug") && !entwurf.einzugOffen && gleicheAdresse(ortAusTeilen(entwurf.auszug), ortAusTeilen(entwurf.einzug));
   const gruende = pruefung.felder.filter((f) => f.fehlt && f.grund).map((f) => f.grund!);
   const bereit = !laden && felder.every((f) => !feldLeer(entwurf, f)) && !einzugGleich;
 

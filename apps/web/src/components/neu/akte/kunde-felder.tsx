@@ -72,13 +72,25 @@ export function KundeFelder({
               <span className="kunde-adresse-titel" id={`${id}-${f}-titel`}>
                 {titel(f)} {marke(f)}
               </span>
+              {f === "einzug" ? (
+                <label className="kunde-offen" htmlFor={`${id}-einzug-offen`}>
+                  <input
+                    id={`${id}-einzug-offen`}
+                    type="checkbox"
+                    checked={entwurf.einzugOffen}
+                    disabled={gesperrt}
+                    onChange={(e) => onAendern({ ...entwurf, einzugOffen: e.target.checked }, "einzug")}
+                  />
+                  Einzug noch offen (im KV steht „wird noch abgestimmt“)
+                </label>
+              ) : null}
               <label className="akte-dialog-feld kunde-strasse" htmlFor={`${id}-${f}-s`}>
-                Straße und Hausnummer
+                {f === "einzug" ? "Straße und Hausnummer (wenn bekannt)" : "Straße und Hausnummer"}
                 <input
                   id={`${id}-${f}-s`}
                   className="lg-input"
                   value={entwurf[f].strasse}
-                  disabled={gesperrt}
+                  disabled={gesperrt || (f === "einzug" && entwurf.einzugOffen)}
                   onChange={(e) => adresse(f, "strasse", e.target.value)}
                   autoComplete="off"
                   placeholder="z. B. Hauptstraße 5"
@@ -91,7 +103,7 @@ export function KundeFelder({
                     id={`${id}-${f}-p`}
                     className="lg-input"
                     value={entwurf[f].plz}
-                    disabled={gesperrt}
+                    disabled={gesperrt || (f === "einzug" && entwurf.einzugOffen)}
                   onChange={(e) => adresse(f, "plz", e.target.value.replace(/\D/g, "").slice(0, 5))}
                     inputMode="numeric"
                     autoComplete="off"
@@ -103,7 +115,7 @@ export function KundeFelder({
                     id={`${id}-${f}-o`}
                     className="lg-input"
                     value={entwurf[f].ort}
-                    disabled={gesperrt}
+                    disabled={gesperrt || (f === "einzug" && entwurf.einzugOffen)}
                   onChange={(e) => adresse(f, "ort", e.target.value)}
                     autoComplete="off"
                     placeholder="z. B. Stuttgart"
@@ -198,6 +210,7 @@ export function AusDemChatKnopf({
 
 /** Eine Zeile der Ansicht: „Hauptstr. 1, 72218 Wildberg“ oder „fehlt“. */
 export function kundeWert(k: DealKunde, f: KundeFeld): string | null {
+  if (f === "einzug" && k.einzugOffen) return "noch offen (im KV: wird noch abgestimmt)";
   if (f === "auszug" || f === "einzug") {
     const a = k[f];
     if (!a) return null;

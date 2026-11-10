@@ -12,6 +12,7 @@
  * als Adresse. Ein Feld, das im Aufruf fehlt, bleibt unverändert; leeren kann
  * man hier nichts (Schutz vor versehentlichem Löschen).
  */
+import { einzugOffen } from "./adresse";
 
 export interface AdressTeile {
   /** Straße mit Hausnummer, darf fehlen (dann steht im KV nur PLZ und Ort). */
@@ -32,6 +33,8 @@ export interface DealKunde {
   email: string | null;
   auszug: AdressTeile | null;
   einzug: AdressTeile | null;
+  /** Einzug noch offen (Inhaber 10.11.): im KV steht bei NACH „wird noch abgestimmt“. */
+  einzugOffen: boolean;
   /** YYYY-MM-DD */
   datum: string | null;
 }
@@ -42,6 +45,8 @@ export interface KundeEingabe {
   email?: string;
   auszug?: AdressTeile;
   einzug?: AdressTeile;
+  /** true: Einzug noch offen (ersetzt den Einzug); false: wieder eine Adresse (dann `einzug` Pflicht). */
+  einzugOffen?: boolean;
   datum?: string;
   /** Woher die Werte kommen (nur für das Ereignis). */
   quelle?: "akte" | "vorpruefung" | "chat";
@@ -53,6 +58,8 @@ export interface KundeEingabe {
 }
 
 export class KundeFehler extends Error {}
+
+export { einzugOffen } from "./adresse";
 
 const BUCHSTABE = /\p{L}/u;
 /** Signatur- und Grußwörter: dann ist es keine Adresse, sondern der Rest einer Nachricht. */
@@ -119,11 +126,12 @@ export function ortNormal(ort: string): string {
 }
 
 /** Prüft eine Adresse; wirft `KundeFehler` mit Text für die Oberfläche. */
-export function pruefeAdresse(roh: unknown, label: string): AdressTeile {
+export function pruefeAdresse(roh: unknown, label: string, opts: { plzPflicht?: boolean } = {}): AdressTeile {
   const o = (roh && typeof roh === "object" ? roh : {}) as Record<string, unknown>;
   const a = { strasse: text(o.strasse, 120), plz: text(o.plz, 5), ort: ortNormal(text(o.ort, 80)) };
   const zusatz = text(o.zusatz, 80);
-  if (!plzGueltig(a.plz)) throw new KundeFehler(`${label}: PLZ mit fünf Ziffern eintragen, z. B. 70372.`);
+  // Einzug (Inhaber 10.11.): PLZ darf fehlen („nur Ort“), eine eingetragene muss stimmen.
+  if ((opts.plzPflicht !== false || a.plz) && !plzGueltig(a.plz)) throw new KundeFehler(`${label}: PLZ mit fünf Ziffern eintragen, z. B. 70372.`);
   if (!a.ort) throw new KundeFehler(`${label}: Ort eintragen, z. B. Stuttgart.`);
   if (!ortGueltig(a.ort, false)) throw new KundeFehler(`${label}: Im Ort nur den Ortsnamen eintragen, ohne Ziffern, z. B. Stuttgart.`);
   const problem = strasseProblem(a.strasse);
@@ -158,7 +166,9 @@ export function pruefeKundeEingabe(body: unknown): KundeEingabe {
     e.email = m;
   }
   if (b.auszug !== undefined) e.auszug = pruefeAdresse(b.auszug, "Auszug");
-  if (b.einzug !== undefined) e.einzug = pruefeAdresse(b.einzug, "Einzug");
+  if (b.einzug !== undefined) e.einzug = pruefeAdresse(b.einzug, "Einzug", { plzPflicht: false });
+  if (b.einzugOffen === true || b.einzugOffen === false) e.einzugOffen = b.einzugOffen;
+  if (e.einzugOffen === true && e.einzug) throw new KundeFehler("Einzug: entweder eine Adresse oder „Einzug noch offen“.");
   if (b.datum !== undefined) {
     const d = text(b.datum, 10);
     const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(d);
@@ -177,7 +187,7 @@ export function pruefeKundeEingabe(body: unknown): KundeEingabe {
 
 /** Gespeicherter Ortswert des Leads (jsonb oder Text) als Formularfelder; null ohne verwertbare Angabe. */
 export function teileAusOrt(v: unknown): AdressTeile | null {
-  if (!v) return null;
+  if (!v || einzugOffen(v)) return null;
   if (typeof v === "string") return teileAusText(v);
   if (typeof v !== "object") return null;
   const o = v as Record<string, unknown>;

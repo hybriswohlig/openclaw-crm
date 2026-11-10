@@ -97,6 +97,7 @@ describe.skipIf(!url)("Kunde und Adressen (DB)", { timeout: 30_000 }, () => {
       email: null,
       auszug: null,
       einzug: { strasse: "", plz: "71032", ort: "Böblingen" },
+      einzugOffen: false,
       datum: "2026-11-28",
     });
   });
@@ -159,6 +160,20 @@ describe.skipIf(!url)("Kunde und Adressen (DB)", { timeout: 30_000 }, () => {
     ).rejects.toThrow("Einzug und Auszug sind dieselbe Adresse");
     const [row] = await sql`select json_value from record_values where record_id = ${deal.viktoria} and attribute_id = ${attr[`${obj.deals}.move_to_address`]}`;
     expect(row.json_value).toEqual({ line1: "71032 Böblingen" });
+  });
+
+  it("Einzug noch offen und Einzug nur mit Ort (Inhaber 10.11.)", async () => {
+    const offen = await dienst.speichereKunde(ws, deal.viktoria, { einzugOffen: true }, null);
+    expect(offen.einzugOffen).toBe(true);
+    expect(offen.einzug).toBeNull();
+    const [row] = await sql`select json_value from record_values where record_id = ${deal.viktoria} and attribute_id = ${attr[`${obj.deals}.move_to_address`]}`;
+    expect(row.json_value).toEqual({ line1: "wird noch abgestimmt", offen: true });
+    await expect(dienst.speichereKunde(ws, deal.viktoria, { einzugOffen: false }, null)).rejects.toThrow("Adresse eintragen");
+    const nurOrt = await dienst.speichereKunde(ws, deal.viktoria, { einzugOffen: false, einzug: { strasse: "", plz: "", ort: "Böblingen" } }, null);
+    expect(nurOrt.einzugOffen).toBe(false);
+    expect(nurOrt.einzug).toEqual({ strasse: "", plz: "", ort: "Böblingen" });
+    // Wieder wie vorher, damit die folgenden Fälle denselben Stand sehen.
+    await dienst.speichereKunde(ws, deal.viktoria, { einzug: { strasse: "", plz: "71032", ort: "Böblingen" } }, null);
   });
 
   it("Telefon ändern: neue Nummer vorn, alte bleibt", async () => {

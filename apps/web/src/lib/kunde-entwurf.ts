@@ -14,6 +14,8 @@ export interface KundeEntwurf {
   email: string;
   auszug: AdressTeile;
   einzug: AdressTeile;
+  /** Einzug noch offen (Inhaber 10.11.): ersetzt den Einzug, gilt als erfüllt. */
+  einzugOffen: boolean;
   datum: string;
 }
 
@@ -28,6 +30,7 @@ export function entwurfAus(k: DealKunde | null): KundeEntwurf {
     email: k?.email ?? "",
     auszug: { ...(k?.auszug ?? LEER) },
     einzug: { ...(k?.einzug ?? LEER) },
+    einzugOffen: k?.einzugOffen ?? false,
     datum: k?.datum ?? "",
   };
 }
@@ -43,7 +46,9 @@ const adresseGleich = (a: AdressTeile, b: AdressTeile) =>
 
 /** Ist das Feld im Entwurf leer? Eine Adresse braucht mindestens PLZ und Ort. */
 export function feldLeer(e: KundeEntwurf, f: KundeFeld): boolean {
-  if (f === "auszug" || f === "einzug") return !e[f].plz.trim() || !e[f].ort.trim();
+  // Einzug (Inhaber 10.11.): „noch offen“ oder nur der Ort genügt; die Kundenanschrift braucht PLZ und Ort.
+  if (f === "einzug") return !e.einzugOffen && !e.einzug.ort.trim();
+  if (f === "auszug") return !e[f].plz.trim() || !e[f].ort.trim();
   return !e[f].trim();
 }
 
@@ -78,8 +83,9 @@ export function vorschlagEinsetzen(
       ort: w.ort,
       ...(gleichePlz && e[f].zusatz ? { zusatz: e[f].zusatz } : {}),
     };
-    if (!adresseGleich(ziel, e[f])) {
+    if (!adresseGleich(ziel, e[f]) || (f === "einzug" && e.einzugOffen)) {
       neu[f] = ziel;
+      if (f === "einzug") neu.einzugOffen = false;
       gesetzt.push(f);
     }
   }
@@ -97,7 +103,9 @@ export function aenderungen(
 ): KundeEingabe {
   const alt = entwurfAus(gespeichert);
   const out: KundeEingabe = {};
+  if (felder.includes("einzug") && e.einzugOffen !== alt.einzugOffen) out.einzugOffen = e.einzugOffen;
   for (const f of felder) {
+    if (f === "einzug" && e.einzugOffen) continue;
     if (f === "auszug" || f === "einzug") {
       if (!adresseLeer(e[f]) && !adresseGleich(e[f], alt[f])) {
         // Zusatz („3. OG“) aus dem gespeicherten Stand mitschicken, damit er erhalten bleibt.

@@ -2,6 +2,7 @@
  * Lädt alles, was der Angebotsrechner über einen Lead wissen muss: Werte des
  * Deals, des verknüpften Auftrags (falls vorhanden) und das Inventar.
  */
+import { einzugOffen } from "@/lib/adresse";
 import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { attributes, objects, selectOptions } from "@/db/schema/objects";
@@ -108,7 +109,8 @@ export async function ladeLeadDaten(workspaceId: string, dealRecordId: string): 
     tragestreckeVonM: zahlOderNull(av.walking_distance_from_m),
     tragestreckeNachM: zahlOderNull(av.walking_distance_to_m),
     halteverbot: av.parking_halteverbot_needed === true,
-    halteverbotNach: av.parking_halteverbot_to === true,
+    // Einzug noch offen (Inhaber 10.11.): keine Halteverbotszone am Einzug.
+    halteverbotNach: av.parking_halteverbot_to === true && !einzugOffen(dv.move_to_address),
     packService: av.packing_service === true,
     kartons,
     inventar: inventarAusZeilen(inventar),

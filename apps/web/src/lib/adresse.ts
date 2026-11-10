@@ -86,3 +86,21 @@ export function gleicheAdresse(a: unknown, b: unknown): boolean {
   if (!x || !y || x.basis !== y.basis) return false;
   return !(x.zusatz && y.zusatz && x.zusatz !== y.zusatz);
 }
+
+/**
+ * „Einzug noch offen“ (Inhaber 10.11.): ohne Migration als Markierung im Ortswert
+ * `move_to_address` gespeichert, `{ line1: "wird noch abgestimmt", offen: true }`.
+ * So druckt jeder Leser, der nur `line1` kennt (KV/AB über `strecke_nach`, Portal,
+ * Mitarbeiterportal), von selbst „wird noch abgestimmt“; der Rechner und die
+ * KI-Übernahme behandeln den Einzug weiter als fehlend.
+ */
+export const EINZUG_OFFEN_TEXT = "wird noch abgestimmt";
+export const EINZUG_OFFEN_WERT = { line1: EINZUG_OFFEN_TEXT, offen: true } as const;
+
+/** true, wenn der Ortswert die Markierung „Einzug noch offen“ trägt (auch als reiner Text). */
+export function einzugOffen(v: unknown): boolean {
+  if (typeof v === "string") return v.trim().toLowerCase() === EINZUG_OFFEN_TEXT;
+  if (!v || typeof v !== "object") return false;
+  const o = v as Record<string, unknown>;
+  return o.offen === true || (typeof o.line1 === "string" && o.line1.trim().toLowerCase() === EINZUG_OFFEN_TEXT && !o.postcode && !o.city);
+}

@@ -10,7 +10,7 @@
  */
 import { canonicalizeEmail, canonicalizePhone, isRelayEmail } from "@/lib/identity/canonical";
 import { formatLocation, stripLeadTitleDecorations } from "@/lib/deal-doc-data";
-import { gleicheAdresse } from "@/lib/adresse";
+import { EINZUG_OFFEN_WERT, einzugOffen, gleicheAdresse } from "@/lib/adresse";
 import { nameAusWert } from "@/lib/personen-name";
 import {
   KundeFehler,
@@ -90,6 +90,7 @@ export async function ladeKunde(ws: string, dealId: string): Promise<DealKunde |
     email: ersterText(pv.email_addresses),
     auszug: teileAusOrt(dv.move_from_address),
     einzug: teileAusOrt(dv.move_to_address),
+    einzugOffen: einzugOffen(dv.move_to_address),
     datum: datumText(dv.move_date),
   };
 }
@@ -138,6 +139,11 @@ async function speichereKundeJetzt(ws: string, dealId: string, e: KundeEingabe, 
   }
   if (e.auszug) dealInput.move_from_address = ortAusTeilen(e.auszug);
   if (e.einzug) dealInput.move_to_address = ortAusTeilen(e.einzug);
+  // Inhaber 10.11.: „Einzug noch offen“ als Markierung im Ortswert (keine Migration, siehe lib/adresse.ts).
+  if (e.einzugOffen === true) dealInput.move_to_address = { ...EINZUG_OFFEN_WERT };
+  if (e.einzugOffen === false && !e.einzug && einzugOffen(dv.move_to_address)) {
+    throw new KundeFehler("Einzug: Adresse eintragen oder „Einzug noch offen“ lassen.");
+  }
   if (e.datum) dealInput.move_date = e.datum;
 
   const kontakt = e.name !== undefined || e.telefon !== undefined || e.email !== undefined;

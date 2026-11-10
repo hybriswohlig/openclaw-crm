@@ -32,7 +32,7 @@ import {
 } from "./scope-guard";
 import type { DealInsights } from "./deal-insights";
 import { kalkulationAnstossen } from "@/services/rechner/ausloeser";
-import { addressStringToLocationValue, gleicheAdresse } from "@/lib/adresse";
+import { addressStringToLocationValue, einzugOffen, gleicheAdresse } from "@/lib/adresse";
 
 export interface ApplyInsightsInput {
   workspaceId: string;
@@ -330,7 +330,10 @@ export async function applyDealInsights(
     const isEmptyValue = (v: unknown) =>
       v == null || v === "" || (Array.isArray(v) && v.length === 0);
     const canWriteDeal = (slug: string) =>
-      !onlyFillEmpty || isEmptyValue(beforeValues[slug]);
+      !onlyFillEmpty ||
+      isEmptyValue(beforeValues[slug]) ||
+      // „Einzug noch offen“ gilt als leer: nennt der Kunde den Einzug später, darf die KI ihn eintragen.
+      (slug === "move_to_address" && einzugOffen(beforeValues[slug]));
 
     // Post-quote scope guard: if a quote baseline exists, detect whether the
     // newly extracted scope diverges from what was quoted. At the kva_accepted

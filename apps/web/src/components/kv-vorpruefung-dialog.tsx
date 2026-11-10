@@ -13,6 +13,14 @@ import { Loader2 } from "lucide-react";
 import type { LeadContext } from "@/lib/deal-doc-data";
 import { AddressAutocomplete, type LocationValue } from "@/components/maps/AddressAutocomplete";
 import { alsOrtWert, gleicheAdresse } from "@/lib/adresse";
+
+/** Ortswert ohne Straße („71032 Böblingen“) für die Prüfung; null ohne PLZ und Ort. */
+function ortOhneStrasse(v: unknown): LocationValue | null {
+  if (!v || typeof v !== "object") return null;
+  const o = v as Record<string, unknown>;
+  const s = (x: unknown) => (typeof x === "string" && x.trim() ? x.trim() : undefined);
+  return s(o.postcode) || s(o.city) ? ({ postcode: s(o.postcode), city: s(o.city) } as LocationValue) : null;
+}
 import {
   kvVorpruefung,
   type DokumentArt,
@@ -68,7 +76,8 @@ export function KvVorpruefungDialog({
   // Adressen strukturiert über die Google-Vorschläge, wie in der Auftragsübersicht.
   const [orte, setOrte] = useState<{ auszug: LocationValue | null; einzug: LocationValue | null }>(() => ({
     auszug: alsOrtWert(leadContext?.move_from_address),
-    einzug: alsOrtWert(leadContext?.move_to_address),
+    // Einzug ohne Straße (nur PLZ/Ort, Inhaber 10.11.) oder „noch offen“ zählt auch.
+    einzug: alsOrtWert(leadContext?.move_to_address) ?? ortOhneStrasse(leadContext?.move_to_address),
   }));
   // Ausweg, wenn Google eine Adresse nicht findet oder nicht erreichbar ist.
   const [vonHand, setVonHand] = useState<{ auszug: boolean; einzug: boolean }>({ auszug: false, einzug: false });
@@ -80,7 +89,9 @@ export function KvVorpruefungDialog({
   const einzugGleich = pruefung.felder.some((f) => f.feld === "einzug") && gleicheAdresse(orte.auszug, orte.einzug);
   const leer = (feld: PflichtFeld) =>
     feld === "auszug" || feld === "einzug"
-      ? !orte[feld]?.line1?.trim() || (feld === "einzug" && einzugGleich)
+      ? feld === "einzug"
+        ? !(orte.einzug?.line1?.trim() || orte.einzug?.postcode?.trim() || orte.einzug?.city?.trim()) || einzugGleich
+        : !orte[feld]?.line1?.trim()
       : !werte[feld]?.trim();
   const fehltText = (feld: PflichtFeld) => (feld === "einzug" && einzugGleich && orte.einzug?.line1?.trim() ? "gleich Auszug" : "fehlt");
   const bereit =

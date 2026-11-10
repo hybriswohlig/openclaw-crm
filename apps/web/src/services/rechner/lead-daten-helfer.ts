@@ -4,6 +4,7 @@
  */
 import type { LeadDaten } from "./eingabe";
 import { isInventoryOwner, type InventoryOwner } from "@/services/inventory-owner";
+import { einzugOffen } from "@/lib/adresse";
 
 /**
  * Adresse als Text für den Rechner: "Straße, PLZ Ort", ohne Straße nur "PLZ Ort".
@@ -11,6 +12,8 @@ import { isInventoryOwner, type InventoryOwner } from "@/services/inventory-owne
  * dass sie kein Komma enthalten ("innerhalb desselben Ortes").
  */
 export function ortText(wert: unknown): string | null {
+  // „Einzug noch offen“ ist keine Adresse: der Rechner rechnet wie ohne Einzug.
+  if (einzugOffen(wert)) return null;
   if (typeof wert === "string") return wert.trim() === "" ? null : wert.trim();
   if (!wert || typeof wert !== "object") return null;
   const o = wert as Record<string, unknown>;
