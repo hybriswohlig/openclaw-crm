@@ -61,8 +61,8 @@ export function KundeBereich({
         if (!aktuell) return;
         if (!r.ok) return setFehler(r.message);
         setKunde(r.data);
-        // Einen offenen Entwurf nie überschreiben.
-        if (!bearbeitet.current) setEntwurf(entwurfAus(r.data));
+        // Beim ersten Laden immer, danach einen offenen Entwurf nie überschreiben.
+        if (!still || !bearbeitet.current) setEntwurf(entwurfAus(r.data));
       });
     };
     laden(false);

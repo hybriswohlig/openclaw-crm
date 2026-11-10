@@ -56,69 +56,87 @@ export function KundeFelder({
     onAendern({ ...entwurf, [f]: { ...entwurf[f], [teil]: wert } }, f);
   }
 
-  return (
-    <div className="kunde-felder">
-      {felder.map((f) =>
-        f === "auszug" || f === "einzug" ? (
-          <fieldset key={f} className="kunde-adresse" data-fehlt={pflicht.includes(f) && feldLeer(entwurf, f) ? "" : undefined} disabled={gesperrt}>
-            <legend>
-              {titel(f)} {marke(f)}
-            </legend>
-            <label className="akte-dialog-feld kunde-strasse" htmlFor={`${id}-${f}-s`}>
-              Straße und Hausnummer
+  /** Kontaktfelder in einer Reihe, die Adressen nebeneinander darunter. */
+  const gruppe = (ist: (f: KundeFeld) => boolean, klasse: string) =>
+    felder.some(ist) ? (
+      <div className={klasse}>
+        {felder.filter(ist).map((f) =>
+          f === "auszug" || f === "einzug" ? (
+            <div
+              key={f}
+              role="group"
+              aria-labelledby={`${id}-${f}-titel`}
+              className="kunde-adresse"
+              data-fehlt={pflicht.includes(f) && feldLeer(entwurf, f) ? "" : undefined}
+            >
+              <span className="kunde-adresse-titel" id={`${id}-${f}-titel`}>
+                {titel(f)} {marke(f)}
+              </span>
+              <label className="akte-dialog-feld kunde-strasse" htmlFor={`${id}-${f}-s`}>
+                Straße und Hausnummer
+                <input
+                  id={`${id}-${f}-s`}
+                  className="lg-input"
+                  value={entwurf[f].strasse}
+                  disabled={gesperrt}
+                  onChange={(e) => adresse(f, "strasse", e.target.value)}
+                  autoComplete="off"
+                  placeholder="z. B. Hauptstraße 5"
+                />
+              </label>
+              <div className="kunde-plz-ort">
+                <label className="akte-dialog-feld" htmlFor={`${id}-${f}-p`}>
+                  PLZ
+                  <input
+                    id={`${id}-${f}-p`}
+                    className="lg-input"
+                    value={entwurf[f].plz}
+                    disabled={gesperrt}
+                  onChange={(e) => adresse(f, "plz", e.target.value.replace(/\D/g, "").slice(0, 5))}
+                    inputMode="numeric"
+                    autoComplete="off"
+                    placeholder="z. B. 70372"
+                  />
+                </label>
+                <label className="akte-dialog-feld" htmlFor={`${id}-${f}-o`}>
+                  Ort
+                  <input
+                    id={`${id}-${f}-o`}
+                    className="lg-input"
+                    value={entwurf[f].ort}
+                    disabled={gesperrt}
+                  onChange={(e) => adresse(f, "ort", e.target.value)}
+                    autoComplete="off"
+                    placeholder="z. B. Stuttgart"
+                  />
+                </label>
+              </div>
+            </div>
+          ) : (
+            <label key={f} className="akte-dialog-feld" htmlFor={`${id}-${f}`} data-fehlt={pflicht.includes(f) && feldLeer(entwurf, f) ? "" : undefined}>
+              <span className="kunde-feld-kopf">
+                {titel(f)} {marke(f)}
+              </span>
               <input
-                id={`${id}-${f}-s`}
+                id={`${id}-${f}`}
                 className="lg-input"
-                value={entwurf[f].strasse}
-                onChange={(e) => adresse(f, "strasse", e.target.value)}
+                type={f === "datum" ? "date" : f === "email" ? "email" : f === "telefon" ? "tel" : "text"}
+                value={entwurf[f]}
+                disabled={gesperrt}
+                onChange={(e) => onAendern({ ...entwurf, [f]: e.target.value }, f)}
                 autoComplete="off"
-                placeholder="Hauptstraße 5"
+                placeholder={f === "name" ? "Vorname Nachname" : f === "telefon" ? "z. B. 0171 2345678" : f === "email" ? "z. B. name@beispiel.de" : undefined}
               />
             </label>
-            <div className="kunde-plz-ort">
-              <label className="akte-dialog-feld" htmlFor={`${id}-${f}-p`}>
-                PLZ
-                <input
-                  id={`${id}-${f}-p`}
-                  className="lg-input"
-                  value={entwurf[f].plz}
-                  onChange={(e) => adresse(f, "plz", e.target.value.replace(/\D/g, "").slice(0, 5))}
-                  inputMode="numeric"
-                  autoComplete="off"
-                  placeholder="70372"
-                />
-              </label>
-              <label className="akte-dialog-feld" htmlFor={`${id}-${f}-o`}>
-                Ort
-                <input
-                  id={`${id}-${f}-o`}
-                  className="lg-input"
-                  value={entwurf[f].ort}
-                  onChange={(e) => adresse(f, "ort", e.target.value)}
-                  autoComplete="off"
-                  placeholder="Stuttgart"
-                />
-              </label>
-            </div>
-          </fieldset>
-        ) : (
-          <label key={f} className="akte-dialog-feld" htmlFor={`${id}-${f}`} data-fehlt={pflicht.includes(f) && feldLeer(entwurf, f) ? "" : undefined}>
-            <span className="kunde-feld-kopf">
-              {titel(f)} {marke(f)}
-            </span>
-            <input
-              id={`${id}-${f}`}
-              className="lg-input"
-              type={f === "datum" ? "date" : f === "email" ? "email" : f === "telefon" ? "tel" : "text"}
-              value={entwurf[f]}
-              disabled={gesperrt}
-              onChange={(e) => onAendern({ ...entwurf, [f]: e.target.value }, f)}
-              autoComplete="off"
-              placeholder={f === "name" ? "Vorname Nachname" : f === "telefon" ? "0171 2345678" : f === "email" ? "name@beispiel.de" : undefined}
-            />
-          </label>
-        )
-      )}
+          )
+        )}
+      </div>
+    ) : null;
+
+  return (
+    <div className="kunde-felder">
+      {gruppe((f) => f !== "auszug" && f !== "einzug", "kunde-felder-kontakt")}
+      {gruppe((f) => f === "auszug" || f === "einzug", "kunde-felder-adressen")}
     </div>
   );
 }
@@ -156,7 +174,7 @@ export function AusDemChatKnopf({
 
   return (
     <div className="kunde-chat">
-      <GlassButton type="button" variant="ghost" size="sm" onClick={() => void holen()} disabled={disabled || laeuft} aria-busy={laeuft || undefined}>
+      <GlassButton type="button" variant="soft" size="sm" onClick={() => void holen()} disabled={disabled || laeuft} aria-busy={laeuft || undefined}>
         {laeuft ? "Liest den Chat …" : "Aus dem Chat übernehmen"}
       </GlassButton>
       {laeuft ? <p className="kunde-chat-hinweis" role="status">Die KI liest die Nachrichten, das dauert meist unter einer Minute.</p> : null}
