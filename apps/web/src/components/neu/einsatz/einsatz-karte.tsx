@@ -10,6 +10,7 @@ import type { EinsatzAnsicht, EinsatzPersonLage } from "@/lib/einsatz-ansicht";
 import type { KartenSteuerung } from "./einsatz-karte-bild";
 import {
   escapeFangen,
+  teamAnsage,
   FILTER_VORGABE,
   kartenPersonenFiltern,
   umkreisLesen,
@@ -113,6 +114,7 @@ export function EinsatzKartenAnsicht({
   const zug = useRef<Zug | null>(null);
   const klickSperre = useRef(false);
 
+  const [ansage, setAnsage] = useState("");
   const details = useMemo(() => new Map(ansicht.personen.map((p) => [p.id, p])), [ansicht.personen]);
   const teamIds = useMemo(() => auswahl.team.map((t) => t.employeeId), [auswahl.team]);
   const karte = laden.art === "da" ? laden.karte : null;
@@ -320,6 +322,14 @@ export function EinsatzKartenAnsicht({
   const geistOrt = geist ? geistPosition(geist, typeof window === "undefined" ? 1440 : window.innerWidth, geist.touch) : null;
   const vorschau = geistPerson ? ziehenVorschau(geistPerson, auswahl, ansicht) : null;
   const kompakt = kompaktText(auswahl.team.length, summe.vergleich.summeCent, summe.vergleich.differenzCent);
+  // Ansage nur bei echter Änderung des Teams (nicht beim ersten Zeichnen).
+  const letztesTeam = useRef<string[]>(teamIds);
+  const namenMap = useMemo(() => Object.fromEntries(ansicht.personen.map((p) => [p.id, p.name])), [ansicht.personen]);
+  useEffect(() => {
+    const text = teamAnsage(letztesTeam.current, teamIds, namenMap, kompakt);
+    letztesTeam.current = teamIds;
+    if (text) setAnsage(text);
+  }, [teamIds, namenMap, kompakt]);
 
   if (laden.art !== "da") {
     return (
@@ -425,7 +435,7 @@ export function EinsatzKartenAnsicht({
             schmal={schmal}
           />
         </div>
-        <div className="ezk-kompakt" data-ablage="team" aria-live="polite">
+        <div className="ezk-kompakt" data-ablage="team">
           {kompakt}
         </div>
         <div className="ezk-legende" aria-hidden="true">
@@ -480,6 +490,11 @@ export function EinsatzKartenAnsicht({
         </div>
       ) : null}
 
+
+      {/* Review M7: Teamänderungen aus der Karte für Bildschirmleser, in jeder Breite. */}
+      <p className="sr-only" aria-live="polite" aria-atomic="true">
+        {ansage}
+      </p>
 
       {geist && portalZiel
         ? createPortal(

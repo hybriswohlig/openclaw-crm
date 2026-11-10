@@ -204,3 +204,26 @@ export function escapeFangen(ziel: Pick<EventTarget, "addEventListener" | "remov
   ziel.addEventListener("keydown", bei, { capture: true });
   return () => ziel.removeEventListener("keydown", bei, { capture: true });
 }
+
+// ─── Ansage für Bildschirmleser ──────────────────────────────────────────────
+
+/**
+ * Text der Live-Region nach einer Teamänderung (Review M7): „Tobias Schmid ins
+ * Team. 4 im Team · 552 € · +55 € zur Kalkulation“. Ohne Änderung null.
+ */
+export function teamAnsage(
+  vorher: readonly string[],
+  nachher: readonly string[],
+  namen: Readonly<Record<string, string>>,
+  kompakt: string,
+): string | null {
+  const rein = nachher.filter((id) => !vorher.includes(id));
+  const raus = vorher.filter((id) => !nachher.includes(id));
+  if (rein.length === 0 && raus.length === 0) return null;
+  const name = (id: string) => namen[id] ?? "Eine Person";
+  const teile = [
+    ...(rein.length > 0 ? [`${rein.map(name).join(", ")} ins Team.`] : []),
+    ...(raus.length > 0 ? [`${raus.map(name).join(", ")} aus dem Team.`] : []),
+  ];
+  return `${teile.join(" ")} ${kompakt}`;
+}

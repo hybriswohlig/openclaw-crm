@@ -4,6 +4,7 @@ import {
   ansichtLesen,
   ansichtMerken,
   escapeFangen,
+  teamAnsage,
   minutenBehalten,
   FILTER_VORGABE,
   gruppenLage,
@@ -332,5 +333,15 @@ describe("Escape in der Namensliste (Review I1)", () => {
     ziel.dispatchEvent(e);
     expect(stop).toHaveBeenCalled();
     ab();
+  });
+});
+
+describe("teamAnsage (Review M7)", () => {
+  const namen = { a: "Anna Keller", t: "Tobias Schmid" };
+  it("nennt Zugang und Abgang mit der kompakten Summe", () => {
+    expect(teamAnsage(["a"], ["a", "t"], namen, "2 im Team · 400 €")).toBe("Tobias Schmid ins Team. 2 im Team · 400 €");
+    expect(teamAnsage(["a", "t"], ["t"], namen, "1 im Team · 200 €")).toBe("Anna Keller aus dem Team. 1 im Team · 200 €");
+    expect(teamAnsage(["a"], ["a"], namen, "x")).toBeNull();
+    expect(teamAnsage(["a"], ["a", "t"], namen, "x")).not.toMatch(/[—–]/);
   });
 });
