@@ -14,14 +14,17 @@
  *    Position, Schalter `montage_je_position`), gilt genau das; eine fehlende
  *    Seite ist „none“ (so liest es der Rechner).
  * 2. Sonst: hat der Rechner die Position zerlegt (Katalogregel), baut die Firma
- *    ab und auf. Ausnahme: „Unsere Leistungen“ nennt die Seite beim Kunden
- *    (Montage weggelassen), dann der Kunde.
+ *    ab und auf.
+ * Eine Firma-Seite aus 1. oder 2. wird gedeckelt, wenn die Montage abgewählt ist
+ * (Hebel ✕ `hebel_aus`, „ohne Montage“): dann wie „Unsere Leistungen“ (Kunde bzw.
+ * nicht vorgesehen), nie „Koke“ ohne Preis.
  * 3. Sonst „none“ („Nicht vorgesehen“).
  * Ohne Ergebnis einer Kalkulation bleibt es bei den Angaben im Lead.
  */
 import type { RechnerErgebnis } from "@/services/rechner/client";
 import type { RechnerAnfrage } from "@/services/rechner/eingabe";
 import { positionSchluessel } from "./kalkulation-versionen";
+import { hebelAusEnthaelt } from "@/services/rechner/kv-posten";
 
 export type Zustaendig = "company" | "customer" | "none";
 
@@ -76,14 +79,22 @@ export function umzugsgutZustaendigkeit(
   const zerlegt = new Set<string>();
   for (const p of positionen) if (p.zerlegt === true && typeof p.name === "string") zerlegt.add(positionSchluessel(p.name));
 
-  const seite = (s: { owner?: unknown } | null | undefined): Zustaendig =>
-    s?.owner === "customer" ? "customer" : "company";
+  // Montage abgewählt (Review I2): Hebel ✕ (hebel_aus) bzw. „ohne Montage“ in den Leistungen. Dann nie
+  // „Koke“ ohne Preis: eine Firma-Seite wird so, wie die Leistungen sie nennen (Kunde bzw. nicht vorgesehen).
+  const hebelAus = kalkulation.anfrage ? hebelAusEnthaelt(kalkulation.anfrage, "montage") : false;
+  const deckeln = (wert: Zustaendig, s: { owner?: unknown } | null | undefined): Zustaendig => {
+    if (wert !== "company") return wert;
+    if (hebelAus) return "customer";
+    if (s?.owner === "customer") return "customer";
+    if (s?.owner === "none") return "none";
+    return "company";
+  };
 
   return zeilen.map((z) => {
     const key = positionSchluessel(z.name);
     const e = explizit.get(key);
-    if (e) return { dismantling: e.abbau, assembly: e.aufbau };
-    if (zerlegt.has(key)) return { dismantling: seite(leistungen?.dismantling), assembly: seite(leistungen?.assembly) };
+    if (e) return { dismantling: deckeln(e.abbau, leistungen?.dismantling), assembly: deckeln(e.aufbau, leistungen?.assembly) };
+    if (zerlegt.has(key)) return { dismantling: deckeln("company", leistungen?.dismantling), assembly: deckeln("company", leistungen?.assembly) };
     // Ohne Schalter (alte Versionen) las der Rechner keine Wahl je Stück: der Kunde
     // aus dem Lead bleibt sichtbar, eine Firma ohne Zerlegen nicht.
     if (!jePosition) {

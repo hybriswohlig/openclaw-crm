@@ -444,3 +444,31 @@ describe("attachDocumentJobContext: Strecke geht unverändert an den VPS (Inhabe
     }
   });
 });
+
+describe("attachDocumentJobContext: abgewählte Montage in der Umzugsgutliste (Review I2)", () => {
+  it.each(["kottke", "ceylan"])("%s: Leistungen beim Kunden, Wahl „wir“: Tabelle zeigt Kunde", async (firma) => {
+    const { dealInventoryItems } = await import("@/db/schema/inventory");
+    const { dealCalculationVersions } = await import("@/db/schema/deal-calculation-versions");
+    jobMocks.zeilen.set(dealInventoryItems, [{ name: "Doppelbett", quantity: 1, moveFlag: true, category: "Möbel", notes: null, dismantlingOwner: "company", assemblyOwner: "company" }]);
+    jobMocks.zeilen.set(dealCalculationVersions, [
+      {
+        rechnerRequest: { montage_je_position: "1", positionen_freitext: [{ name: "Doppelbett", menge: 1, abbau: "company", aufbau: "company" }] },
+        rechnerResult: { positionen: [{ name: "Doppelbett", menge: 1, volumenCbm: 1.6, zerlegt: true }] },
+      },
+    ]);
+    jobMocks.getQuotation.mockResolvedValue({
+      id: "q1", isVariable: false, fixedPrice: "1720.00", lineItems: kernUndHebel, serviceType: "move", validUntil: null,
+      depositRequiredCents: null, paymentMethodPreference: null, calculationVersionId: "ver_3",
+      documentDetails: { services: { dismantling: { owner: "customer", note: "Den Abbau übernehmen Sie selbst." }, assembly: { owner: "customer", note: "Den Aufbau übernehmen Sie selbst." } } },
+    });
+    try {
+      const { params: p } = await attachDocumentJobContext("ws_1", { _deal_record_id: "deal_1", document_type: "KV", firma });
+      const inv = (p.document_details as { inventory: Array<{ dismantling: string; assembly: string }> }).inventory;
+      expect(inv).toEqual([expect.objectContaining({ dismantling: "customer", assembly: "customer" })]);
+    } finally {
+      jobMocks.zeilen.delete(dealInventoryItems);
+      jobMocks.zeilen.delete(dealCalculationVersions);
+    }
+  });
+});
+

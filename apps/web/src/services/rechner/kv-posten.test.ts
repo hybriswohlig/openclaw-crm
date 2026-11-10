@@ -466,3 +466,27 @@ describe("kvBausteine: Review 10.11. (Schreibweise, einseitige Möbel)", () => {
     expect(k.leistungen.assembly).toEqual({ owner: "company", note: "Boxspringbett und Esstisch." });
   });
 });
+
+describe("kvBausteine: abgewählte Montage (Review I2)", () => {
+  const wahl = { montage_je_position: "1", positionen_freitext: [{ name: "Boxspringbett", abbau: "company", aufbau: "company" }] };
+  const kunde = { dismantling: { owner: "customer", note: "Den Abbau übernehmen Sie selbst." }, assembly: { owner: "customer", note: "Den Aufbau übernehmen Sie selbst." } };
+
+  it("Hebel ✕ Montage (hebel_aus): kein Montageposten, Leistungen beim Kunden, auch mit Wahl „wir“", () => {
+    const k = kvBausteine({ festpreis: 2260, ergebnis: { ...ergebnis, zeiten: { packen: 0 } }, anfrage: { ...anfrage, ...wahl, hebel_aus: '["montage"]' } });
+    expect(k.posten.some((p) => /Montage/.test(p.description) && !p.description.startsWith("Umzugsteam"))).toBe(false);
+    expect(k.leistungen).toMatchObject(kunde);
+    expect(k.montageDurchUns).toBe(false);
+  });
+
+  it("„ohne Montage“ (Übernahme mit Option): Leistungen beim Kunden, auch mit Wahl „wir“", () => {
+    const k = kvBausteine({ festpreis: 2260, ergebnis, anfrage: { ...anfrage, ...wahl }, optionen: { ohneMontage: true } });
+    expect(k.leistungen).toMatchObject(kunde);
+  });
+
+  it("Paket ohne Montage-Hebel (hebelNur): Leistungen beim Kunden", () => {
+    const k = kvBausteine({ festpreis: 2260, ergebnis, anfrage: { ...anfrage, ...wahl }, hebelNur: ["halteverbot"] });
+    expect(k.leistungen).toMatchObject(kunde);
+    const mit = kvBausteine({ festpreis: 2260, ergebnis, anfrage: { ...anfrage, ...wahl }, hebelNur: ["montage"] });
+    expect(mit.leistungen.dismantling.owner).toBe("company");
+  });
+});

@@ -65,3 +65,24 @@ describe("umzugsgutZustaendigkeit (KV-Meldung 10.11., Viktoriia)", () => {
     ]);
   });
 });
+
+describe("umzugsgutZustaendigkeit: abgewählte Montage (Review I2)", () => {
+  const ergebnis = { positionen: [{ name: "Doppelbett", menge: 1, volumenCbm: 1.6, zerlegt: true }, { name: "Esstisch", menge: 1, volumenCbm: 0.8, zerlegt: true }] };
+  const zeilen = [z("Doppelbett"), z("Esstisch")];
+  const wahl = { montage_je_position: "1", positionen_freitext: [{ name: "Doppelbett", menge: 1, abbau: "company", aufbau: "company" }, { name: "Esstisch", menge: 1 }] };
+
+  it("Hebel ✕ Montage: Wahl „wir“ und Regel-Möbel werden Kunde, nie Koke ohne Preis", () => {
+    expect(umzugsgutZustaendigkeit(zeilen, { anfrage: { ...wahl, hebel_aus: '["montage"]' }, ergebnis })).toEqual([
+      { dismantling: "customer", assembly: "customer" },
+      { dismantling: "customer", assembly: "customer" },
+    ]);
+  });
+
+  it("„ohne Montage“ in den Leistungen: Kunde; Leistung „nicht vorgesehen“: none", () => {
+    const kunde = { dismantling: { owner: "customer" }, assembly: { owner: "customer" } };
+    expect(umzugsgutZustaendigkeit(zeilen, { anfrage: wahl, ergebnis }, kunde)[0]).toEqual({ dismantling: "customer", assembly: "customer" });
+    const keine = { dismantling: { owner: "none" }, assembly: { owner: "company" } };
+    expect(umzugsgutZustaendigkeit(zeilen, { anfrage: wahl, ergebnis }, keine)[0]).toEqual({ dismantling: "none", assembly: "company" });
+  });
+});
+

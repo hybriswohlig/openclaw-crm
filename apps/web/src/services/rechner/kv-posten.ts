@@ -174,6 +174,18 @@ function ownerLeistung(
   return { owner: "none" };
 }
 
+/** true, wenn `hebel_aus` der Anfrage (JSON-Liste, Plan 15) diesen Hebel enthält. */
+export function hebelAusEnthaelt(anfrage: RechnerAnfrage, hebel: string): boolean {
+  const roh = anfrage.hebel_aus;
+  if (typeof roh !== "string") return false;
+  try {
+    const liste: unknown = JSON.parse(roh);
+    return Array.isArray(liste) && liste.includes(hebel);
+  } catch {
+    return false;
+  }
+}
+
 /** Schlüssel eines Möbels wie `positionSchluessel` (lib/kalkulation-versionen, dort Kreisimport). */
 const schluessel = (name: string) => name.trim().replace(/\s+/g, " ").toLocaleLowerCase("de-DE");
 
@@ -297,7 +309,11 @@ export function kvBausteine(input: {
         .join(", ");
     }
   }
-  if (montageMoebel.length > 0 && montagePm > 0) {
+  // Montage abgewählt (Review I2): Hebel ✕ in der Kalkulation (hebel_aus, der Rechner rechnet dann
+  // „Kunde ohne Minuten“) oder ein Paket ohne den Montage-Hebel. Dann übernimmt der Kunde die Montage.
+  const hebelAusMontage = hebelAusEnthaelt(anfrage, "montage");
+  const paketOhneMontage = input.hebelNur !== undefined && !input.hebelNur.includes("montage");
+  if (montageMoebel.length > 0 && montagePm > 0 && !hebelAusMontage) {
     kandidaten.push({
       art: "montage",
       posten: {
@@ -381,7 +397,8 @@ export function kvBausteine(input: {
   }
 
   // ── Leistungen im KV ──
-  const montageDabei = montageMoebel.length > 0 && !montageWeg;
+  const montageBeimKunden = montageWeg || hebelAusMontage || paketOhneMontage;
+  const montageDabei = montageMoebel.length > 0 && !montageBeimKunden;
   const leistungen: KvLeistungen = {
     transport: {
       owner: "company",
@@ -395,7 +412,7 @@ export function kvBausteine(input: {
     unpacking: { owner: "customer" },
     materials: Number.isFinite(kartons) && kartons > 0 ? { owner: "company" } : { owner: "none" },
   };
-  if (besitzer.explicit && !(jePosition && montageWeg)) {
+  if (besitzer.explicit && !montageBeimKunden) {
     // Mit Schalter zählen auch Möbel, die der Rechner nach Regel für uns zerlegt (sonst stünde
     // „Den Abbau übernehmen Sie selbst“, obwohl wir Betten und Schränke abbauen).
     leistungen.dismantling = ownerLeistung(abbauFirma, besitzer.dismantleCustomer, "Den Abbau übernehmen Sie selbst.");
