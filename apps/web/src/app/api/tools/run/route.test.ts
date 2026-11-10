@@ -54,12 +54,16 @@ import { POST } from "./route";
 const WS = "ws_kottke";
 const fetchMock = vi.fn();
 
+/** Vollständige Kundendaten; ohne sie startet tools/run keinen Dokumentjob (KV-Anschrift). */
+const KUNDE = { vorname: "Viktoria", nachname: "Muster", adresse: "Hauptstr. 1, 72218 Wildberg" };
+
 function run(skill: string, params: Record<string, unknown>) {
+  const p = skill === "rechnungen-und-auftragsbestaetigungen" && !("kunde" in params) ? { kunde: KUNDE, ...params } : params;
   return POST(
     new NextRequest("https://crm.test/api/tools/run", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ skill, params }),
+      body: JSON.stringify({ skill, params: p }),
     })
   );
 }
@@ -266,5 +270,41 @@ describe("POST /api/tools/run: Rechnung (Plan 9)", () => {
     });
     expect(res.status).toBe(400);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST /api/tools/run: keine Jobs, die absehbar scheitern (KV-Anschrift)", () => {
+  it("ohne Kundenanschrift: 400 ANGABEN_FEHLEN, kein VPS-Aufruf, kein Register, keine Rechnungsnummer", async () => {
+    for (const art of ["KV", "AB", "RE"]) {
+      const res = await run("rechnungen-und-auftragsbestaetigungen", {
+        document_type: art,
+        kunde: { vorname: "Viktoria", nachname: "Muster" },
+        _deal_record_id: "deal_v",
+      });
+      expect(res.status).toBe(400);
+      const j = await res.json();
+      expect(j.code).toBe("ANGABEN_FEHLEN");
+      expect(j.fehlend).toEqual(["auszug"]);
+      expect(j.error).toBe(`${art === "RE" ? "Rechnung" : art} nicht erstellt: Kundenanschrift fehlt. Angaben ergänzen.`);
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(m.jobAnlegen).not.toHaveBeenCalled();
+    expect(m.reservieren).not.toHaveBeenCalled();
+  });
+
+  it("leere Anschrift oder „—“ zählt als fehlend", async () => {
+    for (const adresse of ["", "  ", "—"]) {
+      const res = await run("rechnungen-und-auftragsbestaetigungen", {
+        document_type: "KV",
+        kunde: { nachname: "Muster", adresse },
+      });
+      expect(res.status).toBe(400);
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("die Auftragsanweisung braucht keine Kundenanschrift", async () => {
+    const res = await run("auftragsanweisung", { kunde: { nachname: "Muster" }, _deal_record_id: "deal_1" });
+    expect(res.status).toBe(200);
   });
 });

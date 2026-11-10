@@ -26,6 +26,7 @@ import {
 } from "@/services/rechnungen";
 import { GeldFehler, stundenPreiseFuerVps, type RechnungZeile } from "@/lib/geld";
 import { parseRechnungEingabe } from "@/lib/commercial-document-request";
+import { angabenFehlenText, dokArtAus, fehlendeVpsAngaben } from "@/lib/dokument-angaben";
 
 /** Dokumentart des Skills → Typ in `deal_documents` (wie `store-as-document`). */
 const DOKUMENT_TYP: Record<string, string> = {
@@ -121,6 +122,15 @@ export async function POST(req: NextRequest) {
       console.warn("[tools/run] kunde rewrite failed, using client payload:", err);
     }
     if (body.skill === "rechnungen-und-auftragsbestaetigungen") {
+      // Nie einen Job starten, der absehbar scheitert: ohne Kundenanschrift oder Namen
+      // bricht die Vorlage mit „skill exited with code 2 … Kundenanschrift fehlt“ ab.
+      const fehlt = fehlendeVpsAngaben(params);
+      if (fehlt.length > 0) {
+        return NextResponse.json(
+          { error: angabenFehlenText(dokArtAus(params.document_type), fehlt), code: "ANGABEN_FEHLEN", fehlend: fehlt },
+          { status: 400 }
+        );
+      }
       try {
         const kontext = await attachDocumentJobContext(ctx.workspaceId, params);
         params = kontext.params;

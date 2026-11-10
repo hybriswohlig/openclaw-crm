@@ -19,6 +19,8 @@ export type ActivityEventType =
   | "ai.insights_extracted"
   /** Plan 15: Adresse aus der Kalkulation ins Lead geschrieben */
   | "kalkulation.adresse_gesetzt"
+  /** Kunde und Adressen in der Akte oder Vorprüfung ergänzt; payload { felder, quelle }, keine Werte */
+  | "deal.kunde_bearbeitet"
   /** Plan 15: Inventarzeile von Hand korrigiert (Herkunft und Lernsignal der Fotoerkennung) */
   | "inventar.korrigiert"
   /** Plan 15: „Pakete anbieten“ je Deal umgeschaltet */

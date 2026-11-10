@@ -92,7 +92,11 @@ export function kvVorpruefung(input: {
     einzug: ctx ? adresse(ctx.move_to_address) : "",
     datum: ctx?.move_date ?? "",
   };
-  const felder = (Object.keys(LABEL) as PflichtFeld[]).map((feld) => ({
+  // Entrümpelung ohne Umzug hat kein Ziel: die Einzugsadresse ist dann keine Pflicht.
+  const ohneZiel = daten?.leistungsart === "clearance";
+  const felder = (Object.keys(LABEL) as PflichtFeld[])
+    .filter((feld) => !(ohneZiel && feld === "einzug"))
+    .map((feld) => ({
     feld,
     label: LABEL[feld],
     wert: werte[feld],

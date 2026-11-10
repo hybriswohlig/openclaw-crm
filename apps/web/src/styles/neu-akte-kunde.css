@@ -1,0 +1,175 @@
+/*
+ * Kunde und Adressen in der Akte und das Fenster „Es fehlen noch Angaben“
+ * vor KV, AB und Rechnung. Nur Tokens aus neu.css, keine harten Farben.
+ * Rose heißt „fehlt“, Blau „aus dem Chat, bitte prüfen“.
+ */
+
+[data-neu] .kunde-panel {
+  --lg-panel-radius: 22px;
+
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  min-width: 0;
+}
+
+[data-neu] .kunde-panel-kopf {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 12px;
+}
+
+[data-neu] .kunde-panel-kopf h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+[data-neu] .kunde-panel-kopf .akte-ablauf-knopf {
+  margin-top: 0;
+}
+
+[data-neu] .kunde-zeilen {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+  gap: 8px 16px;
+  margin: 0;
+}
+
+[data-neu] .kunde-zeile {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: var(--fill-3);
+}
+
+[data-neu] .kunde-zeile dt {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--ink-2);
+}
+
+[data-neu] .kunde-zeile dd {
+  margin: 0;
+  font-size: 13.5px;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+[data-neu] .kunde-zeile[data-fehlt] dd {
+  color: var(--rose-ink);
+}
+
+[data-neu] .kunde-felder {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+  gap: 0 16px;
+}
+
+[data-neu] .kunde-adresse {
+  grid-column: 1 / -1;
+  min-width: 0;
+  margin: 0 0 12px;
+  padding: 10px 12px 0;
+  border: 0;
+  border-radius: 14px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--rim);
+}
+
+[data-neu] .kunde-adresse[data-fehlt],
+[data-neu] .akte-dialog-feld[data-fehlt] .lg-input {
+  box-shadow: inset 0 0 0 1.5px var(--rose);
+}
+
+[data-neu] .kunde-adresse legend {
+  float: left;
+  width: 100%;
+  margin: 0 0 8px;
+  padding: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+[data-neu] .kunde-plz-ort {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 0 10px;
+}
+
+[data-neu] .kunde-feld-kopf {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+}
+
+[data-neu] .kunde-marke {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--fill-2);
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+[data-neu] .kunde-marke[data-ton="rose"] {
+  color: var(--rose-ink);
+}
+
+[data-neu] .kunde-marke[data-ton="blau"] {
+  color: var(--blue-ink);
+}
+
+[data-neu] .kunde-chat {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 2px 0 10px;
+}
+
+[data-neu] .kunde-chat-hinweis,
+[data-neu] .kunde-hinweis {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+[data-neu] .kunde-hinweise {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+[data-neu] .kunde-hinweise li {
+  padding: 7px 10px;
+  border-radius: 10px;
+  background: var(--gold-tint);
+  font-size: 12.5px;
+  color: var(--gold-ink);
+}
+
+[data-neu] .kunde-hinweise a,
+[data-neu] .kunde-link {
+  color: var(--blue-ink);
+  font-weight: 500;
+}
+
+@media (max-width: 640px) {
+  [data-neu] .kunde-plz-ort {
+    grid-template-columns: 84px minmax(0, 1fr);
+  }
+}

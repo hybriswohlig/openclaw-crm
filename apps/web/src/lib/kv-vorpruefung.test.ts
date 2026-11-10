@@ -32,6 +32,14 @@ const daten = (over: Partial<KvHinweisDaten> = {}): KvHinweisDaten => ({
 });
 
 describe("kvVorpruefung", () => {
+  it("Entrümpelung ohne Umzug: Einzugsadresse ist keine Pflicht", () => {
+    const r = kvVorpruefung({ ctx: ctx({ move_to_address: null }), daten: daten({ leistungsart: "clearance" }), documentType: "KV" });
+    expect(r.felder.map((f) => f.feld)).toEqual(["kundenname", "auszug", "datum"]);
+    expect(r.bereit).toBe(true);
+    const umzug = kvVorpruefung({ ctx: ctx({ move_to_address: null }), daten: daten({ leistungsart: "clearance_move" }), documentType: "KV" });
+    expect(umzug.bereit).toBe(false);
+  });
+
   it("vollständiger Auftrag: bereit, keine Hinweise", () => {
     const r = kvVorpruefung({ ctx: ctx(), daten: daten(), documentType: "KV" });
     expect(r.bereit).toBe(true);
