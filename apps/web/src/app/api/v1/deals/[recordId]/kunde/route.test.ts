@@ -20,7 +20,7 @@ const put = (body: unknown) =>
 
 beforeEach(() => {
   vi.clearAllMocks();
-  m.getAuthContext.mockResolvedValue({ userId: "usr_1", workspaceId: "ws_1", authMethod: "session" });
+  m.getAuthContext.mockResolvedValue({ userId: "usr_1", workspaceId: "ws_1", authMethod: "cookie" });
   m.ladeKunde.mockResolvedValue({ personId: null, name: "", nameAusPerson: false, telefon: null, email: null, auszug: null, einzug: null, datum: null });
   m.speichereKunde.mockImplementation(async () => ({ name: "Viktoria Muster" }));
 });
@@ -51,10 +51,14 @@ describe("/api/v1/deals/:id/kunde", () => {
     expect(m.speichereKunde).not.toHaveBeenCalled();
   });
 
-  it("Nur-Lese-Schlüssel darf nicht speichern", async () => {
-    m.getAuthContext.mockResolvedValueOnce({ userId: null, workspaceId: "ws_1", authMethod: "api_key", apiKeyAccess: "read" });
-    const res = await put({ name: "Viktoria Muster" });
-    expect(res.status).toBe(403);
+  it("API-Schlüssel (auch voller Agenten-Schlüssel) dürfen weder lesen noch speichern", async () => {
+    for (const apiKeyAccess of ["read", "full"]) {
+      m.getAuthContext.mockResolvedValueOnce({ userId: null, workspaceId: "ws_1", authMethod: "api_key", apiKeyAccess });
+      expect((await put({ name: "Viktoria Muster" })).status).toBe(403);
+      m.getAuthContext.mockResolvedValueOnce({ userId: null, workspaceId: "ws_1", authMethod: "api_key", apiKeyAccess });
+      expect((await GET(new NextRequest("https://crm.test/x"), params)).status).toBe(403);
+    }
     expect(m.speichereKunde).not.toHaveBeenCalled();
+    expect(m.ladeKunde).not.toHaveBeenCalled();
   });
 });
