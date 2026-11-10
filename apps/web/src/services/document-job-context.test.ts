@@ -393,3 +393,39 @@ describe("attachDocumentJobContext: Kalkulationsversion für den VPS-Weg (Review
   });
 });
 
+
+describe("attachDocumentJobContext: Umzugsgutliste Demontage/Montage aus der Kalkulation (KV-Meldung 10.11.)", () => {
+  it("zerlegte Möbel der gesperrten Version stehen als Firma, nicht als „Nicht vorgesehen“", async () => {
+    const { dealInventoryItems } = await import("@/db/schema/inventory");
+    const { dealCalculationVersions } = await import("@/db/schema/deal-calculation-versions");
+    const zeile = (name: string) => ({ name, quantity: 1, moveFlag: true, category: "Möbel", notes: null, dismantlingOwner: "none", assemblyOwner: "none" });
+    jobMocks.zeilen.set(dealInventoryItems, [zeile("Doppelbett mit Polsterkopfteil"), zeile("Sitzbank dunkel")]);
+    jobMocks.zeilen.set(dealCalculationVersions, [
+      {
+        rechnerRequest: { montage_je_position: "1", positionen_freitext: [{ name: "Doppelbett mit Polsterkopfteil", menge: 1 }, { name: "Sitzbank dunkel", menge: 1 }] },
+        rechnerResult: {
+          positionen: [
+            { name: "Doppelbett mit Polsterkopfteil", menge: 1, volumenCbm: 1.6, zerlegt: true },
+            { name: "Sitzbank dunkel", menge: 1, volumenCbm: 0.4, zerlegt: false },
+          ],
+        },
+      },
+    ]);
+    jobMocks.getQuotation.mockResolvedValue({
+      id: "q1", isVariable: false, fixedPrice: "1720.00", lineItems: kernUndHebel, serviceType: "move", validUntil: null,
+      depositRequiredCents: null, paymentMethodPreference: null, calculationVersionId: "ver_3",
+      documentDetails: { services: { transport: { owner: "company" }, dismantling: { owner: "company", note: "Doppelbett." }, assembly: { owner: "company", note: "Doppelbett." } } },
+    });
+    try {
+      const { params: p } = await attachDocumentJobContext("ws_1", { _deal_record_id: "deal_1", document_type: "KV", firma: "kottke" });
+      const inv = (p.document_details as { inventory: Array<{ name: string; dismantling: string; assembly: string }> }).inventory;
+      expect(inv.map((r) => [r.name, r.dismantling, r.assembly])).toEqual([
+        ["Doppelbett mit Polsterkopfteil", "company", "company"],
+        ["Sitzbank dunkel", "none", "none"],
+      ]);
+    } finally {
+      jobMocks.zeilen.delete(dealInventoryItems);
+      jobMocks.zeilen.delete(dealCalculationVersions);
+    }
+  });
+});

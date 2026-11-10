@@ -3,12 +3,17 @@
  * Browser-supplied _document_context is discarded. Totals come from the
  * quotation (or accepted KVA snapshot). Receipts come from booked payments.
  */
-import { and, eq, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { objects } from "@/db/schema/objects";
 import { records } from "@/db/schema/records";
 import { payments } from "@/db/schema/financial";
 import { dealInventoryItems } from "@/db/schema/inventory";
+import { dealCalculationVersions } from "@/db/schema/deal-calculation-versions";
+import { dealCalculations } from "@/db/schema/deal-calculations";
+import { umzugsgutZustaendigkeit, type MassgeblicheKalkulation } from "@/lib/umzugsgut-zustaendigkeit";
+import type { RechnerAnfrage } from "@/services/rechner/eingabe";
+import type { RechnerErgebnis } from "@/services/rechner/client";
 import { kvaConfirmations } from "@/db/schema/customer-portal";
 import { dealDocuments } from "@/db/schema/financial";
 import { getQuotation } from "@/services/quotations";
@@ -104,6 +109,57 @@ export interface ReJobBezug {
   pdfBetragCent: number | null;
   angebotsStand: string;
   firma: string;
+}
+
+/**
+ * Kalkulation, aus der der KV stammt: die Version am Angebot (bzw. der Annahme), sonst
+ * die neueste gesperrte Version, sonst die laufende Kalkulation des Deals (Altbestand).
+ */
+async function massgeblicheKalkulation(
+  workspaceId: string,
+  dealRecordId: string,
+  versionId: string | null
+): Promise<MassgeblicheKalkulation | null> {
+  const ausVersion = (v: { rechnerRequest: unknown; rechnerResult: unknown } | undefined) =>
+    v && v.rechnerResult && typeof v.rechnerResult === "object"
+      ? { anfrage: (v.rechnerRequest ?? null) as RechnerAnfrage | null, ergebnis: v.rechnerResult as RechnerErgebnis }
+      : null;
+  const spalten = { rechnerRequest: dealCalculationVersions.rechnerRequest, rechnerResult: dealCalculationVersions.rechnerResult };
+  if (versionId) {
+    const [v] = await db
+      .select(spalten)
+      .from(dealCalculationVersions)
+      .where(
+        and(
+          eq(dealCalculationVersions.id, versionId),
+          eq(dealCalculationVersions.workspaceId, workspaceId),
+          eq(dealCalculationVersions.dealRecordId, dealRecordId)
+        )
+      )
+      .limit(1);
+    const k = ausVersion(v);
+    if (k) return k;
+  }
+  const [gesperrt] = await db
+    .select(spalten)
+    .from(dealCalculationVersions)
+    .where(
+      and(
+        eq(dealCalculationVersions.workspaceId, workspaceId),
+        eq(dealCalculationVersions.dealRecordId, dealRecordId),
+        eq(dealCalculationVersions.status, "gesperrt")
+      )
+    )
+    .orderBy(desc(dealCalculationVersions.version))
+    .limit(1);
+  const k = ausVersion(gesperrt);
+  if (k) return k;
+  const [laufend] = await db
+    .select({ rechnerRequest: dealCalculations.request, rechnerResult: dealCalculations.result })
+    .from(dealCalculations)
+    .where(and(eq(dealCalculations.workspaceId, workspaceId), eq(dealCalculations.dealRecordId, dealRecordId)))
+    .limit(1);
+  return ausVersion(laufend);
 }
 
 export async function attachDocumentJobContext(
@@ -207,16 +263,7 @@ export async function attachDocumentJobContext(
     )
     .orderBy(dealInventoryItems.sortOrder);
 
-  const inventoryRows = inventory
-    .filter((item) => item.moveFlag)
-    .map((item) => ({
-      room: item.category || "",
-      name: item.name,
-      quantity: item.quantity,
-      dismantling: asInventoryOwner(item.dismantlingOwner),
-      assembly: asInventoryOwner(item.assemblyOwner),
-      note: item.notes || "",
-    }));
+  const mitnehmen = inventory.filter((item) => item.moveFlag);
 
   let totalCents = quotation ? quotationTotalCents(quotation) : undefined;
   let reference: string | undefined = clientDetails.reference || storedDetails.reference;
@@ -254,6 +301,23 @@ export async function attachDocumentJobContext(
     if (match) reference = match[0];
   }
 
+  // Demontage/Montage je Stück wie die maßgebliche Kalkulation (KV-Meldung 10.11.): sonst stand
+  // bei Möbeln, die der Rechner nach Regel zerlegt, „Nicht vorgesehen“ trotz Montage im Preis.
+  const services = clientDetails.services || storedDetails.services;
+  const kalkulation =
+    mitnehmen.length > 0
+      ? await massgeblicheKalkulation(workspaceId, dealRecordId, abPreise?.calculationVersionId ?? quotation?.calculationVersionId ?? null)
+      : null;
+  const zustaendig = umzugsgutZustaendigkeit(mitnehmen, kalkulation, services ?? null);
+  const inventoryRows = mitnehmen.map((item, i) => ({
+    room: item.category || "",
+    name: item.name,
+    quantity: item.quantity,
+    dismantling: zustaendig[i]?.dismantling ?? asInventoryOwner(item.dismantlingOwner),
+    assembly: zustaendig[i]?.assembly ?? asInventoryOwner(item.assemblyOwner),
+    note: item.notes || "",
+  }));
+
   const defaultMoveServices = {
     transport: { owner: "company" as const },
     packing: { owner: "none" as const },
@@ -274,10 +338,7 @@ export async function attachDocumentJobContext(
     mitEntruempelung,
     reference,
     inventory: clientDetails.inventory || storedDetails.inventory || inventoryRows,
-    services:
-      clientDetails.services ||
-      storedDetails.services ||
-      (vpsArt === "move" ? defaultMoveServices : undefined),
+    services: services || (vpsArt === "move" ? defaultMoveServices : undefined),
     kitchen: clientDetails.kitchen || storedDetails.kitchen,
     cardAgreed:
       clientDetails.cardAgreed ??
