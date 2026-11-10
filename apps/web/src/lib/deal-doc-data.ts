@@ -33,13 +33,13 @@ export interface LeadContext {
 
 export function formatLocation(v: unknown): string {
   if (!v) return "—";
-  if (typeof v === "string") return v;
+  // Leere oder nur aus Leerzeichen bestehende Angaben zählen als fehlend: sonst ginge
+  // `kunde.adresse: ""` an die Vorlage, die dann mit „Kundenanschrift fehlt“ abbricht.
+  if (typeof v === "string") return v.trim() || "—";
   if (typeof v === "object") {
     const o = v as Record<string, unknown>;
-    return (
-      [o.line1, o.postcode, o.city].filter(Boolean).join(", ") ||
-      (typeof o.line1 === "string" ? o.line1 : "—")
-    );
+    const teil = (x: unknown) => (typeof x === "string" ? x.trim() : "");
+    return [teil(o.line1), teil(o.postcode), teil(o.city)].filter(Boolean).join(", ") || "—";
   }
   return "—";
 }
