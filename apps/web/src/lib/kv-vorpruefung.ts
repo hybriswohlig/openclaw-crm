@@ -59,6 +59,37 @@ export function leistungsartVorschlag(input: {
   return leistungAusText(input.text) ?? "move";
 }
 
+/**
+ * Pflichtfelder je Leistung (Review M4). Entrümpelung ohne Umzug hat kein Ziel, die
+ * Einzugsadresse ist dann keine Pflicht; Umzug und Umzug mit Entrümpelung brauchen sie.
+ * Küchenmontage: die Einbauadresse steht im Dokumentdialog (sonst die Einzugsadresse).
+ */
+export function pflichtJeLeistung(leistung: PortalLeistung | null | undefined): PflichtFeld[] {
+  return leistung === "clearance" || leistung === "kitchen_installation"
+    ? ["kundenname", "auszug", "datum"]
+    : ["kundenname", "auszug", "einzug", "datum"];
+}
+
+/**
+ * Prüfung im Dokumentdialog, wenn dort die Leistung gewechselt wird: was für die
+ * gewählte Leistung im Auftrag fehlt (deutsche Bezeichnungen), leer wenn alles da ist.
+ */
+export function fehltFuerLeistung(
+  leistung: PortalLeistung,
+  deal: { kunde: { nachname?: string; adresse?: string }; auftrag: { strecke_nach?: string; datum?: string } },
+  einbauadresse?: string
+): string[] {
+  const da: Record<PflichtFeld, boolean> = {
+    kundenname: !!deal.kunde.nachname?.trim(),
+    auszug: !!deal.kunde.adresse?.trim(),
+    einzug: !!deal.auftrag.strecke_nach?.trim(),
+    datum: !!deal.auftrag.datum?.trim(),
+  };
+  const fehlt = pflichtJeLeistung(leistung).filter((f) => !da[f]).map((f) => LABEL[f]);
+  if (leistung === "kitchen_installation" && !einbauadresse?.trim() && !da.einzug) fehlt.push("Einbauadresse");
+  return fehlt;
+}
+
 export interface Vorpruefung {
   felder: Array<{ feld: PflichtFeld; label: string; wert: string; fehlt: boolean }>;
   firmaFehlt: boolean;
@@ -92,10 +123,8 @@ export function kvVorpruefung(input: {
     einzug: ctx ? adresse(ctx.move_to_address) : "",
     datum: ctx?.move_date ?? "",
   };
-  // Entrümpelung ohne Umzug hat kein Ziel: die Einzugsadresse ist dann keine Pflicht.
-  const ohneZiel = daten?.leistungsart === "clearance";
-  const felder = (Object.keys(LABEL) as PflichtFeld[])
-    .filter((feld) => !(ohneZiel && feld === "einzug"))
+  const pflicht = pflichtJeLeistung(daten?.leistungsart);
+  const felder = pflicht
     .map((feld) => ({
     feld,
     label: LABEL[feld],

@@ -35,5 +35,6 @@ export function dokumentStart(
     );
     return { art: "angaben", pruefung: { ...pruefung, felder, bereit: false } };
   }
-  return { art: "bereit", deal };
+  // Leistung vorbelegen wie die alte Oberfläche: sonst stünde eine Entrümpelung im Dialog als Umzug.
+  return { art: "bereit", deal: daten?.leistungsart ? { ...deal, serviceType: daten.leistungsart } : deal };
 }

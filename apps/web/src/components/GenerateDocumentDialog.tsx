@@ -24,6 +24,7 @@ import {
   showCrmRendererChoice,
 } from "@/lib/kottke-crm-renderer";
 import type { VpsPreise } from "@/lib/angebot-vorbelegung";
+import { fehltFuerLeistung } from "@/lib/kv-vorpruefung";
 
 export type Firma = "kottke" | "ceylan";
 export type DocumentType = "KV" | "AB" | "RE";
@@ -357,6 +358,12 @@ export function GenerateDocumentDialog({
 
   async function handleGenerate() {
     if (submitting) return;
+    // Wechsel der Leistung im Dialog prüft neu (Review M4): ein Umzug braucht die Einzugsadresse.
+    const fehlt = fehltFuerLeistung(serviceType, deal, kitchenAddress);
+    if (fehlt.length > 0) {
+      setStartError(`Für diese Leistung fehlt noch: ${fehlt.join(", ")}. Bitte in der Akte unter „Kunde und Adressen“ ergänzen.`);
+      return;
+    }
     setSubmitting(true);
     setStartError(null);
 

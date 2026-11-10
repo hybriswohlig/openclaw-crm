@@ -32,6 +32,18 @@ const daten = (over: Partial<KvHinweisDaten> = {}): KvHinweisDaten => ({
 });
 
 describe("kvVorpruefung", () => {
+  it("Pflichtfelder je Leistung und Prüfung beim Wechsel im Dialog (Review M4)", async () => {
+    const { pflichtJeLeistung, fehltFuerLeistung } = await import("./kv-vorpruefung");
+    expect(pflichtJeLeistung("clearance")).toEqual(["kundenname", "auszug", "datum"]);
+    expect(pflichtJeLeistung("move")).toContain("einzug");
+    expect(pflichtJeLeistung("clearance_move")).toContain("einzug");
+    const deal = { kunde: { nachname: "Muster", adresse: "Hauptstr. 1, 72218 Wildberg" }, auftrag: { datum: "2026-11-28" } };
+    expect(fehltFuerLeistung("clearance", deal)).toEqual([]);
+    expect(fehltFuerLeistung("move", deal)).toEqual(["Einzugsadresse"]);
+    expect(fehltFuerLeistung("kitchen_installation", deal)).toEqual(["Einbauadresse"]);
+    expect(fehltFuerLeistung("kitchen_installation", deal, "Küchenweg 1, 70372 Stuttgart")).toEqual([]);
+  });
+
   it("Entrümpelung ohne Umzug: Einzugsadresse ist keine Pflicht", () => {
     const r = kvVorpruefung({ ctx: ctx({ move_to_address: null }), daten: daten({ leistungsart: "clearance" }), documentType: "KV" });
     expect(r.felder.map((f) => f.feld)).toEqual(["kundenname", "auszug", "datum"]);

@@ -59,4 +59,10 @@ describe("dokumentStart (Vorprüfung der neuen Oberfläche)", () => {
   it("leeres Adress-Objekt zählt als fehlend", () => {
     expect(dokumentStart("d1", ctx({ move_from_address: { line1: " " } }), daten(), "KV").art).toBe("angaben");
   });
+
+  it("Leistung aus der Vorprüfung geht in den Dokumentdialog (Entrümpelung bleibt Entrümpelung)", () => {
+    const s = dokumentStart("d1", ctx({ move_to_address: null }), daten({ leistungsart: "clearance" }), "KV");
+    expect(s.art).toBe("bereit");
+    if (s.art === "bereit") expect(s.deal.serviceType).toBe("clearance");
+  });
 });
