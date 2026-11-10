@@ -95,8 +95,7 @@ export function KundeFelder({
                   onChange={(e) => adresse(f, "plz", e.target.value.replace(/\D/g, "").slice(0, 5))}
                     inputMode="numeric"
                     autoComplete="off"
-                    placeholder="z. B. 70372"
-                  />
+                    />
                 </label>
                 <label className="akte-dialog-feld" htmlFor={`${id}-${f}-o`}>
                   Ort

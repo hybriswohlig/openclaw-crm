@@ -134,7 +134,7 @@
 
 [data-neu] .kunde-plz-ort {
   display: grid;
-  grid-template-columns: 96px minmax(0, 1fr);
+  grid-template-columns: minmax(7.5em, 30%) minmax(0, 1fr);
   gap: 0 10px;
 }
 
@@ -203,7 +203,7 @@
 
 @media (max-width: 640px) {
   [data-neu] .kunde-plz-ort {
-    grid-template-columns: 84px minmax(0, 1fr);
+    grid-template-columns: 7.5em minmax(0, 1fr);
   }
 }
 

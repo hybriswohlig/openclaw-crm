@@ -211,7 +211,12 @@ export function KundeBereich({
         </form>
       ) : null}
 
-      {fehler && !bearbeiten ? <p className="akte-dialog-fehler">{fehler}</p> : null}
+      {/* Ladefehler immer zeigen, auch wenn der Bereich über „Angaben ergänzen“ gleich zum Bearbeiten offen ist. */}
+      {fehler && (!bearbeiten || !kunde) ? (
+        <p className="akte-dialog-fehler" role="alert">
+          {kunde ? fehler : `Kundendaten konnten nicht geladen werden: ${fehler}`}
+        </p>
+      ) : null}
     </GlassPanel>
   );
 }
