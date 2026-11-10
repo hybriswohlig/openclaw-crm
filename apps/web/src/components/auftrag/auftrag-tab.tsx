@@ -1,5 +1,6 @@
 "use client";
 
+import { einzugOffen } from "@/lib/adresse";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Loader2, AlertTriangle, CheckCircle2, Circle, Plus, X, MessageCircle, ExternalLink } from "lucide-react";
 import Link from "next/link";
@@ -133,7 +134,8 @@ function buildAnweisungCtx(
       strecke_von: fromAddr !== "—" ? fromAddr : undefined,
       strecke_nach: toAddr !== "—" ? toAddr : undefined,
       adresse_von: fromAddr !== "—" ? fromAddr : undefined,
-      adresse_nach: toAddr !== "—" ? toAddr : undefined,
+      // „Einzug noch offen“: kein Street-View-Bild für den Satz „wird noch abgestimmt“.
+      adresse_nach: toAddr !== "—" && !einzugOffen(lead.move_to_address) ? toAddr : undefined,
       stockwerk_von: asNum(lead.floors_from),
       zugang_von: lead.elevator_from,
       laufweg_von_m: asNum(auftragValues.walking_distance_from_m),

@@ -174,6 +174,9 @@ function ownerLeistung(
   return { owner: "none" };
 }
 
+/** Schlüssel eines Möbels wie `positionSchluessel` (lib/kalkulation-versionen, dort Kreisimport). */
+const schluessel = (name: string) => name.trim().replace(/\s+/g, " ").toLocaleLowerCase("de-DE");
+
 /** Bis zu acht Möbel stehen mit Namen im KV, sonst die sieben aufwendigsten und „und N weitere Möbel“. */
 const MOEBEL_MIT_NAMEN = 8;
 function moebelText(namen: readonly string[]): string {
@@ -243,15 +246,24 @@ export function kvBausteine(input: {
   let abbauFirma = besitzer.dismantleCompany;
   let aufbauFirma = besitzer.assembleCompany;
   if (jePosition) {
-    const angegeben = new Set(besitzer.alleNamen);
-    const regel = zerlegt.filter((n) => !angegeben.has(n) && !nurKunde.has(n));
-    const firma = new Set([...besitzer.companyNames, ...regel]);
-    // Reihenfolge: aufwendigste zuerst (wie der Rechner zerlegt), dann übrige Angaben.
+    // Namen wie die Übersteuerung und die Umzugsgutliste vergleichen (Schreibweise, Leerzeichen).
+    const angegeben = new Set(besitzer.alleNamen.map(schluessel));
+    const nurKundeK = new Set([...nurKunde].map(schluessel));
+    const regel = zerlegt.filter((n) => !angegeben.has(schluessel(n)) && !nurKundeK.has(schluessel(n)));
+    // Reihenfolge: aufwendigste zuerst (wie der Rechner zerlegt), dann übrige Angaben; je Schlüssel einmal.
     const ordnen = (namen: Iterable<string>) => {
-      const menge = new Set(namen);
-      return [...zerlegt.filter((n) => menge.has(n)), ...[...menge].filter((n) => !zerlegt.includes(n))];
+      const rest = new Map<string, string>();
+      for (const n of namen) if (!rest.has(schluessel(n))) rest.set(schluessel(n), n);
+      const vorn: string[] = [];
+      for (const z of zerlegt) {
+        if (rest.has(schluessel(z))) {
+          vorn.push(z);
+          rest.delete(schluessel(z));
+        }
+      }
+      return [...vorn, ...rest.values()];
     };
-    montageMoebel = ordnen(firma);
+    montageMoebel = ordnen([...besitzer.companyNames, ...regel]);
     abbauFirma = ordnen([...besitzer.dismantleCompany, ...regel]);
     aufbauFirma = ordnen([...besitzer.assembleCompany, ...regel]);
   } else if (besitzer.explicit && besitzer.companyNames.length > 0) {
@@ -267,11 +279,29 @@ export function kvBausteine(input: {
       ? firmaDemontage ? abbauFirma : aufbauFirma
       : montageMoebel;
   const montageTitel = firmaDemontage && !firmaMontage ? "Demontage" : firmaMontage && !firmaDemontage ? "Montage" : "Demontage & Montage";
+  // Beide Seiten bei uns, aber nicht für dieselben Möbel: je Seite getrennt nennen (Review 10.11.).
+  let montageText = `${montageTitel} (${moebelText(montageNamen)})`;
+  if (besitzer.explicit && firmaDemontage && firmaMontage) {
+    const ab = new Set(abbauFirma.map(schluessel));
+    const auf = new Set(aufbauFirma.map(schluessel));
+    const beide = montageMoebel.filter((n) => ab.has(schluessel(n)) && auf.has(schluessel(n)));
+    const nurAb = abbauFirma.filter((n) => !auf.has(schluessel(n)));
+    const nurAuf = aufbauFirma.filter((n) => !ab.has(schluessel(n)));
+    if (nurAb.length > 0 || nurAuf.length > 0) {
+      montageText = [
+        beide.length > 0 ? `Demontage & Montage (${moebelText(beide)})` : null,
+        nurAb.length > 0 ? `Demontage (${moebelText(nurAb)})` : null,
+        nurAuf.length > 0 ? `Montage (${moebelText(nurAuf)})` : null,
+      ]
+        .filter(Boolean)
+        .join(", ");
+    }
+  }
   if (montageMoebel.length > 0 && montagePm > 0) {
     kandidaten.push({
       art: "montage",
       posten: {
-        description: `${montageTitel} (${moebelText(montageNamen)})`,
+        description: montageText,
         quantity: 1,
         unitRate: Math.max(40, auf10((montagePm / 60) * arbeitssatz)),
       },

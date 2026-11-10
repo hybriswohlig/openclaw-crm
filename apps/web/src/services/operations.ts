@@ -7,6 +7,7 @@
  * employee assignment.
  */
 
+import { einzugOffen } from "@/lib/adresse";
 import { db } from "@/db";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { objects, attributes, statuses, selectOptions } from "@/db/schema/objects";
@@ -369,7 +370,8 @@ export async function getOperationsView(workspaceId: string): Promise<Operations
 }
 
 function extractLocationLine(val: unknown): string | null {
-  if (!val || typeof val !== "object") return null;
+  // „Einzug noch offen“ nicht geokodieren (Einsatzkarte).
+  if (!val || typeof val !== "object" || einzugOffen(val)) return null;
   const obj = val as Record<string, unknown>;
   const parts = [obj.line1, obj.postcode, obj.city].filter(Boolean) as string[];
   return parts.length ? parts.join(", ") : (typeof obj.line1 === "string" ? obj.line1 : null);

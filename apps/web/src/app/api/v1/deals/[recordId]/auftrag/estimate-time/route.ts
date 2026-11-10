@@ -18,6 +18,7 @@ import {
   type DepotCandidate,
 } from "@/services/time-estimate";
 import type { LocationValue } from "@openclaw-crm/shared";
+import { einzugOffen } from "@/lib/adresse";
 
 export const dynamic = "force-dynamic";
 
@@ -56,7 +57,8 @@ export async function POST(
   const moveFromRaw = dv.move_from_address as LocationValue | null | undefined;
   const moveToRaw = dv.move_to_address as LocationValue | null | undefined;
   const moveFromAddress = formatLocation(moveFromRaw);
-  const moveToAddress = formatLocation(moveToRaw);
+  // „Einzug noch offen“ ist keine Adresse für die Distance Matrix (Inhaber 10.11.).
+  const moveToAddress = einzugOffen(moveToRaw) ? null : formatLocation(moveToRaw);
   if (!moveFromAddress || !moveToAddress) {
     // Distinct code so the UI can render the inline "Adresse eintragen / KI-
     // Analyse starten" fallback instead of just an error banner.

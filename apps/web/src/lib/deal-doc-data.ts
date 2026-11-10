@@ -46,6 +46,16 @@ export function formatLocation(v: unknown): string {
   return "—";
 }
 
+/** „Hauptstr. 1, 72218, Wildberg“ → „Hauptstr. 1, 3. OG, 72218, Wildberg“, wenn ein Zusatz da ist. */
+function mitZusatz(v: unknown, text: string): string {
+  if (!v || typeof v !== "object" || text === "—") return text;
+  const o = v as Record<string, unknown>;
+  const line1 = typeof o.line1 === "string" ? o.line1.trim() : "";
+  const line2 = typeof o.line2 === "string" ? o.line2.trim() : "";
+  if (!line1 || !line2 || !text.startsWith(line1)) return text;
+  return `${line1}, ${line2}${text.slice(line1.length)}`;
+}
+
 /**
  * Strip auto-generated lead-title decorations so a bare person name remains.
  * Handles computeLeadName formats:
@@ -150,6 +160,10 @@ export function buildDealDataForDocs(
 
   const fromAddr = formatLocation(ctx.move_from_address);
   const toAddr = formatLocation(ctx.move_to_address);
+  // Strecke mit Zusatz („3. OG“): ein Umzug im selben Haus zeigt so zwei verschiedene Zeilen
+  // (die Sperre „VON = NACH“ vergleicht genau, was gedruckt wird).
+  const vonStrecke = mitZusatz(ctx.move_from_address, fromAddr);
+  const nachStrecke = mitZusatz(ctx.move_to_address, toAddr);
 
   return {
     dealRecordId,
@@ -160,8 +174,8 @@ export function buildDealDataForDocs(
       adresse: fromAddr !== "—" ? fromAddr : undefined,
     },
     auftrag: {
-      strecke_von: fromAddr !== "—" ? fromAddr : undefined,
-      strecke_nach: toAddr !== "—" ? toAddr : undefined,
+      strecke_von: fromAddr !== "—" ? vonStrecke : undefined,
+      strecke_nach: toAddr !== "—" ? nachStrecke : undefined,
       datum: ctx.move_date ?? undefined,
       volumen: ctx.inventory_notes ?? undefined,
       besonderheiten,

@@ -283,5 +283,5 @@ export function KvVorpruefungDialog({
 /** Wie in der Auftragsübersicht: nur die Felder speichern, die der Lead kennt. */
 function ohneFormat(v: LocationValue | null): Record<string, string | undefined> | null {
   if (!v) return null;
-  return { line1: v.line1, postcode: v.postcode, city: v.city, countryCode: v.countryCode };
+  return { line1: v.line1, ...(v.line2 ? { line2: v.line2 } : {}), postcode: v.postcode, city: v.city, countryCode: v.countryCode };
 }

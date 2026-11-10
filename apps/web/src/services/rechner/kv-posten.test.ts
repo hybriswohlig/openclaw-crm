@@ -449,3 +449,20 @@ describe("kvBausteine: Wahl je Möbel und Katalogregel zusammen (KV-Meldung 10.1
     expect(k.leistungen.dismantling).toEqual({ owner: "customer", note: "Den Abbau übernehmen Sie selbst." });
   });
 });
+
+describe("kvBausteine: Review 10.11. (Schreibweise, einseitige Möbel)", () => {
+  const mit = (zeilen: Array<Record<string, unknown>>, pos = ergebnis.positionen) =>
+    kvBausteine({ festpreis: 2260, ergebnis: { ...ergebnis, positionen: pos }, anfrage: { ...anfrage, montage_je_position: "1", positionen_freitext: zeilen } });
+
+  it("Wahl gilt auch bei anderer Schreibweise des Namens", () => {
+    const k = mit([{ name: "schreibtisch ", abbau: "customer", aufbau: "customer" }]);
+    expect(k.posten.find((p) => p.description.startsWith("Demontage"))?.description).toBe("Demontage & Montage (Boxspringbett und Esstisch)");
+  });
+
+  it("ein Möbel nur Abbau, andere beide Seiten: Posten nennt die Seiten getrennt", () => {
+    const k = mit([{ name: "Schreibtisch", abbau: "company", aufbau: "customer" }]);
+    expect(k.posten.find((p) => p.description.startsWith("Demontage"))?.description).toBe("Demontage & Montage (Boxspringbett und Esstisch), Demontage (Schreibtisch)");
+    expect(k.leistungen.dismantling).toEqual({ owner: "company", note: "Boxspringbett, Esstisch und Schreibtisch." });
+    expect(k.leistungen.assembly).toEqual({ owner: "company", note: "Boxspringbett und Esstisch." });
+  });
+});

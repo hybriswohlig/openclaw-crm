@@ -39,6 +39,8 @@ export function locationValueToText(v: unknown): string {
 /** Ort in der Form der Adress-Autovervollständigung. */
 export interface OrtWert {
   line1?: string;
+  /** Zusatz („3. OG“), bleibt beim Bearbeiten erhalten. */
+  line2?: string;
   postcode?: string;
   city?: string;
   countryCode?: string;
@@ -53,14 +55,23 @@ export function alsOrtWert(v: unknown): OrtWert | null {
   const o = (typeof v === "string" ? addressStringToLocationValue(v) : v) as Record<string, unknown>;
   if (typeof o !== "object") return null;
   const s = (x: unknown) => (typeof x === "string" && x.trim() ? x.trim() : undefined);
-  const ort: OrtWert = { line1: s(o.line1), postcode: s(o.postcode), city: s(o.city), countryCode: s(o.countryCode) };
+  const ort: OrtWert = { line1: s(o.line1), postcode: s(o.postcode), city: s(o.city), countryCode: s(o.countryCode), ...(s(o.line2) ? { line2: s(o.line2) } : {}) };
   return ort.line1 ? ort : null;
+}
+
+/** Text wie „Hauptstr. 1, 3. OG, 72218, Wildberg“: Teile zwischen Straße und PLZ sind der Zusatz. */
+function mitZusatzAusText(t: string): Record<string, unknown> {
+  const o = addressStringToLocationValue(t);
+  const teile = t.split(",").map((p) => p.trim()).filter(Boolean);
+  const plz = teile.findIndex((p, i) => i > 0 && /\b\d{5}\b/.test(p));
+  if (plz > 1) o.line2 = teile.slice(1, plz).join(", ");
+  return o;
 }
 
 /** Vergleichsschlüssel einer Adresse mit Straße (Text oder jsonb); null ohne Straße. */
 function adressSchluessel(v: unknown): { basis: string; zusatz: string } | null {
   if (!v) return null;
-  const o = (typeof v === "string" ? addressStringToLocationValue(v) : v) as Record<string, unknown>;
+  const o = (typeof v === "string" ? mitZusatzAusText(v) : v) as Record<string, unknown>;
   if (!o || typeof o !== "object") return null;
   const teil = (x: unknown) =>
     typeof x === "string"

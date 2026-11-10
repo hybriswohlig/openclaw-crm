@@ -89,3 +89,19 @@ describe("Einzug ohne Straße und „Einzug noch offen“ (Inhaber 10.11.)", () 
     expect(v.entwurf.einzugOffen).toBe(false);
   });
 });
+
+describe("Review 10.11.: Zusatz und Markierung an weiteren Stellen", () => {
+  it("Umzug im selben Haus (EG nach 3. OG): Strecke mit Zusatz, kein „VON = NACH“", () => {
+    const deal = buildDealDataForDocs("d1", { ...ctx({ ...auszug, line2: "3. OG" }), move_from_address: { ...auszug, line2: "EG" } })!;
+    expect(deal.auftrag.strecke_von).toBe("Westfalenstr. 1, EG, 71640, Ludwigsburg");
+    expect(deal.auftrag.strecke_nach).toBe("Westfalenstr. 1, 3. OG, 71640, Ludwigsburg");
+    expect(fehlendeVpsAngaben({ kunde: { nachname: "A", adresse: deal.kunde.adresse }, auftrag: deal.auftrag })).toEqual([]);
+  });
+
+  it("Lead-Titel nimmt „wird noch abgestimmt“ nicht als Zielort", async () => {
+    const { computeLeadName } = await import("@/services/lead-name");
+    const titel = computeLeadName({ customerName: "Viktoriia Artemchuk", moveDate: null, fromAddress: auszug, toAddress: EINZUG_OFFEN_WERT });
+    expect(titel ?? "").not.toMatch(/abgestimmt/);
+  });
+});
+

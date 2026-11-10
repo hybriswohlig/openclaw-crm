@@ -20,6 +20,8 @@ import { useEffect, useRef, useState } from "react";
 
 export interface LocationValue {
   line1?: string;
+  /** Zusatz („3. OG“) aus gespeicherten Werten; die Suche setzt ihn nicht. */
+  line2?: string;
   postcode?: string;
   city?: string;
   countryCode?: string;

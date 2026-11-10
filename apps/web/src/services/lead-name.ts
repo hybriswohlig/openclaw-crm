@@ -10,6 +10,7 @@
  *
  * Pure function — no DB, no IO. Callers pass in what they already know.
  */
+import { einzugOffen } from "@/lib/adresse";
 
 export interface LeadNameInputs {
   customerName?: string | null;
@@ -20,7 +21,8 @@ export interface LeadNameInputs {
 }
 
 function extractCity(address: unknown): string | null {
-  if (!address) return null;
+  // „Einzug noch offen“ ist kein Ort für den Lead-Titel.
+  if (!address || einzugOffen(address)) return null;
   if (typeof address === "string") return extractCityFromString(address);
   if (typeof address === "object") {
     const a = address as Record<string, unknown>;
