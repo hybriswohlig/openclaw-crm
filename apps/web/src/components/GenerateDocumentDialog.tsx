@@ -552,9 +552,19 @@ export function GenerateDocumentDialog({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="w-full max-w-2xl rounded-lg bg-white p-6 shadow-xl dark:bg-gray-900">
-        <div className="mb-4 flex items-start justify-between">
+    // iPhone Safari: 100vh is the large viewport and runs under the floating
+    // toolbar, and this overlay did not scroll. Cap the sheet with svh/dvh,
+    // scroll only the form body, and keep the actions in a sticky footer with
+    // room for the home indicator and the toolbar (same 104px reserve as the
+    // mobile shell). Do not lock document scrolling — on iOS that blocks the
+    // inner scroller.
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 lg:items-center lg:p-4">
+      <div
+        role="dialog"
+        aria-modal="true"
+        className="flex max-h-[min(100dvh,100svh)] w-full max-w-2xl flex-col overflow-hidden rounded-t-2xl bg-white shadow-xl lg:max-h-[min(92dvh,92svh)] lg:rounded-lg dark:bg-gray-900"
+      >
+        <div className="flex shrink-0 items-start justify-between gap-3 px-6 pt-[max(1.25rem,env(safe-area-inset-top))] pb-4">
           <div>
             <h2 className="text-lg font-semibold">
               {documentType === "KV"
@@ -574,6 +584,7 @@ export function GenerateDocumentDialog({
           </button>
         </div>
 
+        <div className="min-h-0 flex-1 touch-pan-y overflow-x-hidden overflow-y-auto overscroll-contain px-6 pb-4">
         {hinweise.length > 0 && (
           <div className="mb-4 space-y-2">
             {hinweise.map((h) => (
@@ -955,7 +966,10 @@ export function GenerateDocumentDialog({
               : "Das PDF wird im Hintergrund erstellt (normalerweise unter 30 Sekunden). Sie können währenddessen weiterarbeiten; unten rechts erscheint eine Meldung, sobald es fertig ist und am Lead hängt."}
           </p>
 
-          <div className="flex justify-end gap-2 pt-2">
+        </div>
+        </div>
+        <div className="sticky bottom-0 z-10 shrink-0 border-t border-gray-200 bg-white px-6 pt-3 pb-[calc(env(safe-area-inset-bottom)+104px)] dark:border-gray-700 dark:bg-gray-900 lg:pb-4">
+          <div className="flex justify-end gap-2">
             <button onClick={handleClose} className="rounded border px-4 py-2 text-sm">
               Abbrechen
             </button>
@@ -974,9 +988,9 @@ export function GenerateDocumentDialog({
         </div>
       </div>
       {previewHtml && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4">
-          <div className="flex h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-lg bg-white shadow-xl">
-            <div className="flex items-center justify-between border-b px-4 py-2">
+        <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/60 lg:items-center lg:p-4">
+          <div className="flex h-[min(100dvh,100svh)] w-full max-w-4xl flex-col overflow-hidden rounded-t-2xl bg-white shadow-xl lg:h-[min(92dvh,92svh)] lg:rounded-lg">
+            <div className="flex shrink-0 items-center justify-between border-b px-4 pb-2 pt-[max(0.5rem,env(safe-area-inset-top))]">
               <p className="text-sm font-medium">Vorschau der CRM-Vorlage</p>
               <button
                 type="button"
@@ -986,7 +1000,8 @@ export function GenerateDocumentDialog({
                 Schließen
               </button>
             </div>
-            <iframe title="Dokumentvorschau" className="h-full w-full bg-white" srcDoc={previewHtml} />
+            <iframe title="Dokumentvorschau" className="min-h-0 w-full flex-1 bg-white" srcDoc={previewHtml} />
+            <div className="h-[calc(env(safe-area-inset-bottom)+104px)] shrink-0 lg:hidden" />
           </div>
         </div>
       )}
