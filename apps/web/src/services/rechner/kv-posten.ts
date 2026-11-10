@@ -96,6 +96,8 @@ type Owner = "company" | "customer" | "none";
 
 interface ExpliziteMontage {
   explicit: boolean;
+  /** Alle Zeilen mit Angabe je Position, auch „nicht nötig“ (beides none) */
+  alleNamen: string[];
   customerOnly: boolean;
   companyNames: string[];
   dismantleCompany: string[];
@@ -112,6 +114,7 @@ function istOwner(wert: unknown): wert is Owner {
 function expliziteMontage(anfrage: RechnerAnfrage): ExpliziteMontage {
   const leer: ExpliziteMontage = {
     explicit: false,
+    alleNamen: [],
     customerOnly: false,
     companyNames: [],
     dismantleCompany: [],
@@ -126,6 +129,7 @@ function expliziteMontage(anfrage: RechnerAnfrage): ExpliziteMontage {
   const assembleCompany: string[] = [];
   const assembleCustomer: string[] = [];
   const companyNames: string[] = [];
+  const alleNamen: string[] = [];
   let explicit = false;
   for (const row of rows) {
     const name = typeof row.name === "string" ? row.name.trim() : "";
@@ -135,6 +139,7 @@ function expliziteMontage(anfrage: RechnerAnfrage): ExpliziteMontage {
     const sentAbbau = istOwner(abbauRaw);
     const sentAufbau = istOwner(aufbauRaw);
     if (!sentAbbau && !sentAufbau) continue;
+    alleNamen.push(name);
     const abbau: Owner = sentAbbau ? abbauRaw : "none";
     const aufbau: Owner = sentAufbau ? aufbauRaw : "none";
     if (abbau === "none" && aufbau === "none") continue;
@@ -149,6 +154,7 @@ function expliziteMontage(anfrage: RechnerAnfrage): ExpliziteMontage {
   const companies = uniq(companyNames);
   return {
     explicit,
+    alleNamen: uniq(alleNamen),
     customerOnly: explicit && companies.length === 0,
     companyNames: companies,
     dismantleCompany: uniq(dismantleCompany),
@@ -230,20 +236,35 @@ export function kvBausteine(input: {
   const nurKunde = new Set(
     [...besitzer.dismantleCustomer, ...besitzer.assembleCustomer].filter((n) => !besitzer.companyNames.includes(n))
   );
-  let montageMoebel = zerlegteMoebel(e);
+  const zerlegt = zerlegteMoebel(e);
+  let montageMoebel = zerlegt;
+  // Seiten der Firma je Möbel. Mit Schalter: Angabe je Position, sonst (Katalogregel) beide Seiten;
+  // „nicht nötig“ und „nur Kunde“ nennt der KV nie (KV-Meldung 10.11., Punkt 4).
+  let abbauFirma = besitzer.dismantleCompany;
+  let aufbauFirma = besitzer.assembleCompany;
   if (jePosition) {
-    montageMoebel = [...new Set([...besitzer.companyNames, ...montageMoebel.filter((n) => !nurKunde.has(n))])];
+    const angegeben = new Set(besitzer.alleNamen);
+    const regel = zerlegt.filter((n) => !angegeben.has(n) && !nurKunde.has(n));
+    const firma = new Set([...besitzer.companyNames, ...regel]);
+    // Reihenfolge: aufwendigste zuerst (wie der Rechner zerlegt), dann übrige Angaben.
+    const ordnen = (namen: Iterable<string>) => {
+      const menge = new Set(namen);
+      return [...zerlegt.filter((n) => menge.has(n)), ...[...menge].filter((n) => !zerlegt.includes(n))];
+    };
+    montageMoebel = ordnen(firma);
+    abbauFirma = ordnen([...besitzer.dismantleCompany, ...regel]);
+    aufbauFirma = ordnen([...besitzer.assembleCompany, ...regel]);
   } else if (besitzer.explicit && besitzer.companyNames.length > 0) {
     montageMoebel = besitzer.companyNames;
   }
   const montagePm = (zeiten.demontage ?? 0) + (zeiten.montage ?? 0);
   // Entscheidung 12: die Zeile nennt nur die Seite(n), die die Firma übernimmt.
   // Ohne ausdrückliche Angaben je Position (alte Anfragen) bleibt es bei beiden Seiten.
-  const firmaDemontage = !besitzer.explicit || besitzer.dismantleCompany.length > 0;
-  const firmaMontage = !besitzer.explicit || besitzer.assembleCompany.length > 0;
+  const firmaDemontage = !besitzer.explicit || abbauFirma.length > 0;
+  const firmaMontage = !besitzer.explicit || aufbauFirma.length > 0;
   const montageNamen =
     besitzer.explicit && firmaDemontage !== firmaMontage
-      ? firmaDemontage ? besitzer.dismantleCompany : besitzer.assembleCompany
+      ? firmaDemontage ? abbauFirma : aufbauFirma
       : montageMoebel;
   const montageTitel = firmaDemontage && !firmaMontage ? "Demontage" : firmaMontage && !firmaDemontage ? "Montage" : "Demontage & Montage";
   if (montageMoebel.length > 0 && montagePm > 0) {
@@ -344,17 +365,11 @@ export function kvBausteine(input: {
     unpacking: { owner: "customer" },
     materials: Number.isFinite(kartons) && kartons > 0 ? { owner: "company" } : { owner: "none" },
   };
-  if (besitzer.explicit) {
-    leistungen.dismantling = ownerLeistung(
-      besitzer.dismantleCompany,
-      besitzer.dismantleCustomer,
-      "Den Abbau übernehmen Sie selbst."
-    );
-    leistungen.assembly = ownerLeistung(
-      besitzer.assembleCompany,
-      besitzer.assembleCustomer,
-      "Den Aufbau übernehmen Sie selbst."
-    );
+  if (besitzer.explicit && !(jePosition && montageWeg)) {
+    // Mit Schalter zählen auch Möbel, die der Rechner nach Regel für uns zerlegt (sonst stünde
+    // „Den Abbau übernehmen Sie selbst“, obwohl wir Betten und Schränke abbauen).
+    leistungen.dismantling = ownerLeistung(abbauFirma, besitzer.dismantleCustomer, "Den Abbau übernehmen Sie selbst.");
+    leistungen.assembly = ownerLeistung(aufbauFirma, besitzer.assembleCustomer, "Den Aufbau übernehmen Sie selbst.");
   }
 
   // Kern ≤ 0 ist kein Posten. Beim bisherigen Zusammenklappen steht er schon als Summe im einen Posten.

@@ -403,3 +403,49 @@ describe("kvBausteine: zerlegte Möbel im KV-Text", () => {
     expect(text.endsWith("und 2 weitere Möbel)")).toBe(true);
   });
 });
+
+describe("kvBausteine: Wahl je Möbel und Katalogregel zusammen (KV-Meldung 10.11., Punkt 4)", () => {
+  const mit = (zeilen: Array<Record<string, unknown>>, pos = ergebnis.positionen) =>
+    kvBausteine({ festpreis: 2260, ergebnis: { ...ergebnis, positionen: pos }, anfrage: { ...anfrage, montage_je_position: "1", positionen_freitext: zeilen } });
+
+  it("nach Regel zerlegte Möbel bleiben in Posten und Leistungen, wenn andere eine Wahl tragen", () => {
+    const k = mit([{ name: "Schreibtisch", abbau: "customer", aufbau: "customer" }, { name: "Boxspringbett", abbau: "company", aufbau: "company" }]);
+    expect(k.posten.find((p) => p.description.startsWith("Demontage"))?.description).toBe("Demontage & Montage (Boxspringbett und Esstisch)");
+    expect(k.leistungen.dismantling).toEqual({ owner: "company", note: "Boxspringbett und Esstisch." });
+    expect(k.leistungen.assembly).toEqual({ owner: "company", note: "Boxspringbett und Esstisch." });
+    expect(k.montageMoebel).toEqual(["Boxspringbett", "Esstisch"]);
+  });
+
+  it("„nicht nötig“ (beides none, Rechner zerlegt nicht) und „nur Kunde“ nennt der KV nicht", () => {
+    const pos = ergebnis.positionen.map((p) => (p.name === "Esstisch" ? { ...p, zerlegt: false } : p));
+    const k = mit(
+      [
+        { name: "Esstisch", abbau: "none", aufbau: "none", demontage: "nein" },
+        { name: "Schreibtisch", abbau: "customer", aufbau: "customer" },
+      ],
+      pos
+    );
+    expect(k.posten.find((p) => p.description.startsWith("Demontage"))?.description).toBe("Demontage & Montage (Boxspringbett)");
+    expect(k.leistungen.dismantling).toEqual({ owner: "company", note: "Boxspringbett." });
+  });
+
+  it("nur eine Seite bei uns: Titel und Leistung nennen nur diese Seite und nur diese Möbel", () => {
+    const pos = ergebnis.positionen.map((p) => ({ ...p, zerlegt: p.name === "Boxspringbett" || p.name === "Schreibtisch" }));
+    const k = mit(
+      [
+        { name: "Boxspringbett", abbau: "company", aufbau: "customer" },
+        { name: "Schreibtisch", abbau: "customer", aufbau: "customer" },
+      ],
+      pos
+    );
+    expect(k.posten.find((p) => /Demontage|Montage/.test(p.description) && !p.description.startsWith("Umzugsteam"))?.description).toBe("Demontage (Boxspringbett)");
+    expect(k.leistungen.dismantling).toEqual({ owner: "company", note: "Boxspringbett." });
+    expect(k.leistungen.assembly).toEqual({ owner: "customer", note: "Den Aufbau übernehmen Sie selbst." });
+  });
+
+  it("alle beim Kunden: kein Montageposten, Leistungen beim Kunden", () => {
+    const k = mit(ergebnis.positionen.filter((p) => p.zerlegt).map((p) => ({ name: p.name, abbau: "customer", aufbau: "customer" })));
+    expect(k.posten.some((p) => p.description.startsWith("Demontage"))).toBe(false);
+    expect(k.leistungen.dismantling).toEqual({ owner: "customer", note: "Den Abbau übernehmen Sie selbst." });
+  });
+});
