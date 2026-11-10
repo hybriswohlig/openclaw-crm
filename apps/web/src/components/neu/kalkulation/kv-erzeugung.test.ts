@@ -95,6 +95,12 @@ describe("kvStatus und kvKnopf (Entscheidung 5a-8)", () => {
     expect(kvKnopf(v, JETZT)).toBe("KV neu erstellen");
   });
 
+  it("fehler wegen fehlender Kundenanschrift: Link „Angaben ergänzen“", () => {
+    const v = version({ art: "fehler", text: "KV nicht erstellt: Kundenanschrift fehlt." });
+    expect(kvStatus(v, JETZT)).toMatchObject({ ton: "rose", text: "KV nicht erstellt: Kundenanschrift fehlt.", angabenFehlen: true });
+    expect(kvStatus(version({ art: "fehler", text: "Der KV konnte nicht erzeugt werden. Bitte den KV neu erstellen." }), JETZT)?.angabenFehlen).toBe(false);
+  });
+
   it("keins: wie bisher (Dokument → grün, sonst nichts), Knopf nur bei kvErstellbar", () => {
     expect(kvStatus(version({ art: "keins" }), JETZT)).toBeNull();
     expect(kvKnopf(version({ art: "keins" }), JETZT)).toBe("KV erstellen");

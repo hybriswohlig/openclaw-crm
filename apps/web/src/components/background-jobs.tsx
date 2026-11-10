@@ -27,6 +27,7 @@ import {
 import { useRouter } from "next/navigation";
 import { Check, Loader2, Sparkles, X } from "lucide-react";
 import type { JobAbschluss } from "@/lib/angebot-wahl";
+import { angabenLink, jobFehlerText } from "@/lib/dokument-angaben";
 
 export type BackgroundDocType = "KV" | "AB" | "RE" | "AW";
 
@@ -610,13 +611,47 @@ function BackgroundJobsTray({
                   <X className="h-3.5 w-3.5" />
                 </button>
               </div>
-              <p className="break-words text-[10px] leading-snug text-red-700 dark:text-red-300">
-                {job.error}
-              </p>
+              {job.kind === "document" && job.docType !== "AW" ? (
+                <DokumentFehler error={job.error} docType={job.docType} dealRecordId={job.dealRecordId} />
+              ) : (
+                <p className="break-words text-[10px] leading-snug text-red-700 dark:text-red-300">
+                  {job.error}
+                </p>
+              )}
             </div>
           )}
         </div>
       ))}
     </div>
+  );
+}
+
+/**
+ * Fehler eines KV-, AB- oder Rechnungsjobs in der Sprache der Disponenten:
+ * „KV nicht erstellt: Kundenanschrift fehlt.“ statt „skill exited with code 2 …“,
+ * bei fehlenden Angaben mit dem Link in die Akte (Bereich „Kunde und Adressen“).
+ */
+function DokumentFehler({
+  error,
+  docType,
+  dealRecordId,
+}: {
+  error: string | null;
+  docType: "KV" | "AB" | "RE";
+  dealRecordId: string;
+}) {
+  const f = jobFehlerText(error, docType);
+  return (
+    <p className="break-words text-[10px] leading-snug text-red-700 dark:text-red-300">
+      {f.text}
+      {f.angabenFehlen ? (
+        <>
+          {" "}
+          <a href={angabenLink(dealRecordId)} className="font-semibold underline underline-offset-2">
+            Angaben ergänzen
+          </a>
+        </>
+      ) : null}
+    </p>
   );
 }

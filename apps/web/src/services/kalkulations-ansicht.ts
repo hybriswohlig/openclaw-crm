@@ -8,6 +8,7 @@
  * `dealImWorkspace`; jede Abfrage hier filtert trotzdem auf Workspace (und Deal).
  */
 import { ortAus, streckeAus } from "@/lib/akte";
+import { jobFehlerText } from "@/lib/dokument-angaben";
 import type { KvErzeugung, RenderJob } from "@/lib/angebot-wahl";
 import {
   ansichtAus,
@@ -69,6 +70,10 @@ export interface AnsichtOptionen {
  * was zu tun ist.
  */
 export function kvFehlerText(fehler: string | null): string {
+  // Fehlende Angaben am Lead („skill exited with code 2 … Kundenanschrift fehlt.“): Grund nennen,
+  // die Seite setzt daneben den Link „Angaben ergänzen“.
+  const angaben = jobFehlerText(fehler, "KV");
+  if (angaben.angabenFehlen) return angaben.text;
   const f = (fehler ?? "").toLowerCase();
   const was = /24|abgelaufen|ablauf|zeit|timeout/.test(f)
     ? "Der KV kam nicht innerhalb von 24 Stunden vom Dokumenten-Server zurück."

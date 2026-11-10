@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+import { angabenLink } from "@/lib/dokument-angaben";
 import type { KalkulationsAnsicht } from "@/lib/kalkulations-ansicht";
 import type { Lauf } from "./kalk-seite";
 import { kvKnopf, kvStatus } from "./kv-erzeugung";
@@ -84,6 +86,11 @@ export function SperrenBereich({
                 <a className="kalk-kleinknopf" href={kvDokumentLink(dealId, status.dokumentId)} target="_blank" rel="noreferrer">
                   KV öffnen
                 </a>
+              ) : null}
+              {status.angabenFehlen ? (
+                <Link className="kalk-kleinknopf" href={angabenLink(dealId)}>
+                  Angaben ergänzen
+                </Link>
               ) : null}
             </p>
           ) : null}

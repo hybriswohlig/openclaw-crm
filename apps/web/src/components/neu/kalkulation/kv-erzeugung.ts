@@ -6,6 +6,7 @@
 import type { KvErzeugung } from "@/lib/angebot-wahl";
 import { berlinTag, tagKurz, uhrzeitKurz } from "@/lib/anzeige";
 import type { KalkulationsAnsicht } from "@/lib/kalkulations-ansicht";
+import { jobFehlerText } from "@/lib/dokument-angaben";
 
 /** Nachladen, solange der VPS rechnet: sparsam, der Abschluss kommt meist über das Event. */
 export const KV_NACHLADEN_MS = 20_000;
@@ -21,6 +22,8 @@ export interface KvStatusAnzeige {
   text: string;
   /** Link „KV öffnen“ auf dieses Dokument */
   dokumentId: string | null;
+  /** Job scheiterte an fehlenden Angaben am Lead: Link „Angaben ergänzen“ in die Akte. */
+  angabenFehlen?: boolean;
 }
 
 /** „09:15“ am selben Berliner Tag, sonst „Di 03.11. 09:15“. */
@@ -61,7 +64,8 @@ export function kvStatus(version: Version, jetzt: Date): KvStatusAnzeige | null 
         dokumentId: null,
       };
     case "fehler":
-      return { ton: "rose", text: e.text, dokumentId: null };
+      // Der Text kommt übersetzt vom Dienst (`kvFehlerText`); bei fehlenden Angaben der Link in die Akte.
+      return { ton: "rose", text: e.text, dokumentId: null, angabenFehlen: jobFehlerText(e.text, "KV").angabenFehlen };
     case "keins":
       return version.kvDokument
         ? { ton: "jade", text: `KV erstellt: ${version.kvDokument.fileName}`, dokumentId: version.kvDokument.id }

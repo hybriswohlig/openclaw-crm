@@ -206,6 +206,8 @@ describe("kvErzeugungAus (Entscheidung 5a-8)", () => {
       "Der KV kam nicht innerhalb von 24 Stunden vom Dokumenten-Server zurück. Bitte den KV neu erstellen."
     );
     expect(kvFehlerText("VPS 404")).toBe("Der Dokumenten-Server kennt den Auftrag nicht mehr. Bitte den KV neu erstellen.");
+    // Viktoria (10.11.): der Grund steht da, nicht „konnte nicht erzeugt werden“.
+    expect(kvFehlerText("skill exited with code 2. stderr tail: Kundenanschrift fehlt.")).toBe("KV nicht erstellt: Kundenanschrift fehlt.");
     expect(kvFehlerText(null)).toBe("Der KV konnte nicht erzeugt werden. Bitte den KV neu erstellen.");
     expect(kvFehlerText("x")).not.toMatch(/[—–]/);
   });
