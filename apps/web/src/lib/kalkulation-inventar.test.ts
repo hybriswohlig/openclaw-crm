@@ -24,9 +24,16 @@ describe("inventarListe (Bauteil 14)", () => {
     const l = inventarListe(
       [z("Eckbank", { photoAttachmentId: "att_1" }), z("Bett", { quantity: 2, dismantlingOwner: "company", assemblyOwner: "customer", source: "chat" }), z("Gartengrill", { moveFlag: false })],
       e,
-      { korrekturen: { it_Bett: { von: "Dario", am: "09.11. 10:00" } } }
+      {
+        korrekturen: { it_Bett: { von: "Dario", am: "09.11. 10:00" } },
+        // So schickt das CRM die Lead-Angabe an den Rechner (rechnerAnfrageAus).
+        anfrage: { montage_je_position: "1", positionen_freitext: [{ name: "Bett", menge: 2, abbau: "company", aufbau: "customer" }] },
+        montageGewaehlt: new Set(["bett"]),
+      }
     );
     const [eck, bett, grill] = l.zeilen;
+    expect(bett.montageGewaehlt).toBe(true);
+    expect(eck.montageGewaehlt).toBe(false);
     expect(eck).toMatchObject({ katalog: { treffer: false, key: null }, groessenklasse: "sperrig", mindestTraeger: 3, bestimmtTeam: true, fotoUrl: "/api/v1/inbox/attachments/att_1/content", herkunft: "FOTO" });
     expect(bett).toMatchObject({
       katalog: { treffer: true, key: "bett_180" }, herkunft: "CHAT", trageMin: 16,
@@ -35,5 +42,17 @@ describe("inventarListe (Bauteil 14)", () => {
     expect(grill).toMatchObject({ mitnehmen: false, katalog: null, positionen: 0 });
     expect(l.stueck).toBe(3);
     expect(l.erklaerung).toBe("2 Zeilen mit zusammen 3 Stück (Menge je Zeile); der Rechner rechnet 2 Positionen (Sammelzeilen geteilt, Küchen nicht als Stück); 1 ohne Katalogtreffer.");
+  });
+});
+
+describe("inventarListe: Demontage/Montage wie die Umzugsgutliste (KV-Meldung 10.11.)", () => {
+  it("nach Regel zerlegt ohne Lead-Angabe: wir; Wahl „nicht nötig“ in der Anfrage: nicht nötig", () => {
+    const regel = inventarListe([z("Bett", { quantity: 2 })], e, { anfrage: { montage_je_position: "1", positionen_freitext: [{ name: "Bett", menge: 2 }] } });
+    expect(regel.zeilen[0].demontage.wer).toBe("wir");
+    expect(regel.zeilen[0].montage.wer).toBe("wir");
+    const nein = inventarListe([z("Bett", { quantity: 2 })], e, {
+      anfrage: { montage_je_position: "1", positionen_freitext: [{ name: "Bett", menge: 2, abbau: "none", aufbau: "none", demontage: "nein" }] },
+    });
+    expect(nein.zeilen[0].demontage.wer).toBe("nicht_noetig");
   });
 });

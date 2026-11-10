@@ -28,6 +28,7 @@ import { MARGE_MAX_PROZENT, MARGE_MIN_PROZENT, preisBeiMarge } from "@/services/
 import { angebotsUebernahme } from "@/services/rechner/uebernahme";
 import { postenJeWahl } from "@/services/rechner/wahl-posten";
 import { datumKurz, euroText, tagKurz, uhrzeitKurz, volumenText } from "./anzeige";
+import { umzugsgutZustaendigkeit } from "./umzugsgut-zustaendigkeit";
 import {
   hauptPostenAus,
   kundenPreiseAus,
@@ -44,6 +45,7 @@ import {
   eingabeSchluessel,
   type GrundlageKey,
   type PositionWert,
+  type MontageWert,
   type Herkunft,
   type Uebersteuerung,
   type UebersteuerungsArt,
@@ -694,7 +696,15 @@ function grundlageAnsicht(v: VersionsZeile, rest: AnsichtRest): GrundlageAnsicht
   const firmaBaut = new Set(
     mitnehmen.filter((i) => i.dismantlingOwner === "company" || i.assemblyOwner === "company").map((i) => normName(i.name))
   );
-  const eigentuemer = mitnehmen.some((i) => i.dismantlingOwner !== "none" || i.assemblyOwner !== "none");
+  const montageWahl = wirksameUebersteuerungen(v.overrides ?? []).some((u) => u.art === "montage");
+  const eigentuemer = montageWahl || mitnehmen.some((i) => i.dismantlingOwner !== "none" || i.assemblyOwner !== "none");
+  // Wer baut ab und auf (KV-Meldung 10.11.): wie die Umzugsgutliste, aus Anfrage und Ergebnis.
+  const traeger = umzugsgutZustaendigkeit(
+    zerlegt.map((name) => ({ name, dismantlingOwner: "none", assemblyOwner: "none" })),
+    e ? { anfrage, ergebnis: e } : null
+  );
+  const wirMontage = zerlegt.filter((_, i) => traeger[i]?.dismantling === "company" || traeger[i]?.assembly === "company");
+  const kundeMontage = zerlegt.filter((n, i) => !wirMontage.includes(n) && (traeger[i]?.dismantling === "customer" || traeger[i]?.assembly === "customer"));
   const ohneKatalog = positionen.filter((p) => p.ungeprueft && (p.zerlegt || firmaBaut.has(normName(p.name)))).length;
 
   const team = zahl(k.wert("team"));
@@ -764,7 +774,12 @@ function grundlageAnsicht(v: VersionsZeile, rest: AnsichtRest): GrundlageAnsicht
     {
       key: "montage",
       label: "Montage",
-      wert: zerlegt.length > 0 ? aufzaehlen(zerlegt) : "keine",
+      wert:
+        wirMontage.length + kundeMontage.length > 0
+          ? [wirMontage.length > 0 ? aufzaehlen(wirMontage) : null, kundeMontage.length > 0 ? `Kunde: ${aufzaehlen(kundeMontage)}` : null]
+              .filter(Boolean)
+              .join("; ")
+          : "keine",
       herkunft: [eigentuemer ? { art: "MANUELL", text: "MANUELL" } : { art: "REGEL", text: "REGEL" }],
       warum:
         ohneKatalog > 0
@@ -844,6 +859,12 @@ function grundlageAnsicht(v: VersionsZeile, rest: AnsichtRest): GrundlageAnsicht
     adressen: { beladen: text(anfrage.von_adresse), entladen: text(anfrage.nach_adresse) },
     positionenOhneKatalog: positionenOhneKatalog(e ?? null, v.overrides ?? [], (u) => autorName(u.autor, rest.namen), zeitpunktText),
     inventar: inventarListe(rest.inventar, e ?? null, {
+      anfrage,
+      montageGewaehlt: new Set(
+        wirksameUebersteuerungen(v.overrides ?? []).flatMap((u) =>
+          u.art === "montage" && u.wert && typeof u.wert === "object" && "positionen" in u.wert ? Object.keys((u.wert as MontageWert).positionen) : []
+        )
+      ),
       korrekturen: rest.inventarKorrekturen,
       mehraufwand: Object.fromEntries(
         wirksameUebersteuerungen(v.overrides ?? [])
@@ -1268,6 +1289,17 @@ function anpassungText(u: AlteUebersteuerung, v: VersionsZeile): string {
         w.gewichtKg ? `${GANZ.format(w.gewichtKg)} kg` : null,
       ].filter(Boolean);
       return `Position ${u.key}: ${teile.join(", ")}`;
+    }
+    case "montage": {
+      const w = u.wert && typeof u.wert === "object" && "positionen" in u.wert ? (u.wert as MontageWert).positionen : {};
+      const seiten = Object.values(w).flatMap((x) => [x.abbau, x.aufbau]);
+      const zahl_ = (t: string) => seiten.filter((x) => x === t).length;
+      const teile = [
+        zahl_("company") ? `${zahl_("company")}× wir` : null,
+        zahl_("customer") ? `${zahl_("customer")}× Kunde` : null,
+        zahl_("none") ? `${zahl_("none")}× nicht nötig` : null,
+      ].filter(Boolean);
+      return `Demontage/Montage je Möbel (${Object.keys(w).length} Möbel): ${teile.join(", ")}`;
     }
   }
 }

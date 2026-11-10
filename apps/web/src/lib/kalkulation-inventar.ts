@@ -10,7 +10,9 @@
  */
 import type { RechnerErgebnis } from "@/services/rechner/client";
 import type { Groessenklasse } from "./kalkulation-p15";
+import type { RechnerAnfrage } from "@/services/rechner/eingabe";
 import { positionSchluessel } from "./kalkulation-versionen";
+import { umzugsgutZustaendigkeit, type Zustaendig } from "./umzugsgut-zustaendigkeit";
 
 export interface InventarQuelle {
   id?: string;
@@ -42,6 +44,8 @@ export interface InventarListeZeile {
   trageMin: number | null;
   demontage: { min: number | null; wer: "wir" | "kunde" | "nicht_noetig" };
   montage: { min: number | null; wer: "wir" | "kunde" | "nicht_noetig" };
+  /** Demontage/Montage für dieses Teil in der Kalkulation gewählt (Übersteuerung `montage`). */
+  montageGewaehlt: boolean;
   /** dieses Teil erzwingt die Teamgröße (Mindestträger) */
   bestimmtTeam: boolean;
   /** Rechner-Positionen zu dieser Zeile (geteilte Sammelzeile: mehr als 1) */
@@ -65,8 +69,7 @@ function zahl(w: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-const WER = (owner: string, zerlegt: boolean): "wir" | "kunde" | "nicht_noetig" =>
-  !zerlegt ? "nicht_noetig" : owner === "customer" ? "kunde" : "wir";
+const WER: Record<Zustaendig, "wir" | "kunde" | "nicht_noetig"> = { company: "wir", customer: "kunde", none: "nicht_noetig" };
 
 export function inventarListe(
   inventar: readonly InventarQuelle[],
@@ -75,8 +78,14 @@ export function inventarListe(
     korrekturen?: Record<string, { von: string; am: string }>;
     mehraufwand?: Record<string, number>;
     fotoUrl?: (id: string) => string;
+    /** Anfrage der Version: trägt die Wahl je Möbel (abbau/aufbau je Freitextzeile). */
+    anfrage?: RechnerAnfrage | null;
+    /** Schlüssel der Möbel mit Wahl in der Übersteuerung `montage`. */
+    montageGewaehlt?: ReadonlySet<string>;
   } = {}
 ): InventarListe {
+  // Wer abbaut und aufbaut, nach derselben Regel wie die Umzugsgutliste im KV.
+  const zustaendig = umzugsgutZustaendigkeit(inventar, e ? { anfrage: opts.anfrage ?? null, ergebnis: e } : null);
   const details = new Map((e?.positionenDetails ?? []).map((d) => [d.positionId, d]));
   const jeName = new Map<string, NonNullable<RechnerErgebnis["positionen"]>>();
   for (const p of e?.positionen ?? []) {
@@ -85,7 +94,7 @@ export function inventarListe(
   }
   const team = e?.team;
   let teamGesetzt = false;
-  const zeilen: InventarListeZeile[] = inventar.map((z) => {
+  const zeilen: InventarListeZeile[] = inventar.map((z, i) => {
     const key = positionSchluessel(z.name);
     const pos = z.moveFlag ? jeName.get(key) ?? [] : [];
     const p = pos[0];
@@ -112,8 +121,9 @@ export function inventarListe(
       gewichtKg: typeof p?.gewichtKg === "number" ? p.gewichtKg : null,
       mindestTraeger: traeger,
       trageMin: d ? d.trageMin : null,
-      demontage: { min: d?.demontageMin ?? null, wer: WER(z.dismantlingOwner, zerlegt) },
-      montage: { min: d?.montageMin ?? null, wer: WER(z.assemblyOwner, zerlegt) },
+      demontage: { min: d?.demontageMin ?? null, wer: z.moveFlag && e ? WER[zustaendig[i].dismantling] : "nicht_noetig" },
+      montage: { min: d?.montageMin ?? null, wer: z.moveFlag && e ? WER[zustaendig[i].assembly] : "nicht_noetig" },
+      montageGewaehlt: opts.montageGewaehlt?.has(key) ?? false,
       bestimmtTeam: bestimmt,
       positionen: pos.length,
       korrigiert: z.id ? opts.korrekturen?.[z.id] ?? null : null,

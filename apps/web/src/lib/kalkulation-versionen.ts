@@ -83,6 +83,8 @@ export type UebersteuerungsArt =
   | "material_frei"
   // Plan 15 (Bauteil 3): Größenklasse, Volumen, Gewicht einer Position ohne Katalogtreffer.
   | "position"
+  // KV-Meldung 10.11.: wer je Möbel abbaut und aufbaut (Schlüssel `moebel`, eine Liste für alle).
+  | "montage"
   // Plan 5b (Entscheidung 4): nur `preismodus` geht an den Rechner.
   | NeueUebersteuerungsArt;
 
@@ -102,6 +104,24 @@ export interface PositionWert {
   betrag?: undefined;
   minuten?: undefined;
 }
+
+/** Wer eine Seite übernimmt: wir, der Kunde, oder niemand („nicht nötig“). */
+export type MontageTraeger = "company" | "customer" | "none";
+
+/**
+ * Wert der Übersteuerung `montage` (Schlüssel `moebel`): je Position (Schlüssel
+ * `positionSchluessel`) Abbau und Aufbau. Beides „none“ heißt „nicht nötig“: der
+ * Rechner zerlegt die Position dann auch gegen seine Regel nicht.
+ */
+export interface MontageWert {
+  positionen: Record<string, { abbau: MontageTraeger; aufbau: MontageTraeger }>;
+  bezeichnung?: undefined;
+  betrag?: undefined;
+  minuten?: undefined;
+}
+
+export const MONTAGE_KEY = "moebel";
+const MONTAGE_MAX = 300;
 
 /** Schlüssel einer Position: Name klein, Leerzeichen zusammengezogen. */
 export function positionSchluessel(name: string): string {
@@ -126,7 +146,7 @@ export interface Uebersteuerung {
   key: string;
   rechnerwert: number | string | boolean | null;
   /** Paket- und Tagespreis: `{ betrag }` in Euro; Darstellung und Preismodus als Text; Position: Korrektur. */
-  wert: number | string | boolean | PostenWert | PreisWert | PositionWert | null;
+  wert: number | string | boolean | PostenWert | PreisWert | PositionWert | MontageWert | null;
   /** Plan 15 (Bauteil 13): Migration 0065 hat den Altschlüssel `kartons` (Einpackservice) zu `umzugskartons` umgedeutet. */
   umgedeutet?: "kartons";
   grund: string;
@@ -154,6 +174,7 @@ export class UebersteuerungFehler extends Error {
 const ARTEN: readonly UebersteuerungsArt[] = [
   "eingabe",
   "position",
+  "montage",
   "zeile",
   "marge",
   "satz",
@@ -339,6 +360,10 @@ export function pruefeUebersteuerung(e: { art: string; key: string; wert: unknow
       if (k === "" || k.length > 120) throw new UebersteuerungFehler("Position: Name fehlt");
       return { art, key: k, wert: e.wert === null ? null : pruefePosition(e.wert), grund };
     }
+    case "montage": {
+      if (key !== MONTAGE_KEY) throw new UebersteuerungFehler(`Montage: Schlüssel muss ${MONTAGE_KEY} sein`);
+      return { art, key, wert: e.wert === null ? null : pruefeMontage(e.wert), grund };
+    }
     case "zeile": {
       if (key === "") throw new UebersteuerungFehler("Schlüssel fehlt");
       // Der Rechner ersetzt nur Kostenzeilen mit echtem Schlüssel: Ersatzschlüssel des
@@ -429,6 +454,30 @@ function pruefePosition(wert: unknown): PositionWert {
   return aus;
 }
 
+function istMontageTraeger(w: unknown): w is MontageTraeger {
+  return w === "company" || w === "customer" || w === "none";
+}
+
+/** Wahl je Möbel prüfen: höchstens 300 Positionen, je Abbau und Aufbau company, customer oder none. */
+export function pruefeMontage(wert: unknown): MontageWert {
+  const roh = wert && typeof wert === "object" && !Array.isArray(wert) ? (wert as Record<string, unknown>).positionen : undefined;
+  if (!roh || typeof roh !== "object" || Array.isArray(roh)) throw new UebersteuerungFehler("Montage: positionen fehlt");
+  const eintraege = Object.entries(roh as Record<string, unknown>);
+  if (eintraege.length === 0) throw new UebersteuerungFehler("Montage: keine Position");
+  if (eintraege.length > MONTAGE_MAX) throw new UebersteuerungFehler(`Montage: höchstens ${MONTAGE_MAX} Positionen`);
+  const positionen: MontageWert["positionen"] = {};
+  for (const [name, w] of eintraege) {
+    const k = positionSchluessel(name);
+    if (k === "" || k.length > 120) throw new UebersteuerungFehler("Montage: Name fehlt");
+    const o = w && typeof w === "object" ? (w as Record<string, unknown>) : {};
+    if (!istMontageTraeger(o.abbau) || !istMontageTraeger(o.aufbau)) {
+      throw new UebersteuerungFehler(`Montage: Abbau und Aufbau müssen company, customer oder none sein (${name})`);
+    }
+    positionen[k] = { abbau: o.abbau, aufbau: o.aufbau };
+  }
+  return { positionen };
+}
+
 /** Betrag in Euro aus Zahl, Text oder `{ betrag }`; größer als 0. */
 function pruefeBetrag(wert: unknown, was: string): number {
   const roh = wert && typeof wert === "object" && !Array.isArray(wert) ? (wert as Record<string, unknown>).betrag : wert;
@@ -476,6 +525,7 @@ export function anfrageMitUebersteuerungen(
     typeof basis.hebel_aus === "string" ? (JSON.parse(basis.hebel_aus) as string[]) : []
   );
   const positionen = new Map<string, PositionWert>();
+  let montage: MontageWert["positionen"] | null = null;
 
   for (const u of wirksame(liste).values()) {
     if (u.art === "zeile") zeilenArt = true;
@@ -511,6 +561,9 @@ export function anfrageMitUebersteuerungen(
         if (u.wert && typeof u.wert === "object" && !("bezeichnung" in u.wert && u.wert.bezeichnung)) {
           positionen.set(u.key, u.wert as PositionWert);
         }
+        break;
+      case "montage":
+        if (u.wert && typeof u.wert === "object" && "positionen" in u.wert) montage = (u.wert as MontageWert).positionen;
         break;
       case "zeile":
         if (typeof u.wert === "number") zeilen.push({ key: u.key, betrag: u.wert });
@@ -559,6 +612,25 @@ export function anfrageMitUebersteuerungen(
         ...(k.groessenklasse ? { groessenklasse: k.groessenklasse } : {}),
         ...(k.volumenCbm ? { volumenCbm: k.volumenCbm } : {}),
         ...(k.gewichtKg ? { gewichtKg: k.gewichtKg } : {}),
+      };
+    });
+  }
+  // KV-Meldung 10.11.: Wahl je Möbel als abbau/aufbau je Freitextzeile (Schalter montage_je_position).
+  // „Nicht nötig“ auf beiden Seiten: demontage nein, dann zerlegt der Rechner auch nach Regel nicht.
+  const wahl = montage;
+  if (wahl && Array.isArray(a.positionen_freitext)) {
+    a.montage_je_position = "1";
+    a.positionen_freitext = a.positionen_freitext.map((p) => {
+      const w = wahl[positionSchluessel(String(p.name ?? ""))];
+      if (!w) return p;
+      const { demontage: _alt, ...rest } = p;
+      const keiner = w.abbau === "none" && w.aufbau === "none";
+      return {
+        ...rest,
+        abbau: w.abbau,
+        aufbau: w.aufbau,
+        zerlegt: w.abbau === "company" || w.aufbau === "company",
+        ...(keiner ? { demontage: "nein" } : {}),
       };
     });
   }
@@ -721,6 +793,8 @@ export function rechnerwertFuer(
       const p = (ergebnis?.positionen ?? []).find((x) => positionSchluessel(x.name) === key);
       return p ? p.volumenCbm : null;
     }
+    case "montage":
+      return null;
     case "paketpreis": {
       const p = (ergebnis?.paketpreise ?? []).find((x) => x.slug === key);
       return p?.festpreis ?? null;
