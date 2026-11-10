@@ -54,8 +54,15 @@ const BEKANNT: Array<[RegExp, string]> = [
   [/umzug\.von\.adresse fehlt|von[_ .-]?adresse fehlt|strecke_von fehlt/i, "Auszugsadresse fehlt"],
   [/umzug\.nach\.adresse fehlt|nach[_ .-]?adresse fehlt|strecke_nach fehlt/i, "Einzugsadresse fehlt"],
   [/(kunde\.)?nachname fehlt|kundenname fehlt/i, "Kundenname fehlt"],
-  [/(umzugs)?datum fehlt/i, "Umzugsdatum fehlt"],
+  [/umzugsdatum fehlt|auftrag\.datum fehlt/i, "Umzugsdatum fehlt"],
 ];
+
+/** Gründe, die man in der Akte unter „Kunde und Adressen“ beheben kann: nur dann der Link. */
+const IN_DER_AKTE = /^(kundenanschrift|auszugsadresse|einzugsadresse|kundenname|umzugsdatum) fehlt$/i;
+
+function inDerAkte(grund: string): boolean {
+  return grund.split(/,\s*/).every((g) => IN_DER_AKTE.test(g.trim()));
+}
 
 /** Letzte sinnvolle Zeile aus dem stderr-Ende des Skills. */
 function letzteZeile(tail: string): string {
@@ -77,7 +84,8 @@ export function jobFehlerText(roh: string | null | undefined, art: DokArt): JobF
   const kopf = `${DOK_KURZ[art]} nicht erstellt`;
   const t = (roh ?? "").trim();
   if (!t) return { text: `${kopf}.`, angabenFehlen: false };
-  if (/^\w+ nicht erstellt:/.test(t)) return { text: t, angabenFehlen: /fehlt/i.test(t) };
+  const schon = /^\w+ nicht erstellt:\s*(.*?)\.(?:\s*Angaben ergänzen\.)?$/.exec(t);
+  if (schon) return { text: t, angabenFehlen: inDerAkte(schon[1]) };
   for (const [muster, grund] of BEKANNT) {
     if (muster.test(t)) return { text: `${kopf}: ${grund}.`, angabenFehlen: true };
   }
@@ -85,7 +93,7 @@ export function jobFehlerText(roh: string | null | undefined, art: DokArt): JobF
   const skill = /skill exited with code \d+\.?\s*(?:stderr tail:\s*)?([\s\S]*)$/i.exec(t);
   if (skill) {
     const grund = letzteZeile(skill[1] ?? "");
-    if (/\bfehlt\b/i.test(grund)) return { text: `${kopf}: ${grund}.`, angabenFehlen: true };
+    // Andere „… fehlt“ (Preis, Vorlage, Fälligkeitsdatum) behebt man nicht in der Akte: kein Link.
     return { text: grund ? `${kopf}: ${grund}.` : `${kopf}: Die Vorlage ist abgebrochen.`, angabenFehlen: false };
   }
   return { text: `${kopf}: ${t.replace(/[.\s]+$/, "")}.`, angabenFehlen: false };

@@ -39,11 +39,24 @@ describe("jobFehlerText", () => {
     expect(jobFehlerText(roh, "KV")).toEqual({ text: "KV nicht erstellt: Vorlage nicht gefunden.", angabenFehlen: false });
   });
 
-  it("ein unbekanntes „… fehlt“ ist eine fehlende Angabe", () => {
+  it("nur Gründe, die man in der Akte beheben kann, bekommen den Link (Review M5)", () => {
     expect(jobFehlerText("skill exited with code 2. stderr tail: Telefon fehlt", "KV")).toEqual({
       text: "KV nicht erstellt: Telefon fehlt.",
+      angabenFehlen: false,
+    });
+    expect(jobFehlerText("skill exited with code 2. stderr tail: Preis fehlt", "AB").angabenFehlen).toBe(false);
+    expect(jobFehlerText("skill exited with code 2. stderr tail: Vorlage fehlt", "KV").angabenFehlen).toBe(false);
+    // Fälligkeitsdatum ist nicht das Umzugsdatum.
+    expect(jobFehlerText("skill exited with code 2. stderr tail: Fälligkeitsdatum fehlt", "RE")).toEqual({
+      text: "Rechnung nicht erstellt: Fälligkeitsdatum fehlt.",
+      angabenFehlen: false,
+    });
+    expect(jobFehlerText("skill exited with code 2. stderr tail: Umzugsdatum fehlt", "AB")).toEqual({
+      text: "AB nicht erstellt: Umzugsdatum fehlt.",
       angabenFehlen: true,
     });
+    expect(jobFehlerText("RE nicht erstellt: Preis fehlt.", "RE").angabenFehlen).toBe(false);
+    expect(jobFehlerText("Rechnung nicht erstellt: Kundenname fehlt, Kundenanschrift fehlt. Angaben ergänzen.", "RE").angabenFehlen).toBe(true);
   });
 
   it("abgelaufen, leer und schon übersetzte Texte", () => {
