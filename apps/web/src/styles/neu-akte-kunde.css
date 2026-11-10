@@ -243,3 +243,11 @@
   height: 16px;
   accent-color: var(--blue);
 }
+
+/* Am Handy liegt das Akten-Dock fest unten (neu-akte-dock.css): Felder und der Schalter
+   „Einzug noch offen“ rollen beim Fokus darüber, nicht darunter (Review M11). */
+@media (max-width: 1023.98px) {
+  [data-neu] .kunde-panel :is(input, select, button, .kunde-offen) {
+    scroll-margin-bottom: calc(env(safe-area-inset-bottom) + 170px);
+  }
+}
