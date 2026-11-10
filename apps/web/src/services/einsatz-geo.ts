@@ -246,6 +246,10 @@ export const ORTE_JE_AUFRUF = 25;
 
 export const GEOCODING_URL = "https://maps.googleapis.com/maps/api/geocode/json";
 
+/** Zeitgrenze je Google-Aufruf und für alle Aufrufe eines Ladevorgangs zusammen (Review M8). */
+export const ORT_AUFRUF_MS = 8_000;
+export const ORTE_GESAMT_MS = 10_000;
+
 /** Ein nicht gefundener Ort (`ZERO_RESULTS`) wird nach so vielen Tagen erneut gefragt. */
 export const FEHLVERSUCH_GUELTIG_TAGE = 7;
 const FEHLVERSUCH_GUELTIG_MS = FEHLVERSUCH_GUELTIG_TAGE * 24 * 60 * 60 * 1000;
@@ -270,12 +274,20 @@ export async function ortPunkte(
     speicher?: OrteSpeicher;
     abruf?: (url: string) => Promise<Response>;
     schluessel?: string | null;
+    /** Gesamtzeit aller Google-Aufrufe eines Ladevorgangs (Review M8); Vorgabe `ORTE_GESAMT_MS`. */
+    gesamtMs?: number;
+    /** Uhr in ms (Tests). */
+    uhr?: () => number;
   } = {},
 ): Promise<{ punkte: Map<string, Punkt>; ohne: string[] }> {
   const jetzt = o.jetzt ?? new Date();
   const speicher = o.speicher ?? dbOrteSpeicher;
-  // Ein hängender Google-Aufruf darf die Karte nicht aufhalten: 8 s je Ort, dann wie Netzfehler.
-  const abruf = o.abruf ?? ((url: string) => fetch(url, { signal: AbortSignal.timeout(8_000) }));
+  // Ein hängender Google-Aufruf darf die Karte nicht aufhalten: höchstens 8 s je Ort und
+  // höchstens `gesamtMs` für alle Orte zusammen (Review M8), danach wie Netzfehler.
+  const uhr = o.uhr ?? Date.now;
+  const frist = uhr() + (o.gesamtMs ?? ORTE_GESAMT_MS);
+  const abruf =
+    o.abruf ?? ((url: string) => fetch(url, { signal: AbortSignal.timeout(Math.max(1, Math.min(ORT_AUFRUF_MS, frist - uhr()))) }));
   const schluessel = o.schluessel === undefined ? process.env.GOOGLE_MAPS_API_KEY || null : o.schluessel;
 
   const einzig: OrtAnfrage[] = [];
@@ -325,7 +337,7 @@ export async function ortPunkte(
   }
 
   for (const ort of fragen.flat()) {
-    if (!schluessel || abbruch || aufrufe >= ORTE_JE_AUFRUF) {
+    if (!schluessel || abbruch || aufrufe >= ORTE_JE_AUFRUF || uhr() >= frist) {
       altBehalten(ort);
       continue;
     }

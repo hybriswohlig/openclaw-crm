@@ -350,6 +350,22 @@ describe("ortPunkte", () => {
     expect(Number.isNaN(a.lat) && Number.isNaN(a.lng)).toBe(true);
   });
 
+  it("Gesamtzeitgrenze: nach Ablauf keine weiteren Aufrufe, alte Punkte bleiben (Review M8)", async () => {
+    let jetztMs = 0;
+    const abruf = vi.fn(async () => {
+      jetztMs += 4_000; // jeder Aufruf dauert 4 s
+      return geoOk(48.5, 9.25);
+    });
+    const alt = { ortSchluessel: "d", lat: 1, lng: 2, berechnetAm: new Date("2020-01-01") };
+    const orte = ["a", "b", "c", "d"].map((k) => ({ schluessel: k, text: `Ort ${k}`, plz: null }));
+    const r = await ortPunkte("w", orte, {
+      jetzt: JETZT, speicher: orteSpeicher([alt]), abruf, schluessel: "test-key", gesamtMs: 10_000, uhr: () => jetztMs,
+    });
+    // a (0 s), b (4 s), c (8 s) laufen, danach ist die Frist von 10 s um.
+    expect(abruf).toHaveBeenCalledTimes(3);
+    expect(r.punkte.get("d")).toEqual([2, 1]);
+  });
+
   it("Fehlversuch jünger als 7 Tage: kein Aufruf; älter: erneut gefragt (Review M1)", async () => {
     const tag = 24 * 60 * 60 * 1000;
     const frisch = orteSpeicher([{ ortSchluessel: "a", lat: Number.NaN, lng: Number.NaN, berechnetAm: new Date(JETZT.getTime() - 6 * tag) }]);
