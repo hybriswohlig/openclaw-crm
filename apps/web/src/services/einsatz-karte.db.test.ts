@@ -77,6 +77,16 @@ describe.skipIf(!url)("Einsatz-Karte (DB)", { timeout: 20_000 }, () => {
     expect(neu!.berechnetAm.getTime()).toBeGreaterThan(new Date("2024-01-01").getTime());
   });
 
+  it("Fehlversuch als NaN gespeichert und gelesen, ohne Migration (Review M1)", async () => {
+    await dbOrteSpeicher.schreiben(ws, [{ ortSchluessel: "ort:nirgendwo", lat: Number.NaN, lng: Number.NaN }]);
+    const [z] = await dbOrteSpeicher.lesen(ws, ["ort:nirgendwo"]);
+    expect(Number.isNaN(z!.lat) && Number.isNaN(z!.lng)).toBe(true);
+    const abruf = vi.fn();
+    const r = await ortPunkte(ws, [{ schluessel: "ort:nirgendwo", text: "Nirgendwo", plz: null }], { abruf, speicher: dbOrteSpeicher, schluessel: "test-key" });
+    expect(abruf).not.toHaveBeenCalled();
+    expect(r.ohne).toEqual(["ort:nirgendwo"]);
+  });
+
   it("ladeEinsatzKarte geocodiert einmal, der zweite Aufruf trifft den Cache, deal_employees bleibt", async () => {
     const vorher = await zahl();
     expect(vorher).toBe(2);

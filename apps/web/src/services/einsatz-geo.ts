@@ -246,6 +246,10 @@ export const ORTE_JE_AUFRUF = 25;
 
 export const GEOCODING_URL = "https://maps.googleapis.com/maps/api/geocode/json";
 
+/** Ein nicht gefundener Ort (`ZERO_RESULTS`) wird nach so vielen Tagen erneut gefragt. */
+export const FEHLVERSUCH_GUELTIG_TAGE = 7;
+const FEHLVERSUCH_GUELTIG_MS = FEHLVERSUCH_GUELTIG_TAGE * 24 * 60 * 60 * 1000;
+
 type GeoAntwort = {
   status?: string;
   results?: Array<{ geometry?: { location?: { lat?: unknown; lng?: unknown } } }>;
@@ -296,17 +300,31 @@ export async function ortPunkte(
   let aufrufe = 0;
   let abbruch = false;
 
+  const treffer = (z: OrtZeile | undefined) => !!z && Number.isFinite(z.lat) && Number.isFinite(z.lng);
   const altBehalten = (ort: OrtAnfrage) => {
     const alt = cache.get(ort.schluessel);
-    if (alt) punkte.set(ort.schluessel, [alt.lng, alt.lat]);
+    if (alt && treffer(alt)) punkte.set(ort.schluessel, [alt.lng, alt.lat]);
   };
 
+  // Review M1: gültiger Treffer (30 Tage) oder frischer Fehlversuch (7 Tage) kommen ohne Google aus.
+  // Zu fragen sind zuerst nie gefragte Orte, dann abgelaufene Treffer, zuletzt abgelaufene Fehlversuche:
+  // nicht auffindbare Orte blockieren die übrigen nie dauerhaft.
+  const fragen: OrtAnfrage[][] = [[], [], []];
   for (const ort of einzig) {
     const alt = cache.get(ort.schluessel);
-    if (alt && cacheGueltig(alt.berechnetAm, jetzt)) {
-      punkte.set(ort.schluessel, [alt.lng, alt.lat]);
+    if (!alt) {
+      fragen[0]!.push(ort);
       continue;
     }
+    if (treffer(alt)) {
+      if (cacheGueltig(alt.berechnetAm, jetzt)) punkte.set(ort.schluessel, [alt.lng, alt.lat]);
+      else fragen[1]!.push(ort);
+      continue;
+    }
+    if (jetzt.getTime() - alt.berechnetAm.getTime() >= FEHLVERSUCH_GUELTIG_MS) fragen[2]!.push(ort);
+  }
+
+  for (const ort of fragen.flat()) {
     if (!schluessel || abbruch || aufrufe >= ORTE_JE_AUFRUF) {
       altBehalten(ort);
       continue;
@@ -337,9 +355,15 @@ export async function ortPunkte(
       continue;
     }
     const loc = status === "OK" ? daten?.results?.[0]?.geometry?.location : undefined;
-    if (typeof loc?.lat === "number" && typeof loc.lng === "number") {
+    if (typeof loc?.lat === "number" && typeof loc.lng === "number" && Number.isFinite(loc.lat) && Number.isFinite(loc.lng)) {
       punkte.set(ort.schluessel, [loc.lng, loc.lat]);
       neu.push({ ortSchluessel: ort.schluessel, lat: loc.lat, lng: loc.lng });
+    } else if (status === "ZERO_RESULTS" || status === "OK" || status === "INVALID_REQUEST") {
+      // Google kennt den Ort nicht: als Fehlversuch merken (NaN statt Koordinate, keine Migration nötig).
+      neu.push({ ortSchluessel: ort.schluessel, lat: Number.NaN, lng: Number.NaN });
+    } else {
+      // UNKNOWN_ERROR und Unbekanntes: vorübergehend, nichts merken, alten Punkt behalten.
+      altBehalten(ort);
     }
   }
 

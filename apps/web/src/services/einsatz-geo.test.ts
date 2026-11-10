@@ -332,7 +332,7 @@ describe("ortPunkte", () => {
   it("ZERO_RESULTS für einen Ort, der nächste wird trotzdem geholt", async () => {
     const abruf = vi.fn(async () => new Response(JSON.stringify({ status: "ZERO_RESULTS", results: [] })));
     abruf.mockResolvedValueOnce(new Response(JSON.stringify({ status: "ZERO_RESULTS", results: [] }))).mockResolvedValueOnce(geoOk(48.5, 9.25));
-    const speicher = orteSpeicher([{ ortSchluessel: "a", lat: 1, lng: 2, berechnetAm: new Date("2020-01-01") }]);
+    const speicher = orteSpeicher();
     const r = await ortPunkte(
       "w",
       [
@@ -345,5 +345,43 @@ describe("ortPunkte", () => {
     expect(r.ohne).toEqual(["a"]);
     expect(r.punkte.get("b")).toEqual([9.25, 48.5]);
     expect(r.punkte.has("a")).toBe(false);
+    // Review M1: der Fehlversuch ist gemerkt (NaN), ohne Punkt.
+    const a = speicher.zeilen.find((z) => z.ortSchluessel === "a")!;
+    expect(Number.isNaN(a.lat) && Number.isNaN(a.lng)).toBe(true);
+  });
+
+  it("Fehlversuch jünger als 7 Tage: kein Aufruf; älter: erneut gefragt (Review M1)", async () => {
+    const tag = 24 * 60 * 60 * 1000;
+    const frisch = orteSpeicher([{ ortSchluessel: "a", lat: Number.NaN, lng: Number.NaN, berechnetAm: new Date(JETZT.getTime() - 6 * tag) }]);
+    const abruf = vi.fn(async () => geoOk(48.5, 9.25));
+    const r1 = await ortPunkte("w", [{ schluessel: "a", text: "Nirgends", plz: null }], { jetzt: JETZT, speicher: frisch, abruf, schluessel: "test-key" });
+    expect(abruf).not.toHaveBeenCalled();
+    expect(r1.ohne).toEqual(["a"]);
+    expect(r1.punkte.size).toBe(0);
+    const alt = orteSpeicher([{ ortSchluessel: "a", lat: Number.NaN, lng: Number.NaN, berechnetAm: new Date(JETZT.getTime() - 8 * tag) }]);
+    const r2 = await ortPunkte("w", [{ schluessel: "a", text: "Nirgends", plz: null }], { jetzt: JETZT, speicher: alt, abruf, schluessel: "test-key" });
+    expect(abruf).toHaveBeenCalledTimes(1);
+    expect(r2.punkte.get("a")).toEqual([9.25, 48.5]);
+  });
+
+  it("nicht auffindbare Orte vorne blockieren die übrigen nicht (Review M1)", async () => {
+    const tag = 24 * 60 * 60 * 1000;
+    // 25 abgelaufene Fehlversuche vorn, ein nie gefragter Ort hinten: der neue kommt zuerst dran.
+    const fehl = Array.from({ length: 25 }, (_, i) => ({ ortSchluessel: `f${i}`, lat: Number.NaN, lng: Number.NaN, berechnetAm: new Date(JETZT.getTime() - 8 * tag) }));
+    const speicher = orteSpeicher(fehl);
+    const urls: string[] = [];
+    const abruf = vi.fn(async (u: string) => {
+      urls.push(u);
+      return u.includes("Bonn") ? geoOk(50.7, 7.1) : new Response(JSON.stringify({ status: "ZERO_RESULTS", results: [] }));
+    });
+    const orte = [...fehl.map((z) => ({ schluessel: z.ortSchluessel, text: `Nirgends ${z.ortSchluessel}`, plz: null })), { schluessel: "neu", text: "Bonn", plz: null }];
+    const r = await ortPunkte("w", orte, { jetzt: JETZT, speicher, abruf, schluessel: "test-key" });
+    expect(urls[0]).toContain("Bonn");
+    expect(r.punkte.get("neu")).toEqual([7.1, 50.7]);
+    expect(abruf).toHaveBeenCalledTimes(25);
+    // Beim nächsten Öffnen sind die 24 neu gemerkten Fehlversuche frisch, nur der letzte alte wird gefragt.
+    const abruf2 = vi.fn(async () => new Response(JSON.stringify({ status: "ZERO_RESULTS", results: [] })));
+    await ortPunkte("w", orte, { jetzt: JETZT, speicher, abruf: abruf2, schluessel: "test-key" });
+    expect(abruf2).toHaveBeenCalledTimes(1);
   });
 });
