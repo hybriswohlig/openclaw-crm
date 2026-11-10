@@ -47,6 +47,23 @@ export function trefferZiel(
   return null;
 }
 
+/** Kürzere Züge legen nie ab (Review M4): ein Pin nahe Beladen fügt sonst beim Schieben der Karte hinzu. */
+export const ABLAGE_MIN_PX = 20;
+
+/**
+ * Ablageziel nur nach einer Mindeststrecke ab dem Start des Zugs; darunter
+ * zählt kein Ziel (Hervorhebung, Vorschau und Loslassen gleich).
+ */
+export function ablageZiel(
+  p: Bildpunkt,
+  start: Bildpunkt,
+  ziele: { auftrag: Bildpunkt | null; team: readonly (Rechteck | null)[] },
+  minPx = ABLAGE_MIN_PX,
+): AblageZiel | null {
+  if (Math.hypot(p.x - start.x, p.y - start.y) < minPx) return null;
+  return trefferZiel(p, ziele);
+}
+
 export type Ablegen =
   | { art: "hinzufuegen"; auswahl: Auswahl }
   | { art: "rueckfrage"; rueckfrage: Rueckfrage }

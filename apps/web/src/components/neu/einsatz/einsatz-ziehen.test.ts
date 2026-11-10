@@ -21,7 +21,7 @@ import {
 } from "./einsatz-karte-logik";
 import { FIXTURE_ANSICHT, FIXTURE_KARTE, FIXTURE_PERSONEN } from "./einsatz-karte.fixture";
 import { auswahlHinzufuegen, minutenSetzen, startAuswahl, summeAus, teamBody, type Auswahl } from "./einsatz-logik";
-import { ablegen, abstandText, kompaktText, trefferZiel, ziehenVorschau, ABLAGE_RADIUS_PX } from "./einsatz-ziehen";
+import { ablageZiel, ablegen, abstandText, kompaktText, trefferZiel, ziehenVorschau, ABLAGE_RADIUS_PX } from "./einsatz-ziehen";
 
 const a = FIXTURE_ANSICHT;
 const p = (id: string) => FIXTURE_PERSONEN.find((x) => x.id === id)!;
@@ -47,6 +47,20 @@ describe("trefferZiel", () => {
 
   it("ohne Auftragspunkt und ohne Team nichts", () => {
     expect(trefferZiel({ x: 0, y: 0 }, { auftrag: null, team: [] })).toBeNull();
+  });
+});
+
+describe("ablageZiel (Review M4)", () => {
+  const auftrag = { x: 100, y: 100 };
+  it("Zug unter 20 px legt nie ab, auch wenn er im Ablagekreis beginnt und endet", () => {
+    const start = { x: 105, y: 100 };
+    expect(ablageZiel({ x: 111, y: 100 }, start, { auftrag, team: [] })).toBeNull();
+    expect(ablageZiel({ x: 105, y: 119 }, start, { auftrag, team: [] })).toBeNull();
+    expect(ablageZiel({ x: 105, y: 120 }, start, { auftrag, team: [] })).toBe("auftrag");
+  });
+  it("lange Züge treffen wie trefferZiel", () => {
+    expect(ablageZiel({ x: 100, y: 100 }, { x: 300, y: 300 }, { auftrag, team: [] })).toBe("auftrag");
+    expect(ablageZiel({ x: 400, y: 400 }, { x: 300, y: 300 }, { auftrag, team: [] })).toBeNull();
   });
 });
 

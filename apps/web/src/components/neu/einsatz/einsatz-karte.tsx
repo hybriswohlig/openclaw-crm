@@ -23,7 +23,7 @@ import {
   HALTEN_MS,
   HALTEN_TOLERANZ_PX,
   kompaktText,
-  trefferZiel,
+  ablageZiel,
   ziehenVorschau,
   ZIEHEN_AB_PX,
   type AblageZiel,
@@ -170,7 +170,7 @@ export function EinsatzKartenAnsicht({
         window.removeEventListener("click", schlucken, true);
       }, 350);
       if (!ablegen) return;
-      const ziel = trefferZiel(ablegen, ziele());
+      const ziel = ablageZiel(ablegen, z.start, ziele());
       const p = details.get(z.k.employeeId);
       // Abbruch außerhalb: nichts ändert sich, der Pin steht wieder an seinem Ort.
       if (ziel && p) onAblegen(p);
@@ -197,7 +197,7 @@ export function EinsatzKartenAnsicht({
         setOffen(null);
       }
       e.preventDefault();
-      const ziel = trefferZiel({ x: e.clientX, y: e.clientY }, ziele());
+      const ziel = ablageZiel({ x: e.clientX, y: e.clientY }, z.start, ziele());
       teamFlaechenHeiss(ziel === "team");
       setGeist({ k: z.k, x: e.clientX, y: e.clientY, ziel });
     }
