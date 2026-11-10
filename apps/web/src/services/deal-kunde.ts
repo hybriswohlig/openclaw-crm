@@ -10,6 +10,7 @@
  */
 import { canonicalizeEmail, canonicalizePhone, isRelayEmail } from "@/lib/identity/canonical";
 import { formatLocation, stripLeadTitleDecorations } from "@/lib/deal-doc-data";
+import { gleicheAdresse } from "@/lib/adresse";
 import { nameAusWert } from "@/lib/personen-name";
 import {
   KundeFehler,
@@ -131,6 +132,10 @@ async function speichereKundeJetzt(ws: string, dealId: string, e: KundeEingabe, 
   const dv = deal.values as Werte;
 
   const dealInput: Werte = {};
+  // KV-Meldung 10.11.: nie den Auszug still als Einzug speichern (VON = NACH im KV).
+  if ((e.auszug || e.einzug) && gleicheAdresse(e.auszug ? ortAusTeilen(e.auszug) : dv.move_from_address, e.einzug ? ortAusTeilen(e.einzug) : dv.move_to_address)) {
+    throw new KundeFehler("Einzug und Auszug sind dieselbe Adresse. Bitte die neue Adresse als Einzug eintragen.");
+  }
   if (e.auszug) dealInput.move_from_address = ortAusTeilen(e.auszug);
   if (e.einzug) dealInput.move_to_address = ortAusTeilen(e.einzug);
   if (e.datum) dealInput.move_date = e.datum;

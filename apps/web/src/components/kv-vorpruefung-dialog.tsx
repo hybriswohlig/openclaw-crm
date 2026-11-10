@@ -12,7 +12,7 @@ import { useMemo, useState } from "react";
 import { Loader2 } from "lucide-react";
 import type { LeadContext } from "@/lib/deal-doc-data";
 import { AddressAutocomplete, type LocationValue } from "@/components/maps/AddressAutocomplete";
-import { alsOrtWert } from "@/lib/adresse";
+import { alsOrtWert, gleicheAdresse } from "@/lib/adresse";
 import {
   kvVorpruefung,
   type DokumentArt,
@@ -76,8 +76,13 @@ export function KvVorpruefungDialog({
   const [speichert, setSpeichert] = useState(false);
   const [fehler, setFehler] = useState<string | null>(null);
 
+  // KV-Meldung 10.11.: Einzug gleich Auszug zählt wie fehlend (nie still zweimal dieselbe Adresse).
+  const einzugGleich = pruefung.felder.some((f) => f.feld === "einzug") && gleicheAdresse(orte.auszug, orte.einzug);
   const leer = (feld: PflichtFeld) =>
-    feld === "auszug" || feld === "einzug" ? !orte[feld]?.line1?.trim() : !werte[feld]?.trim();
+    feld === "auszug" || feld === "einzug"
+      ? !orte[feld]?.line1?.trim() || (feld === "einzug" && einzugGleich)
+      : !werte[feld]?.trim();
+  const fehltText = (feld: PflichtFeld) => (feld === "einzug" && einzugGleich && orte.einzug?.line1?.trim() ? "gleich Auszug" : "fehlt");
   const bereit =
     pruefung.felder.every((f) => !leer(f.feld)) && !pruefung.firmaFehlt && !pruefung.preisFehlt && !speichert;
 
@@ -148,7 +153,7 @@ export function KvVorpruefungDialog({
               <div key={f.feld} className={leer(f.feld) ? "rounded-md ring-1 ring-destructive/50" : ""}>
                 {vonHand[f.feld] ? (
                   <label className="block">
-                    <span className="text-xs font-medium">{leer(f.feld) ? `${f.label} (fehlt)` : f.label}</span>
+                    <span className="text-xs font-medium">{leer(f.feld) ? `${f.label} (${fehltText(f.feld)})` : f.label}</span>
                     <input
                       type="text"
                       value={handText[f.feld]}
@@ -163,7 +168,7 @@ export function KvVorpruefungDialog({
                   </label>
                 ) : (
                   <AddressAutocomplete
-                    label={leer(f.feld) ? `${f.label} (fehlt)` : f.label}
+                    label={leer(f.feld) ? `${f.label} (${fehltText(f.feld)})` : f.label}
                     value={orte[f.feld]}
                     onChange={(loc) => setOrte((o) => ({ ...o, [f.feld]: loc }))}
                     placeholder="Adresse suchen und Vorschlag wählen…"

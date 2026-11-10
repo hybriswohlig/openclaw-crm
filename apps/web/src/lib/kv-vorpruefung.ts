@@ -7,7 +7,7 @@
  * blockieren nicht, sie zeigen nur, was im KV fehlen oder vereinfacht wird.
  */
 import { resolveCustomerNameForDocs, type LeadContext } from "./deal-doc-data";
-import { locationValueToText } from "./adresse";
+import { gleicheAdresse, locationValueToText } from "./adresse";
 import { leistungAusText, type PortalLeistung } from "@openclaw-crm/customer-portal-core";
 
 export type DokumentArt = "KV" | "AB" | "RE";
@@ -91,13 +91,15 @@ export function fehltFuerLeistung(
 }
 
 export interface Vorpruefung {
-  felder: Array<{ feld: PflichtFeld; label: string; wert: string; fehlt: boolean }>;
+  felder: Array<{ feld: PflichtFeld; label: string; wert: string; fehlt: boolean; grund?: string }>;
   firmaFehlt: boolean;
   /** AB und RE brauchen ein gespeichertes Angebot. */
   preisFehlt: boolean;
   hinweise: Array<{ art: HinweisArt; text: string }>;
   bereit: boolean;
 }
+
+export const EINZUG_GLEICH_TEXT = "Die Einzugsadresse ist gleich der Auszugsadresse. Bitte die neue Adresse eintragen.";
 
 const LABEL: Record<PflichtFeld, string> = {
   kundenname: "Kundenname",
@@ -124,12 +126,14 @@ export function kvVorpruefung(input: {
     datum: ctx?.move_date ?? "",
   };
   const pflicht = pflichtJeLeistung(daten?.leistungsart);
-  const felder = pflicht
-    .map((feld) => ({
+  // KV-Meldung 10.11.: nie still die Auszugsadresse als Einzug drucken.
+  const einzugGleich = !!ctx && gleicheAdresse(ctx.move_from_address, ctx.move_to_address);
+  const felder = pflicht.map((feld) => ({
     feld,
     label: LABEL[feld],
     wert: werte[feld],
-    fehlt: !werte[feld].trim(),
+    fehlt: !werte[feld].trim() || (feld === "einzug" && einzugGleich),
+    ...(feld === "einzug" && einzugGleich && werte[feld].trim() ? { grund: EINZUG_GLEICH_TEXT } : {}),
   }));
   const firmaFehlt = !ctx?.operating_company;
   const preisFehlt = input.documentType !== "KV" && !daten?.hatAngebot;

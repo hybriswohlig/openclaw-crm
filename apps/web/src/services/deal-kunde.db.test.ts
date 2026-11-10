@@ -153,6 +153,14 @@ describe.skipIf(!url)("Kunde und Adressen (DB)", { timeout: 30_000 }, () => {
     expect(dealData?.kunde.adresse).toBe("Hauptstr. 1, 72218, Wildberg");
   });
 
+  it("Einzug gleich Auszug wird nie gespeichert (KV-Meldung 10.11., VON = NACH)", async () => {
+    await expect(
+      dienst.speichereKunde(ws, deal.viktoria, { einzug: { strasse: "Hauptstraße 1", plz: "72218", ort: "Wildberg" } }, null)
+    ).rejects.toThrow("Einzug und Auszug sind dieselbe Adresse");
+    const [row] = await sql`select json_value from record_values where record_id = ${deal.viktoria} and attribute_id = ${attr[`${obj.deals}.move_to_address`]}`;
+    expect(row.json_value).toEqual({ line1: "71032 Böblingen" });
+  });
+
   it("Telefon ändern: neue Nummer vorn, alte bleibt", async () => {
     const k = await dienst.speichereKunde(ws, deal.viktoria, { telefon: "0157 1111111" }, null);
     expect(k.telefon).toBe("0157 1111111");

@@ -56,3 +56,33 @@ export function alsOrtWert(v: unknown): OrtWert | null {
   const ort: OrtWert = { line1: s(o.line1), postcode: s(o.postcode), city: s(o.city), countryCode: s(o.countryCode) };
   return ort.line1 ? ort : null;
 }
+
+/** Vergleichsschlüssel einer Adresse mit Straße (Text oder jsonb); null ohne Straße. */
+function adressSchluessel(v: unknown): { basis: string; zusatz: string } | null {
+  if (!v) return null;
+  const o = (typeof v === "string" ? addressStringToLocationValue(v) : v) as Record<string, unknown>;
+  if (!o || typeof o !== "object") return null;
+  const teil = (x: unknown) =>
+    typeof x === "string"
+      ? x
+          .toLocaleLowerCase("de-DE")
+          .replace(/stra(ß|ss)e\b/g, "str")
+          .replace(/[^\p{L}\p{N}]/gu, "")
+      : "";
+  const strasse = teil(o.line1);
+  if (!strasse || /^\d{5}/.test(strasse)) return null;
+  return { basis: [strasse, teil(o.postcode), teil(o.city)].join("|"), zusatz: teil(o.line2) };
+}
+
+/**
+ * true, wenn Auszug und Einzug dieselbe Adresse mit Straße sind (KV-Meldung 10.11.:
+ * VON und NACH zeigten beide die Auszugsadresse). Schreibweisen wie „Str.“/„Straße“,
+ * Leerzeichen und Kommas zählen nicht; zwei verschiedene Zusätze (Etage, Wohnung) schon.
+ * Ohne Straße (nur PLZ und Ort, Umzug im selben Ort) nie gleich.
+ */
+export function gleicheAdresse(a: unknown, b: unknown): boolean {
+  const x = adressSchluessel(a);
+  const y = adressSchluessel(b);
+  if (!x || !y || x.basis !== y.basis) return false;
+  return !(x.zusatz && y.zusatz && x.zusatz !== y.zusatz);
+}

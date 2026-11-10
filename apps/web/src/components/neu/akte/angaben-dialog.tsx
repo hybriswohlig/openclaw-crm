@@ -10,9 +10,10 @@ import {
   GlassDialogDescription,
   GlassDialogTitle,
 } from "@/components/glassyui/glass-dialog";
-import type { DealKunde, KundeEingabe } from "@/lib/deal-kunde";
+import { gleicheAdresse } from "@/lib/adresse";
+import { ortAusTeilen, type DealKunde, type KundeEingabe } from "@/lib/deal-kunde";
 import { aenderungen, entwurfAus, feldAusPflicht, feldLeer, type KundeEntwurf, type KundeFeld } from "@/lib/kunde-entwurf";
-import type { DokumentArt as VorpruefungArt, Vorpruefung } from "@/lib/kv-vorpruefung";
+import { EINZUG_GLEICH_TEXT, type DokumentArt as VorpruefungArt, type Vorpruefung } from "@/lib/kv-vorpruefung";
 import { apiAufruf } from "./api";
 import { AusDemChatKnopf, KundeFelder, PersonFrage, kundeSpeichern, type PersonKandidat } from "./kunde-felder";
 
@@ -67,7 +68,10 @@ export function AngabenDialog({
     };
   }, [dealId]);
 
-  const bereit = !laden && felder.every((f) => !feldLeer(entwurf, f));
+  // KV-Meldung 10.11.: Einzug gleich Auszug zählt wie fehlend.
+  const einzugGleich = felder.includes("einzug") && gleicheAdresse(ortAusTeilen(entwurf.auszug), ortAusTeilen(entwurf.einzug));
+  const gruende = pruefung.felder.filter((f) => f.fehlt && f.grund).map((f) => f.grund!);
+  const bereit = !laden && felder.every((f) => !feldLeer(entwurf, f)) && !einzugGleich;
 
   const laeuftRef = useRef(false);
 
@@ -100,6 +104,11 @@ export function AngabenDialog({
         </GlassDialogDescription>
         <form onSubmit={(e) => void speichern(e)}>
           {laden ? <p className="kunde-hinweis">Lädt die Kundendaten …</p> : null}
+          {einzugGleich || gruende.length > 0 ? (
+            <p className="kunde-hinweis" role="status">
+              {einzugGleich ? EINZUG_GLEICH_TEXT : gruende.join(" ")}
+            </p>
+          ) : null}
           <KundeFelder
             felder={felder}
             entwurf={entwurf}

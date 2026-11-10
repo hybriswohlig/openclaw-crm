@@ -16,7 +16,9 @@
  * Rechnungs- und Vorgangsnummern, IBAN und Signaturen werden nie zur Adresse.
  */
 import { adressenAusNachrichten } from "@/lib/chat-adressen";
+import { gleicheAdresse } from "@/lib/adresse";
 import {
+  ortAusTeilen,
   vorschlagAdresse,
   vorschlagEmail,
   vorschlagName,
@@ -221,6 +223,14 @@ export async function kundeVorschlag(ws: string, deal: string, quellen?: Vorschl
     einzug ??= ersteAdresse([["erkennung", erkannt.nach]]);
   }
 
+  // KV-Meldung 10.11.: nennt der Kunde nur eine Adresse, setzt die KI sie gern auf beide Seiten.
+  // Dann kein Einzug vorschlagen (nie still Auszug als Einzug).
+  let einzugGleich = false;
+  if (auszug && einzug && gleicheAdresse(ortAusTeilen(auszug.wert), ortAusTeilen(einzug.wert))) {
+    einzug = null;
+    einzugGleich = true;
+  }
+
   const quellen_: Quelle[] = [
     ...(name || email || telefon ? (["ki"] as const) : []),
     ...(auszug ? [auszug.quelle] : []),
@@ -235,7 +245,9 @@ export async function kundeVorschlag(ws: string, deal: string, quellen?: Vorschl
     telefon,
     auszug: auszug?.wert ?? null,
     einzug: einzug?.wert ?? null,
-    hinweis: nichts
+    hinweis: einzugGleich
+      ? "Im Chat steht für Auszug und Einzug dieselbe Adresse. Die Einzugsadresse bitte beim Kunden erfragen."
+      : nichts
       ? ki === null
         ? "Die KI-Auswertung hat nicht geklappt, und in den Nachrichten steht keine Adresse mit PLZ und Ort."
         : "In den Nachrichten des Kunden stehen weder Name noch Adresse noch E-Mail."

@@ -32,7 +32,7 @@ import {
 } from "./scope-guard";
 import type { DealInsights } from "./deal-insights";
 import { kalkulationAnstossen } from "@/services/rechner/ausloeser";
-import { addressStringToLocationValue } from "@/lib/adresse";
+import { addressStringToLocationValue, gleicheAdresse } from "@/lib/adresse";
 
 export interface ApplyInsightsInput {
   workspaceId: string;
@@ -375,8 +375,15 @@ export async function applyDealInsights(
       result.fieldsUpdated.push("Abholadresse");
     }
     if (selected.has("move_to_address") && ext.move_to_address && canWriteDeal("move_to_address")) {
-      input.move_to_address = addressStringToLocationValue(ext.move_to_address);
-      result.fieldsUpdated.push("Zieladresse");
+      const ziel = addressStringToLocationValue(ext.move_to_address);
+      // KV-Meldung 10.11.: die KI setzt eine einzige genannte Adresse gern auf beide Seiten.
+      // Eine Zieladresse gleich dem Auszug wird nie still übernommen (sonst VON = NACH im KV).
+      if (gleicheAdresse(input.move_from_address ?? beforeValues.move_from_address, ziel)) {
+        result.skipped.push("Zieladresse gleich Abholadresse, nicht übernommen");
+      } else {
+        input.move_to_address = ziel;
+        result.fieldsUpdated.push("Zieladresse");
+      }
     }
     if (selected.has("floors_from") && ext.floors_from != null && canWriteDeal("floors_from")) {
       input.floors_from = ext.floors_from;

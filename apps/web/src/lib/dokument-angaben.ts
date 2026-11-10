@@ -7,14 +7,17 @@
  * Auszugsadresse des Leads (`buildDealDataForDocs`). `/api/tools/run` startet deshalb
  * keinen Job ohne diese Angaben, und die Oberfläche fragt sie vorher ab.
  */
+import { gleicheAdresse } from "./adresse";
+
 export type DokArt = "KV" | "AB" | "RE";
-export type VpsPflicht = "kundenname" | "auszug";
+export type VpsPflicht = "kundenname" | "auszug" | "einzug_gleich";
 
 const DOK_KURZ: Record<DokArt, string> = { KV: "KV", AB: "AB", RE: "Rechnung" };
 
 const PFLICHT_TEXT: Record<VpsPflicht, string> = {
   kundenname: "Kundenname fehlt",
   auszug: "Kundenanschrift fehlt",
+  einzug_gleich: "Einzugsadresse ist gleich der Auszugsadresse",
 };
 
 function gefuellt(x: unknown): boolean {
@@ -27,6 +30,9 @@ export function fehlendeVpsAngaben(params: Record<string, unknown>): VpsPflicht[
   const fehlt: VpsPflicht[] = [];
   if (!gefuellt(kunde.nachname)) fehlt.push("kundenname");
   if (!gefuellt(kunde.adresse)) fehlt.push("auszug");
+  // KV-Meldung 10.11.: VON und NACH dürfen nie still dieselbe Adresse zeigen.
+  const auftrag = (params.auftrag && typeof params.auftrag === "object" ? params.auftrag : {}) as Record<string, unknown>;
+  if (gleicheAdresse(auftrag.strecke_von, auftrag.strecke_nach)) fehlt.push("einzug_gleich");
   return fehlt;
 }
 
@@ -58,7 +64,7 @@ const BEKANNT: Array<[RegExp, string]> = [
 ];
 
 /** Gründe, die man in der Akte unter „Kunde und Adressen“ beheben kann: nur dann der Link. */
-const IN_DER_AKTE = /^(kundenanschrift|auszugsadresse|einzugsadresse|kundenname|umzugsdatum) fehlt$/i;
+const IN_DER_AKTE = /^((kundenanschrift|auszugsadresse|einzugsadresse|kundenname|umzugsdatum) fehlt|einzugsadresse ist gleich der auszugsadresse)$/i;
 
 function inDerAkte(grund: string): boolean {
   return grund.split(/,\s*/).every((g) => IN_DER_AKTE.test(g.trim()));

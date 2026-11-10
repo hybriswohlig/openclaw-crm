@@ -121,5 +121,6 @@ export function vorschlagHinweis(v: KundeVorschlag, gesetzt: readonly KundeFeld[
       : v.quelle === "ki_gespeichert"
         ? "aus der letzten KI-Analyse"
         : "aus dem Chat";
-  return `${gesetzt.length === 1 ? "Ein Feld" : `${gesetzt.length} Felder`} ${quelle} eingesetzt. Bitte prüfen, gespeichert wird erst mit „Speichern“.`;
+  const text = `${gesetzt.length === 1 ? "Ein Feld" : `${gesetzt.length} Felder`} ${quelle} eingesetzt. Bitte prüfen, gespeichert wird erst mit „Speichern“.`;
+  return v.hinweis ? `${text} ${v.hinweis}` : text;
 }
