@@ -71,6 +71,8 @@ describe.skipIf(!url)("Portal ohne Plan-5-Preise wie vor 5b (DB)", { timeout: 20
   const ctx = { ipAddress: "203.0.113.5", userAgent: "test" };
 
   beforeAll(async () => {
+    // Widerrufsfrist rechnet ab heute: Datum fest auf den Tag des Schnappschusses (nur Date, keine Timer).
+    vi.useFakeTimers({ now: new Date("2026-11-09T10:00:00Z"), toFake: ["Date"] });
     process.env.DATABASE_URL = url;
     sql = postgres(url!, { max: 3 });
     namen.set(ws, "<ws>");
@@ -80,6 +82,7 @@ describe.skipIf(!url)("Portal ohne Plan-5-Preise wie vor 5b (DB)", { timeout: 20
   });
 
   afterAll(async () => {
+    vi.useRealTimers();
     await sql`delete from workspaces where id = ${ws}`;
     await sql.end();
   });
