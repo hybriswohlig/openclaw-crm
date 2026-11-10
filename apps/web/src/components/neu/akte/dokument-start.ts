@@ -4,9 +4,11 @@
  * scheitert („Kundenanschrift fehlt“). Gleiche Regeln wie das Fenster der alten
  * Oberfläche (`kvVorpruefung`).
  */
-import type { DealData } from "@/components/GenerateDocumentDialog";
 import { buildDealDataForDocs, type LeadContext } from "@/lib/deal-doc-data";
 import { kvVorpruefung, type DokumentArt, type KvHinweisDaten, type Vorpruefung } from "@/lib/kv-vorpruefung";
+
+/** Deal-Daten des Dokumentdialogs (Typ über deal-doc-data, ohne den alten Dialog zu importieren). */
+type DealData = NonNullable<ReturnType<typeof buildDealDataForDocs>>;
 
 export type DokumentStart =
   | { art: "firma_fehlt" }
