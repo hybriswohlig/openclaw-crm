@@ -5,6 +5,7 @@ import {
   aenderungsGrund,
   aenderungsStand,
   herkunftAus,
+  kundenAnredeZeile,
   kundenNachricht,
   normalisiereVorschlaege,
   uebernahmePlan,
@@ -314,7 +315,7 @@ describe("uebernahmePlan", () => {
     expect(plan.lead).toEqual([]);
     expect(plan.uebersteuerungen).toEqual([]);
     expect(plan.hinweise).toEqual([
-      "Ihren Terminwunsch (20.11.2026) haben wir notiert; den Termin bestätigen wir Ihnen gesondert.",
+      "Termin (nur Hinweis): 20.11.2026",
       "Hund ist dabei",
     ]);
     expect(plan.ids).toEqual(["t1", "h1"]);
@@ -465,34 +466,48 @@ describe("herkunftAus", () => {
 });
 
 describe("kundenNachricht", () => {
-  it("schreibt Sie-Form, bisher und den Link, ohne Gedankenstriche", () => {
-    const text = kundenNachricht({
-      anrede: "Frau Berg",
-      aenderungen: [
-        { art: "montage", name: "Sofa\u2014Ecke", abbau: "kunde", aufbau: "kunde" },
-        { art: "teil_hinzu", name: "Fahrrad", menge: 1, groesse: null },
-        { art: "unklar", text: "unklar \u2013 weg" },
-      ],
-      hinweise: ["Terminwunsch \u2013 vormittags"],
-      preisAltCent: 100000,
-      preisNeuCent: 129000,
-      link: "https://example.test/angebot/1",
-      neuAnnehmen: true,
-    });
+  const AEND: Aenderung[] = [
+    { art: "montage", name: "Sofa\u2014Ecke", abbau: "kunde", aufbau: "kunde" },
+    { art: "teil_hinzu", name: "Fahrrad", menge: 1, groesse: null },
+    { art: "kartons", anzahl: 70 },
+    { art: "unklar", text: "unklar \u2013 weg" },
+    { art: "hinweis", text: "Terminwunsch \u2013 vormittags" },
+    { art: "termin", datum: "2026-12-05", text: "lieber am 5." },
+  ];
+  const basis = { aenderungen: AEND, preis: { art: "fest" as const, altCent: 100000, neuCent: 129000 }, link: "https://example.test/s/1", neuAnnehmen: true };
 
-    expect(text).toContain("Guten Tag Frau Berg,");
+  it("Ceylan siezt: bisher, Link, erneut annehmen, Gruß, ohne Gedankenstriche", () => {
+    const text = kundenNachricht({ ...basis, firma: { slug: "ceylan", name: "Ceylan Umzüge" }, name: "Anna Berg" });
+    expect(text).toContain("Guten Tag Anna Berg,");
     expect(text).toContain("wir haben Ihr Angebot wie besprochen angepasst:");
     expect(text).toContain("Sofa-Ecke: Abbau und Aufbau übernehmen Sie selbst");
     expect(text).toContain("Fahrrad kommt dazu");
-    expect(text).toContain("bisher");
-    expect(text).toContain("https://example.test/angebot/1");
-    expect(text).toContain("bitte nehmen Sie es dort erneut an");
+    expect(text).toContain("Umzugskartons: jetzt 70");
+    expect(text).toContain("Der neue Preis beträgt 1.290 € (bisher 1.000 €).");
+    expect(text).toContain("bitte nehmen Sie es dort erneut an: https://example.test/s/1");
+    expect(text).toContain("Ihren Terminwunsch (05.12.2026) haben wir notiert; den Termin bestätigen wir Ihnen gesondert.");
     expect(text).toContain("Terminwunsch, vormittags");
+    expect(text).toContain("Ihr Team von Ceylan Umzüge");
     expect(text).not.toContain("unklar");
-    expect(text).not.toContain("\u2013");
-    expect(text).not.toContain("\u2014");
-    expect(text).not.toMatch(/\b[Dd]u\b/);
-    expect(text).not.toMatch(/\b[Dd]ein/);
+    expect(text).not.toMatch(/[\u2013\u2014]/);
+    expect(text).not.toMatch(/\b[Dd]u\b|\b[Dd]ein/);
+  });
+
+  it("Kottke duzt wie im Portal: Vorname, du-Formen, kein Sie", () => {
+    const text = kundenNachricht({ ...basis, firma: { slug: "kottke", name: "Kottke Umzüge" }, name: "Anna Berg" });
+    expect(text).toMatch(/^Hallo Anna,/);
+    expect(text).toContain("wir haben dein Angebot wie besprochen angepasst:");
+    expect(text).toContain("Sofa-Ecke: Abbau und Aufbau übernimmst du selbst");
+    expect(text).toContain("bitte nimm es dort erneut an: https://example.test/s/1");
+    expect(text).toContain("Deinen Terminwunsch (05.12.2026) haben wir notiert; den Termin bestätigen wir dir gesondert.");
+    expect(text).toContain("Dein Team von Kottke Umzüge");
+    expect(text).not.toMatch(/\b(Sie|Ihnen|Ihr|Ihren)\b/);
+    expect(text).not.toMatch(/[\u2013\u2014]/);
+  });
+
+  it("Anrede ohne brauchbaren Vornamen", () => {
+    expect(kundenAnredeZeile("Familie Weber", { slug: "kottke", name: null })).toBe("Hallo,");
+    expect(kundenAnredeZeile(null, { slug: null, name: null })).toBe("Guten Tag,");
   });
 });
 

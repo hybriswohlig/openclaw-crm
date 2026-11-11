@@ -11,6 +11,8 @@
  * faltet die Ereignisse eines Entwurfs zum aktuellen Stand.
  */
 import { hebelAusUebersteuerungen } from "@/components/neu/kalkulation/kv-posten-logik";
+import { kundenAnrede, kundenText } from "@openclaw-crm/customer-portal-core";
+import { vornameFuerAnrede } from "./personen-name";
 import { GROESSENKLASSEN, type Groessenklasse } from "./kalkulation-p15";
 import { MONTAGE_KEY, positionSchluessel, type MontageTraeger, type MontageWert } from "./kalkulation-versionen";
 import type { HebelArt } from "@/services/rechner/kv-posten";
@@ -547,7 +549,7 @@ export function uebernahmePlan(
         }
         break;
       case "termin":
-        plan.hinweise.push(terminHinweis(a));
+        plan.hinweise.push(`Termin (nur Hinweis): ${a.datum ? datumText(a.datum) : a.text}`);
         break;
       case "hinweis":
         plan.hinweise.push(a.text);
@@ -674,14 +676,15 @@ export function aendertLead(a: Aenderung): boolean {
   return a.art === "teil_hinzu" || a.art === "teil_weg" || a.art === "teil_menge";
 }
 
-function terminHinweis(a: Extract<Aenderung, { art: "termin" }>): string {
-  return a.datum
-    ? `Ihren Terminwunsch (${datumText(a.datum)}) haben wir notiert; den Termin bestätigen wir Ihnen gesondert.`
-    : `Zum Termin: ${a.text}`;
+// ─── Kundentexte je Firma (Kottke duzt, alle anderen siezen, wie das Portal) ─────────────
+
+/** Firma des Deals für die Kundentexte: Slug oder Name (für `kundenText`) und Anzeigename (Gruß). */
+export interface KundenFirma {
+  slug: string | null;
+  name: string | null;
 }
 
 const SEITE_KUNDE: Record<Seite, string> = { beladen: "am Auszug", entladen: "am Einzug" };
-const WER_KUNDE: Record<Wer, string> = { wir: "übernehmen wir", kunde: "übernehmen Sie selbst", nicht_noetig: "entfällt" };
 const HEBEL_KUNDE: Record<HebelArt, string> = {
   montage: "Die Montage entfällt",
   halteverbot: "Die Halteverbotszone entfällt",
@@ -689,8 +692,24 @@ const HEBEL_KUNDE: Record<HebelArt, string> = {
   kueche: "Die Küchenmontage entfällt",
 };
 
-/** Eine Zeile der Kundennachricht (Sie-Form, ohne Gedankenstrich); null = nicht aufzählen. */
-export function aenderungKundenText(a: Aenderung): string | null {
+function werKunde(w: Wer, firma: KundenFirma): string {
+  if (w === "wir") return "übernehmen wir";
+  if (w === "nicht_noetig") return "entfällt";
+  return kundenText(firma.slug, "übernehmen Sie selbst", "übernimmst du selbst");
+}
+
+/** Termin-Hinweis (nur notiert, nie umgebucht). */
+export function terminKundenText(a: { datum: string | null; text: string }, firma: KundenFirma): string {
+  if (!a.datum) return kundenText(firma.slug, `Zum Termin haben wir notiert: ${a.text}`, `Zum Termin haben wir notiert: ${a.text}`);
+  return kundenText(
+    firma.slug,
+    `Ihren Terminwunsch (${datumText(a.datum)}) haben wir notiert; den Termin bestätigen wir Ihnen gesondert.`,
+    `Deinen Terminwunsch (${datumText(a.datum)}) haben wir notiert; den Termin bestätigen wir dir gesondert.`
+  );
+}
+
+/** Eine Zeile der Kundennachricht (ohne Gedankenstrich); null = nicht aufzählen. */
+export function aenderungKundenText(a: Aenderung, firma: KundenFirma = { slug: null, name: null }): string | null {
   switch (a.art) {
     case "teil_hinzu":
       return a.menge > 1 ? `${a.menge} × ${a.name} kommen dazu` : `${a.name} kommt dazu`;
@@ -699,8 +718,8 @@ export function aenderungKundenText(a: Aenderung): string | null {
     case "teil_menge":
       return `${a.name}: jetzt ${a.menge} Stück`;
     case "montage": {
-      if (a.abbau && a.aufbau && a.abbau === a.aufbau) return `${a.name}: Abbau und Aufbau ${WER_KUNDE[a.abbau]}`;
-      const teile = [a.abbau ? `Abbau ${WER_KUNDE[a.abbau]}` : null, a.aufbau ? `Aufbau ${WER_KUNDE[a.aufbau]}` : null].filter(Boolean);
+      if (a.abbau && a.aufbau && a.abbau === a.aufbau) return `${a.name}: Abbau und Aufbau ${werKunde(a.abbau, firma)}`;
+      const teile = [a.abbau ? `Abbau ${werKunde(a.abbau, firma)}` : null, a.aufbau ? `Aufbau ${werKunde(a.aufbau, firma)}` : null].filter(Boolean);
       return `${a.name}: ${teile.join(", ")}`;
     }
     case "halteverbot":
@@ -708,11 +727,11 @@ export function aenderungKundenText(a: Aenderung): string | null {
     case "etage":
       return `Etage ${SEITE_KUNDE[a.seite]}: ${etageText(a.etage)}`;
     case "aufzug":
-      return `${SEITE_KUNDE[a.seite] === "am Auszug" ? "Am Auszug" : "Am Einzug"}: ${AUFZUG_TEXT[a.aufzug]}`;
+      return `${a.seite === "beladen" ? "Am Auszug" : "Am Einzug"}: ${AUFZUG_TEXT[a.aufzug]}`;
     case "tragweg":
       return `Trageweg ${SEITE_KUNDE[a.seite]}: etwa ${a.meter} m`;
     case "kartons":
-      return `${a.anzahl} Umzugskartons`;
+      return `Umzugskartons: jetzt ${a.anzahl}`;
     case "einpacken":
       return a.anzahl === 0 ? "Der Einpackservice entfällt" : `Einpackservice für ${a.anzahl} Kartons`;
     case "posten_hinzu":
@@ -730,41 +749,78 @@ const EURO = new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR"
 
 /** „1.290 €“, mit Cent nur wenn nötig. */
 export function euroText(cent: number): string {
-  return EURO.format(cent / 100).replace(/ /g, " ");
+  return EURO.format(cent / 100).replace(/\u00a0/g, " ");
+}
+
+/** Was die Preiszeile sagt: Festpreis, je Paket bzw. Tag, oder Stunden. */
+export type PreisAngabe =
+  | { art: "fest"; altCent: number | null; neuCent: number | null }
+  | { art: "liste"; zeilen: { label: string; altCent: number | null; neuCent: number | null }[] }
+  | { art: "stunden"; satzCent: number; stunden: number; summeCent: number | null };
+
+function bisher(alt: number | null, neu: number): string {
+  return alt !== null && alt !== neu ? ` (bisher ${euroText(alt)})` : "";
+}
+
+/** Preiszeile(n) der Nachricht. */
+export function preisZeilen(p: PreisAngabe, firma: KundenFirma): string[] {
+  if (p.art === "fest") {
+    if (p.neuCent === null) return [];
+    return [p.altCent !== null && p.altCent !== p.neuCent ? `Der neue Preis beträgt ${euroText(p.neuCent)}${bisher(p.altCent, p.neuCent)}.` : `Der Preis beträgt ${euroText(p.neuCent)}.`];
+  }
+  if (p.art === "liste") {
+    const z = p.zeilen.filter((x) => x.neuCent !== null);
+    if (z.length === 0) return [];
+    return ["Die neuen Preise:", ...z.map((x) => `• ${x.label}: ${euroText(x.neuCent!)}${bisher(x.altCent, x.neuCent!)}`)];
+  }
+  const summe = p.summeCent !== null ? kundenText(firma.slug, `, voraussichtlich etwa ${euroText(p.summeCent)}`, `, voraussichtlich etwa ${euroText(p.summeCent)}`) : "";
+  return [`Abgerechnet wird nach Aufwand: ${euroText(p.satzCent)} je Stunde, geschätzt ${K.format(p.stunden)} Stunden${summe}.`];
+}
+
+/** Anrede wie in den Kundentexten: Sie mit vollem Namen, du mit Vornamen. */
+export function kundenAnredeZeile(name: string | null, firma: KundenFirma): string {
+  const n = name?.trim() || null;
+  if (kundenAnrede(firma.slug) === "du") {
+    const vorname = vornameFuerAnrede(n);
+    return vorname ? `Hallo ${vorname},` : "Hallo,";
+  }
+  return n ? `Guten Tag ${n},` : "Guten Tag,";
 }
 
 /**
- * Entwurf der Nachricht an den Kunden (Sie-Form, keine Gedankenstriche): Änderungen kurz
- * aufgezählt, neuer Preis statt alter, Link aufs Angebot. Wird nie automatisch verschickt.
+ * Entwurf der Nachricht an den Kunden (Kottke du, sonst Sie; keine Gedankenstriche): Änderungen
+ * kurz aufgezählt, neuer Preis statt alter, Link aufs Angebot. Wird nie automatisch verschickt.
  */
 export function kundenNachricht(p: {
-  anrede: string | null;
+  firma: KundenFirma;
+  name: string | null;
   aenderungen: readonly Aenderung[];
-  hinweise: readonly string[];
-  preisAltCent: number | null;
-  preisNeuCent: number | null;
+  preis: PreisAngabe;
   link: string | null;
   neuAnnehmen: boolean;
 }): string {
-  const zeilen = p.aenderungen.map(aenderungKundenText).filter((t): t is string => !!t);
-  const teile: string[] = [p.anrede ? `Guten Tag ${p.anrede},` : "Guten Tag,", ""];
-  teile.push(zeilen.length > 0 ? "wir haben Ihr Angebot wie besprochen angepasst:" : "wir haben Ihr Angebot wie besprochen angepasst.");
+  const f = p.firma;
+  const t = (sie: string, du: string) => kundenText(f.slug, sie, du);
+  const zeilen = p.aenderungen.map((a) => aenderungKundenText(a, f)).filter((x): x is string => !!x);
+  const hinweise = p.aenderungen.flatMap((a) => (a.art === "hinweis" ? [a.text] : a.art === "termin" ? [terminKundenText(a, f)] : []));
+  const teile: string[] = [kundenAnredeZeile(p.name, f), ""];
+  const angepasst = t("wir haben Ihr Angebot wie besprochen angepasst", "wir haben dein Angebot wie besprochen angepasst");
+  teile.push(zeilen.length > 0 ? `${angepasst}:` : `${angepasst}.`);
   for (const z of zeilen) teile.push(`• ${z}`);
   teile.push("");
-  if (p.preisNeuCent !== null) {
-    teile.push(
-      p.preisAltCent !== null && p.preisAltCent !== p.preisNeuCent
-        ? `Der neue Preis beträgt ${euroText(p.preisNeuCent)} (bisher ${euroText(p.preisAltCent)}).`
-        : `Der Preis beträgt ${euroText(p.preisNeuCent)}.`
-    );
-  }
-  for (const h of p.hinweise) teile.push(h);
+  teile.push(...preisZeilen(p.preis, f));
+  for (const h of hinweise) teile.push(h);
   if (p.link) {
-    teile.push(p.neuAnnehmen ? `Das aktualisierte Angebot finden Sie hier, bitte nehmen Sie es dort erneut an: ${p.link}` : `Das aktualisierte Angebot finden Sie hier: ${p.link}`);
+    teile.push(
+      p.neuAnnehmen
+        ? t(`Das aktualisierte Angebot finden Sie hier, bitte nehmen Sie es dort erneut an: ${p.link}`, `Das aktualisierte Angebot findest du hier, bitte nimm es dort erneut an: ${p.link}`)
+        : t(`Das aktualisierte Angebot finden Sie hier: ${p.link}`, `Das aktualisierte Angebot findest du hier: ${p.link}`)
+    );
   } else if (p.neuAnnehmen) {
-    teile.push("Bitte nehmen Sie das aktualisierte Angebot erneut an.");
+    teile.push(t("Bitte nehmen Sie das aktualisierte Angebot erneut an.", "Bitte nimm das aktualisierte Angebot erneut an."));
   }
-  teile.push("", "Viele Grüße");
+  teile.push("", "Herzliche Grüße");
+  if (f.name) teile.push(t(`Ihr Team von ${f.name}`, `Dein Team von ${f.name}`));
   // Sicherheitsnetz: nie Gedankenstriche im Kundentext.
-  return teile.join("\n").replace(/\s[–—]\s/g, ", ").replace(/[–—]/g, "-");
+  return teile.join("\n").replace(/\s[\u2013\u2014]\s/g, ", ").replace(/[\u2013\u2014]/g, "-");
 }

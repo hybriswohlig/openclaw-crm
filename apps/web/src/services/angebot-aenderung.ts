@@ -11,7 +11,6 @@
 import { positionSchluessel } from "@/lib/kalkulation-versionen";
 import {
   aendertLead,
-  aenderungKundenText,
   aenderungsStand,
   aenderungText,
   AENDERUNG_EVENT,
@@ -23,6 +22,7 @@ import {
   type AenderungsEreignis,
   type AenderungsPayload,
   type InventarZeile,
+  type KundenFirma,
   type LeadSchritt,
   type LogQuelle,
   type Vorschlag,
@@ -87,6 +87,8 @@ export interface AenderungsQuellen {
   fotoStand: (deal: string) => Promise<{ offen: number; gescheitert: number }>;
   portalLink: (ws: string, deal: string) => Promise<string | null>;
   kundenName: (ws: string, deal: string) => Promise<string | null>;
+  /** Firma des Deals für die Kundentexte (Kottke du, sonst Sie). */
+  firma: (ws: string, deal: string) => Promise<KundenFirma>;
   entwurfHolen: (ws: string, deal: string, autor: Autor) => Promise<{ version: VersionsZeile; neu: boolean }>;
   anwenden: (
     ws: string,
@@ -260,19 +262,19 @@ export async function ansicht(ws: string, deal: string, quellen?: Partial<Aender
 
   let nachricht: AenderungsAnsicht["nachricht"] = null;
   if (l.basis && l.vorgang && l.vorgang.id !== l.basis.id) {
-    const [link, name] = await Promise.all([q.portalLink(ws, deal).catch(() => null), q.kundenName(ws, deal).catch(() => null)]);
+    const [link, name, firma] = await Promise.all([
+      q.portalLink(ws, deal).catch(() => null),
+      q.kundenName(ws, deal).catch(() => null),
+      q.firma(ws, deal).catch((): KundenFirma => ({ slug: null, name: null })),
+    ]);
     const uebernommen = stand.vorschlaege.filter((v) => v.status === "uebernommen" || (v.quelle === "foto" && v.status === "offen"));
-    const hinweise = uebernommen.flatMap((v) =>
-      v.aenderung.art === "hinweis" ? [v.aenderung.text] : v.aenderung.art === "termin" ? [terminText(v.aenderung)] : []
-    );
     nachricht = {
       link,
       text: kundenNachricht({
-        anrede: name,
-        aenderungen: uebernommen.map((v) => v.aenderung).filter((a) => aenderungKundenText(a) !== null),
-        hinweise,
-        preisAltCent: l.basis.priceCents,
-        preisNeuCent: l.vorgang.priceCents,
+        firma,
+        name,
+        aenderungen: uebernommen.map((v) => v.aenderung),
+        preis: { art: "fest", altCent: l.basis.priceCents, neuCent: l.vorgang.priceCents },
         link,
         // War das alte Angebot angenommen, muss der Kunde das neue erneut annehmen.
         neuAnnehmen: annahme.basis,
@@ -297,12 +299,6 @@ export async function ansicht(ws: string, deal: string, quellen?: Partial<Aender
     vergleich,
     nachricht,
   };
-}
-
-function terminText(a: { datum: string | null; text: string }): string {
-  if (!a.datum) return `Zum Termin: ${a.text}`;
-  const [j, m, t] = a.datum.split("-");
-  return `Ihren Terminwunsch (${t}.${m}.${j}) haben wir notiert; den Termin bestätigen wir Ihnen gesondert.`;
 }
 
 function seitFuerChat(basis: VersionsZeile | null): Date | null {
@@ -610,6 +606,7 @@ const standardSchluessel: Record<keyof AenderungsQuellen, true> = {
   fotoStand: true,
   portalLink: true,
   kundenName: true,
+  firma: true,
   entwurfHolen: true,
   anwenden: true,
   neuRechnen: true,
@@ -766,6 +763,12 @@ export async function standardQuellen(): Promise<AenderungsQuellen> {
     kundenName: async (ws, deal) => {
       const n = await (await import("./doc-customer-name")).resolveDocCustomerName(ws, deal);
       return n && n.source === "person" ? n.fullName : null;
+    },
+    firma: async (ws, deal) => {
+      const oc = await (await import("./financial")).resolveDealOperatingCompany(ws, deal);
+      if (!oc) return { slug: null, name: null };
+      const b = (await (await import("./customer-portal-config")).loadEffectiveBranding(oc)).branding;
+      return { slug: b.firmaSlug ?? b.displayName ?? null, name: b.displayName ?? null };
     },
     entwurfHolen: (ws, deal, autor) => versionen.entwurfHolenOderAnlegen(ws, deal, autor),
     anwenden: (ws, deal, eingaben, autor, entwurfVersion) => versionen.aenderungenAnwenden(ws, deal, eingaben, autor, undefined, entwurfVersion),

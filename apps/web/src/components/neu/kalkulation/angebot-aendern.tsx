@@ -391,7 +391,7 @@ function Nachricht({ dealId, daten }: { dealId: string; daten: AenderungsDaten }
       {!gesperrt ? <p className="aa-unter">Vorschau. Erst nach dem Sperren und mit dem neuen KV senden.</p> : null}
       {!daten.nachricht.link ? <p className="aa-unter">Es gibt noch keinen Status-Link; er entsteht beim Sperren.</p> : null}
       <label htmlFor={id} className="aa-unter">
-        Entwurf zum Freigeben (Sie-Form)
+        Entwurf zum Freigeben (Anrede wie im Portal der Firma)
         <textarea id={id} className="lg-input" value={text} onChange={(e) => setText(e.target.value)} />
       </label>
       {gesperrt ? (

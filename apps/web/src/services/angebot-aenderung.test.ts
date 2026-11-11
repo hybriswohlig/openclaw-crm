@@ -74,6 +74,7 @@ function aufbau(opts: { entwurf?: boolean; inventar?: InventarDbZeile[]; texte?:
     fotoStand: async () => ({ offen: 0, gescheitert: 0 }),
     portalLink: async () => "https://crm.example/s/abc",
     kundenName: async () => "Viktoriia Petrenko",
+    firma: async () => ({ slug: "ceylan", name: "Ceylan Umzüge" }),
     entwurfHolen: vi.fn(async () => {
       if (!versionen.some((v) => v.status === "entwurf")) versionen.push(version(2, { status: "entwurf", lockedAt: null, priceCents: 120000 }));
       return { version: structuredClone(versionen.find((v) => v.status === "entwurf")!), neu: true };
@@ -111,6 +112,16 @@ describe("starten und Ansicht", () => {
     expect(a.nachricht?.text).toContain("bisher 1.000 €");
     expect(a.nachricht?.text).toContain("https://crm.example/s/abc");
     expect(a.nachricht?.text).not.toContain("erneut an");
+    expect(a.nachricht?.text).toMatch(/^Guten Tag Viktoriia Petrenko,/);
+    expect(a.nachricht?.text).toContain("Ihr Team von Ceylan Umzüge");
+    // Kottke duzt, wie im Portal.
+    t.q.firma = async () => ({ slug: "kottke", name: "Kottke Umzüge" });
+    const k = (await ansicht("ws", "deal", t.q)).nachricht?.text ?? "";
+    expect(k).toMatch(/^Hallo Viktoriia,/);
+    expect(k).toContain("findest du hier");
+    expect(k).toContain("Dein Team von Kottke Umzüge");
+    expect(k).not.toMatch(/\b(Sie|Ihnen|Ihr)\b/);
+    t.q.firma = async () => ({ slug: "ceylan", name: "Ceylan Umzüge" });
     // War v1 angenommen (auch inzwischen aufgehoben), bittet die Nachricht um eine neue Annahme.
     t.q.angenommen = async () => ({ aktiv: false, basis: true });
     expect((await ansicht("ws", "deal", t.q)).nachricht?.text).toContain("bitte nehmen Sie es dort erneut an");
