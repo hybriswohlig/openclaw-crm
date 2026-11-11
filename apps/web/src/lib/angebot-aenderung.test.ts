@@ -495,3 +495,35 @@ describe("kundenNachricht", () => {
     expect(text).not.toMatch(/\b[Dd]ein/);
   });
 });
+
+describe("Foto-Vorschläge (Zusatz Inhaber)", () => {
+  const foto = (status: "offen" | "uebernommen" | "verworfen", mitnehmen = true): Vorschlag => ({
+    id: "foto:f1",
+    quelle: "foto",
+    aenderung: { art: "teil_hinzu", name: "Fahrrad", menge: 1, groesse: null },
+    zitat: "Aus neuen Fotos erkannt",
+    status,
+    zeit: "2026-11-06T08:00:00.000Z",
+    foto: { inventarId: "f1", fotoUrl: null, mitnehmen, dublette: null },
+  });
+
+  it("uebernahmePlan: Foto-Teil legt nichts an; „bleibt da“ wird wieder mitgenommen", () => {
+    expect(uebernahmePlan([foto("offen")], { inventar: [], montageJetzt: {} }).lead).toEqual([]);
+    expect(uebernahmePlan([foto("offen", false)], { inventar: [], montageJetzt: {} }).lead).toEqual([{ art: "wieder", id: "f1", name: "Fahrrad" }]);
+  });
+
+  it("herkunftAus: Foto zählt offen und übernommen, verworfen nicht", () => {
+    expect(herkunftAus([foto("offen")])("teil:fahrrad")).toBe("foto");
+    expect(herkunftAus([foto("uebernommen")])("teil:fahrrad")).toBe("foto");
+    expect(herkunftAus([foto("verworfen")])("teil:fahrrad")).toBe("hand");
+  });
+
+  it("aenderungsStand: Live-Vorschläge bekommen ihren Status aus dem Log", () => {
+    const s = aenderungsStand(
+      [{ zeit: "2026-11-06T09:00:00.000Z", payload: { typ: "verworfen", entwurfVersion: 2, ids: ["foto:f1"] } }],
+      2,
+      [foto("offen")]
+    );
+    expect(s.vorschlaege.map((v) => [v.id, v.status])).toEqual([["foto:f1", "verworfen"]]);
+  });
+});
