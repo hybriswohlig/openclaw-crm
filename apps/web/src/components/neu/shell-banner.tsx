@@ -4,7 +4,7 @@ import "@/styles/neu-banner.css";
 
 import Link from "next/link";
 import { GlassButton } from "@/components/glassyui/glass-button";
-import { WHATSAPP_BANNER_LINK, WHATSAPP_BANNER_TEXT, useWhatsappStatus } from "@/components/layout/whatsapp-status-banner";
+import { WHATSAPP_BANNER_LINK, WHATSAPP_BANNER_TEXT, activateBaileysRepairLink, useWhatsappStatus } from "@/components/layout/whatsapp-status-banner";
 import { usePushPrompt } from "@/components/pwa/push-prompt-banner";
 
 function Schliessen({ onClick, label }: { onClick: () => void; label: string }) {
@@ -34,12 +34,16 @@ export function ShellBanner() {
 }
 
 function WhatsappBanner() {
-  const { sichtbar, schliessen } = useWhatsappStatus();
+  const { sichtbar, schliessen, href } = useWhatsappStatus();
   if (!sichtbar) return null;
   return (
     <div role="alert" className="neu-banner" data-ton="rot">
       <p className="neu-banner-text">{WHATSAPP_BANNER_TEXT}</p>
-      <Link href={WHATSAPP_BANNER_LINK.href} className="neu-banner-link">
+      <Link
+        href={href}
+        onClick={(event) => activateBaileysRepairLink(event, href)}
+        className="neu-banner-link"
+      >
         {WHATSAPP_BANNER_LINK.text}
       </Link>
       <Schliessen onClick={schliessen} label="Hinweis schließen" />

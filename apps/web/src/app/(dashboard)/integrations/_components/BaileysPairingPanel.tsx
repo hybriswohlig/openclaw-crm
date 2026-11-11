@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2, RefreshCw, CheckCircle2, AlertTriangle } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 interface QrSnapshot {
   id: string;
@@ -25,37 +26,72 @@ interface QrSnapshot {
 
 interface Props {
   accountId: string;
+  /**
+   * Re-pair of an existing row: POST /baileys/repair clears that account's
+   * auth blob and then starts the bridge. A brand-new row only needs start.
+   */
+  resetSession?: boolean;
   /** Called once `pairingStatus === 'connected'`. */
   onConnected?: () => void;
 }
+
+/** How long a stale logged_out/error may sit before we treat it as terminal. */
+const STALE_TERMINAL_MS = 20_000;
 
 /**
  * Modal-content component that drives the Baileys QR pairing flow.
  *
  * Flow:
- *   1. POST /api/v1/integrations/baileys/start  → bridge spawns a socket.
+ *   1. POST /api/v1/integrations/baileys/start   (new row)
+ *      or  /api/v1/integrations/baileys/repair  (existing logged-out row)
  *   2. Poll  /api/v1/integrations/baileys/qr     every 3s for pairing state.
  *   3. Render the QR string as a PNG via the `qrcode` package (dynamic
- *      import keeps it out of the SSR bundle).
- *   4. Stop polling once status is 'connected', 'logged_out', or 'error'.
+ *      import keeps it out of the SSR bundle). Pairing codes are shown when
+ *      the bridge supplies one.
+ *   4. Stop polling once status is 'connected', or 'logged_out' / 'error'
+ *      after the bridge has actually moved (a leftover logged_out from
+ *      before this attempt must not hide the QR).
  */
-export function BaileysPairingPanel({ accountId, onConnected }: Props) {
+export function BaileysPairingPanel({
+  accountId,
+  resetSession = false,
+  onConnected,
+}: Props) {
   const [snapshot, setSnapshot] = useState<QrSnapshot | null>(null);
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [startError, setStartError] = useState<string | null>(null);
   const [starting, setStarting] = useState(true);
+  const [attempt, setAttempt] = useState(0);
+  const [resetThisAttempt, setResetThisAttempt] = useState(resetSession);
   const stoppedPolling = useRef(false);
+  const sawProgress = useRef(false);
+  const pollStartedAt = useRef<number>(Date.now());
 
-  // Kick the bridge once on mount.
+  useEffect(() => {
+    setResetThisAttempt(resetSession);
+  }, [resetSession, accountId]);
+
   useEffect(() => {
     let cancelled = false;
+    stoppedPolling.current = false;
+    sawProgress.current = false;
+    pollStartedAt.current = Date.now();
+    setSnapshot(null);
+    setQrDataUrl(null);
+    setStartError(null);
+    setStarting(true);
     (async () => {
       try {
-        const res = await fetch("/api/v1/integrations/baileys/start", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ accountId }),
-        });
+        const res = await fetch(
+          resetThisAttempt
+            ? "/api/v1/integrations/baileys/repair"
+            : "/api/v1/integrations/baileys/start",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ accountId }),
+          },
+        );
         if (!cancelled && !res.ok) {
           const j = (await res.json().catch(() => ({}))) as {
             error?: { message?: string };
@@ -79,7 +115,7 @@ export function BaileysPairingPanel({ accountId, onConnected }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [accountId]);
+  }, [accountId, attempt, resetThisAttempt]);
 
   const fetchSnapshot = useCallback(async () => {
     try {
@@ -89,20 +125,33 @@ export function BaileysPairingPanel({ accountId, onConnected }: Props) {
       if (!res.ok) return;
       const data = (await res.json()) as QrSnapshot;
       setSnapshot(data);
+      const status = data.pairingStatus;
       if (
-        data.pairingStatus === "connected" ||
-        data.pairingStatus === "logged_out" ||
-        data.pairingStatus === "error"
+        status === "awaiting_qr" ||
+        status === "awaiting_code" ||
+        status === "connecting" ||
+        data.qrPayload ||
+        data.pairingCode
+      ) {
+        sawProgress.current = true;
+      }
+      const elapsed = Date.now() - pollStartedAt.current;
+      const staleTerminal =
+        (status === "logged_out" || status === "error") &&
+        !sawProgress.current &&
+        elapsed < STALE_TERMINAL_MS;
+      if (
+        status === "connected" ||
+        ((status === "logged_out" || status === "error") && !staleTerminal)
       ) {
         stoppedPolling.current = true;
       }
-      if (data.pairingStatus === "connected") onConnected?.();
+      if (status === "connected") onConnected?.();
     } catch {
       // network blip — try again on the next tick
     }
   }, [accountId, onConnected]);
 
-  // Poll loop.
   useEffect(() => {
     if (starting) return;
     void fetchSnapshot();
@@ -111,9 +160,8 @@ export function BaileysPairingPanel({ accountId, onConnected }: Props) {
       void fetchSnapshot();
     }, 3000);
     return () => clearInterval(handle);
-  }, [starting, fetchSnapshot]);
+  }, [starting, fetchSnapshot, attempt]);
 
-  // Re-render the QR PNG when the payload changes.
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -138,11 +186,16 @@ export function BaileysPairingPanel({ accountId, onConnected }: Props) {
     };
   }, [snapshot?.qrPayload]);
 
+  function retry() {
+    setResetThisAttempt(true);
+    setAttempt((n) => n + 1);
+  }
+
   if (starting) {
     return (
       <div className="flex items-center gap-2 text-sm text-muted-foreground py-6">
         <Loader2 className="h-4 w-4 animate-spin" />
-        Bridge wird gestartet…
+        {resetThisAttempt ? "Sitzung wird zurückgesetzt…" : "Bridge wird gestartet…"}
       </div>
     );
   }
@@ -155,11 +208,15 @@ export function BaileysPairingPanel({ accountId, onConnected }: Props) {
           Bridge-Start fehlgeschlagen
         </div>
         <p className="mt-1 text-xs">{startError}</p>
+        <Button type="button" variant="outline" size="sm" className="mt-3" onClick={retry}>
+          Erneut versuchen
+        </Button>
       </div>
     );
   }
 
   const status = snapshot?.pairingStatus ?? "idle";
+  const terminal = stoppedPolling.current;
 
   if (status === "connected") {
     return (
@@ -177,7 +234,7 @@ export function BaileysPairingPanel({ accountId, onConnected }: Props) {
     );
   }
 
-  if (status === "logged_out") {
+  if (terminal && status === "logged_out") {
     return (
       <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4 text-sm">
         <div className="flex items-center gap-2 font-medium text-amber-700 dark:text-amber-300">
@@ -185,14 +242,17 @@ export function BaileysPairingPanel({ accountId, onConnected }: Props) {
           Gerät abgemeldet
         </div>
         <p className="mt-1 text-xs text-muted-foreground">
-          Das verknüpfte Gerät wurde vom Telefon entfernt. Bitte erneut
-          pairen — der Account ist deaktiviert.
+          Das verknüpfte Gerät wurde vom Telefon entfernt. Neu verbinden setzt
+          nur diese Sitzung zurück und zeigt einen neuen QR-Code.
         </p>
+        <Button type="button" size="sm" className="mt-3" onClick={retry}>
+          Neu verbinden
+        </Button>
       </div>
     );
   }
 
-  if (status === "error") {
+  if (terminal && status === "error") {
     return (
       <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
         <div className="flex items-center gap-2 font-medium">
@@ -202,15 +262,24 @@ export function BaileysPairingPanel({ accountId, onConnected }: Props) {
         <p className="mt-1 text-xs">
           {snapshot?.lastDisconnectReason ?? "Bridge meldet einen Fehler."}
         </p>
+        <Button type="button" variant="outline" size="sm" className="mt-3" onClick={retry}>
+          Neu verbinden
+        </Button>
       </div>
     );
   }
 
   return (
     <div className="space-y-3">
+      {resetThisAttempt && (
+        <p className="text-xs text-muted-foreground">
+          Dieser QR verbindet den bestehenden Kanal neu. Bestehende
+          Unterhaltungen bleiben diesem Account zugeordnet.
+        </p>
+      )}
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
         <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-        {status === "awaiting_qr"
+        {status === "awaiting_qr" || status === "logged_out" || status === "idle"
           ? "Warte auf QR-Code…"
           : status === "awaiting_code"
             ? "Pairing-Code wird angefordert…"
@@ -225,11 +294,9 @@ export function BaileysPairingPanel({ accountId, onConnected }: Props) {
           <img
             src={qrDataUrl}
             alt="WhatsApp pairing QR"
-            className="rounded-lg border border-border bg-white p-2"
-            width={280}
-            height={280}
+            className="h-auto w-full max-w-[280px] rounded-lg border border-border bg-white p-2"
           />
-          <ol className="text-xs text-muted-foreground space-y-1 list-decimal pl-5">
+          <ol className="text-xs text-muted-foreground space-y-1 list-decimal pl-5 self-stretch">
             <li>
               WhatsApp auf dem Telefon → <em>Einstellungen</em>
             </li>
@@ -244,9 +311,13 @@ export function BaileysPairingPanel({ accountId, onConnected }: Props) {
           <div className="text-xs text-muted-foreground mb-1">
             Pairing-Code
           </div>
-          <div className="font-mono text-2xl tracking-widest">
+          <div className="font-mono text-2xl tracking-widest break-all">
             {snapshot.pairingCode}
           </div>
+          <p className="mt-2 text-xs text-muted-foreground">
+            WhatsApp → Verknüpfte Geräte → Gerät verknüpfen → Stattdessen mit
+            Telefonnummer verknüpfen.
+          </p>
         </div>
       ) : (
         <div className="flex items-center justify-center py-8">

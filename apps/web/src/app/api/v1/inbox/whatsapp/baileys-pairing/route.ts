@@ -19,6 +19,7 @@ import { channelAccounts } from "@/db/schema/inbox";
 import { and, eq, isNull } from "drizzle-orm";
 import { getAuthContext, unauthorized, badRequest, requireBridgeApiKey } from "@/lib/api-utils";
 import { deleteSetting } from "@/services/workspace-settings";
+import { baileysAuthStateKey } from "@/lib/baileys-repair";
 
 export const dynamic = "force-dynamic";
 
@@ -135,10 +136,7 @@ export async function POST(req: NextRequest) {
     // socket from auto-restarting next time the bridge boots.
     patch.isActive = false;
     try {
-      await deleteSetting(
-        ctx.workspaceId,
-        `baileys.auth_state.${account.id}`
-      );
+      await deleteSetting(ctx.workspaceId, baileysAuthStateKey(account.id));
     } catch (err) {
       console.error(
         "[baileys-pairing] failed to clear auth state on logout:",
