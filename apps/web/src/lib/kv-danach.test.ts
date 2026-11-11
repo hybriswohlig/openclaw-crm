@@ -199,6 +199,15 @@ describe("Pakete-Zeile im KV-Fenster", () => {
     expect(z.schalter).toEqual({ an: true, wert: "standard" });
   });
 
+  it("ohne Schalterdaten: unbekannt mit Hinweis statt „nicht angeboten“ ohne Grund (Review M6)", () => {
+    const z = paketeZeile({ ...basis, schalter: null, pakete: [] });
+    expect(z.text).toBe("Pakete: unbekannt");
+    expect(z.grund).toBe("Der Stand der Schalter ist nicht geladen, bitte die Seite neu laden.");
+    expect(z.schalter).toBeNull();
+    // Trägt die Version Pakete, ist das sicher.
+    expect(paketeZeile({ ...basis, schalter: null }).text).toBe("Pakete: werden angeboten (Basis, Komfort, Premium)");
+  });
+
   it("an einer gesperrten Version kein Schalter, nur der Hinweis auf eine neue Version", () => {
     const z = paketeZeile({ ...basis, gesperrt: true });
     expect(z.schalter).toBeNull();

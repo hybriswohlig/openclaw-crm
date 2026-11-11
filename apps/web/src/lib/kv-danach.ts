@@ -283,9 +283,13 @@ export function paketeZeile(e: PaketeZeileEingabe): PaketeZeile {
   const s = e.schalter;
   const stunden = e.preisModus === "stunden";
   const angeboten = !stunden && e.pakete.length > 0;
+  // Ohne Schalterdaten (Ladefehler) lässt sich nichts sicher sagen, außer die Version trägt Pakete (Review M6).
+  const unbekannt = !angeboten && !stunden && !s;
   const text = angeboten
     ? `Pakete: werden angeboten (${e.pakete.map((p) => p.name).join(", ")})`
-    : "Pakete: nicht angeboten";
+    : unbekannt
+      ? "Pakete: unbekannt"
+      : "Pakete: nicht angeboten";
 
   const optionen = e.optionen ?? null;
   let grund: string | null = null;
@@ -294,7 +298,7 @@ export function paketeZeile(e: PaketeZeileEingabe): PaketeZeile {
     grund = "Wie bisher aus den Paketoptionen des Deals, nicht aus der Kalkulation; das Portal zeigt sie so. Ändern im Paketberater der alten Akte.";
   } else if (!angeboten) {
     if (stunden) grund = "Stunden-KV: Pakete gibt es nur beim Festpreis.";
-    else if (!s) grund = null;
+    else if (!s) grund = "Der Stand der Schalter ist nicht geladen, bitte die Seite neu laden.";
     else if (s.deal === "aus") grund = optionen === 0 ? "Für diesen Deal ausgeschaltet, und der Deal hat keine Paketoptionen." : "Für diesen Deal ausgeschaltet.";
     else if (!s.wirksam) grund = "Firmen-Schalter „Angebot aus Kalkulation“ ist aus.";
     else if (!s.pakete.basis) grund = "Die Firma hat kein Basis-Paket.";
