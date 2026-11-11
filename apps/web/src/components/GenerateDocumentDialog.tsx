@@ -174,6 +174,8 @@ interface Props {
   onZiel?: (ziel: "umzugsgut" | "preis") => void;
   /** Nur Rechnung (Plan 9): Betrag und Grund aus dem Rechnungsschritt der Akte, unverändert durchgereicht. */
   rechnung?: { bruttoCent: number; abweichungGrund?: string };
+  /** Oben im Formular, von der neuen Oberfläche (Pakete-Zeile beim KV, kv-danach). */
+  kopfZusatz?: ReactNode;
 }
 
 export function GenerateDocumentDialog({
@@ -186,6 +188,7 @@ export function GenerateDocumentDialog({
   ziele = [],
   onZiel,
   rechnung,
+  kopfZusatz,
 }: Props) {
   const isKottke = deal.firma === "kottke";
   const [modell, setModell] = useState<Preismodell>(
@@ -592,6 +595,7 @@ export function GenerateDocumentDialog({
         </div>
 
         <div className="min-h-0 flex-1 touch-pan-y overflow-x-hidden overflow-y-auto overscroll-contain px-6 pb-4">
+        {kopfZusatz}
         {hinweise.length > 0 && (
           <div className="mb-4 space-y-2">
             {hinweise.map((h) => (

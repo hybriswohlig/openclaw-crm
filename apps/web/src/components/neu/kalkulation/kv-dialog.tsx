@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useId, useState, type ReactNode } from "react";
 import { GlassButton } from "@/components/glassyui/glass-button";
 import {
   GlassDialog,
@@ -32,6 +32,7 @@ export function KvDialog({
   stunden = null,
   laeuft,
   portalZiel,
+  zusatz,
   onSchliessen,
   onBestaetigen,
 }: {
@@ -41,6 +42,8 @@ export function KvDialog({
   stunden?: KalkulationsAnsicht["stunden"];
   laeuft: boolean;
   portalZiel: HTMLElement | undefined;
+  /** Unter der Summe, etwa die Pakete-Zeile (kv-danach). */
+  zusatz?: ReactNode;
   onSchliessen: () => void;
   onBestaetigen: (texte: KvTexte) => Promise<void>;
 }) {
@@ -79,6 +82,7 @@ export function KvDialog({
             <small>{kvUnterzeile(kv)}</small>
           </p>
         ) : null}
+        {zusatz}
         <form onSubmit={(e) => void bestaetigen(e)}>
           {kottke ? (
             <p className="kalk-dialog-hinweis">Anschreiben und Bemerkung gibst du im nächsten Dialog ein.</p>

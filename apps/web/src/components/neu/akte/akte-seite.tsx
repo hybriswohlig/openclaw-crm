@@ -20,6 +20,7 @@ import { TerminDialog } from "@/components/neu/termin/termin-dialog";
 import { VorlageDialog } from "./vorlage-dialog";
 import { ZahlungDialog } from "./zahlung-dialog";
 import { Zahlenreihe } from "./zahlenreihe";
+import { KvDanachKnoepfe } from "@/components/neu/kv-danach/kv-danach-knoepfe";
 import { RechnungFluss } from "./rechnung-fluss";
 import { ZahlungenPanel } from "./zahlungen-panel";
 
@@ -153,7 +154,10 @@ export function AkteSeite({ dealId }: { dealId: string }) {
         }
         onNeuLaden={neuLadenStill}
       />
-      <Zahlenreihe kacheln={akte.kacheln} />
+      <Zahlenreihe
+        kacheln={akte.kacheln}
+        kvAktionen={<KvDanachKnoepfe dealId={dealId} klasse="akte-kv-danach-knopf" gruppeKlasse="akte-kv-danach" />}
+      />
       <ZahlungenPanel dealId={dealId} zahlung={akte.zahlung} portalZiel={portalZiel} onNeuLaden={neuLadenStill} />
       <KundeBereich dealId={dealId} offen={angabenOffen} onGespeichert={neuLadenStill} />
       <div className="akte-koerper">

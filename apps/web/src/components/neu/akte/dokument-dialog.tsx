@@ -3,7 +3,7 @@
 import "@/styles/neu-akte-dock.css";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { GenerateDocumentDialog, type DealData, type PrefilledPreise } from "@/components/GenerateDocumentDialog";
 import { GlassButton } from "@/components/glassyui/glass-button";
 import {
@@ -51,6 +51,7 @@ export function DokumentDialog({
   portalZiel,
   onSchliessen,
   rechnung,
+  kopfZusatz,
 }: {
   dealId: string;
   art: DokumentDialogArt;
@@ -59,6 +60,8 @@ export function DokumentDialog({
   onSchliessen: () => void;
   /** Nur RE (Plan 9): Betrag und Grund aus dem Rechnungsschritt. */
   rechnung?: { bruttoCent: number; abweichungGrund?: string };
+  /** Oben im Dokumentdialog, etwa die Pakete-Zeile beim KV (kv-danach); bewusst hell wie der alte Dialog. */
+  kopfZusatz?: ReactNode;
 }) {
   const [zustand, setZustand] = useState<Zustand>({ art: "laden" });
 
@@ -98,6 +101,7 @@ export function DokumentDialog({
           deal={zustand.deal}
           prefill={zustand.prefill}
           rechnung={art === "RE" ? rechnung : undefined}
+          kopfZusatz={kopfZusatz ? <div className="neu-hell-fest">{kopfZusatz}</div> : undefined}
         />
       </div>
     );

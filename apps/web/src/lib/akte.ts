@@ -126,10 +126,13 @@ function aufzaehlung(xs: string[]): string {
 
 // ─── Zahlenreihe ──────────────────────────────────────────────────────────────
 
+/** Zeile der KV-Kachel ohne KV; die Akte zeigt die Knöpfe nach dem KV nur mit KV (kv-danach). */
+export const KV_FEHLT_ZEILE = "noch kein KV";
+
 function kvKachel(f: AblaufFakten): Kachel {
   const label = "Kostenvoranschlag";
   const kv = f.kv;
-  if (!kv) return { key: "kv", label, wert: LEER, zeile: "noch kein KV" };
+  if (!kv) return { key: "kv", label, wert: LEER, zeile: KV_FEHLT_ZEILE };
   const wert = kv.istStunden ? "Stunden-KV" : kv.betragCent !== null ? euroText(kv.betragCent) : LEER;
   const zeile = teile(
     kv.version !== null && `v${kv.version}`,

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { KvDanachKnoepfe } from "@/components/neu/kv-danach/kv-danach-knoepfe";
 import { angabenLink } from "@/lib/dokument-angaben";
 import type { KalkulationsAnsicht } from "@/lib/kalkulations-ansicht";
 import type { Lauf } from "./kalk-seite";
@@ -87,6 +88,8 @@ export function SperrenBereich({
                   KV öffnen
                 </a>
               ) : null}
+              {/* Nächster Schritt zum Kunden (kv-danach): Link kopieren oder im Chat vorbereiten. */}
+              {status.dokumentId ? <KvDanachKnoepfe dealId={dealId} klasse="kalk-kleinknopf" gruppeKlasse="kalk-kv-danach" /> : null}
               {status.angabenFehlen ? (
                 <Link className="kalk-kleinknopf" href={angabenLink(dealId)}>
                   Angaben ergänzen

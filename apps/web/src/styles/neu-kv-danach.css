@@ -1,0 +1,106 @@
+/*
+ * Nach dem KV (kv-danach): Knöpfe „Statuslink kopieren“ und „Im Chat senden“
+ * in Kalkulation und Akte, Pakete-Zeile im KV-Fenster. Nur Tokens.
+ */
+
+/* ── Knöpfe nach dem KV ─────────────────────────────── */
+
+[data-neu] .kalk-kv-danach {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+[data-neu] .akte-kv-danach {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  margin-top: 8px;
+}
+
+[data-neu] .akte-kv-danach-knopf {
+  padding: 2px 0;
+  border: 0;
+  background: none;
+  color: var(--blue-ink);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.3;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+[data-neu] .akte-kv-danach-knopf:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+[data-neu] .akte-kv-danach-knopf:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+[data-neu] .akte-kv-danach-knopf:disabled {
+  color: var(--ink-2);
+  cursor: progress;
+}
+
+/* ── Pakete-Zeile im KV-Fenster ─────────────────────── */
+
+[data-neu] .kv-pakete {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--rim);
+  color: var(--ink);
+  font-size: 13px;
+}
+
+[data-neu] .kv-pakete-kopf {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 12px;
+}
+
+[data-neu] .kv-pakete-text {
+  font-weight: 600;
+}
+
+[data-neu] .kv-pakete-text[data-an] {
+  color: var(--jade-ink);
+}
+
+[data-neu] .kv-pakete-schalter {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+[data-neu] .kv-pakete-schalter input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--blue);
+}
+
+[data-neu] .kv-pakete-grund,
+[data-neu] .kv-pakete-hinweis {
+  margin: 0;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+[data-neu] .kv-pakete-hinweis a {
+  color: var(--blue-ink);
+  font-weight: 600;
+}

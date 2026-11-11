@@ -28,6 +28,7 @@ import { useRouter } from "next/navigation";
 import { Check, Loader2, Sparkles, X } from "lucide-react";
 import type { JobAbschluss } from "@/lib/angebot-wahl";
 import { angabenLink, jobFehlerText } from "@/lib/dokument-angaben";
+import { KvDanachKnoepfe } from "@/components/neu/kv-danach/kv-danach-knoepfe";
 
 export type BackgroundDocType = "KV" | "AB" | "RE" | "AW";
 
@@ -536,6 +537,14 @@ function BackgroundJobsTray({
                 >
                   PDF öffnen
                 </a>
+                {/* Nächster Schritt nach dem KV (kv-danach): Link kopieren oder im Chat vorbereiten. */}
+                {job.docType === "KV" && (
+                  <KvDanachKnoepfe
+                    dealId={job.dealRecordId}
+                    gruppeKlasse="contents"
+                    klasse="rounded border border-border bg-card px-2.5 py-1 text-[11px] font-medium hover:bg-accent disabled:opacity-60"
+                  />
+                )}
                 {job.storing && (
                   <span className="text-[10px] text-muted-foreground">Wird angehängt…</span>
                 )}

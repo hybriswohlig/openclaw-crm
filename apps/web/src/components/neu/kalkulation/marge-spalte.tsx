@@ -27,6 +27,7 @@ import { ModuswechselDialog, PreisDialog } from "./preis-dialog";
 import { OhneAdresseDialog } from "./adress-dialog";
 import { HebelAusDialog } from "./hebel-aus-dialog";
 import { PaketeSchalter } from "./pakete-schalter";
+import { PaketeZeileKasten } from "@/components/neu/kv-danach/pakete-zeile";
 import type { HebelArt } from "@/services/rechner/kv-posten";
 import { ADRESSE_CHAT_TEXT, ADRESSE_FEHLT_TEXT } from "@/lib/kalkulation-p15";
 import {
@@ -453,6 +454,7 @@ export function MargeSpalte({ ansicht, kontext }: { ansicht: KalkulationsAnsicht
           stunden={stundenModus ? ansicht.stunden : null}
           laeuft={lauf !== null}
           portalZiel={portalZiel}
+          zusatz={<PaketeZeileKasten ansicht={ansicht} kontext={kontext} />}
           onSchliessen={() => setDialog(null)}
           onBestaetigen={(texte) => sperrenUndKv(texte, dialog.nurKv)}
         />
@@ -463,6 +465,7 @@ export function MargeSpalte({ ansicht, kontext }: { ansicht: KalkulationsAnsicht
           art="KV"
           altLink={ansicht.angebotsformularLink}
           portalZiel={portalZiel}
+          kopfZusatz={<PaketeZeileKasten ansicht={ansicht} kontext={kontext} gesperrt />}
           onSchliessen={() => {
             setDialog(null);
             void kontext.neuLaden();
