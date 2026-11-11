@@ -49,12 +49,18 @@ afterEach(() => {
 });
 
 describe("sendeZiel", () => {
-  it("nimmt die Vorauswahl unter den sendefähigen Gesprächen und meldet das geschlossene Fenster", () => {
+  it("nimmt die sendefähige Vorauswahl, sonst WhatsApp vor E-Mail, und meldet das geschlossene Fenster", () => {
     expect(sendeZiel(gespraech([]))).toBeNull();
     expect(sendeZiel(gespraech([kanal({ kannSenden: false })]))).toBeNull();
-    expect(sendeZiel(gespraech([kanal({})]))).toEqual({ fensterZu: false });
-    expect(sendeZiel(gespraech([kanal({ istWaba: true, imFenster: false })]))).toEqual({ fensterZu: true });
-    expect(sendeZiel(gespraech([kanal({ istWaba: true, imFenster: true })]))).toEqual({ fensterZu: false });
+    expect(sendeZiel(gespraech([kanal({})]))).toEqual({ gespraechId: "g1", fensterZu: false });
+    expect(sendeZiel(gespraech([kanal({ istWaba: true, imFenster: false })]))).toEqual({ gespraechId: "g1", fensterZu: true });
+    expect(sendeZiel(gespraech([kanal({ istWaba: true, imFenster: true })]))).toEqual({ gespraechId: "g1", fensterZu: false });
+    // Vorauswahl kann nicht senden: WhatsApp vor E-Mail, und genau dieses Gespräch (Review M3).
+    const mail = kanal({ gespraechId: "m1", kanal: "email" });
+    const wa = kanal({ gespraechId: "w1", istWaba: true, imFenster: false });
+    const tot = kanal({ gespraechId: "x1", kannSenden: false });
+    expect(sendeZiel(gespraech([tot, mail, wa], "x1"))).toEqual({ gespraechId: "w1", fensterZu: true });
+    expect(sendeZiel(gespraech([tot, mail, wa], "m1"))).toEqual({ gespraechId: "m1", fensterZu: false });
   });
 });
 

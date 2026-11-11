@@ -14,7 +14,7 @@ import { vornameAus } from "./inbox-logik";
 
 export type KvWeg =
   /** Es gibt ein sendefähiges Gespräch: Text ins Eingabefeld (bei WABA außerhalb des Fensters gesperrt, dann Vorlage). */
-  | { art: "einfuegen"; text: string; fensterZu: boolean }
+  | { art: "einfuegen"; text: string; fensterZu: boolean; gespraechId: string }
   /** Noch kein Gespräch: das bestehende WhatsApp-Verfassen mit dem Text. */
   | { art: "verfassen"; text: string; vorgabe: VerfassenVorgabe }
   /** Das Gespräch gibt es, hing aber noch nicht am Deal: neu laden, genau dieses Gespräch wählen, dann einfügen. */
@@ -22,12 +22,18 @@ export type KvWeg =
   /** `nachricht`: der fertige Kurztext, wenn nur das Gespräch fehlt (dann in die Zwischenablage). */
   | { art: "meldung"; titel: string; text?: string; ziel?: { label: string; href: string }; nachricht?: string };
 
-/** Sendefähiges Gespräch und ob dort das 24-Stunden-Fenster zu ist (wie die Eingabe wählt: Vorauswahl). */
-export function sendeZiel(g: Pick<Gespraech, "kanaele" | "vorauswahl">): { fensterZu: boolean } | null {
+/**
+ * Gespräch für den Kurztext und ob dort das 24-Stunden-Fenster zu ist (Review M3):
+ * die Vorauswahl, wenn sie senden kann, sonst zuerst WhatsApp, E-Mail nur nachrangig.
+ * Die Mitte wählt genau dieses Gespräch im Eingabefeld, damit Text und Hinweis zum
+ * sichtbaren Kanal passen.
+ */
+export function sendeZiel(g: Pick<Gespraech, "kanaele" | "vorauswahl">): { gespraechId: string; fensterZu: boolean } | null {
   const sendbar = g.kanaele.filter((k) => k.kannSenden);
   if (sendbar.length === 0) return null;
-  const gewaehlt = sendbar.find((k) => k.gespraechId === g.vorauswahl) ?? sendbar[0];
-  return { fensterZu: fensterZu(gewaehlt) };
+  const gewaehlt =
+    sendbar.find((k) => k.gespraechId === g.vorauswahl) ?? sendbar.find((k) => k.kanal === "whatsapp") ?? sendbar[0];
+  return { gespraechId: gewaehlt.gespraechId, fensterZu: fensterZu(gewaehlt) };
 }
 
 export async function kvNachrichtWeg(dealId: string, kurzVorher: Kurzfassung | null, gespraech: Gespraech): Promise<KvWeg> {
@@ -64,7 +70,7 @@ export async function kvNachrichtWeg(dealId: string, kurzVorher: Kurzfassung | n
   });
 
   const ziel = sendeZiel(gespraech);
-  if (ziel) return { art: "einfuegen", text, fensterZu: ziel.fensterZu };
+  if (ziel) return { art: "einfuegen", text, fensterZu: ziel.fensterZu, gespraechId: ziel.gespraechId };
 
   // Kein sendefähiges Gespräch: derselbe Weg wie „WhatsApp starten“ in der Akte.
   const r = await apiAufruf<unknown>("/api/v1/inbox/whatsapp/start-from-record", jsonAufruf("POST", { recordId: dealId }));

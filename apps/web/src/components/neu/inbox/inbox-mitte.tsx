@@ -89,7 +89,9 @@ export function InboxMitte({
       onClick: () => void textKopieren(Promise.resolve(text)).then((ok) => (ok ? toast.success("Text kopiert.") : toast.error("Kopieren ging nicht."))),
     });
 
-    const insFeld = (text: string, zu: boolean) => {
+    const insFeld = (text: string, zu: boolean, gespraechId: string) => {
+      // Erst den Kanal wählen, auf den sich Text und Hinweis beziehen (Review M3).
+      griff.current?.waehlen(gespraechId);
       griff.current?.einfuegen(text);
       if (!zu) {
         toast.success("Nachricht vorbereitet.", { description: "Sie steht im Eingabefeld. Gesendet wird erst mit deinem Klick." });
@@ -106,16 +108,13 @@ export function InboxMitte({
     };
 
     const ausfuehren = async (weg: KvWeg) => {
-      if (weg.art === "einfuegen") return insFeld(weg.text, weg.fensterZu);
+      if (weg.art === "einfuegen") return insFeld(weg.text, weg.fensterZu, weg.gespraechId);
       if (weg.art === "verfassen") return onVerfassen(weg.vorgabe, weg.text);
       if (weg.art === "neu_laden") {
         const frisch = await stand.current.onNeuLaden();
         if (verworfen) return;
         const k = frisch?.kanaele.find((x) => x.gespraechId === weg.gespraechId && x.kannSenden);
-        if (k) {
-          griff.current?.waehlen(k.gespraechId);
-          return insFeld(weg.text, fensterZu(k));
-        }
+        if (k) return insFeld(weg.text, fensterZu(k), k.gespraechId);
         toast.message("Das WhatsApp-Gespräch hängt an einem anderen Deal.", { cancel: kopierKnopf(weg.text), duration: 20_000 });
         return;
       }
