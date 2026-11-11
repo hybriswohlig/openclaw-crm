@@ -112,9 +112,12 @@ export function InboxMitte({
         return;
       }
       const ziel = weg.ziel;
+      // Fehlt nur das Gespräch, ist der Text trotzdem fertig: in die Zwischenablage.
+      const kopiert = weg.nachricht ? await textKopieren(Promise.resolve(weg.nachricht)) : false;
       toast.error(weg.titel, {
-        description: weg.text,
+        description: [weg.text, kopiert ? "Der vorbereitete Text liegt in der Zwischenablage." : null].filter(Boolean).join(" "),
         action: ziel ? { label: ziel.label, onClick: () => window.location.assign(ziel.href) } : undefined,
+        duration: 12_000,
       });
     };
 

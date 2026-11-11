@@ -19,7 +19,8 @@ export type KvWeg =
   | { art: "verfassen"; text: string; vorgabe: VerfassenVorgabe }
   /** Das Gespräch gibt es, hing aber noch nicht am Deal: neu laden, dann einfügen. */
   | { art: "neu_laden"; text: string }
-  | { art: "meldung"; titel: string; text?: string; ziel?: { label: string; href: string } };
+  /** `nachricht`: der fertige Kurztext, wenn nur das Gespräch fehlt (dann in die Zwischenablage). */
+  | { art: "meldung"; titel: string; text?: string; ziel?: { label: string; href: string }; nachricht?: string };
 
 /** Sendefähiges Gespräch und ob dort das 24-Stunden-Fenster zu ist (wie die Eingabe wählt: Vorauswahl). */
 export function sendeZiel(g: Pick<Gespraech, "kanaele" | "vorauswahl">): { fensterZu: boolean } | null {
@@ -59,12 +60,12 @@ export async function kvNachrichtWeg(dealId: string, kurz: Kurzfassung | null, g
 
   // Kein sendefähiges Gespräch: derselbe Weg wie „WhatsApp starten“ in der Akte.
   const r = await apiAufruf<unknown>("/api/v1/inbox/whatsapp/start-from-record", jsonAufruf("POST", { recordId: dealId }));
-  if (!r.ok) return { art: "meldung", titel: "WhatsApp konnte nicht gestartet werden.", text: r.message };
+  if (!r.ok) return { art: "meldung", titel: "WhatsApp konnte nicht gestartet werden.", text: r.message, nachricht: text };
   const folge = startFolge(r.data);
   if (folge.art === "verfassen") {
     const vorgabe = verfassenAus(new URL(folge.url, "http://x").searchParams);
     if (vorgabe) return { art: "verfassen", text, vorgabe };
   }
   if (folge.art === "neu_laden") return { art: "neu_laden", text };
-  return { art: "meldung", titel: "WhatsApp konnte nicht gestartet werden.", text: "Unerwartete Antwort des Servers." };
+  return { art: "meldung", titel: "WhatsApp konnte nicht gestartet werden.", text: "Unerwartete Antwort des Servers.", nachricht: text };
 }
