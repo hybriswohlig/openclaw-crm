@@ -63,6 +63,8 @@ export interface KalkKontext {
   aenderung?: AenderungsDaten | null;
   /** Plan 16: „Angebot ändern“ starten (falls nötig) und das Panel öffnen. */
   angebotAendern?: () => Promise<void>;
+  /** Plan 16 (Review M2): Stand von „Angebot ändern“ frisch laden (etwa nach einer Annahme während des Sperrens). */
+  aenderungNeuLaden?: () => Promise<AenderungsDaten | null>;
 }
 
 interface VersionsEintrag {
@@ -348,6 +350,11 @@ export function KalkSeite({ dealId }: { dealId: string }) {
     setzeAusstehend: setAusstehend,
     aenderung,
     angebotAendern,
+    aenderungNeuLaden: async () => {
+      const a = await aenderungLaden(dealId);
+      setAenderung(a);
+      return a;
+    },
   };
   const beschaeftigt = laeuft !== null || ausstehend;
   const aenderungHier = laeuftAn(aenderung, ansicht.version.nummer);

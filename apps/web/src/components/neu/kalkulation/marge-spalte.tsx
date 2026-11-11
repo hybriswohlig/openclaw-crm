@@ -207,9 +207,17 @@ export function MargeSpalte({ ansicht, kontext }: { ansicht: KalkulationsAnsicht
           return;
         }
         if (ausgang.art === "angenommen" && kontext.aenderung) {
-          // Plan 16: erst die Rückfrage „Annahme aufheben“ (nichts gesperrt).
-          toast.message("Der Kunde hat das alte Angebot angenommen.", { description: "Bitte bestätigen, dass er das neue neu annimmt." });
-          setDialog({ art: "aenderung" });
+          // Plan 16: erst die Rückfrage „Annahme aufheben“ (nichts gesperrt). Review M2: mit frischem Stand,
+          // sonst öffnete der Dialog ohne Haken erneut und „Weiter“ endete wieder im 409.
+          const frisch = kontext.aenderungNeuLaden ? await kontext.aenderungNeuLaden() : kontext.aenderung;
+          if (frisch?.basis?.angenommen) {
+            toast.message("Der Kunde hat das alte Angebot gerade angenommen.", { description: "Bitte bestätigen, dass er das neue neu annimmt." });
+            setDialog({ art: "aenderung" });
+          } else {
+            toast.error("Sperren fehlgeschlagen.", { description: ausgang.meldung });
+            setDialog(null);
+            await kontext.neuLaden();
+          }
           return;
         }
         if (ausgang.art !== "ok") {
