@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   HISTORY_FALLBACK_MS,
   HISTORY_OVERLAP_MS,
+  allowHistorySyncType,
   historyCatchupConfig,
   historyCutoffMs,
   isWithinHistoryWindow,
@@ -16,9 +17,25 @@ test("cutoff follows the newest CRM message, with overlap", () => {
   assert.equal(historyCutoffMs(since, NOW), Date.parse(since) - HISTORY_OVERLAP_MS);
 });
 
-test("missing cursor falls back to 21 days", () => {
+test("missing cursor falls back to 7 days", () => {
+  assert.equal(HISTORY_FALLBACK_MS, 7 * 24 * 60 * 60 * 1000);
   assert.equal(historyCutoffMs(null, NOW), NOW - HISTORY_FALLBACK_MS);
   assert.equal(historyCutoffMs("not-a-date", NOW), NOW - HISTORY_FALLBACK_MS);
+});
+
+test("HISTORY_SYNC_WINDOW_DAYS overrides the fallback inside 1..30", () => {
+  const prev = process.env.HISTORY_SYNC_WINDOW_DAYS;
+  try {
+    process.env.HISTORY_SYNC_WINDOW_DAYS = "3";
+    assert.equal(historyCutoffMs(null, NOW), NOW - 3 * 24 * 60 * 60 * 1000);
+    process.env.HISTORY_SYNC_WINDOW_DAYS = "0";
+    assert.equal(historyCutoffMs(null, NOW), NOW - HISTORY_FALLBACK_MS);
+    process.env.HISTORY_SYNC_WINDOW_DAYS = "90";
+    assert.equal(historyCutoffMs(null, NOW), NOW - HISTORY_FALLBACK_MS);
+  } finally {
+    if (prev === undefined) delete process.env.HISTORY_SYNC_WINDOW_DAYS;
+    else process.env.HISTORY_SYNC_WINDOW_DAYS = prev;
+  }
 });
 
 test("window accepts the gap and rejects older history", () => {
@@ -66,6 +83,13 @@ test("an opt-in cursor posts and uses the stored watermark", () => {
   assert.ok(history);
   assert.equal(history.postToCrm, true);
   assert.equal(history.cutoffMs, Date.parse(since) - HISTORY_OVERLAP_MS);
+});
+
+test("a fresh pair accepts FULL history chunks and a restored session does not", () => {
+  assert.equal(allowHistorySyncType({ isFull: true, requestFullHistory: true }), true);
+  assert.equal(allowHistorySyncType({ isFull: false, requestFullHistory: true }), true);
+  assert.equal(allowHistorySyncType({ isFull: true, requestFullHistory: false }), false);
+  assert.equal(allowHistorySyncType({ isFull: false, requestFullHistory: false }), true);
 });
 
 test("bridge-send echoes inside the window are not catch-up rows", () => {

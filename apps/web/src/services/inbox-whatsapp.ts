@@ -33,6 +33,7 @@ import { classifyMessagingBody, sollInboxPushSenden } from "./inbox-triage";
 import { looksDeclined, recordAgentDecline } from "./agent/agent-suppress";
 import { setHumanOwned } from "./agent/agent-gate";
 import { agentFelderBeimEingang, aiProcessedAtBeimEingang } from "./agent/ingest-arming";
+import { historyIngestEffects } from "./baileys-history-sync";
 import { aktualisiereWartet } from "./wartet";
 import { kontaktartFuerInboxKontakt } from "./kontaktart";
 import { KEIN_LEAD_LANE, KONTAKTART_LABELS, eingangsLane, isLeadKunde } from "@/lib/kontaktart";
@@ -523,16 +524,44 @@ export async function ingestInboundWhatsAppMessage(params: {
   toAddress?: string | null;
   /** Stored as JSON in `raw_headers` for debugging. */
   rawHeaders?: Record<string, unknown> | null;
+  /**
+   * True for a row recovered from Baileys history sync. Stored on the
+   * timeline, deduped by external id, and never armed, pushed, or sent.
+   */
+  historySync?: boolean;
 }): Promise<{
   conversationId: string;
   dealRecordId: string | null;
   messageId: string | null;
   isNewConversation: boolean;
+  duplicate?: boolean;
 }> {
   const {
     account, peerWaId, peerJid, peerName, body, previewLabel,
     externalMessageId, sentAt, toAddress, rawHeaders,
   } = params;
+  const historySync = params.historySync === true;
+  const historyEffects = historyIngestEffects();
+
+  // A replay of a WhatsApp id this account already stored must not upsert
+  // a contact, mint a deal, or arm anything. Live ingest still discovers
+  // the duplicate on the unique index, after the contact write.
+  if (historySync) {
+    const already = await findStoredWhatsAppMessage(
+      account.id,
+      account.workspaceId,
+      externalMessageId,
+    );
+    if (already) {
+      return {
+        conversationId: already.conversationId,
+        dealRecordId: already.dealRecordId,
+        messageId: null,
+        isNewConversation: false,
+        duplicate: true,
+      };
+    }
+  }
 
   const previewText = body.trim() || previewLabel || body;
 
@@ -636,7 +665,9 @@ export async function ingestInboundWhatsAppMessage(params: {
         kontaktart,
         classificationReason: perKontaktart ? `Kontaktart ${KONTAKTART_LABELS[kontaktart]}` : triage.reason,
         classifiedBy: perKontaktart ? "manual" : triage.by,
-        ...agentFelderBeimEingang({ armiert, declined, sentAt }),
+        ...(historySync
+          ? { aiNeedsReply: false as const }
+          : agentFelderBeimEingang({ armiert, declined, sentAt })),
       })
       // Two racing first-ever ingests of the same peer (e.g. message + echo)
       // both pass the lookup miss; the loser lands here and converges on the
@@ -664,6 +695,7 @@ export async function ingestInboundWhatsAppMessage(params: {
           contactId: contact.id,
           channelAccountId: account.id,
           sourceReceivedAt: sentAt,
+          skipAutoInsights: historySync,
         });
 
         // Re-fetch to pick up dealRecordId set by createDealForNewConversation
@@ -722,8 +754,18 @@ export async function ingestInboundWhatsAppMessage(params: {
     kontaktart: isLeadKunde(kontaktart) ? conv.kontaktart : kontaktart,
   });
 
+  // An older catch-up row must not rewind the thread or revive a STOP the
+  // customer has already written past.
+  const historyOlder =
+    historySync &&
+    !isNewConversation &&
+    !!conv.lastMessageAt &&
+    sentAt.getTime() < new Date(conv.lastMessageAt).getTime();
+
   // Record the opt-out across all engines (idempotent, non-blocking).
-  if (declined && conv) {
+  // History only records a STOP when it is the newest message. The call
+  // writes a suppression row; it does not send.
+  if (declined && conv && !historyOlder) {
     await recordAgentDecline(account.workspaceId, {
       phone: peerWaId,
       conversationId: conv.id,
@@ -754,10 +796,11 @@ export async function ingestInboundWhatsAppMessage(params: {
           isRead: false,
           rawHeaders: rawHeaders ? JSON.stringify(rawHeaders) : null,
           sentAt,
-          aiProcessedAt: aiProcessedAtBeimEingang(armiert, sentAt),
+          aiProcessedAt: historySync ? sentAt : aiProcessedAtBeimEingang(armiert, sentAt),
+          aiSkipReason: historySync ? historyEffects.aiSkipReason : null,
         })
         .returning({ id: inboxMessages.id });
-      if (!isNewConversation) {
+      if (!isNewConversation && !historyOlder) {
         await tx
           .update(inboxConversations)
           .set({
@@ -766,7 +809,8 @@ export async function ingestInboundWhatsAppMessage(params: {
             unreadCount: (convJetzt.unreadCount ?? 0) + 1,
             // Only arm the agent for real lead messages; an OTP-style follow-up on an
             // existing thread should not trigger a reply. A STOP/decline never arms it.
-            ...agentFelderBeimEingang({ armiert, declined, sentAt }),
+            // History rows leave both flags alone (historyEffects.armAgent is false).
+            ...(historySync ? {} : agentFelderBeimEingang({ armiert, declined, sentAt })),
             // Re-open resolved/spam conversations when the customer writes back
             ...(convJetzt.status !== "open" ? { status: "open" } : {}),
             ...(laneUpgrade
@@ -799,7 +843,7 @@ export async function ingestInboundWhatsAppMessage(params: {
 
   // Den Deal erst nach dem Commit anlegen: createDealForNewConversation
   // schreibt über eine eigene Verbindung auf dieselbe Konversation.
-  if (!isNewConversation && laneUpgrade && lane === "lead" && !conv.dealRecordId) {
+  if (!isNewConversation && laneUpgrade && lane === "lead" && !conv.dealRecordId && !historyOlder) {
     await createDealForNewConversation({
       workspaceId: account.workspaceId,
       conversationId: conv.id,
@@ -807,6 +851,7 @@ export async function ingestInboundWhatsAppMessage(params: {
       contactId: contact.id,
       channelAccountId: account.id,
       sourceReceivedAt: sentAt,
+      skipAutoInsights: historySync,
     });
     const [fresh] = await db
       .select()
@@ -816,7 +861,7 @@ export async function ingestInboundWhatsAppMessage(params: {
     if (fresh) conv = fresh;
   }
 
-  if (conv.dealRecordId) {
+  if (!historySync && conv.dealRecordId) {
     await emitEvent({
       workspaceId: account.workspaceId,
       recordId: conv.dealRecordId,
@@ -832,7 +877,9 @@ export async function ingestInboundWhatsAppMessage(params: {
   }
 
   // Wartet-Signal: der Kunde schrieb zuletzt. Ohne Deal kehrt es sofort zurück.
-  if (messageId) {
+  // History updates the badge only when the imported row is the newest message.
+  // The helper does not send.
+  if (messageId && (!historySync || !historyOlder)) {
     try {
       await aktualisiereWartet(account.workspaceId, conv.dealRecordId);
     } catch (err) {
@@ -840,7 +887,7 @@ export async function ingestInboundWhatsAppMessage(params: {
     }
   }
 
-  if (messageId && pushSenden) {
+  if (!historySync && messageId && pushSenden) {
     // Don't block the webhook response on push delivery, but DO keep the
     // Vercel function alive until the push request completes — otherwise
     // the serverless runtime kills the call mid-flight as soon as we
@@ -859,7 +906,7 @@ export async function ingestInboundWhatsAppMessage(params: {
     );
   }
 
-  if (messageId) {
+  if (!historySync && messageId) {
     // Reviews engine — inbound complaint scanner parity stub ([KOT-623]).
     // The scanner internally gates the whatsapp channel behind
     // REVIEWS_INBOUND_SCAN_WHATSAPP, so Phase 1 ([KOT-603]) ships this
@@ -890,6 +937,7 @@ export async function ingestInboundWhatsAppMessage(params: {
     dealRecordId: conv.dealRecordId ?? null,
     messageId,
     isNewConversation,
+    duplicate: false,
   };
 }
 
@@ -1113,20 +1161,22 @@ export async function ingestOutboundWhatsAppMessage(params: {
       conv = created;
       isNewConversation = true;
 
-      await createDealForNewConversation({
-        workspaceId: account.workspaceId,
-        conversationId: conv.id,
-        dealName: peerWaId,
-        contactId: contact.id,
-        channelAccountId: account.id,
-        sourceReceivedAt: sentAt,
-      });
+      if (policy.createDeal) {
+        await createDealForNewConversation({
+          workspaceId: account.workspaceId,
+          conversationId: conv.id,
+          dealName: peerWaId,
+          contactId: contact.id,
+          channelAccountId: account.id,
+          sourceReceivedAt: sentAt,
+        });
 
-      [conv] = await db
-        .select()
-        .from(inboxConversations)
-        .where(eq(inboxConversations.id, conv.id))
-        .limit(1);
+        [conv] = await db
+          .select()
+          .from(inboxConversations)
+          .where(eq(inboxConversations.id, conv.id))
+          .limit(1);
+      }
     } else {
       conv = await findWhatsAppConversation({
         accountId: account.id,
@@ -1174,6 +1224,7 @@ export async function ingestOutboundWhatsAppMessage(params: {
           isRead: true,
           rawHeaders: rawHeaders ? JSON.stringify(rawHeaders) : null,
           sentAt,
+          ...(origin === "history-sync" ? { aiSkipReason: "history-sync" as const } : {}),
         })
         .returning({ id: inboxMessages.id });
       return stored?.id ?? null;
@@ -1193,7 +1244,7 @@ export async function ingestOutboundWhatsAppMessage(params: {
   }
   const messageId = inserted.row;
 
-  if (conv && !isNewConversation && messageId) {
+  if (policy.advanceThread && conv && !isNewConversation && messageId) {
     const currentMs = conv.lastMessageAt
       ? new Date(conv.lastMessageAt).getTime()
       : 0;
@@ -1270,7 +1321,7 @@ export async function ingestOutboundWhatsAppMessage(params: {
     }
   }
 
-  if (params.origin !== "backfill" && messageId && conv.dealRecordId) {
+  if (policy.attributeOutbound && messageId && conv.dealRecordId) {
     await noteOutboundToCustomer({
       workspaceId: account.workspaceId,
       dealRecordId: conv.dealRecordId,

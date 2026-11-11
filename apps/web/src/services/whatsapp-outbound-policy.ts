@@ -6,7 +6,7 @@
  * and echo handling only insert a history row.
  */
 
-export type WhatsAppOutboundOrigin = "phone" | "bridge-send" | "backfill";
+export type WhatsAppOutboundOrigin = "phone" | "bridge-send" | "backfill" | "history-sync";
 
 export interface WhatsAppOutboundPolicy {
   /** Phone-typed messages clear "needs reply". Bridge sends and backfill
@@ -18,6 +18,13 @@ export interface WhatsAppOutboundPolicy {
   emitSentEvent: boolean;
   /** Historical rows must not rewind the thread preview. */
   previewOnlyIfNewer: boolean;
+  /** History import must not move lastMessageAt. A newer imported outbound
+   * would otherwise pull the thread into the follow-up window. */
+  advanceThread: boolean;
+  /** History outbound must not mint a deal. Follow-up selects open deals. */
+  createDeal: boolean;
+  /** Phone echoes and bridge sends update deal attribution. History does not. */
+  attributeOutbound: boolean;
   /** Always false. A true value would mean this path can deliver a message. */
   sendsToWhatsApp: false;
 }
@@ -31,6 +38,9 @@ export function outboundIngestPolicy(
       takeHumanOwnership: true,
       emitSentEvent: true,
       previewOnlyIfNewer: false,
+      advanceThread: true,
+      createDeal: true,
+      attributeOutbound: true,
       sendsToWhatsApp: false,
     };
   }
@@ -40,6 +50,21 @@ export function outboundIngestPolicy(
       takeHumanOwnership: false,
       emitSentEvent: true,
       previewOnlyIfNewer: false,
+      advanceThread: true,
+      createDeal: true,
+      attributeOutbound: true,
+      sendsToWhatsApp: false,
+    };
+  }
+  if (origin === "history-sync") {
+    return {
+      clearAiNeedsReply: false,
+      takeHumanOwnership: false,
+      emitSentEvent: false,
+      previewOnlyIfNewer: true,
+      advanceThread: false,
+      createDeal: false,
+      attributeOutbound: false,
       sendsToWhatsApp: false,
     };
   }
@@ -48,6 +73,9 @@ export function outboundIngestPolicy(
     takeHumanOwnership: false,
     emitSentEvent: false,
     previewOnlyIfNewer: true,
+    advanceThread: true,
+    createDeal: true,
+    attributeOutbound: false,
     sendsToWhatsApp: false,
   };
 }

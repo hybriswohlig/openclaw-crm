@@ -134,13 +134,11 @@ export class CrmClient {
   }
 
   /**
-   * Newest message already stored for this account, plus a flag that the
-   * deployed CRM knows how to accept a history catch-up safely. A non-OK
-   * response means the CRM is older than this bridge: callers must skip
-   * posting history rather than send it through the live ingest path.
-   *
-   * The route 404s on the web app today. That absence is expected and is
-   * not logged; callers treat it as "not supported".
+   * Window start for a history catch-up, plus a flag that the CRM will
+   * store those rows without arming the sales agent. Anything other than
+   * `historySyncSupported: true` (including a 404 from an older web app)
+   * means callers must spool instead of posting through live ingest.
+   * A 404 is expected for that older app and is not logged.
    */
   async getHistoryCursor(
     accountId: string,

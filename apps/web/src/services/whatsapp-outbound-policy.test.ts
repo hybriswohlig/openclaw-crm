@@ -11,7 +11,7 @@ const CEYLAN = "acc-ceylan";
 
 describe("outbound ingest policy", () => {
   it("never sends, and backfill does not take over or emit", () => {
-    for (const origin of ["phone", "bridge-send", "backfill"] as const) {
+    for (const origin of ["phone", "bridge-send", "backfill", "history-sync"] as const) {
       expect(outboundIngestPolicy(origin).sendsToWhatsApp).toBe(false);
     }
     const backfill = outboundIngestPolicy("backfill");
@@ -19,6 +19,14 @@ describe("outbound ingest policy", () => {
     expect(backfill.emitSentEvent).toBe(false);
     expect(backfill.clearAiNeedsReply).toBe(false);
     expect(backfill.previewOnlyIfNewer).toBe(true);
+
+    const history = outboundIngestPolicy("history-sync");
+    expect(history.takeHumanOwnership).toBe(false);
+    expect(history.emitSentEvent).toBe(false);
+    expect(history.clearAiNeedsReply).toBe(false);
+    expect(history.advanceThread).toBe(false);
+    expect(history.createDeal).toBe(false);
+    expect(history.attributeOutbound).toBe(false);
 
     const bridge = outboundIngestPolicy("bridge-send");
     expect(bridge.takeHumanOwnership).toBe(false);

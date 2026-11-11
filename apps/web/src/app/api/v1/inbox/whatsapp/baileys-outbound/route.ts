@@ -22,6 +22,11 @@ import { eq, and, isNull } from "drizzle-orm";
 import { getAuthContext, unauthorized, requireBridgeApiKey } from "@/lib/api-utils";
 import { ingestOutboundWhatsAppMessage } from "@/services/inbox-whatsapp";
 import type { WhatsAppOutboundOrigin } from "@/services/whatsapp-outbound-policy";
+import {
+  historyWindowStartMs,
+  isHistorySyncExcludedAccount,
+  isSkippedWhatsAppThread,
+} from "@/services/baileys-history-sync";
 
 export const dynamic = "force-dynamic";
 
@@ -66,6 +71,8 @@ interface BaileysOutboundPayload {
   origin?: string;
   /** Inline attachments, already downloaded + base64-encoded by the bridge. */
   attachments?: BaileysOutboundAttachment[];
+  /** Bridge history catch-up. Stored with the history-sync policy, never sent. */
+  historySync?: boolean;
 }
 
 function badRequest(message: string, extra?: Record<string, unknown>) {
@@ -98,6 +105,15 @@ export async function POST(req: NextRequest) {
     return badRequest("externalMessageId required");
   }
 
+  const historySync =
+    payload.historySync === true || payload.rawHeaders?.source === "history-sync";
+  if (historySync && !payload.sentAt) {
+    return badRequest("sentAt required for historySync");
+  }
+  if (historySync && isHistorySyncExcludedAccount(payload.accountId)) {
+    return NextResponse.json({ ok: true, skipped: true, reason: "excluded", stored: false, sent: false });
+  }
+
   const [account] = await db
     .select()
     .from(channelAccounts)
@@ -124,11 +140,13 @@ export async function POST(req: NextRequest) {
 
   // Live echo only. Historical import goes to /baileys-backfill, which has
   // no send path. Treating "backfill" as a phone echo would take over the deal.
-  if (payload.origin === "backfill") {
+  // historySync is the bridge catch-up flag and uses the history-sync policy.
+  if (payload.origin === "backfill" && !historySync) {
     return badRequest("origin backfill is not accepted on the live outbound route");
   }
-  const origin: WhatsAppOutboundOrigin =
-    payload.origin === "bridge-send" || payload.rawHeaders?.source === "bridge-send"
+  const origin: WhatsAppOutboundOrigin = historySync
+    ? "history-sync"
+    : payload.origin === "bridge-send" || payload.rawHeaders?.source === "bridge-send"
       ? "bridge-send"
       : "phone";
 
@@ -165,6 +183,12 @@ export async function POST(req: NextRequest) {
   if (Number.isNaN(sentAt.getTime())) {
     return badRequest("sentAt must be a valid ISO timestamp");
   }
+  if (historySync && isSkippedWhatsAppThread(payload.peerJid, peerWaId)) {
+    return NextResponse.json({ ok: true, skipped: true, reason: "group_or_status", stored: false, sent: false });
+  }
+  if (historySync && sentAt.getTime() < historyWindowStartMs()) {
+    return NextResponse.json({ ok: true, skipped: true, reason: "outside_window", stored: false, sent: false });
+  }
 
   const attachments = payload.attachments ?? [];
   for (const a of attachments) {
@@ -180,7 +204,11 @@ export async function POST(req: NextRequest) {
   const intern = findeInterne(await ladeInterneNummern(account.workspaceId), { peerWaId, peerJid, peerLid });
   if (intern) {
     console.log(`[baileys-outbound] interne Nummer (${intern.name}), nicht ins CRM übernommen`);
-    return NextResponse.json({ ok: true, intern: true });
+    return NextResponse.json({
+      ok: true,
+      intern: true,
+      ...(historySync ? { stored: false, sent: false } : {}),
+    });
   }
 
   try {
@@ -196,7 +224,12 @@ export async function POST(req: NextRequest) {
       rawHeaders: {
         provider: "baileys",
         ...(payload.rawHeaders ?? {}),
-        source: origin === "bridge-send" ? "bridge-send" : "phone-direct",
+        source: historySync
+          ? "history-sync"
+          : origin === "bridge-send"
+            ? "bridge-send"
+            : "phone-direct",
+        ...(historySync ? { historySync: true } : {}),
       },
       origin,
     });

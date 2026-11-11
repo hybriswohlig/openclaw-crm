@@ -27,6 +27,7 @@
     "push:generate-keys": "tsx scripts/generate-vapid-keys.ts",
     "tasks:migrate": "tsx scripts/migrate-tasks-to-projects.ts",
     "whatsapp:diagnose": "tsx scripts/diagnose-whatsapp.ts",
+    "whatsapp:import-history": "tsx scripts/import-baileys-history.ts",
     "whatsapp:probe-webhook": "tsx scripts/probe-whatsapp-webhook.ts",
     "test": "vitest run",
     "test:watch": "vitest",
