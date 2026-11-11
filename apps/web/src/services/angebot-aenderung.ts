@@ -14,6 +14,7 @@ import {
   aenderungsStand,
   aenderungText,
   AENDERUNG_EVENT,
+  fuerKundennachricht,
   herkunftAus,
   inventarTreffer,
   kundenNachricht,
@@ -285,7 +286,7 @@ export async function ansicht(ws: string, deal: string, quellen?: Partial<Aender
       q.kundenName(ws, deal).catch(() => null),
       q.firma(ws, deal).catch((): KundenFirma => ({ slug: null, name: null })),
     ]);
-    const uebernommen = stand.vorschlaege.filter((v) => v.status === "uebernommen" || (v.quelle === "foto" && v.status === "offen"));
+    const uebernommen = fuerKundennachricht(stand.vorschlaege);
     nachricht = {
       link,
       text: kundenNachricht({

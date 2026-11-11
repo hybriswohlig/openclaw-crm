@@ -320,6 +320,9 @@ describe("neue Fotos (Zusatz Inhaber)", () => {
     expect(a.vorschlaege.find((v) => v.id === "foto:f1")?.lead).toBe(false);
     const zeile = a.vergleich?.zeilen.find((z) => z.schluessel === "teil:fahrrad");
     expect(zeile).toMatchObject({ art: "teil_hinzu", herkunft: "foto" });
+    // Review I5: die Dublette „Schrank“ steht nicht als „kommt dazu“ in der Nachricht.
+    expect(a.nachricht?.text).toContain("Fahrrad kommt dazu");
+    expect(a.nachricht?.text).not.toContain("Schrank kommt dazu");
   });
 
   it("Übernehmen eines Foto-Teils schreibt nichts ins Lead; Verwerfen nimmt es nach Rückfrage heraus", async () => {

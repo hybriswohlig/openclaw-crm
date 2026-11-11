@@ -633,12 +633,22 @@ export function herkunftSchluessel(a: Aenderung): string[] {
   }
 }
 
+/**
+ * Was die Kundennachricht aufzählt (Review I5): übernommene Vorschläge; offene Foto-Teile nur, wenn
+ * sie mitkommen und keine mögliche Dublette sind. „Bleibt da“ und Dubletten nie als „kommt dazu“.
+ */
+export function fuerKundennachricht(vorschlaege: readonly Vorschlag[]): Vorschlag[] {
+  return vorschlaege.filter(
+    (v) => v.status === "uebernommen" || (v.quelle === "foto" && v.status === "offen" && v.foto?.mitnehmen === true && !v.foto.dublette)
+  );
+}
+
 /** Herkunft je Vergleichsschlüssel aus den übernommenen Vorschlägen (die letzte gilt). */
 export function herkunftAus(vorschlaege: readonly Vorschlag[]): (schluessel: string) => Quelle {
   const m = new Map<string, Quelle>();
   for (const v of vorschlaege) {
-    // Foto-Teile stecken schon im Entwurf (Lead-Inventar): Herkunft „Foto“, solange nicht verworfen.
-    const wirkt = v.status === "uebernommen" || (v.quelle === "foto" && v.status === "offen");
+    // Foto-Teile stecken schon im Entwurf (Lead-Inventar): Herkunft „Foto“, solange offen und mitgenommen (Review I5).
+    const wirkt = v.status === "uebernommen" || (v.quelle === "foto" && v.status === "offen" && v.foto?.mitnehmen === true);
     if (!wirkt) continue;
     for (const k of herkunftSchluessel(v.aenderung)) m.set(k, v.quelle);
   }

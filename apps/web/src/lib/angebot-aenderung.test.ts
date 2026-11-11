@@ -4,6 +4,7 @@ import {
   VORSCHLAEGE_MAX,
   aenderungsGrund,
   aenderungsStand,
+  fuerKundennachricht,
   gleicheAenderung,
   herkunftAus,
   kundenAnredeZeile,
@@ -528,8 +529,9 @@ describe("Foto-Vorschläge (Zusatz Inhaber)", () => {
     expect(uebernahmePlan([foto("offen", false)], { inventar: [], montageJetzt: {} }).lead).toEqual([{ art: "wieder", id: "f1", name: "Fahrrad" }]);
   });
 
-  it("herkunftAus: Foto zählt offen und übernommen, verworfen nicht", () => {
+  it("herkunftAus: Foto zählt offen und übernommen, verworfen und „bleibt da“ nicht", () => {
     expect(herkunftAus([foto("offen")])("teil:fahrrad")).toBe("foto");
+    expect(herkunftAus([foto("offen", false)])("teil:fahrrad")).toBe("hand");
     expect(herkunftAus([foto("uebernommen")])("teil:fahrrad")).toBe("foto");
     expect(herkunftAus([foto("verworfen")])("teil:fahrrad")).toBe("hand");
   });
@@ -573,6 +575,23 @@ describe("Review I2: fachlicher Abgleich", () => {
     const b = uebernahmePlan([v("y2")], { inventar: [], montageJetzt: {} }).uebersteuerungen[0].key;
     expect(a).toBe(b);
     expect(a).toBe("aenderung.klavier-tragen");
+  });
+});
+
+describe("Review I5: Foto-Teile in der Kundennachricht", () => {
+  const f = (id: string, status: "offen" | "uebernommen" | "verworfen", mitnehmen: boolean, dublette: string | null): Vorschlag => ({
+    id, quelle: "foto", aenderung: { art: "teil_hinzu", name: id, menge: 1, groesse: null }, zitat: "", status, zeit: ZEIT,
+    foto: { inventarId: id, fotoUrl: null, mitnehmen, dublette },
+  });
+  it("nur übernommene und offene, mitgenommene ohne Dublette", () => {
+    const r = fuerKundennachricht([
+      f("ok", "offen", true, null),
+      f("dublette", "offen", true, "Kleiderschrank"),
+      f("bleibtda", "offen", false, null),
+      f("bestaetigt", "uebernommen", true, "Kleiderschrank"),
+      f("weg", "verworfen", true, null),
+    ]);
+    expect(r.map((v) => v.id)).toEqual(["ok", "bestaetigt"]);
   });
 });
 
