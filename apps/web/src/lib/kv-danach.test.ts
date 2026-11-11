@@ -147,6 +147,7 @@ describe("Pakete-Zeile im KV-Fenster", () => {
     pakete: [{ name: "Basis" }, { name: "Komfort" }, { name: "Premium" }],
     tage: 0,
     gesperrt: false,
+    optionen: 3,
   };
 
   it("sagt klar, dass Pakete angeboten werden, mit Schalter zum Ausschalten", () => {
@@ -175,6 +176,22 @@ describe("Pakete-Zeile im KV-Fenster", () => {
     expect(stunden.text).toBe("Pakete: nicht angeboten");
     expect(stunden.grund).toBe("Stunden-KV: Pakete gibt es nur beim Festpreis.");
     expect(stunden.schalter).toBeNull();
+  });
+
+  it("ohne Paketoptionen des Deals: eigener Grund, kein „neu rechnen“, kein Einschalten (Review I2 a)", () => {
+    const z = paketeZeile({ ...basis, pakete: [], optionen: 0 });
+    expect(z.grund).toBe("Der Deal hat keine Paketoptionen; anlegen im Paketberater der alten Akte.");
+    const aus = paketeZeile({ ...basis, pakete: [], optionen: 0, schalter: { ...basis.schalter!, deal: "aus", wirksam: false } });
+    expect(aus.schalter).toBeNull();
+    expect(aus.grund).toContain("keine Paketoptionen");
+    // Noch nicht geladen: kein Einschalten anbieten.
+    expect(paketeZeile({ ...basis, pakete: [], optionen: null, schalter: { ...basis.schalter!, deal: "aus", wirksam: false } }).schalter).toBeNull();
+  });
+
+  it("Deal-Schalter aus, aber Paketoptionen: sagt ehrlich, was das Portal zeigt (Review I2 b)", () => {
+    const z = paketeZeile({ ...basis, schalter: { ...basis.schalter!, deal: "aus", wirksam: false } });
+    expect(z.text).toBe("Pakete: werden angeboten (Basis, Komfort, Premium)");
+    expect(z.grund).toContain("aus den Paketoptionen des Deals, nicht aus der Kalkulation");
   });
 
   it("schaltet bei Firma aus nur zurück auf den Firmenstandard, ein Deal-An bleibt ausschaltbar", () => {

@@ -2,7 +2,7 @@
 
 import "@/styles/neu-kv-danach.css";
 
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { toast } from "sonner";
 import { apiAufruf, jsonAufruf } from "@/components/neu/akte/api";
 import type { KalkKontext } from "@/components/neu/kalkulation/kalk-seite";
@@ -32,7 +32,19 @@ export function PaketeZeileKasten({
   const [laeuft, setLaeuft] = useState(false);
   /** Einschalten fragt nach wie der Schalter in der Marge-Spalte: der Kunde sieht danach Paketkarten. */
   const [frage, setFrage] = useState(false);
+  /** Zahl der Paketoptionen des Deals (Review I2); null solange unbekannt. */
+  const [optionen, setOptionen] = useState<number | null>(null);
+  useEffect(() => {
+    let aktiv = true;
+    void apiAufruf<{ options?: unknown[] } | null>(`/api/v1/deals/${encodeURIComponent(kontext.dealId)}/package-options`).then((r) => {
+      if (aktiv && r.ok) setOptionen(r.data?.options?.length ?? 0);
+    });
+    return () => {
+      aktiv = false;
+    };
+  }, [kontext.dealId]);
   const z = paketeZeile({
+    optionen,
     schalter: ansicht.paketSchalter,
     tagespreise: ansicht.schalter.tagespreise,
     preisModus: ansicht.version.preisModus,

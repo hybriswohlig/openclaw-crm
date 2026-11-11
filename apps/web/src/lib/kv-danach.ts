@@ -236,6 +236,11 @@ export interface PaketeZeileEingabe {
   /** Angebotene Tage der Version. */
   tage: number;
   gesperrt: boolean;
+  /**
+   * Paketoptionen des Deals (`GET …/package-options`); null = noch nicht geladen.
+   * Nur mit Optionen rechnet der Rechner Paketpreise (Review I2).
+   */
+  optionen?: number | null;
 }
 
 export interface PaketeZeile {
@@ -269,8 +274,9 @@ export function tagespreiseZeile(e: Pick<PaketeZeileEingabe, "tagespreise" | "pr
 /**
  * Ob und warum Pakete im KV stehen. „Angeboten“ heißt: die Version trägt
  * Paketpreise. Der Schalter je Deal (Plan 15, `pakete_anbieten`) erscheint am
- * Entwurf; Einschalten nur, wenn die Firma „Angebot aus Kalkulation“ an hat
- * und ein Basis-Paket führt, sonst der Link in die Einstellungen. Ausschalten
+ * Entwurf; Einschalten nur, wenn die Firma „Angebot aus Kalkulation“ an hat,
+ * ein Basis-Paket führt und der Deal Paketoptionen hat, sonst der Link in die
+ * Einstellungen bzw. der Grund. Ausschalten
  * geht immer. An einer gesperrten Version kein Schalter, nur der Hinweis.
  */
 export function paketeZeile(e: PaketeZeileEingabe): PaketeZeile {
@@ -281,13 +287,18 @@ export function paketeZeile(e: PaketeZeileEingabe): PaketeZeile {
     ? `Pakete: werden angeboten (${e.pakete.map((p) => p.name).join(", ")})`
     : "Pakete: nicht angeboten";
 
+  const optionen = e.optionen ?? null;
   let grund: string | null = null;
-  if (!angeboten) {
+  if (angeboten && s && !s.wirksam) {
+    // Altweg: Pakete kommen aus den Paketoptionen des Deals, nicht aus der Kalkulation (Review I2 b).
+    grund = "Wie bisher aus den Paketoptionen des Deals, nicht aus der Kalkulation; das Portal zeigt sie so. Ändern im Paketberater der alten Akte.";
+  } else if (!angeboten) {
     if (stunden) grund = "Stunden-KV: Pakete gibt es nur beim Festpreis.";
     else if (!s) grund = null;
-    else if (s.deal === "aus") grund = "Für diesen Deal ausgeschaltet.";
+    else if (s.deal === "aus") grund = optionen === 0 ? "Für diesen Deal ausgeschaltet, und der Deal hat keine Paketoptionen." : "Für diesen Deal ausgeschaltet.";
     else if (!s.wirksam) grund = "Firmen-Schalter „Angebot aus Kalkulation“ ist aus.";
     else if (!s.pakete.basis) grund = "Die Firma hat kein Basis-Paket.";
+    else if (optionen === 0) grund = "Der Deal hat keine Paketoptionen; anlegen im Paketberater der alten Akte.";
     else grund = e.gesperrt ? "Diese Version wurde ohne Pakete gesperrt." : "Noch keine Paketpreise, bitte neu rechnen.";
   }
 
@@ -298,7 +309,8 @@ export function paketeZeile(e: PaketeZeileEingabe): PaketeZeile {
       // Aus: bei Firma „an“ ausdrücklich aus, sonst zurück auf den Firmenstandard (aus).
       schalter = { an: true, wert: s.firma ? "aus" : "standard" };
     } else if (s.firma && s.pakete.basis) {
-      schalter = { an: false, wert: s.deal === "aus" ? "standard" : "an" };
+      // Einschalten nur mit Paketoptionen: sonst verspräche die Rückfrage Paketkarten, die nie kommen.
+      if (optionen !== null && optionen > 0) schalter = { an: false, wert: s.deal === "aus" ? "standard" : "an" };
     } else if (!s.firma) {
       einstellungen = { href: PORTAL_EINSTELLUNGEN_URL, text: "Einstellungen, Kundenportal" };
     } else {
