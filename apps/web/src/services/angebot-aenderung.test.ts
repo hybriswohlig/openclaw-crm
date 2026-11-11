@@ -59,7 +59,7 @@ function aufbau(opts: { entwurf?: boolean; inventar?: InventarDbZeile[]; texte?:
     angebotsVersionId: async () => "v1",
     versionVerschickt: async () => true,
     letzterKv: async () => null,
-    angenommen: async () => false,
+    angenommen: async () => ({ aktiv: false, basis: false }),
     ereignisse: async () => structuredClone(log),
     schreiben: vi.fn(async (_ws: string, _deal: string, payload: AenderungsPayload) => {
       log.push({ zeit: new Date().toISOString(), payload: structuredClone(payload) });
@@ -110,6 +110,10 @@ describe("starten und Ansicht", () => {
     expect(a.nachricht?.text).toContain("1.200 €");
     expect(a.nachricht?.text).toContain("bisher 1.000 €");
     expect(a.nachricht?.text).toContain("https://crm.example/s/abc");
+    expect(a.nachricht?.text).not.toContain("erneut an");
+    // War v1 angenommen (auch inzwischen aufgehoben), bittet die Nachricht um eine neue Annahme.
+    t.q.angenommen = async () => ({ aktiv: false, basis: true });
+    expect((await ansicht("ws", "deal", t.q)).nachricht?.text).toContain("bitte nehmen Sie es dort erneut an");
   });
 });
 
@@ -242,6 +246,9 @@ describe("neue Fotos (Zusatz Inhaber)", () => {
       ["foto:f1", { art: "teil_hinzu", name: "Fahrrad", menge: 1, groesse: "mittel" }, null],
       ["foto:f2", { art: "teil_hinzu", name: "Schrank", menge: 1, groesse: null }, "Kleiderschrank"],
     ]);
+    // Mehrere ähnliche: alle (höchstens zwei) als Hinweis.
+    const mehr = fotoVorschlaege([...fotoInventar(), inv({ id: "k", name: "Kühlschrank" })], GESPERRT_AM);
+    expect(mehr.find((x) => x.id === "foto:f2")?.foto?.dublette).toBe("Kleiderschrank oder Kühlschrank");
     expect(v[0].foto?.fotoUrl).toBe("/api/v1/inbox/attachments/att1/content");
     expect(fotoVorschlaege(fotoInventar(), null)).toEqual([]);
   });

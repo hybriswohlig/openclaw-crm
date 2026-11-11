@@ -8,6 +8,7 @@
  * `lib/angebot-aenderung.ts`. KI sparsam: Chat nur bei neuem Nachrichtenstand, Eingabe nur
  * bei neuem Verlauf, je Deal eine Auswertung gleichzeitig, mit Zeitgrenze.
  */
+import { positionSchluessel } from "@/lib/kalkulation-versionen";
 import {
   aendertLead,
   aenderungKundenText,
@@ -75,7 +76,8 @@ export interface AenderungsQuellen {
   versionVerschickt: (ws: string, deal: string, versionId: string) => Promise<boolean>;
   /** Hochladezeit des neuesten KV-PDFs (Rückfall für „seit“). */
   letzterKv: (ws: string, deal: string) => Promise<Date | null>;
-  angenommen: (deal: string) => Promise<boolean>;
+  /** Annahme: aktiv (irgendeine Version) und ob die Basisversion angenommen war (auch inzwischen aufgehoben). */
+  angenommen: (deal: string, basisVersionId: string) => Promise<{ aktiv: boolean; basis: boolean }>;
   ereignisse: (ws: string, deal: string) => Promise<AenderungsEreignis[]>;
   schreiben: (ws: string, deal: string, payload: AenderungsPayload, autor: Autor) => Promise<void>;
   inventar: (ws: string, deal: string) => Promise<InventarDbZeile[]>;
@@ -147,6 +149,17 @@ function startVon(ereignisse: AenderungsEreignis[], version: number): Extract<Ae
   return null;
 }
 
+/** Ältere Teile mit gleichem oder enthaltenem Namen („Schrank“ ~ „Wandschrank“), höchstens zwei; null ohne. */
+function aehnlich(name: string, aelter: readonly InventarZeile[]): string | null {
+  const k = positionSchluessel(name);
+  if (!k) return null;
+  const treffer = aelter.filter((z) => {
+    const zk = positionSchluessel(z.name);
+    return zk === k || zk.includes(k) || k.includes(zk);
+  });
+  return treffer.length > 0 ? treffer.slice(0, 2).map((z) => z.name).join(" oder ") : null;
+}
+
 /** Neue Foto-Teile seit `seit` als Vorschläge (Kennung `foto:<id>`); Dubletten markiert. */
 export function fotoVorschlaege(inventar: readonly InventarDbZeile[], seit: Date | null): Vorschlag[] {
   if (!seit) return [];
@@ -173,7 +186,7 @@ export function fotoVorschlaege(inventar: readonly InventarDbZeile[], seit: Date
         inventarId: z.id,
         fotoUrl: z.photoAttachmentId ? `/api/v1/inbox/attachments/${encodeURIComponent(z.photoAttachmentId)}/content` : null,
         mitnehmen: z.moveFlag,
-        dublette: inventarTreffer(z.name, aelter)?.name ?? null,
+        dublette: aehnlich(z.name, aelter),
       },
     };
   });
@@ -235,9 +248,9 @@ function montageJetzt(inv: readonly InventarDbZeile[], v: VersionsZeile | null):
 export async function ansicht(ws: string, deal: string, quellen?: Partial<AenderungsQuellen>): Promise<AenderungsAnsicht> {
   const q = await quellenMit(quellen);
   const l = await lageLaden(ws, deal, q);
-  const [verschickt, angenommen, fotoStand] = await Promise.all([
+  const [verschickt, annahme, fotoStand] = await Promise.all([
     l.basis ? q.versionVerschickt(ws, deal, l.basis.id) : Promise.resolve(false),
-    l.basis ? q.angenommen(deal) : Promise.resolve(false),
+    l.basis ? q.angenommen(deal, l.basis.id) : Promise.resolve({ aktiv: false, basis: false }),
     l.vorgang ? q.fotoStand(deal).catch(() => ({ offen: 0, gescheitert: 0 })) : Promise.resolve({ offen: 0, gescheitert: 0 }),
   ]);
   const stand = aenderungsStand(l.ereignisse, l.vorgang?.version ?? null, l.fotoVorschlaege);
@@ -259,7 +272,8 @@ export async function ansicht(ws: string, deal: string, quellen?: Partial<Aender
         preisAltCent: l.basis.priceCents,
         preisNeuCent: l.vorgang.priceCents,
         link,
-        neuAnnehmen: angenommen || l.vorgang.status === "entwurf",
+        // War das alte Angebot angenommen, muss der Kunde das neue erneut annehmen.
+        neuAnnehmen: annahme.basis,
       }),
     };
   }
@@ -268,7 +282,7 @@ export async function ansicht(ws: string, deal: string, quellen?: Partial<Aender
     moeglich: !!l.basis,
     grund: l.basis ? null : KEIN_ANGEBOT_TEXT,
     basis: l.basis
-      ? { version: l.basis.version, preisCent: l.basis.priceCents, gesperrtAm: iso(l.basis.lockedAt), verschickt, angenommen }
+      ? { version: l.basis.version, preisCent: l.basis.priceCents, gesperrtAm: iso(l.basis.lockedAt), verschickt, angenommen: annahme.aktiv }
       : null,
     vorgang:
       l.vorgang && l.basis && l.vorgang.id !== l.basis.id && (stand.gestartet || l.vorgang.status === "entwurf")
@@ -640,7 +654,15 @@ export async function standardQuellen(): Promise<AenderungsQuellen> {
         .limit(1);
       return d?.t ?? null;
     },
-    angenommen: async (deal) => !!(await (await import("./kva-annahme")).ladeAktiveAnnahme(deal)),
+    angenommen: async (deal, basisVersionId) => {
+      const { kvaConfirmations } = await import("@/db/schema/customer-portal");
+      const zeilen = await db
+        .select({ aufgehoben: kvaConfirmations.supersededAt, version: kvaConfirmations.calculationVersionId })
+        .from(kvaConfirmations)
+        .where(eq(kvaConfirmations.dealRecordId, deal))
+        .limit(50);
+      return { aktiv: zeilen.some((z) => z.aufgehoben === null), basis: zeilen.some((z) => z.version === basisVersionId) };
+    },
     ereignisse: async (ws, deal) => {
       const zeilen = await db
         .select({ payload: activityEvents.payload, createdAt: activityEvents.createdAt })

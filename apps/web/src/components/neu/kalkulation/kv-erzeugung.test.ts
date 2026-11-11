@@ -178,3 +178,26 @@ describe("KvVorschau mit Marke", () => {
     expect(renderToStaticMarkup(createElement(KvVorschau, { kv, kvFehler: null }))).not.toContain("kalk-kv-marke");
   });
 });
+
+describe("Plan 16: „Angebot ändern“ an der maßgeblichen Version", () => {
+  it("mit onAngebotAendern ersetzt der Knopf „+ Neue Version“, sonst bleibt es wie bisher", () => {
+    const mit = renderToStaticMarkup(
+      createElement(SperrenBereich, {
+        dealId: "deal_weber",
+        version: version({ art: "keins" }),
+        laeuft: null,
+        onSperren: vi.fn(),
+        onKv: vi.fn(),
+        onNeueVersion: vi.fn(),
+        onNeuRechnen: vi.fn(),
+        onAngebotAendern: vi.fn(),
+        jetzt: JETZT,
+      })
+    );
+    expect(mit).toContain("Angebot ändern");
+    expect(mit).not.toContain("+ Neue Version");
+    const ohne = sperren(version({ art: "keins" }));
+    expect(ohne).toContain("+ Neue Version");
+    expect(ohne).not.toContain("Angebot ändern");
+  });
+});
