@@ -12,6 +12,7 @@ import { euro } from "@/components/neu/akte/format";
 import type { Vergleich } from "@/lib/angebot-vergleich";
 import type { AnsichtsVorschlag } from "@/services/angebot-aenderung";
 import { aenderungsUrl, fotoHinweis, QUELLE_TEXT, startAuswahl, type AenderungsDaten } from "./angebot-aendern-logik";
+import { INVENTAR_OEFFNEN_EVENT } from "./annahmen-kasten";
 
 type Antwort = { ergebnis: { hinweis?: string | null } | null; ansicht: AenderungsDaten };
 
@@ -209,6 +210,22 @@ export function AngebotAendernPanel({
                     {laeuft === "eingabe" ? "Liest …" : daten.verlauf.length > 0 ? "Nachschärfen" : "Auswerten"}
                   </GlassButton>
                 </form>
+                <div className="aa-quellen">
+                  <GlassButton
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    disabled={beschaeftigt}
+                    onClick={() => {
+                      // Inventar des Entwurfs öffnen (Teile ändern, entfernen, hinzufügen, Demontage/Montage wählen).
+                      onSchliessen();
+                      window.setTimeout(() => window.dispatchEvent(new Event(INVENTAR_OEFFNEN_EVENT)), 0);
+                    }}
+                  >
+                    Von Hand bearbeiten
+                  </GlassButton>
+                  <span className="aa-unter">Inventar und Demontage/Montage direkt ändern. Zurück hierher über „Änderungen öffnen“ im blauen Band oben.</span>
+                </div>
               </>
             ) : null}
 
