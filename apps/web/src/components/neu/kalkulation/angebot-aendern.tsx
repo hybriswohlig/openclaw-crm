@@ -312,6 +312,7 @@ function VorschlagZeile({ v, an, gesperrt, onWechsel }: { v: AnsichtsVorschlag; 
         {v.lead ? <span>ändert das Inventar im Lead</span> : null}
         {v.foto ? <span>steht schon im Entwurf</span> : null}
         {v.foto?.dublette ? <span className="aa-warn">Dublette? Ähnlich wie „{v.foto.dublette}“</span> : null}
+        {v.schonDa ? <span className="aa-warn">schon im Inventar ({v.schonDa} Stück), Übernehmen erhöht die Menge</span> : null}
         {v.aenderung.art === "unklar" ? <span className="aa-warn">nicht zuordenbar, bitte von Hand</span> : null}
         {v.aenderung.art === "termin" ? <span>nur Hinweis, bucht nichts um</span> : null}
       </span>

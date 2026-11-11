@@ -19,10 +19,12 @@ export function aenderungsUrl(dealId: string, pfad = ""): string {
   return `/api/v1/deals/${encodeURIComponent(dealId)}/angebot-aenderung${pfad}`;
 }
 
-/** Vorab angehakt: offene Vorschläge außer „nicht zuordenbar“ und Foto-Dubletten. */
+/** Vorab angehakt: offene Vorschläge außer „nicht zuordenbar“, Foto-Dubletten und Teilen, die schon mitkommen. */
 export function startAuswahl(vorschlaege: readonly AnsichtsVorschlag[]): Set<string> {
   return new Set(
-    vorschlaege.filter((v) => v.status === "offen" && v.aenderung.art !== "unklar" && !v.foto?.dublette).map((v) => v.id)
+    vorschlaege
+      .filter((v) => v.status === "offen" && v.aenderung.art !== "unklar" && !v.foto?.dublette && !v.schonDa)
+      .map((v) => v.id)
   );
 }
 

@@ -109,11 +109,29 @@ export interface KiEingabe {
   inventar: string[];
   /** Offene Vorschläge derselben Quelle (zum Nachschärfen). */
   bisher: string[];
+  /** Review I2: schon übernommene oder verworfene Änderungen dieses Vorgangs (nicht noch einmal ausgeben). */
+  erledigt: string[];
 }
 
 // ─── Ansicht ────────────────────────────────────────────────────────────────
 
-export type AnsichtsVorschlag = Vorschlag & { text: string; lead: boolean };
+export type AnsichtsVorschlag = Vorschlag & {
+  text: string;
+  lead: boolean;
+  /** Review I2/M9: „dazu“ für ein Teil, das schon mitkommt: Stück im Inventar (Übernehmen addiert). */
+  schonDa?: number | null;
+};
+
+/** Teil, das schon mitkommt (genau gleicher Name), sonst null. */
+function schonImInventar(name: string, inventar: readonly InventarDbZeile[]): InventarDbZeile | null {
+  const k = positionSchluessel(name);
+  return inventar.find((z) => z.moveFlag && positionSchluessel(z.name) === k) ?? null;
+}
+
+function ansichtsVorschlag(v: Vorschlag, inventar: readonly InventarDbZeile[]): AnsichtsVorschlag {
+  const da = v.aenderung.art === "teil_hinzu" && !v.foto && v.status === "offen" ? schonImInventar(v.aenderung.name, inventar) : null;
+  return { ...v, text: aenderungText(v.aenderung), lead: aendertLead(v.aenderung) && !v.foto, schonDa: da ? da.quantity : null };
+}
 
 export interface AenderungsAnsicht {
   /** Es gibt ein gesperrtes Angebot, das sich ändern lässt. */
@@ -292,7 +310,7 @@ export async function ansicht(ws: string, deal: string, quellen?: Partial<Aender
       l.vorgang && l.basis && l.vorgang.id !== l.basis.id && (stand.gestartet || l.vorgang.status === "entwurf")
         ? { version: l.vorgang.version, status: l.vorgang.status, preisCent: l.vorgang.priceCents, fehler: l.vorgang.error }
         : null,
-    vorschlaege: stand.vorschlaege.map((v) => ({ ...v, text: aenderungText(v.aenderung), lead: aendertLead(v.aenderung) && !v.foto })),
+    vorschlaege: stand.vorschlaege.map((v) => ansichtsVorschlag(v, l.inventar)),
     verlauf: stand.verlauf,
     chat: { seit: iso(seitFuerChat(l.basis)), ausgewertet: stand.chatStand !== null },
     fotos: { ...fotoStand, neu: l.fotoVorschlaege.length },
@@ -388,6 +406,7 @@ export async function ausChat(ws: string, deal: string, autor: Autor, quellen?: 
     texte: eingang.texte,
     inventar: l.inventar.filter((z) => z.moveFlag).map((z) => z.name),
     bisher: [],
+    erledigt: erledigteTexte(stand.vorschlaege),
   });
   const vorschlaege = normalisiereVorschlaege(roh, { inventar: inventarZeilen(l.inventar), quelle: "chat", zeit: new Date().toISOString() });
   await q.schreiben(ws, deal, { typ: "vorschlaege", entwurfVersion: l.vorgang.version, quelle: "chat", ersetzen: true, vorschlaege, stand: eingang.stand }, autor);
@@ -395,6 +414,13 @@ export async function ausChat(ws: string, deal: string, autor: Autor, quellen?: 
 }
 
 const EINGABE_MAX = 1000;
+
+/** Review I2: was in diesem Vorgang schon erledigt ist, als Text für die KI. */
+function erledigteTexte(vorschlaege: readonly Vorschlag[]): string[] {
+  return vorschlaege
+    .filter((v) => v.status !== "offen" && v.aenderung.art !== "unklar")
+    .map((v) => `${aenderungText(v.aenderung)} (${v.status === "uebernommen" ? "übernommen" : "verworfen"})`);
+}
 
 /** „Was soll sich ändern?“: neuer Text in den Verlauf, KI über den ganzen Verlauf, ersetzt die offenen Eingabe-Vorschläge. */
 export async function ausEingabe(ws: string, deal: string, text: string, autor: Autor, quellen?: Partial<AenderungsQuellen>): Promise<{ hinweis: string | null }> {
@@ -417,6 +443,7 @@ export async function ausEingabe(ws: string, deal: string, text: string, autor: 
     texte: verlauf,
     inventar: l.inventar.filter((z) => z.moveFlag).map((z) => z.name),
     bisher: vorher.vorschlaege.filter((v) => v.quelle === "eingabe" && v.status === "offen").map((v) => aenderungText(v.aenderung)),
+    erledigt: erledigteTexte(vorher.vorschlaege),
   });
   const vorschlaege = normalisiereVorschlaege(roh, {
     inventar: inventarZeilen(l.inventar),
@@ -446,7 +473,7 @@ export async function vorschlagen(
   await q.schreiben(ws, deal, { typ: "vorschlaege", entwurfVersion: l.vorgang.version, quelle, ersetzen: false, vorschlaege }, autor);
   return {
     entwurfVersion: l.vorgang.version,
-    vorschlaege: vorschlaege.map((v) => ({ ...v, text: aenderungText(v.aenderung), lead: aendertLead(v.aenderung) })),
+    vorschlaege: vorschlaege.map((v) => ansichtsVorschlag(v, l.inventar)),
   };
 }
 
@@ -460,10 +487,13 @@ function offeneMitIds(l: Lage & { vorgang: VersionsZeile }, ids: unknown): Vorsc
   return gewaehlt;
 }
 
-function leadText(s: LeadSchritt): string {
+function leadText(s: LeadSchritt, inventar: readonly InventarDbZeile[]): string {
   switch (s.art) {
-    case "hinzu":
-      return `${s.name} (${s.menge}) ins Inventar`;
+    case "hinzu": {
+      // Review M9: kommt das Teil schon mit, die neue Gesamtmenge zeigen.
+      const da = schonImInventar(s.name, inventar);
+      return da ? `${da.name}: Menge ${da.quantity} → ${da.quantity + s.menge}` : `${s.name} (${s.menge}) ins Inventar`;
+    }
     case "menge":
       return `${s.name}: Menge ${s.menge}`;
     case "weg":
@@ -492,7 +522,7 @@ export async function uebernehmen(
   const plan = uebernahmePlan(gewaehlt, { inventar: inventarZeilen(l.inventar), montageJetzt: montageJetzt(l.inventar, l.vorgang) });
   if (plan.lead.length > 0 && opts.leadBestaetigt !== true) {
     throw new AenderungsFehler("LEAD_RUECKFRAGE", "Diese Änderungen ändern die Lead-Daten (Inventar). Bitte bestätigen.", {
-      lead: plan.lead.map(leadText),
+      lead: plan.lead.map((x) => leadText(x, l.inventar)),
     });
   }
   for (const s of plan.lead) await q.leadSchritt(ws, deal, s, autor);
@@ -523,7 +553,7 @@ export async function verwerfen(
     .map((v) => ({ art: "weg" as const, id: v.foto!.inventarId, name: v.aenderung.art === "teil_hinzu" ? v.aenderung.name : "Teil" }));
   if (lead.length > 0 && opts.leadBestaetigt !== true) {
     throw new AenderungsFehler("LEAD_RUECKFRAGE", "Foto-Teile stehen schon im Inventar. Verwerfen nimmt sie aus dem Lead. Bitte bestätigen.", {
-      lead: lead.map(leadText),
+      lead: lead.map((x) => leadText(x, l.inventar)),
     });
   }
   for (const s of lead) await q.leadSchritt(ws, deal, s, autor);
@@ -578,11 +608,15 @@ Antworte nur mit dem JSON-Objekt {"aenderungen": [...]}.`;
 
 export function kiPrompt(e: KiEingabe): string {
   const inventar = e.inventar.length > 0 ? e.inventar.slice(0, 300).map((n) => `- ${n}`).join("\n") : "(leer)";
+  const erledigt =
+    e.erledigt.length > 0
+      ? `\n\n# Schon erledigt (NICHT noch einmal ausgeben; eine neue Menge eines schon übernommenen Teils als teil_menge mit der neuen Gesamtmenge)\n${e.erledigt.map((b) => `- ${b}`).join("\n")}`
+      : "";
   if (e.art === "chat") {
-    return `# Inventar im Angebot\n${inventar}\n\n# Nachrichten des Kunden seit dem Angebot (älteste zuerst)\n${kiTexte(e.texte, "nachricht")}\n\nWelche Änderungen am Angebot wünscht der Kunde?`;
+    return `# Inventar im Angebot\n${inventar}${erledigt}\n\n# Nachrichten des Kunden seit dem Angebot (älteste zuerst)\n${kiTexte(e.texte, "nachricht")}\n\nWelche Änderungen am Angebot wünscht der Kunde, die noch nicht erledigt sind?`;
   }
   const bisher = e.bisher.length > 0 ? `\n\n# Bisher daraus gelesen\n${e.bisher.map((b) => `- ${b}`).join("\n")}` : "";
-  return `# Inventar im Angebot\n${inventar}\n\n# Eingaben des Disponenten (älteste zuerst; spätere korrigieren frühere, z. B. „nein, Schrank doch wir“)\n${kiTexte(e.texte, "eingabe")}${bisher}\n\nGib die vollständige, aktuelle Liste der Änderungen aus allen Eingaben zusammen zurück.`;
+  return `# Inventar im Angebot\n${inventar}${erledigt}\n\n# Eingaben des Disponenten (älteste zuerst; spätere korrigieren frühere, z. B. „nein, Schrank doch wir“)\n${kiTexte(e.texte, "eingabe")}${bisher}\n\nGib die vollständige, aktuelle Liste der noch offenen Änderungen aus allen Eingaben zusammen zurück, ohne die schon erledigten.`;
 }
 
 // ─── Standard-Quellen (Datenbank) ───────────────────────────────────────────

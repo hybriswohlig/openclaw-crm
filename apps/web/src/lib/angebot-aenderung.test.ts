@@ -4,6 +4,7 @@ import {
   VORSCHLAEGE_MAX,
   aenderungsGrund,
   aenderungsStand,
+  gleicheAenderung,
   herkunftAus,
   kundenAnredeZeile,
   kundenNachricht,
@@ -287,8 +288,8 @@ describe("uebernahmePlan", () => {
     );
 
     expect(plan.uebersteuerungen).toMatchObject([
-      { art: "zeitposten", key: "aenderung.zeit1", wert: { bezeichnung: "Wartezeit", minuten: 30 } },
-      { art: "material_frei", key: "aenderung.mat1", wert: { bezeichnung: "Folie", betrag: 12.5 } },
+      { art: "zeitposten", key: "aenderung.wartezeit", wert: { bezeichnung: "Wartezeit", minuten: 30 } },
+      { art: "material_frei", key: "aenderung.folie", wert: { bezeichnung: "Folie", betrag: 12.5 } },
     ]);
   });
 
@@ -558,3 +559,20 @@ describe("Review 3: zwei Montage-Vorschläge zum selben Möbel", () => {
     ]);
   });
 });
+
+describe("Review I2: fachlicher Abgleich", () => {
+  it("gleich trotz Größe, Groß/Klein und Zitat; posten_hinzu nach Bezeichnung; Menge zählt bei teil_menge", () => {
+    expect(gleicheAenderung({ art: "teil_hinzu", name: "Fahrrad", menge: 1, groesse: null }, { art: "teil_hinzu", name: " fahrrad ", menge: 1, groesse: "mittel" })).toBe(true);
+    expect(gleicheAenderung({ art: "posten_hinzu", bezeichnung: "Klavier tragen", minuten: 30, betrag: null }, { art: "posten_hinzu", bezeichnung: "klavier  tragen", minuten: 45, betrag: null })).toBe(true);
+    expect(gleicheAenderung({ art: "teil_menge", name: "Stuhl", menge: 4 }, { art: "teil_menge", name: "Stuhl", menge: 6 })).toBe(false);
+  });
+
+  it("posten_hinzu hat einen Schlüssel aus der Bezeichnung (zweimal übernommen ersetzt statt addiert)", () => {
+    const v = (id: string): Vorschlag => ({ id, quelle: "chat", aenderung: { art: "posten_hinzu", bezeichnung: "Klavier tragen", minuten: 30, betrag: null }, zitat: "", status: "offen", zeit: ZEIT });
+    const a = uebernahmePlan([v("x1")], { inventar: [], montageJetzt: {} }).uebersteuerungen[0].key;
+    const b = uebernahmePlan([v("y2")], { inventar: [], montageJetzt: {} }).uebersteuerungen[0].key;
+    expect(a).toBe(b);
+    expect(a).toBe("aenderung.klavier-tragen");
+  });
+});
+

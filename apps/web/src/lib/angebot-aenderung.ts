@@ -203,11 +203,47 @@ export function aenderungsStand(
   return stand;
 }
 
-/** Dieselbe Änderung (Art und Werte, Namen ohne Groß/Klein)? */
+const klein = (t: string) => t.replace(/\s+/g, " ").trim().toLocaleLowerCase("de-DE");
+
+/**
+ * Fachlicher Schlüssel einer Änderung (Review I2): Art und Name normalisiert, ohne Größe und
+ * Zitat. „Fahrrad dazu“ ist dieselbe Änderung, ob die KI eine Größe mitliefert oder nicht.
+ */
+export function aenderungsSchluessel(a: Aenderung): string {
+  switch (a.art) {
+    case "teil_hinzu":
+    case "teil_weg":
+      return `${a.art}:${positionSchluessel(a.name)}`;
+    case "teil_menge":
+      return `${a.art}:${positionSchluessel(a.name)}:${a.menge}`;
+    case "montage":
+      return `${a.art}:${positionSchluessel(a.name)}:${a.abbau ?? "-"}:${a.aufbau ?? "-"}`;
+    case "halteverbot":
+      return `${a.art}:${a.seite}:${a.an}`;
+    case "etage":
+      return `${a.art}:${a.seite}:${a.etage}`;
+    case "aufzug":
+      return `${a.art}:${a.seite}:${a.aufzug}`;
+    case "tragweg":
+      return `${a.art}:${a.seite}:${a.meter}`;
+    case "kartons":
+    case "einpacken":
+      return `${a.art}:${a.anzahl}`;
+    case "posten_hinzu":
+      return `${a.art}:${klein(a.bezeichnung)}`;
+    case "posten_weg":
+      return `${a.art}:${a.hebel}`;
+    case "termin":
+      return `${a.art}:${a.datum ?? klein(a.text)}`;
+    case "hinweis":
+    case "unklar":
+      return `${a.art}:${klein(a.text)}`;
+  }
+}
+
+/** Dieselbe Änderung im fachlichen Sinn (siehe `aenderungsSchluessel`)? */
 export function gleicheAenderung(a: Aenderung, b: Aenderung): boolean {
-  const norm = (x: Aenderung) =>
-    JSON.stringify(x, (k, v) => (k === "name" && typeof v === "string" ? positionSchluessel(v) : v));
-  return norm(a) === norm(b);
+  return aenderungsSchluessel(a) === aenderungsSchluessel(b);
 }
 
 // ─── Normalisierung (festes Schema) ─────────────────────────────────────────
@@ -535,7 +571,8 @@ export function uebernahmePlan(
         eingabe(v, "einpacken", a.anzahl);
         break;
       case "posten_hinzu": {
-        const key = `aenderung.${v.id.replace(/[^a-z0-9]/gi, "").slice(0, 12).toLowerCase()}`;
+        // Review I2: Schlüssel aus der Bezeichnung, damit derselbe Posten nie zweimal zählt (ersetzt statt addiert).
+        const key = `aenderung.${klein(a.bezeichnung).replace(/[^a-z0-9äöüß]+/g, "-").replace(/^-|-$/g, "").slice(0, 30) || "posten"}`;
         if (a.minuten !== null) {
           plan.uebersteuerungen.push({ art: "zeitposten", key, wert: { bezeichnung: a.bezeichnung, minuten: a.minuten }, grund: aenderungsGrund(v), herkunft: v.quelle });
         } else {
