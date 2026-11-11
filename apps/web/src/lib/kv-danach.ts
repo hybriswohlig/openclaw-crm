@@ -303,7 +303,8 @@ export function paketeZeile(e: PaketeZeileEingabe): PaketeZeile {
     else if (!s.wirksam) grund = "Firmen-Schalter „Angebot aus Kalkulation“ ist aus.";
     else if (!s.pakete.basis) grund = "Die Firma hat kein Basis-Paket.";
     else if (optionen === 0) grund = "Der Deal hat keine Paketoptionen; anlegen im Paketberater der alten Akte.";
-    else grund = e.gesperrt ? "Diese Version wurde ohne Pakete gesperrt." : "Noch keine Paketpreise, bitte neu rechnen.";
+    // Gesperrt ohne Pakete: der Hinweis auf die neue Version sagt es schon (Review M7).
+    else grund = e.gesperrt ? null : "Noch keine Paketpreise, bitte neu rechnen.";
   }
 
   let schalter: PaketeZeile["schalter"] = null;

@@ -212,7 +212,10 @@ describe("Pakete-Zeile im KV-Fenster", () => {
     const z = paketeZeile({ ...basis, gesperrt: true });
     expect(z.schalter).toBeNull();
     expect(z.gesperrtHinweis).toContain("neue Version");
-    expect(paketeZeile({ ...basis, gesperrt: true, pakete: [] }).grund).toBe("Diese Version wurde ohne Pakete gesperrt.");
+    // Nur ein Hinweis, nicht zwei fast gleiche (Review M7).
+    const ohne = paketeZeile({ ...basis, gesperrt: true, pakete: [] });
+    expect(ohne.grund).toBeNull();
+    expect(ohne.gesperrtHinweis).toBe("Diese Version ist gesperrt. Für andere Pakete braucht es eine neue Version.");
   });
 
   it("zeigt die Tagespreise als Hinweiszeile", () => {
