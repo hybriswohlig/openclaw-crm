@@ -67,6 +67,10 @@ export async function GET(
       note: r.note,
       isRecommended: r.isRecommended,
       sortOrder: r.sortOrder,
+      // kv-danach (Review M2): Preise je Tag und Version, damit der Kurztext „ab“ sagen kann.
+      priceCents: r.priceCents,
+      packagePrices: r.packagePrices,
+      calculationVersionId: r.calculationVersionId,
     })),
     selection: selection
       ? {

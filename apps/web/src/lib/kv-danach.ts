@@ -88,6 +88,8 @@ export type KvPreis =
   | { art: "fest"; cent: number }
   /** Paketoptionen des Deals im Portal: „ab“ dem günstigsten. */
   | { art: "pakete"; abCent: number; anzahl: number }
+  /** Tagespreise im Portal (Review M2): „ab“ dem günstigsten Termin (und Paket), nie ein Einzelpreis. */
+  | { art: "termine"; abCent: number; mitPaketen: boolean }
   | { art: "stunden" }
   /** Kein Preis bekannt: der Satz entfällt, der Link zeigt ihn. */
   | { art: "offen" };
@@ -103,8 +105,18 @@ export interface KvPreisAngebot {
 /** Paketoption des Deals (`GET /deals/{id}/package-options`, Ausschnitt). */
 export interface KvPreisOption {
   priceCents?: number | null;
+  catalogueSlug?: string | null;
   calculationVersionId?: string | null;
 }
+
+/** Terminangebot des Deals (`GET /deals/{id}/date-offers`, Ausschnitt). */
+export interface KvPreisTag {
+  priceCents?: number | null;
+  packagePrices?: Record<string, number> | null;
+  calculationVersionId?: string | null;
+}
+
+const gueltig = (c: unknown): c is number => typeof c === "number" && Number.isFinite(c) && c > 0;
 
 /**
  * Nur, was das Portal zu dieser Quotation zeigt: hängt sie an einer Version,
@@ -120,11 +132,24 @@ export function anVersion<T extends { calculationVersionId?: string | null }>(q:
  * den Stunden). Danach Paketoptionen der Version der Quotation (ab zwei mit
  * Preis), sonst der Festpreis.
  */
-export function kvPreisAus(q: KvPreisAngebot | null | undefined, optionen: readonly KvPreisOption[] = []): KvPreis {
+export function kvPreisAus(
+  q: KvPreisAngebot | null | undefined,
+  optionen: readonly KvPreisOption[] = [],
+  tage: readonly KvPreisTag[] = []
+): KvPreis {
   if (q?.isVariable) return { art: "stunden" };
-  const preise = anVersion(q, optionen)
-    .map((o) => o.priceCents)
-    .filter((c): c is number => typeof c === "number" && c > 0);
+  const optionenV = anVersion(q, optionen);
+  // Tagespreise wie im Portal: je Tag die Paketpreise der angebotenen Pakete, sonst der Tagespreis.
+  const slugs = optionenV.map((o) => o.catalogueSlug).filter((x): x is string => typeof x === "string" && x !== "");
+  const tagePreise = anVersion(q, tage).flatMap((t) =>
+    slugs.length > 0 && t.packagePrices ? slugs.map((sl) => t.packagePrices?.[sl]) : [t.priceCents]
+  );
+  const tagWerte = tagePreise.filter(gueltig);
+  if (tagWerte.length > 0 && new Set(tagWerte).size > 1) {
+    return { art: "termine", abCent: Math.min(...tagWerte), mitPaketen: slugs.length > 0 && anVersion(q, tage).some((t) => t.packagePrices) };
+  }
+  if (tagWerte.length > 0) return { art: "fest", cent: tagWerte[0] };
+  const preise = optionenV.map((o) => o.priceCents).filter(gueltig);
   if (preise.length >= 2) return { art: "pakete", abCent: Math.min(...preise), anzahl: preise.length };
   if (!q) return { art: "offen" };
   const roh = q.fixedPrice;
@@ -159,6 +184,13 @@ export function kvFertigNachricht(e: {
         `Sie können zwischen ${e.preis.anzahl} Paketen wählen, ab ${ab} zum Festpreis.`,
         `Du kannst zwischen ${e.preis.anzahl} Paketen wählen, ab ${ab} zum Festpreis.`
       )
+    );
+  } else if (e.preis.art === "termine") {
+    const ab = euroText(e.preis.abCent);
+    saetze.push(
+      e.preis.mitPaketen
+        ? t(`Je nach Paket und Termin beginnt der Festpreis bei ${ab}, Sie wählen im Angebot.`, `Je nach Paket und Termin beginnt der Festpreis bei ${ab}, du wählst im Angebot.`)
+        : t(`Der Festpreis hängt vom Termin ab und beginnt bei ${ab}, die Termine stehen im Angebot.`, `Der Festpreis hängt vom Termin ab und beginnt bei ${ab}, die Termine stehen im Angebot.`)
     );
   } else if (e.preis.art === "stunden") {
     saetze.push("Abgerechnet wird nach Aufwand, die Stundensätze stehen im Angebot.");

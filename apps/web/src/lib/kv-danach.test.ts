@@ -74,6 +74,32 @@ describe("Kurztext nach dem KV", () => {
     ).toEqual({ art: "pakete", abCent: 230000, anzahl: 2 });
   });
 
+  it("nennt bei Tagespreisen „ab“, nie einen Einzelpreis (Review M2)", () => {
+    const q = { fixedPrice: "2480", isVariable: false, calculationVersionId: "v2" };
+    const tage = [
+      { priceCents: 248000, calculationVersionId: "v2" },
+      { priceCents: 219000, calculationVersionId: "v2" },
+      { priceCents: 100000, calculationVersionId: "v1" },
+    ];
+    expect(kvPreisAus(q, [], tage)).toEqual({ art: "termine", abCent: 219000, mitPaketen: false });
+    // Mit Paketen: je Tag die Paketpreise der angebotenen Pakete.
+    const optionen = [
+      { priceCents: 230000, catalogueSlug: "basis", calculationVersionId: "v2" },
+      { priceCents: 280000, catalogueSlug: "komfort", calculationVersionId: "v2" },
+    ];
+    const tageP = [
+      { priceCents: 230000, packagePrices: { basis: 230000, komfort: 280000 }, calculationVersionId: "v2" },
+      { priceCents: 210000, packagePrices: { basis: 210000, komfort: 260000 }, calculationVersionId: "v2" },
+    ];
+    expect(kvPreisAus(q, optionen, tageP)).toEqual({ art: "termine", abCent: 210000, mitPaketen: true });
+    // Ein einziger Tagespreis ist der Festpreis.
+    expect(kvPreisAus(q, [], [{ priceCents: 250000, calculationVersionId: "v2" }])).toEqual({ art: "fest", cent: 250000 });
+    const text = kvFertigNachricht({ firma: "Ceylan", vorname: null, preis: { art: "termine", abCent: 219000, mitPaketen: false }, url: URL_ });
+    expect(text).toContain("Der Festpreis hängt vom Termin ab und beginnt bei 2.190 €");
+    const du = kvFertigNachricht({ firma: "Kottke", vorname: null, preis: { art: "termine", abCent: 210000, mitPaketen: true }, url: URL_ });
+    expect(du).toContain("Je nach Paket und Termin beginnt der Festpreis bei 2.100 €, du wählst im Angebot.");
+  });
+
   it("Kottke duzt, Ceylan bleibt beim Sie", () => {
     const kottke = kvFertigNachricht({
       firma: "Kottke Entrümpelung & Umzüge",
