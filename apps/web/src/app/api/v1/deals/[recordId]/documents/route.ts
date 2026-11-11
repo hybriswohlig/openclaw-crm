@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAuthContext, unauthorized, success } from "@/lib/api-utils";
 import { db } from "@/db";
 import { dealDocuments } from "@/db/schema/financial";
+import { dealCalculationVersions } from "@/db/schema/deal-calculation-versions";
 import { eq, and } from "drizzle-orm";
 import { prepareJsonDealDocument, validateDealDocumentUpload } from "@/lib/deal-document-upload";
 import { createDealDocument, type DealDocumentInput } from "@/services/deal-documents";
@@ -28,8 +29,14 @@ export async function GET(
       fileSize: dealDocuments.fileSize,
       mimeType: dealDocuments.mimeType,
       uploadedAt: dealDocuments.uploadedAt,
+      /** Plan 16: Version des KV („KV v3“), null ohne Version. */
+      kvVersion: dealCalculationVersions.version,
     })
     .from(dealDocuments)
+    .leftJoin(
+      dealCalculationVersions,
+      and(eq(dealCalculationVersions.id, dealDocuments.calculationVersionId), eq(dealCalculationVersions.workspaceId, dealDocuments.workspaceId))
+    )
     .where(
       and(
         eq(dealDocuments.workspaceId, ctx.workspaceId),

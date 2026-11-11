@@ -11,6 +11,18 @@ interface Dokument {
   fileSize: number;
   mimeType: string;
   uploadedAt: string;
+  /** Plan 16: Version des KV, null ohne Version. */
+  kvVersion?: number | null;
+}
+
+/**
+ * Plan 16: ein KV ist „ersetzt“, wenn es einen neueren KV gibt oder seine Version älter ist
+ * als die maßgebliche (`aktuell`, etwa gesperrt, aber noch ohne neues PDF).
+ */
+export function kvErsetzt(d: Pick<Dokument, "id" | "documentType" | "kvVersion">, neuesterKvId: string | null, aktuell: number | null): boolean {
+  if (d.documentType !== "quotation") return false;
+  if (neuesterKvId !== null && d.id !== neuesterKvId) return true;
+  return aktuell !== null && typeof d.kvVersion === "number" && d.kvVersion < aktuell;
 }
 
 /** Kürzel und Bezeichnung je Dokumentart (wie DOC_TYPE_LABELS der alten Finanzen). */
@@ -37,7 +49,7 @@ function groesse(bytes: number): string {
 type Zustand = { art: "laden" } | { art: "fehler"; meldung: string } | { art: "fertig"; dokumente: Dokument[] };
 
 /** Liste der Dokumente des Deals, neueste zuerst, mit Typ, Datum und Öffnen. */
-export function DokumenteAnsicht({ dealId }: { dealId: string }) {
+export function DokumenteAnsicht({ dealId, kvVersionAktuell = null }: { dealId: string; kvVersionAktuell?: number | null }) {
   const [zustand, setZustand] = useState<Zustand>({ art: "laden" });
 
   useEffect(() => {
@@ -72,6 +84,8 @@ export function DokumenteAnsicht({ dealId }: { dealId: string }) {
         <ul className="akte-gespraech-liste">
           {zustand.dokumente.map((d) => {
             const typ = dokumentTyp(d.documentType);
+            const neuesterKv = zustand.dokumente.find((x) => x.documentType === "quotation")?.id ?? null;
+            const ersetzt = kvErsetzt(d, neuesterKv, kvVersionAktuell);
             return (
               <li key={d.id} className="akte-gespraech-zeile">
                 <span className="akte-gespraech-typ" title={typ.lang} aria-label={typ.lang}>
@@ -80,7 +94,9 @@ export function DokumenteAnsicht({ dealId }: { dealId: string }) {
                 <span className="akte-gespraech-zeile-text">
                   <span className="akte-gespraech-zeile-name">{d.fileName}</span>
                   <span className="akte-gespraech-zeile-meta">
+                    {d.documentType === "quotation" && typeof d.kvVersion === "number" ? `KV v${d.kvVersion} · ` : ""}
                     {tagKurz(d.uploadedAt)} · {groesse(d.fileSize)}
+                    {ersetzt ? " · ersetzt" : ""}
                   </span>
                 </span>
                 <a

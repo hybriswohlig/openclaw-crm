@@ -86,6 +86,7 @@ export function GespraechPanel({
   ohneDock = false,
   schnellaktionen,
   griff,
+  kvVersionAktuell = null,
 }: {
   /** Null für ein Gespräch ohne Deal: keine Ansichten, kein „WhatsApp starten“. */
   dealId: string | null;
@@ -105,6 +106,8 @@ export function GespraechPanel({
   /** Zwischen Entwurf-Karte und Eingabefeld, nur in der Ansicht „Chat“. */
   schnellaktionen?: ReactNode;
   griff?: Ref<GespraechPanelGriff>;
+  /** Plan 16: maßgebliche Version; ältere KVs stehen in den Dokumenten als „ersetzt“. */
+  kvVersionAktuell?: number | null;
 }) {
   const nurChat = ohneAnsichten || dealId === null;
   const [ansicht, setAnsicht] = useState<Ansicht>("chat");
@@ -242,7 +245,7 @@ export function GespraechPanel({
         </>
       ) : null}
       {!chat && dealId && ansicht === "fotos" ? <FotosAnsicht dealId={dealId} /> : null}
-      {!chat && dealId && ansicht === "dokumente" ? <DokumenteAnsicht dealId={dealId} /> : null}
+      {!chat && dealId && ansicht === "dokumente" ? <DokumenteAnsicht dealId={dealId} kvVersionAktuell={kvVersionAktuell} /> : null}
       {!chat && dealId && ansicht === "notizen" ? <NotizenAnsicht dealId={dealId} /> : null}
     </GlassPanel>
   );

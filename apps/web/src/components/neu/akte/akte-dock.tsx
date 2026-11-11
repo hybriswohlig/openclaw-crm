@@ -86,6 +86,7 @@ export function AkteDock({
   dealId,
   dock,
   kvLink,
+  kvLabel = "KV anpassen",
   hatWaba,
   onZahlung,
   onBewertung,
@@ -98,6 +99,8 @@ export function AkteDock({
   dealId: string;
   dock: Dock;
   kvLink: string;
+  /** Plan 16: „Angebot ändern“, sobald ein Angebot verschickt ist. */
+  kvLabel?: string;
   hatWaba: boolean;
   onZahlung: () => void;
   onBewertung: () => void;
@@ -205,7 +208,7 @@ export function AkteDock({
           <GlassDockSeparator />
           <Link href={kvLink} className="akte-dock-knopf">
             <Symbol art="kv_anpassen" />
-            KV anpassen
+            {kvLabel}
           </Link>
           <DockKnopf art="ab_erstellen" label="AB erstellen" gesperrt={dock.abErlaubt ? null : "Erst nach der Annahme"} onClick={() => onDokument("AB")} />
           <DockKnopf art="rechnung_erstellen" label="Rechnung" gesperrt={dock.rechnungErlaubt ? null : "Erst ab Geplant"} onClick={() => onDokument("RE")} />

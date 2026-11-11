@@ -14,7 +14,9 @@ import { AkteKopf } from "./akte-kopf";
 import { apiAufruf } from "./api";
 import { BewertungDialog } from "./bewertung-dialog";
 import { DokumentDialog } from "./dokument-dialog";
-import { GespraechPanel } from "./gespraech-panel";
+import { GespraechPanel, type GespraechPanelGriff } from "./gespraech-panel";
+import { aenderungLaden } from "@/components/neu/kalkulation/angebot-aendern";
+import type { AenderungsDaten } from "@/components/neu/kalkulation/angebot-aendern-logik";
 import { KundeBereich } from "./kunde-bereich";
 import { TerminDialog } from "@/components/neu/termin/termin-dialog";
 import { VorlageDialog } from "./vorlage-dialog";
@@ -69,6 +71,10 @@ export function AkteSeite({ dealId }: { dealId: string }) {
   /** Link „Angaben ergänzen“ (Hintergrund-Job, Kalkulation): `?angaben=1` öffnet „Kunde und Adressen“. */
   const [angabenOffen, setAngabenOffen] = useState(false);
   const portalZiel = usePortalZiel();
+  /** Plan 16: Stand von „Angebot ändern“ (Dock-Knopf, „ersetzt“ in den Dokumenten, Nachricht). */
+  const [aenderung, setAenderung] = useState<AenderungsDaten | null>(null);
+  const griff = useRef<GespraechPanelGriff | null>(null);
+  const nachrichtGesetzt = useRef(false);
   const lauf = useRef(0);
   const hatAkte = useRef(false);
   hatAkte.current = zustand.art === "fertig";
@@ -84,6 +90,9 @@ export function AkteSeite({ dealId }: { dealId: string }) {
     if (dieser !== lauf.current) return null;
     if (a.ok && g.ok) {
       setZustand({ art: "fertig", akte: a.data, gespraech: g.data });
+      void aenderungLaden(deal).then((x) => {
+        if (dieser === lauf.current) setAenderung(x);
+      });
       return g.data;
     }
     const f = !a.ok ? a : !g.ok ? g : null;
@@ -108,7 +117,28 @@ export function AkteSeite({ dealId }: { dealId: string }) {
 
   useEffect(() => {
     setAngabenOffen(new URLSearchParams(window.location.search).get("angaben") === "1");
+    nachrichtGesetzt.current = false;
+    setAenderung(null);
   }, [dealId]);
+
+  // Plan 16: `?nachricht=angebot` legt den Entwurf der Kundennachricht ins Eingabefeld (senden wie immer, von Hand).
+  const fertig = zustand.art === "fertig";
+  useEffect(() => {
+    if (!fertig || nachrichtGesetzt.current) return;
+    if (new URLSearchParams(window.location.search).get("nachricht") !== "angebot") return;
+    let text: string | null = null;
+    try {
+      text = window.sessionStorage.getItem(`angebot-nachricht:${dealId}`);
+      window.sessionStorage.removeItem(`angebot-nachricht:${dealId}`);
+    } catch {
+      text = null;
+    }
+    text ??= aenderung?.nachricht?.text ?? null;
+    if (!text) return;
+    nachrichtGesetzt.current = true;
+    griff.current?.einfuegen(text);
+    toast.message("Nachricht an den Kunden steht im Eingabefeld.", { description: "Bitte prüfen und dann senden." });
+  }, [fertig, aenderung, dealId]);
 
   const neuLaden = useCallback(() => laden(dealId), [laden, dealId]);
   /** Für Kopf, Stufenmenü, Ablauf, Dock und Dialoge, die nur auf das Ende warten. */
@@ -137,6 +167,10 @@ export function AkteSeite({ dealId }: { dealId: string }) {
   }
 
   const { akte, gespraech } = zustand;
+  // Plan 16: verschicktes Angebot aus der Kalkulation → „Angebot ändern“ statt „KV anpassen“.
+  const angebotAendern = !!aenderung?.moeglich && !!aenderung.basis?.verschickt && akte.kvLink === akte.kalkulationLink;
+  const kvVersionAktuell =
+    aenderung?.vorgang?.status === "gesperrt" ? aenderung.vorgang.version : (aenderung?.basis?.version ?? null);
   const schliessen = () => setDialog(null);
   /** Vorlagen nur über direkt verknüpfte WABA-Gespräche (Entscheidung 10). */
   const wabaKanaele = gespraech.kanaele.filter((k) => k.istWaba && k.direkt);
@@ -168,11 +202,14 @@ export function AkteSeite({ dealId }: { dealId: string }) {
             kundeName={akte.kopf.name}
             onNeuLaden={neuLaden}
             onVorlage={vorlageOeffnen}
+            griff={griff}
+            kvVersionAktuell={kvVersionAktuell}
           />
           <AkteDock
             dealId={dealId}
             dock={akte.dock}
-            kvLink={akte.kvLink}
+            kvLink={angebotAendern ? `${akte.kalkulationLink}?aendern=1` : akte.kvLink}
+            kvLabel={angebotAendern ? "Angebot ändern" : undefined}
             hatWaba={wabaKanaele.length > 0}
             onZahlung={() => setDialog({ art: "zahlung" })}
             onBewertung={() => setDialog({ art: "bewertung" })}
