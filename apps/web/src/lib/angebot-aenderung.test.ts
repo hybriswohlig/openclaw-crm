@@ -220,7 +220,7 @@ describe("uebernahmePlan", () => {
     );
 
     expect(plan.lead).toEqual([
-      { art: "hinzu", name: "Fahrrad", menge: 2, groesse: "klein" },
+      { art: "hinzu", name: "Fahrrad", menge: 2, groesse: "klein", vorschlagId: "h1" },
       { art: "menge", id: "ti1", name: "Tisch", menge: 5 },
       { art: "weg", id: "so1", name: "Sofa" },
     ]);

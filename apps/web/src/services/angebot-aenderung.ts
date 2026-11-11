@@ -8,7 +8,7 @@
  * `lib/angebot-aenderung.ts`. KI sparsam: Chat nur bei neuem Nachrichtenstand, Eingabe nur
  * bei neuem Verlauf, je Deal eine Auswertung gleichzeitig, mit Zeitgrenze.
  */
-import { positionSchluessel } from "@/lib/kalkulation-versionen";
+import { positionSchluessel, pruefeUebersteuerung } from "@/lib/kalkulation-versionen";
 import {
   aendertLead,
   aenderungsStand,
@@ -528,6 +528,12 @@ export async function uebernehmen(
   const l = await aktiverVorgang(ws, deal, autor, q);
   const gewaehlt = offeneMitIds(l, ids);
   const plan = uebernahmePlan(gewaehlt, { inventar: inventarZeilen(l.inventar), montageJetzt: montageJetzt(l.inventar, l.vorgang) });
+  // Review M1: erst alles prüfen (Werte, Entwurf), dann schreiben; ein ungültiger Wert ändert kein Inventar.
+  try {
+    for (const u of plan.uebersteuerungen) pruefeUebersteuerung(u);
+  } catch (err) {
+    throw new AenderungsFehler("UNGUELTIG", err instanceof Error ? err.message : "Ungültige Änderung.");
+  }
   if (plan.lead.length > 0 && opts.leadBestaetigt !== true) {
     throw new AenderungsFehler("LEAD_RUECKFRAGE", "Diese Änderungen ändern die Lead-Daten (Inventar). Bitte bestätigen.", {
       lead: plan.lead.map((x) => leadText(x, l.inventar)),
@@ -834,6 +840,22 @@ export async function standardQuellen(): Promise<AenderungsQuellen> {
       let vorher: typeof t.$inferSelect | null = null;
       let nachher: typeof t.$inferSelect | null = null;
       if (s.art === "hinzu") {
+        // Review M1: derselbe Vorschlag legt nie zweimal an (Doppelklick, zweiter Tab, Wiederholung nach Fehler).
+        if (s.vorschlagId) {
+          const [schon] = await db
+            .select({ id: activityEvents.id })
+            .from(activityEvents)
+            .where(
+              and(
+                eq(activityEvents.workspaceId, ws),
+                eq(activityEvents.recordId, deal),
+                eq(activityEvents.eventType, INVENTAR_KORRIGIERT_EVENT),
+                sql`${activityEvents.payload}->>'vorschlagId' = ${s.vorschlagId}`
+              )
+            )
+            .limit(1);
+          if (schon) return;
+        }
         const [da] = await db
           .select()
           .from(t)
@@ -894,7 +916,7 @@ export async function standardQuellen(): Promise<AenderungsQuellen> {
           recordId: deal,
           objectSlug: "deals",
           eventType: INVENTAR_KORRIGIERT_EVENT,
-          payload: { ...korrekturPayload(nachher.id, vorher, nachher) },
+          payload: { ...korrekturPayload(nachher.id, vorher, nachher), ...(s.art === "hinzu" && s.vorschlagId ? { vorschlagId: s.vorschlagId } : {}) },
           actorId: autor.userId,
         });
       }

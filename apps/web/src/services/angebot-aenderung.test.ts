@@ -254,7 +254,7 @@ describe("Übernehmen", () => {
 
     const r = await uebernehmen("ws", "deal", ids, { leadBestaetigt: true }, MENSCH, t.q);
     expect(r).toEqual({ uebernommen: 3, uebersprungen: 0 });
-    expect(t.q.leadSchritt).toHaveBeenCalledWith("ws", "deal", { art: "hinzu", name: "Fahrrad", menge: 1, groesse: null }, MENSCH);
+    expect(t.q.leadSchritt).toHaveBeenCalledWith("ws", "deal", { art: "hinzu", name: "Fahrrad", menge: 1, groesse: null, vorschlagId: ids[0] }, MENSCH);
     const eingaben = vi.mocked(t.q.anwenden).mock.calls[0][2];
     expect(vi.mocked(t.q.anwenden).mock.calls[0][4]).toBe(2); // Review 6: an genau diesen Entwurf
     expect(eingaben.map((e) => [e.art, e.key, e.herkunft])).toEqual([
@@ -267,6 +267,17 @@ describe("Übernehmen", () => {
     expect(a.vorschlaege.every((v) => v.status === "uebernommen")).toBe(true);
     // Nochmal dieselben: schon erledigt.
     await expect(uebernehmen("ws", "deal", ids, { leadBestaetigt: true }, MENSCH, t.q)).rejects.toMatchObject({ code: "UNGUELTIG" });
+  });
+
+  it("Review M1: ungültiger Wert: nichts geschrieben, auch kein Inventar", async () => {
+    const t = aufbau({ entwurf: true });
+    const { vorschlaege } = await vorschlagen("ws", "deal", [{ art: "teil_hinzu", name: "Fahrrad" }, { art: "kartons", anzahl: 5 }], null, MENSCH, t.q);
+    // Wert nachträglich unbrauchbar (etwa altes Log): die Prüfung vor dem Schreiben fängt ihn.
+    const ev = t.log.find((e) => e.payload.typ === "vorschlaege")!;
+    if (ev.payload.typ === "vorschlaege") ev.payload.vorschlaege[1].aenderung = { art: "kartons", anzahl: 5000 };
+    await expect(uebernehmen("ws", "deal", vorschlaege.map((v) => v.id), { leadBestaetigt: true }, MENSCH, t.q)).rejects.toMatchObject({ code: "UNGUELTIG" });
+    expect(t.q.leadSchritt).not.toHaveBeenCalled();
+    expect(t.q.anwenden).not.toHaveBeenCalled();
   });
 
   it("nur Menschen übernehmen und verwerfen; Bots dürfen vorschlagen (Quelle bot)", async () => {

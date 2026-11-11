@@ -460,7 +460,8 @@ export function normalisiereVorschlaege(
 // ─── Übernahme ──────────────────────────────────────────────────────────────
 
 export type LeadSchritt =
-  | { art: "hinzu"; name: string; menge: number; groesse: Groessenklasse | null }
+  /** `vorschlagId`: macht den Schritt idempotent (ein zweites Übernehmen legt nichts noch einmal an). */
+  | { art: "hinzu"; name: string; menge: number; groesse: Groessenklasse | null; vorschlagId?: string }
   | { art: "menge"; id: string; name: string; menge: number }
   /** „Kommt nicht mit“: moveFlag aus (die Zeile bleibt als „bleibt da“ sichtbar). */
   | { art: "weg"; id: string; name: string }
@@ -525,7 +526,7 @@ export function uebernahmePlan(
         if (v.foto) {
           if (!v.foto.mitnehmen) plan.lead.push({ art: "wieder", id: v.foto.inventarId, name: a.name });
         } else {
-          plan.lead.push({ art: "hinzu", name: a.name, menge: a.menge, groesse: a.groesse });
+          plan.lead.push({ art: "hinzu", name: a.name, menge: a.menge, groesse: a.groesse, vorschlagId: v.id });
         }
         break;
       case "teil_weg": {
