@@ -36,6 +36,7 @@ vi.mock("@/services/workspace-settings", () => ({
   deleteSetting: mocks.deleteSetting,
 }));
 
+import { BAILEYS_REPAIR_FLUSH_WAIT_MS } from "@/lib/baileys-repair";
 import { POST } from "./route";
 
 function request(accountId = TARGET) {
@@ -140,7 +141,7 @@ describe("POST /api/v1/integrations/baileys/repair", () => {
     });
 
     const pending = POST(request());
-    await vi.advanceTimersByTimeAsync(800);
+    await vi.advanceTimersByTimeAsync(BAILEYS_REPAIR_FLUSH_WAIT_MS);
     const res = await pending;
     expect(res.status).toBe(200);
 

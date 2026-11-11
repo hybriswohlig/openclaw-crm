@@ -30,17 +30,10 @@ import {
   notFound,
   requireChannelManager,
 } from "@/lib/api-utils";
-import { baileysAuthStateKey } from "@/lib/baileys-repair";
+import { BAILEYS_REPAIR_FLUSH_WAIT_MS, baileysAuthStateKey } from "@/lib/baileys-repair";
 import { deleteSetting } from "@/services/workspace-settings";
 
 export const dynamic = "force-dynamic";
-
-/**
- * `crm-auth-state` debounces writes by 500ms and a flush that finds an
- * in-flight write schedules one more. 800ms lets that last write land
- * before we delete the blob.
- */
-export const BAILEYS_REPAIR_FLUSH_WAIT_MS = 800;
 
 function bridgeHeaders(secret: string): HeadersInit {
   return { "X-Bridge-Secret": secret };

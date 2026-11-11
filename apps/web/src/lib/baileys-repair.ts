@@ -13,6 +13,14 @@ export const BAILEYS_REPAIR_LIST = "list";
 export const BAILEYS_REPAIR_EVENT = "kottke:baileys-repair";
 export const KANAL_ACCOUNTS_ANCHOR = "kanal-accounts";
 
+/**
+ * `crm-auth-state` debounces writes by 500ms, and a flush that finds an
+ * in-flight write schedules one more. 800ms lets that last write land
+ * before the auth blob is deleted. Kept out of the route module: Next.js
+ * only allows HTTP handlers and route config to be exported from route.ts.
+ */
+export const BAILEYS_REPAIR_FLUSH_WAIT_MS = 800;
+
 /** Encrypted Baileys auth blob in workspace_settings. One key per account. */
 export function baileysAuthStateKey(accountId: string): string {
   return `baileys.auth_state.${accountId}`;
