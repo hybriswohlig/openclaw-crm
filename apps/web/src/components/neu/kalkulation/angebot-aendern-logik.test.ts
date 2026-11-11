@@ -22,6 +22,9 @@ describe("Panel-Logik Angebot ändern", () => {
       v("c", { status: "uebernommen" }),
       v("d", { quelle: "foto", foto: { inventarId: "f", fotoUrl: null, mitnehmen: true, dublette: "Kleiderschrank" } }),
       v("e", { quelle: "foto", foto: { inventarId: "g", fotoUrl: null, mitnehmen: true, dublette: null } }),
+      v("f", { quelle: "bot" }),
+      v("g", { aenderung: { art: "hinweis", text: "Danke" } }),
+      v("h", { schonDa: 1 }),
     ]);
     expect([...s]).toEqual(["a", "e"]);
   });

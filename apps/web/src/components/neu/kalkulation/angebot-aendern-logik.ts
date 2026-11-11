@@ -19,11 +19,20 @@ export function aenderungsUrl(dealId: string, pfad = ""): string {
   return `/api/v1/deals/${encodeURIComponent(dealId)}/angebot-aenderung${pfad}`;
 }
 
-/** Vorab angehakt: offene Vorschläge außer „nicht zuordenbar“, Foto-Dubletten und Teilen, die schon mitkommen. */
+/** Vorab angehakt: offene Vorschläge außer „nicht zuordenbar“, Hinweisen, Bot-Vorschlägen, Foto-Dubletten und Teilen, die schon mitkommen. */
 export function startAuswahl(vorschlaege: readonly AnsichtsVorschlag[]): Set<string> {
   return new Set(
     vorschlaege
-      .filter((v) => v.status === "offen" && v.aenderung.art !== "unklar" && !v.foto?.dublette && !v.schonDa)
+      .filter(
+        (v) =>
+          v.status === "offen" &&
+          v.aenderung.art !== "unklar" &&
+          // Review M8: Bot-Vorschläge und Hinweistexte prüft der Mensch bewusst einzeln.
+          v.aenderung.art !== "hinweis" &&
+          v.quelle !== "bot" &&
+          !v.foto?.dublette &&
+          !v.schonDa
+      )
       .map((v) => v.id)
   );
 }
