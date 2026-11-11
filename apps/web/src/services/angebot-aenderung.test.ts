@@ -14,6 +14,7 @@ import {
   ausChat,
   ausEingabe,
   fotoVorschlaege,
+  preisAngabe,
   kiPrompt,
   KI_SYSTEM,
   starten,
@@ -377,3 +378,27 @@ describe("KI-Prompt", () => {
     expect(KI_SYSTEM).toMatch(/Preise, Rabatte, Margen/);
   });
 });
+
+describe("Review M4: Preiszeile je Preisart", () => {
+  it("Stunden, Tage, Pakete, Festpreis", () => {
+    const stunden = version(2, {
+      pricingMode: "stunden",
+      priceCents: 98000,
+      rechnerResult: { stunden: { helfer: 2, transporter: 1, stundenGeschaetzt: 6.5, mindestStunden: 3, satzHelferEur: 49, satzTransporterEur: 30, zusatzposten: [], summeGeschaetztEur: 980, mindestbetragEur: 400 } },
+    });
+    expect(preisAngabe(version(1), stunden)).toEqual({ art: "stunden", satzCent: 12800, stunden: 6.5, summeCent: 98000 });
+    const tag = (datum: string, festpreis: number) => ({ datum, wochentag: "fr" as const, feiertag: false, festpreis, rechnerFestpreis: festpreis, selbstkosten: 0, margeProzent: null, gruende: [], uebersteuert: null, paketpreise: null, slots: [], note: null, empfohlen: false, vehicleBookingId: null });
+    const mitTagen = preisAngabe(version(1, { dayPrices: [tag("2026-11-20", 2400)] as never }), version(2, { dayPrices: [tag("2026-11-20", 2560)] as never }));
+    expect(mitTagen).toEqual({ art: "liste", zeilen: [{ label: "am Fr 20.11.", altCent: 240000, neuCent: 256000 }] });
+    const pk = (slug: string, festpreis: number) => ({ slug, festpreis, selbstkosten: 0 });
+    expect(preisAngabe(version(1, { packagePrices: [pk("komfort", 2000)] }), version(2, { packagePrices: [pk("komfort", 2100), pk("basis", 1500)] }))).toEqual({
+      art: "liste",
+      zeilen: [
+        { label: "Paket Komfort", altCent: 200000, neuCent: 210000 },
+        { label: "Paket Basis", altCent: null, neuCent: 150000 },
+      ],
+    });
+    expect(preisAngabe(version(1), version(2, { priceCents: 120000 }))).toEqual({ art: "fest", altCent: 100000, neuCent: 120000 });
+  });
+});
+

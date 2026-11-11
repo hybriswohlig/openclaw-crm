@@ -595,3 +595,17 @@ describe("Review I5: Foto-Teile in der Kundennachricht", () => {
   });
 });
 
+describe("Review M4: preisZeilen", () => {
+  it("Liste je Tag/Paket, Stunden mit Satz", async () => {
+    const { preisZeilen } = await import("./angebot-aenderung");
+    const f = { slug: "ceylan", name: null };
+    expect(preisZeilen({ art: "liste", zeilen: [{ label: "Paket Komfort", altCent: 200000, neuCent: 210000 }, { label: "Paket Basis", altCent: null, neuCent: null }] }, f)).toEqual([
+      "Die neuen Preise:",
+      "• Paket Komfort: 2.100 € (bisher 2.000 €)",
+    ]);
+    expect(preisZeilen({ art: "stunden", satzCent: 12800, stunden: 6.5, summeCent: 98000 }, f)).toEqual([
+      "Abgerechnet wird nach Aufwand: 128 € je Stunde, geschätzt 6,5 Stunden, voraussichtlich etwa 980 €.",
+    ]);
+  });
+});
+

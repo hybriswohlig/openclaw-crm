@@ -24,6 +24,7 @@ import {
   type AenderungsPayload,
   type InventarZeile,
   type KundenFirma,
+  type PreisAngabe,
   type LeadSchritt,
   type LogQuelle,
   type Vorschlag,
@@ -312,7 +313,7 @@ export async function ansicht(ws: string, deal: string, quellen?: Partial<Aender
         firma,
         name,
         aenderungen: uebernommen.map((v) => v.aenderung),
-        preis: { art: "fest", altCent: l.basis.priceCents, neuCent: l.vorgang.priceCents },
+        preis: preisAngabe(l.basis, l.vorgang),
         link,
         // War das alte Angebot angenommen, muss der Kunde das neue erneut annehmen.
         // Review I3: auch eine Altannahme ohne gebundene Version, die dieses Sperren aufgehoben hat, oder eine
@@ -339,6 +340,48 @@ export async function ansicht(ws: string, deal: string, quellen?: Partial<Aender
     vergleich,
     nachricht,
   };
+}
+
+const WOCHENTAG: Record<string, string> = { mo: "Mo", di: "Di", mi: "Mi", do: "Do", fr: "Fr", sa: "Sa", so: "So" };
+const cent = (eur: number | null | undefined) => (typeof eur === "number" && Number.isFinite(eur) ? Math.round(eur * 100) : null);
+
+/**
+ * Preiszeile der Nachricht (Review M4): Stunden-KV mit Stundensatz und Schätzung, angebotene Tage
+ * je Tag, Pakete je Paket, sonst der Festpreis.
+ */
+export function preisAngabe(basis: VersionsZeile, neu: VersionsZeile): PreisAngabe {
+  const st = neu.rechnerResult?.stunden;
+  if (neu.pricingMode === "stunden" && st) {
+    return {
+      art: "stunden",
+      satzCent: Math.round((st.helfer * st.satzHelferEur + st.transporter * st.satzTransporterEur) * 100),
+      stunden: st.stundenGeschaetzt,
+      summeCent: neu.priceCents,
+    };
+  }
+  const tage = (neu.dayPrices ?? []).filter((t) => typeof t.festpreis === "number");
+  if (tage.length > 0) {
+    return {
+      art: "liste",
+      zeilen: tage.map((t) => ({
+        label: `am ${WOCHENTAG[t.wochentag] ?? ""} ${t.datum.slice(8, 10)}.${t.datum.slice(5, 7)}.`.replace("am  ", "am "),
+        altCent: cent((basis.dayPrices ?? []).find((x) => x.datum === t.datum)?.festpreis),
+        neuCent: cent(t.festpreis),
+      })),
+    };
+  }
+  const pakete = (neu.packagePrices ?? []).filter((p) => typeof p.festpreis === "number");
+  if (pakete.length > 0) {
+    return {
+      art: "liste",
+      zeilen: pakete.map((p) => ({
+        label: `Paket ${p.slug.charAt(0).toLocaleUpperCase("de-DE")}${p.slug.slice(1).replace(/[-_]/g, " ")}`,
+        altCent: cent((basis.packagePrices ?? []).find((x) => x.slug === p.slug)?.festpreis),
+        neuCent: cent(p.festpreis),
+      })),
+    };
+  }
+  return { art: "fest", altCent: basis.priceCents, neuCent: neu.priceCents };
 }
 
 function seitFuerChat(basis: VersionsZeile | null): Date | null {
