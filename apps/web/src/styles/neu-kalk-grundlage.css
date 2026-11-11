@@ -108,7 +108,8 @@
 /* Der klickbare Inhalt (Knopf) oder, ohne Felder, ein stiller Block. */
 [data-neu] .kalk-zeile-inhalt {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  /* Bezeichnung behält Platz (sonst bricht „Montage“ bei langer Möbelliste Buchstabe für Buchstabe um). */
+  grid-template-columns: minmax(7em, 1fr) minmax(0, auto);
   gap: 4px 12px;
   width: 100%;
   padding: 0;
@@ -147,7 +148,10 @@
   font-size: 14px;
   font-weight: 600;
   text-align: right;
-  white-space: nowrap;
+  /* Kurze Werte bleiben einzeilig, lange Listen (Montage) brechen um statt die Bezeichnung zu verdrängen. */
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-wrap: balance;
 }
 
 [data-neu] .kalk-zeile-warum {
