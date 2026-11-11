@@ -7,11 +7,15 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { GlassButton } from "@/components/glassyui/glass-button";
 import { GlassPanel } from "@/components/glassyui/glass-panel";
+import { GlassDialog, GlassDialogContent, GlassDialogDescription, GlassDialogTitle } from "@/components/glassyui/glass-dialog";
 import type { KalkulationsAnsicht } from "@/lib/kalkulations-ansicht";
 import type { NeueUebersteuerungsArt } from "@/lib/angebot-wahl";
 import type { UebersteuerungsArt } from "@/lib/kalkulation-versionen";
 import { apiAufruf, jsonAufruf, type ApiAntwort } from "@/components/neu/akte/api";
 import { TerminDialogEmpfaenger } from "@/components/neu/termin/termin-dialog";
+import { usePortalZiel } from "@/components/neu/portal-ziel";
+import { aenderungLaden, aenderungStarten, AngebotAendernPanel } from "./angebot-aendern";
+import { laeuftAn, offene, type AenderungsDaten } from "./angebot-aendern-logik";
 import { AnnahmenKasten } from "./annahmen-kasten";
 import { GrundlageSpalte } from "./grundlage-spalte";
 import { KalkKopf } from "./kalk-kopf";
@@ -55,6 +59,10 @@ export interface KalkKontext {
   /** Ein Reglerwert wartet noch auf sein Speichern (800 ms): Versionen und Sperren bleiben so lange zu (I2, M3). */
   ausstehend: boolean;
   setzeAusstehend: (an: boolean) => void;
+  /** Plan 16: Stand von „Angebot ändern“ (null: nicht geladen oder nichts zu ändern). */
+  aenderung?: AenderungsDaten | null;
+  /** Plan 16: „Angebot ändern“ starten (falls nötig) und das Panel öffnen. */
+  angebotAendern?: () => Promise<void>;
 }
 
 interface VersionsEintrag {
@@ -112,6 +120,9 @@ export function KalkSeite({ dealId }: { dealId: string }) {
   const [zustand, setZustand] = useState<Zustand>({ art: "laden" });
   const [laeuft, setLaeuft] = useState<Lauf | null>(null);
   const [ausstehend, setAusstehend] = useState(false);
+  const [aenderung, setAenderung] = useState<AenderungsDaten | null>(null);
+  const [panelOffen, setPanelOffen] = useState(false);
+  const portalZiel = usePortalZiel();
   const lauf = useRef(0);
   const versionNr = useRef<number | null>(null);
   const hatSeite = useRef(false);
@@ -150,11 +161,21 @@ export function KalkSeite({ dealId }: { dealId: string }) {
     versionNr.current = version;
     versionInUrl(version);
     setZustand({ art: "fertig", ansicht: ansicht.data.ansicht });
+    // Plan 16: Stand von „Angebot ändern“ nachladen (nur lesen, darf die Seite nicht aufhalten).
+    void aenderungLaden(deal).then((a) => {
+      if (dieser === lauf.current) setAenderung(a);
+    });
   }, []);
+
+  useEffect(() => {
+    // `?aendern=1` (Akte, Knopf „Angebot ändern“): Panel öffnen, sobald der Stand da ist.
+    if (new URLSearchParams(window.location.search).get("aendern") === "1") setPanelOffen(true);
+  }, [dealId]);
 
   useEffect(() => {
     hatSeite.current = false;
     versionNr.current = null;
+    setAenderung(null);
     setZustand({ art: "laden" });
     setLaeuft(null);
     setAusstehend(false);
@@ -267,6 +288,28 @@ export function KalkSeite({ dealId }: { dealId: string }) {
     [dealId, laden]
   );
 
+  /** Plan 16: Änderung starten (Entwurf aus der maßgeblichen Version), dorthin springen, Panel öffnen. */
+  const angebotAendern = useCallback(async () => {
+    if (aenderung?.vorgang?.status === "entwurf") {
+      if (versionNr.current !== aenderung.vorgang.version) await laden(dealId, aenderung.vorgang.version);
+      setPanelOffen(true);
+      return;
+    }
+    setLaeuft("neue_version");
+    try {
+      const r = await aenderungStarten(dealId);
+      if (!r.ok) {
+        toast.error("Änderung konnte nicht starten.", { description: r.message });
+        return;
+      }
+      setAenderung(r.data.ansicht);
+      await laden(dealId, r.data.ergebnis.entwurfVersion);
+      setPanelOffen(true);
+    } finally {
+      setLaeuft(null);
+    }
+  }, [aenderung, dealId, laden]);
+
   if (zustand.art === "laden" || zustand.art === "erstellen") {
     return <KalkSkelett erstellen={zustand.art === "erstellen"} />;
   }
@@ -303,8 +346,12 @@ export function KalkSeite({ dealId }: { dealId: string }) {
     setzeLauf: setLaeuft,
     ausstehend,
     setzeAusstehend: setAusstehend,
+    aenderung,
+    angebotAendern,
   };
   const beschaeftigt = laeuft !== null || ausstehend;
+  const aenderungHier = laeuftAn(aenderung, ansicht.version.nummer);
+  const abgeschlossenHier = aenderung?.vorgang?.status === "gesperrt" && aenderung.vorgang.version === ansicht.version.nummer;
 
   return (
     <div className="kalk">
@@ -317,6 +364,18 @@ export function KalkSeite({ dealId }: { dealId: string }) {
         onNeueVersion={() => void neueVersion()}
       />
       <Hinweisband version={ansicht.version} laeuft={laeuft} onNeuRechnen={() => void neuRechnen()} />
+      {aenderungHier || abgeschlossenHier ? (
+        <div className="kalk-band" data-ton="blau" role="status">
+          <span>
+            {aenderungHier
+              ? `Änderung des Angebots v${aenderung?.basis?.version ?? "?"}: ${offene(aenderung) === 1 ? "1 Vorschlag offen" : `${offene(aenderung)} Vorschläge offen`}.`
+              : `Geändertes Angebot v${ansicht.version.nummer} ersetzt v${aenderung?.basis?.version ?? "?"}. Nachricht an den Kunden bereit.`}
+          </span>
+          <button type="button" className="kalk-kleinknopf" disabled={beschaeftigt} onClick={() => setPanelOffen(true)}>
+            {aenderungHier ? "Änderungen öffnen" : "Nachricht öffnen"}
+          </button>
+        </div>
+      ) : null}
       <AnnahmenKasten kasten={ansicht.annahmen} />
       <div className="kalk-spalten">
         <div className="kalk-spalte">
@@ -337,6 +396,28 @@ export function KalkSeite({ dealId }: { dealId: string }) {
         </div>
       </div>
       {/* Knopf „Tagespreise im Termin-Dialog“ (Plan 5b, Entscheidung 15): gespeicherte Tage oder ein Sperren im Dialog zeigen danach diese Version. */}
+      {panelOffen && aenderung?.moeglich ? (
+        aenderung.vorgang ? (
+          <AngebotAendernPanel
+            dealId={dealId}
+            daten={aenderung}
+            portalZiel={portalZiel}
+            onSchliessen={() => setPanelOffen(false)}
+            onGeaendert={async (d) => {
+              setAenderung(d);
+              if (d.vorgang) await laden(dealId, d.vorgang.version, true);
+            }}
+          />
+        ) : (
+          <StartHinweis
+            onStarten={() => void angebotAendern()}
+            onSchliessen={() => setPanelOffen(false)}
+            portalZiel={portalZiel}
+            beschaeftigt={beschaeftigt}
+            basis={aenderung.basis?.version ?? null}
+          />
+        )
+      ) : null}
       <TerminDialogEmpfaenger
         dealId={dealId}
         onSchliessen={(e) => {
@@ -412,5 +493,39 @@ function KalkSkelett({ erstellen }: { erstellen: boolean }) {
         <span className="lg-skeleton kalk-skelett-panel" />
       </div>
     </div>
+  );
+}
+
+/** `?aendern=1` ohne laufende Änderung: erst fragen, dann den Entwurf anlegen. */
+function StartHinweis({
+  basis,
+  beschaeftigt,
+  portalZiel,
+  onStarten,
+  onSchliessen,
+}: {
+  basis: number | null;
+  beschaeftigt: boolean;
+  portalZiel: HTMLElement | undefined;
+  onStarten: () => void;
+  onSchliessen: () => void;
+}) {
+  return (
+    <GlassDialog open onOpenChange={(o) => !o && onSchliessen()}>
+      <GlassDialogContent container={portalZiel} closeLabel="Schließen">
+        <GlassDialogTitle className="akte-dialog-titel">Angebot ändern</GlassDialogTitle>
+        <GlassDialogDescription className="akte-dialog-text">
+          Legt den nächsten Entwurf aus v{basis ?? "?"} an (gleiche Anpassungen, gleiche Wahl je Möbel). Das verschickte Angebot bleibt, bis du die neue Version sperrst.
+        </GlassDialogDescription>
+        <div className="akte-dialog-knoepfe">
+          <GlassButton type="button" variant="ghost" onClick={onSchliessen}>
+            Abbrechen
+          </GlassButton>
+          <GlassButton type="button" disabled={beschaeftigt} onClick={onStarten}>
+            Angebot ändern
+          </GlassButton>
+        </div>
+      </GlassDialogContent>
+    </GlassDialog>
   );
 }

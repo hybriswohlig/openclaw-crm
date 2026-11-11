@@ -45,6 +45,8 @@ import { uebersteuerbareZeilen } from "./selbstkosten-spalte";
 import { SperrenBereich } from "./sperren-bereich";
 import { ohneVerwaiste } from "./verwaist-logik";
 import { VerwaisteAnpassungen } from "./verwaiste-anpassungen";
+import { AenderungSperrenDialog } from "./angebot-aendern";
+import { aendernMoeglich, laeuftAn } from "./angebot-aendern-logik";
 
 /** Speichern 800 ms nach dem letzten Reglerwert (Entscheidung 4). */
 const REGLER_WARTEZEIT_MS = 800;
@@ -76,6 +78,7 @@ type Dialog =
   | { art: "moduswechsel"; texte: KvTexte; meldung: string }
   | { art: "ohne_adresse"; texte: KvTexte; meldung: string; modusWechselBestaetigt: boolean }
   | { art: "hebel_aus"; hebel: HebelArt; posten: string }
+  | { art: "aenderung" }
   | { art: "kottke" };
 
 /**
@@ -98,6 +101,8 @@ export function MargeSpalte({ ansicht, kontext }: { ansicht: KalkulationsAnsicht
   const [dialog, setDialog] = useState<Dialog | null>(null);
   /** Plan 15: die Rückfrage „ohne Adresse“ gilt auch für eine folgende Moduswechsel-Rückfrage. */
   const ohneAdresseBisher = useRef(false);
+  /** Plan 16: im Dialog „Geändertes Angebot sperren“ bestätigt, dass die Annahme aufgehoben wird. */
+  const annahmeAufheben = useRef(false);
   const basis = marge.gewaehltProzent ?? marge.vorschlagProzent ?? marge.min;
   /** Wert im Regler, solange er vom gespeicherten abweicht; null = folgt der Ansicht. */
   const [entwurf, setEntwurf] = useState<number | null>(null);
@@ -189,7 +194,7 @@ export function MargeSpalte({ ansicht, kontext }: { ansicht: KalkulationsAnsicht
       if (!nurKv) {
         const sperre = await apiAufruf<{ version: { version: number } }>(
           `${basisUrl}/lock`,
-          jsonAufruf("POST", sperrKoerper(ansicht, { modusWechselBestaetigt, ohneAdresseBestaetigt }))
+          jsonAufruf("POST", sperrKoerper(ansicht, { modusWechselBestaetigt, ohneAdresseBestaetigt, annahmeAufhebenBestaetigt: annahmeAufheben.current }))
         );
         const ausgang = sperrAusgang(sperre);
         if (ausgang.art === "adresse_fehlt" && !ohneAdresseBestaetigt) {
@@ -199,6 +204,12 @@ export function MargeSpalte({ ansicht, kontext }: { ansicht: KalkulationsAnsicht
         if (ausgang.art === "moduswechsel" && !modusWechselBestaetigt) {
           // Nichts gesperrt: erst nachfragen, dann mit Bestätigung erneut (Entscheidung 5b-5).
           setDialog({ art: "moduswechsel", texte, meldung: ausgang.meldung });
+          return;
+        }
+        if (ausgang.art === "angenommen" && kontext.aenderung) {
+          // Plan 16: erst die Rückfrage „Annahme aufheben“ (nichts gesperrt).
+          toast.message("Der Kunde hat das alte Angebot angenommen.", { description: "Bitte bestätigen, dass er das neue neu annimmt." });
+          setDialog({ art: "aenderung" });
           return;
         }
         if (ausgang.art !== "ok") {
@@ -236,6 +247,7 @@ export function MargeSpalte({ ansicht, kontext }: { ansicht: KalkulationsAnsicht
       await kontext.neuLaden();
     } finally {
       kontext.setzeLauf(null);
+      annahmeAufheben.current = false;
     }
   }
 
@@ -385,7 +397,14 @@ export function MargeSpalte({ ansicht, kontext }: { ansicht: KalkulationsAnsicht
         dealId={kontext.dealId}
         version={version}
         laeuft={lauf}
-        onSperren={() => void kvMitVorpruefung(false)}
+        onSperren={() => {
+          // Plan 16: eine Änderung eines verschickten Angebots erst mit Vergleich und Rückfragen.
+          if (laeuftAn(kontext.aenderung ?? null, version.nummer)) setDialog({ art: "aenderung" });
+          else void kvMitVorpruefung(false);
+        }}
+        onAngebotAendern={
+          aendernMoeglich(kontext.aenderung ?? null, version) && kontext.angebotAendern ? () => void kontext.angebotAendern?.() : undefined
+        }
         onKv={() => void kvMitVorpruefung(true)}
         onNeueVersion={() => void kontext.neueVersion()}
         onNeuRechnen={() => void kontext.neuRechnen()}
@@ -415,6 +434,18 @@ export function MargeSpalte({ ansicht, kontext }: { ansicht: KalkulationsAnsicht
           portalZiel={portalZiel}
           onAbbrechen={() => setDialog(null)}
           onBestaetigen={() => void sperrenUndKv(dialog.texte, false, true, ohneAdresseBisher.current)}
+        />
+      ) : null}
+      {dialog?.art === "aenderung" && kontext.aenderung ? (
+        <AenderungSperrenDialog
+          daten={kontext.aenderung}
+          portalZiel={portalZiel}
+          laeuft={lauf !== null}
+          onAbbrechen={() => setDialog(null)}
+          onWeiter={({ annahmeAufheben: aufheben }) => {
+            annahmeAufheben.current = aufheben;
+            void kvMitVorpruefung(false);
+          }}
         />
       ) : null}
       {dialog?.art === "hebel_aus" ? (

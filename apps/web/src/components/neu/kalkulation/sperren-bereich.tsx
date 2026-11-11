@@ -34,6 +34,7 @@ export function SperrenBereich({
   onNeuRechnen,
   tagespreise = { aktiv: false, hinweis: "Tagespreise sind für diese Firma aus." },
   onTagespreise,
+  onAngebotAendern,
   jetzt = new Date(),
 }: {
   dealId: string;
@@ -46,6 +47,8 @@ export function SperrenBereich({
   /** Plan 5b: Zustand des Knopfs aus `tagespreiseKnopf`. */
   tagespreise?: { aktiv: boolean; hinweis: string | null };
   onTagespreise?: () => void;
+  /** Plan 16: an der maßgeblichen gesperrten Version „Angebot ändern“ (Entwurf + Vorschlagsliste). */
+  onAngebotAendern?: () => void;
   jetzt?: Date;
 }) {
   const beschaeftigt = laeuft !== null;
@@ -97,9 +100,15 @@ export function SperrenBereich({
               ) : null}
             </p>
           ) : null}
-          <button type="button" className="kalk-knopf" disabled={beschaeftigt} aria-busy={laeuft === "neue_version" || undefined} onClick={onNeueVersion}>
-            {laeuft === "neue_version" ? "Legt an …" : "+ Neue Version"}
-          </button>
+          {onAngebotAendern ? (
+            <button type="button" className="kalk-knopf" disabled={beschaeftigt} aria-busy={laeuft === "neue_version" || undefined} onClick={onAngebotAendern}>
+              {laeuft === "neue_version" ? "Legt an …" : "Angebot ändern"}
+            </button>
+          ) : (
+            <button type="button" className="kalk-knopf" disabled={beschaeftigt} aria-busy={laeuft === "neue_version" || undefined} onClick={onNeueVersion}>
+              {laeuft === "neue_version" ? "Legt an …" : "+ Neue Version"}
+            </button>
+          )}
           {knopf ? (
             <button type="button" className="kalk-knopf" data-geist="" disabled={beschaeftigt} aria-busy={sperrt || undefined} onClick={onKv}>
               {sperrt ? "Erstellt den KV …" : knopf}
