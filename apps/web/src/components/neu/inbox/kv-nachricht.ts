@@ -8,7 +8,7 @@ import { fensterZu, startFolge } from "@/components/neu/akte/gespraech-texte";
 import { statusLinkHolen } from "@/components/neu/kv-danach/status-link";
 import { verfassenAus, type VerfassenVorgabe } from "@/lib/handy-links";
 import type { Kurzfassung } from "@/lib/inbox-neu";
-import { kvFertigNachricht, kvPreisAus, linkVerwaltenUrl, PORTAL_EINSTELLUNGEN_URL, statusLinkMeldung } from "@/lib/kv-danach";
+import { kvFertigNachricht, kvPreisAus, type KvPreisAngebot, type KvPreisOption, linkVerwaltenUrl, PORTAL_EINSTELLUNGEN_URL, statusLinkMeldung } from "@/lib/kv-danach";
 import type { Gespraech } from "@/services/gespraech";
 import { vornameAus } from "./inbox-logik";
 
@@ -34,8 +34,8 @@ export async function kvNachrichtWeg(dealId: string, kurzVorher: Kurzfassung | n
   const deal = encodeURIComponent(dealId);
   const [link, angebot, optionen, kurzNeu] = await Promise.all([
     statusLinkHolen(dealId),
-    apiAufruf<{ fixedPrice?: string | null; isVariable?: boolean } | null>(`/api/v1/deals/${deal}/quotation`),
-    apiAufruf<{ options?: { priceCents?: number | null }[] } | null>(`/api/v1/deals/${deal}/package-options`),
+    apiAufruf<KvPreisAngebot | null>(`/api/v1/deals/${deal}/quotation`),
+    apiAufruf<{ options?: KvPreisOption[] } | null>(`/api/v1/deals/${deal}/package-options`),
     // Fehlt die Kurzfassung (Firma entscheidet du/Sie), noch einmal holen.
     kurzVorher ? Promise.resolve(null) : apiAufruf<Kurzfassung>(`/api/v1/deals/${deal}/kurzfassung`),
   ]);

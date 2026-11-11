@@ -92,19 +92,41 @@ export type KvPreis =
   /** Kein Preis bekannt: der Satz entfällt, der Link zeigt ihn. */
   | { art: "offen" };
 
+/** Quotation (`GET /deals/{id}/quotation`, Ausschnitt). */
+export interface KvPreisAngebot {
+  fixedPrice?: string | number | null;
+  isVariable?: boolean | null;
+  /** Gesperrte Version, aus der das Angebot stammt; null beim alten Weg. */
+  calculationVersionId?: string | null;
+}
+
+/** Paketoption des Deals (`GET /deals/{id}/package-options`, Ausschnitt). */
+export interface KvPreisOption {
+  priceCents?: number | null;
+  calculationVersionId?: string | null;
+}
+
 /**
- * Preis aus `GET /deals/{id}/quotation` (Ausschnitt) und den Paketoptionen des
- * Deals (`GET /deals/{id}/package-options`, dieselben Karten wie im Portal).
- * Ab zwei Optionen gilt der Paketsatz, sonst Festpreis oder Stunden.
+ * Nur, was das Portal zu dieser Quotation zeigt: hängt sie an einer Version,
+ * zählen nur Zeilen genau dieser Version (wie `gebunden` im Portal), sonst alle.
  */
-export function kvPreisAus(
-  q: { fixedPrice?: string | number | null; isVariable?: boolean | null } | null | undefined,
-  optionen: readonly { priceCents?: number | null }[] = []
-): KvPreis {
-  const preise = optionen.map((o) => o.priceCents).filter((c): c is number => typeof c === "number" && c > 0);
+export function anVersion<T extends { calculationVersionId?: string | null }>(q: KvPreisAngebot | null | undefined, zeilen: readonly T[]): T[] {
+  const version = q?.calculationVersionId ?? null;
+  return version ? zeilen.filter((z) => z.calculationVersionId === version) : [...zeilen];
+}
+
+/**
+ * Preis für den Kurztext. Stunden-KV schlägt alles (das Portal rechnet dann mit
+ * den Stunden). Danach Paketoptionen der Version der Quotation (ab zwei mit
+ * Preis), sonst der Festpreis.
+ */
+export function kvPreisAus(q: KvPreisAngebot | null | undefined, optionen: readonly KvPreisOption[] = []): KvPreis {
+  if (q?.isVariable) return { art: "stunden" };
+  const preise = anVersion(q, optionen)
+    .map((o) => o.priceCents)
+    .filter((c): c is number => typeof c === "number" && c > 0);
   if (preise.length >= 2) return { art: "pakete", abCent: Math.min(...preise), anzahl: preise.length };
   if (!q) return { art: "offen" };
-  if (q.isVariable) return { art: "stunden" };
   const roh = q.fixedPrice;
   const eur = typeof roh === "number" ? roh : typeof roh === "string" && roh.trim() !== "" ? Number(roh) : NaN;
   if (!Number.isFinite(eur) || eur <= 0) return { art: "offen" };

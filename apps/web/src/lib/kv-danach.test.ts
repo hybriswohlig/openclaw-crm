@@ -60,6 +60,18 @@ describe("Kurztext nach dem KV", () => {
       anzahl: 3,
     });
     expect(kvPreisAus({ fixedPrice: "2480", isVariable: false }, [{ priceCents: 249000 }])).toEqual({ art: "fest", cent: 248000 });
+    // Stunden-KV schlägt Paketoptionen (Review I1): kein Paket-Festpreis an den Kunden.
+    expect(kvPreisAus({ fixedPrice: null, isVariable: true }, [{ priceCents: 199000 }, { priceCents: 249000 }])).toEqual({ art: "stunden" });
+    // Nur Optionen der Version, an der die Quotation hängt; alte Zeilen zählen nicht.
+    const alt = [{ priceCents: 150000, calculationVersionId: "v1" }, { priceCents: 160000, calculationVersionId: "v1" }];
+    expect(kvPreisAus({ fixedPrice: "2480", isVariable: false, calculationVersionId: "v2" }, alt)).toEqual({ art: "fest", cent: 248000 });
+    expect(
+      kvPreisAus({ fixedPrice: "2480", isVariable: false, calculationVersionId: "v2" }, [
+        ...alt,
+        { priceCents: 230000, calculationVersionId: "v2" },
+        { priceCents: 270000, calculationVersionId: "v2" },
+      ])
+    ).toEqual({ art: "pakete", abCent: 230000, anzahl: 2 });
   });
 
   it("Kottke duzt, Ceylan bleibt beim Sie", () => {

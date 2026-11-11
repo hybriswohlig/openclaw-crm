@@ -65,6 +65,8 @@ export async function GET(
       note: r.note,
       isRecommended: r.isRecommended,
       sortOrder: r.sortOrder,
+      // kv-danach: Version, an der die Option hängt (das Portal zeigt nur die der Quotation).
+      calculationVersionId: r.calculationVersionId,
     })),
     selectedOptionId: q?.selectedOptionId ?? null,
   });
