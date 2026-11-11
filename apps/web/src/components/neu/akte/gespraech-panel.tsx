@@ -51,6 +51,8 @@ export interface GespraechPanelGriff {
   /** Hängt `text` mit Leerzeile an den vorhandenen Text an, wechselt auf „Chat“ und fokussiert das Feld. */
   einfuegen: (text: string) => void;
   fokussieren: () => void;
+  /** Gespräch im Eingabefeld wählen (kv-danach: nach „WhatsApp starten“ genau das neue). */
+  waehlen: (gespraechId: string) => void;
 }
 
 /** Vorhandener Text plus Baustein, mit Leerzeile dazwischen (wie `onInsert` der alten Inbox). */
@@ -152,6 +154,7 @@ export function GespraechPanel({
         fokussieren();
       },
       fokussieren,
+      waehlen: (gespraechId: string) => setGewaehltId(gespraechId),
     }),
     [fokussieren]
   );

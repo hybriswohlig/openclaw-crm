@@ -30,6 +30,8 @@ export function PaketeZeileKasten({
 }) {
   const id = useId();
   const [laeuft, setLaeuft] = useState(false);
+  /** Einschalten fragt nach wie der Schalter in der Marge-Spalte: der Kunde sieht danach Paketkarten. */
+  const [frage, setFrage] = useState(false);
   const z = paketeZeile({
     schalter: ansicht.paketSchalter,
     tagespreise: ansicht.schalter.tagespreise,
@@ -41,6 +43,7 @@ export function PaketeZeileKasten({
 
   async function umschalten() {
     if (!z.schalter || laeuft) return;
+    setFrage(false);
     setLaeuft(true);
     const r = await apiAufruf<unknown>(
       `/api/v1/deals/${encodeURIComponent(kontext.dealId)}/calculation/pakete`,
@@ -67,11 +70,29 @@ export function PaketeZeileKasten({
         </span>
         {z.schalter ? (
           <label className="kv-pakete-schalter">
-            <input type="checkbox" checked={z.schalter.an} disabled={beschaeftigt} onChange={() => void umschalten()} />
+            <input
+              type="checkbox"
+              checked={z.schalter.an}
+              disabled={beschaeftigt || frage}
+              onChange={() => (z.schalter?.an ? void umschalten() : setFrage(true))}
+            />
             {beschaeftigt && laeuft ? "Schaltet …" : "Pakete für diesen Deal anbieten"}
           </label>
         ) : null}
       </div>
+      {frage ? (
+        <div className="kv-pakete-frage" role="alert">
+          <p className="kv-pakete-grund">Der Kunde sieht danach Paketkarten (Basis, Komfort, Premium) im Portal. Die Kalkulation rechnet je Paket einen Preis.</p>
+          <span className="kv-pakete-frage-knoepfe">
+            <button type="button" className="kalk-kleinknopf" data-ton="grau" onClick={() => setFrage(false)}>
+              Abbrechen
+            </button>
+            <button type="button" className="kalk-kleinknopf" onClick={() => void umschalten()}>
+              Ja, Pakete anbieten
+            </button>
+          </span>
+        </div>
+      ) : null}
       {z.grund ? <p className="kv-pakete-grund">{z.grund}</p> : null}
       {z.einstellungen ? (
         <p className="kv-pakete-hinweis">

@@ -13,6 +13,7 @@ import { useBreit } from "@/components/neu/breit";
 import { nachVerfassenSchluessel, verfassenAus, type VerfassenVorgabe } from "@/lib/handy-links";
 import type { InboxChips, InboxFilter, InboxListe, Kurzfassung } from "@/lib/inbox-neu";
 import { KV_NACHRICHT_PARAM } from "@/lib/kv-danach";
+import { textKopieren } from "@/components/neu/kv-danach/status-link";
 import type { Gespraech } from "@/services/gespraech";
 import { InboxChipsZeile } from "./inbox-chips";
 import { InboxLeiste } from "./inbox-leiste";
@@ -214,7 +215,12 @@ export function InboxSeite() {
     const konto = konten.find((k) => k.id === vorgabe.channelAccountId) ?? konten[0];
     if (text && konto?.waPhoneNumberId) {
       toast.message("Erster Kontakt über WhatsApp Business geht nur mit Vorlage.", {
-        description: "Den vorbereiteten Text kannst du nach der Antwort des Kunden senden.",
+        description: "Den vorbereiteten Text kannst du kopieren und nach der Antwort des Kunden senden.",
+        cancel: {
+          label: "Text kopieren",
+          onClick: () => void textKopieren(Promise.resolve(text)).then((ok) => (ok ? toast.success("Text kopiert.") : toast.error("Kopieren ging nicht."))),
+        },
+        duration: 20_000,
       });
     }
   }, []);
@@ -232,6 +238,12 @@ export function InboxSeite() {
     window.history.replaceState(null, "", q ? `/app/inbox?${q}` : "/app/inbox");
     if (s?.art === "deal") setKvDeal(s.id);
   }, [params]);
+  // Wer zu einem anderen Eintrag wechselt, verwirft den Auftrag (sonst käme er beim Zurückkehren wieder).
+  useEffect(() => {
+    if (!kvDeal) return;
+    const s = schluesselAus(eParam);
+    if (s && !(s.art === "deal" && s.id === kvDeal)) setKvDeal(null);
+  }, [eParam, kvDeal]);
   const kvAuftrag = useMemo<KvAuftrag>(
     () => ({ onErledigt: () => setKvDeal(null), onVerfassen: (vorgabe, text) => void verfassenOeffnen(vorgabe, text) }),
     [verfassenOeffnen]

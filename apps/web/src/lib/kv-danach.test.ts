@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   kvChatUrl,
   kvFertigNachricht,
-  kvPreisAusAngebot,
+  kvPreisAus,
   paketeZeile,
   statusLinkAusGet,
   statusLinkAusPost,
@@ -43,23 +43,25 @@ describe("Statuslink", () => {
 });
 
 describe("Kurztext nach dem KV", () => {
-  it("liest den Preis aus dem Angebot", () => {
-    expect(kvPreisAusAngebot({ fixedPrice: "2480.00", isVariable: false })).toEqual({ art: "fest", cent: 248000, pakete: false });
-    expect(kvPreisAusAngebot({ fixedPrice: "1990.50", isVariable: false, selectedPackageSlug: "komfort" })).toEqual({
-      art: "fest",
-      cent: 199050,
-      pakete: true,
+  it("liest den Preis aus Angebot und Paketoptionen", () => {
+    expect(kvPreisAus({ fixedPrice: "2480.00", isVariable: false })).toEqual({ art: "fest", cent: 248000 });
+    expect(kvPreisAus({ fixedPrice: null, isVariable: true })).toEqual({ art: "stunden" });
+    expect(kvPreisAus({ fixedPrice: "", isVariable: false })).toEqual({ art: "offen" });
+    expect(kvPreisAus(null)).toEqual({ art: "offen" });
+    // Paketoptionen wie im Portal schlagen den Festpreis; eine einzelne Option nicht.
+    expect(kvPreisAus({ fixedPrice: "2480", isVariable: false }, [{ priceCents: 249000 }, { priceCents: 199050 }, { priceCents: 329000 }])).toEqual({
+      art: "pakete",
+      abCent: 199050,
+      anzahl: 3,
     });
-    expect(kvPreisAusAngebot({ fixedPrice: null, isVariable: true })).toEqual({ art: "stunden" });
-    expect(kvPreisAusAngebot({ fixedPrice: "", isVariable: false })).toEqual({ art: "offen" });
-    expect(kvPreisAusAngebot(null)).toEqual({ art: "offen" });
+    expect(kvPreisAus({ fixedPrice: "2480", isVariable: false }, [{ priceCents: 249000 }])).toEqual({ art: "fest", cent: 248000 });
   });
 
   it("Kottke duzt, Ceylan bleibt beim Sie", () => {
     const kottke = kvFertigNachricht({
       firma: "Kottke Entrümpelung & Umzüge",
       vorname: "Max",
-      preis: { art: "fest", cent: 248000, pakete: false },
+      preis: { art: "fest", cent: 248000 },
       url: URL_,
       dealNumber: "2026-003",
     });
@@ -78,8 +80,11 @@ describe("Kurztext nach dem KV", () => {
   });
 
   it("nennt Pakete, lässt einen unbekannten Preis weg und hat keine Gedankenstriche", () => {
-    const pakete = kvFertigNachricht({ firma: "Kottke", vorname: "Eva", preis: { art: "fest", cent: 199050, pakete: true }, url: URL_ });
-    expect(pakete).toContain("Der Festpreis liegt bei 1.990,50 €. Im Angebot kannst du zwischen den Paketen wählen.");
+    const pakete = kvFertigNachricht({ firma: "Kottke", vorname: "Eva", preis: { art: "pakete", abCent: 199050, anzahl: 3 }, url: URL_ });
+    expect(pakete).toContain("dein Angebot ist fertig. Du kannst zwischen 3 Paketen wählen, ab 1.990,50 € zum Festpreis.");
+    expect(kvFertigNachricht({ firma: "Ceylan", vorname: null, preis: { art: "pakete", abCent: 100000, anzahl: 2 }, url: URL_ })).toContain(
+      "Sie können zwischen 2 Paketen wählen, ab 1.000 € zum Festpreis."
+    );
     const offen = kvFertigNachricht({ firma: null, vorname: null, preis: { art: "offen" }, url: URL_ });
     expect(offen).not.toContain("Festpreis");
     expect(offen.endsWith("Viele Grüße")).toBe(true);

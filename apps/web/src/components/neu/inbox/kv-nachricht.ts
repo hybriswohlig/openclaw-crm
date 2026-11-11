@@ -8,7 +8,7 @@ import { fensterZu, startFolge } from "@/components/neu/akte/gespraech-texte";
 import { statusLinkHolen } from "@/components/neu/kv-danach/status-link";
 import { verfassenAus, type VerfassenVorgabe } from "@/lib/handy-links";
 import type { Kurzfassung } from "@/lib/inbox-neu";
-import { kvFertigNachricht, kvPreisAusAngebot, linkVerwaltenUrl, PORTAL_EINSTELLUNGEN_URL, statusLinkMeldung } from "@/lib/kv-danach";
+import { kvFertigNachricht, kvPreisAus, linkVerwaltenUrl, PORTAL_EINSTELLUNGEN_URL, statusLinkMeldung } from "@/lib/kv-danach";
 import type { Gespraech } from "@/services/gespraech";
 import { vornameAus } from "./inbox-logik";
 
@@ -17,8 +17,8 @@ export type KvWeg =
   | { art: "einfuegen"; text: string; fensterZu: boolean }
   /** Noch kein Gespräch: das bestehende WhatsApp-Verfassen mit dem Text. */
   | { art: "verfassen"; text: string; vorgabe: VerfassenVorgabe }
-  /** Das Gespräch gibt es, hing aber noch nicht am Deal: neu laden, dann einfügen. */
-  | { art: "neu_laden"; text: string }
+  /** Das Gespräch gibt es, hing aber noch nicht am Deal: neu laden, genau dieses Gespräch wählen, dann einfügen. */
+  | { art: "neu_laden"; text: string; gespraechId: string }
   /** `nachricht`: der fertige Kurztext, wenn nur das Gespräch fehlt (dann in die Zwischenablage). */
   | { art: "meldung"; titel: string; text?: string; ziel?: { label: string; href: string }; nachricht?: string };
 
@@ -30,13 +30,16 @@ export function sendeZiel(g: Pick<Gespraech, "kanaele" | "vorauswahl">): { fenst
   return { fensterZu: fensterZu(gewaehlt) };
 }
 
-export async function kvNachrichtWeg(dealId: string, kurz: Kurzfassung | null, gespraech: Gespraech): Promise<KvWeg> {
-  const [link, angebot] = await Promise.all([
+export async function kvNachrichtWeg(dealId: string, kurzVorher: Kurzfassung | null, gespraech: Gespraech): Promise<KvWeg> {
+  const deal = encodeURIComponent(dealId);
+  const [link, angebot, optionen, kurzNeu] = await Promise.all([
     statusLinkHolen(dealId),
-    apiAufruf<{ fixedPrice?: string | null; isVariable?: boolean; selectedPackageSlug?: string | null } | null>(
-      `/api/v1/deals/${encodeURIComponent(dealId)}/quotation`
-    ),
+    apiAufruf<{ fixedPrice?: string | null; isVariable?: boolean } | null>(`/api/v1/deals/${deal}/quotation`),
+    apiAufruf<{ options?: { priceCents?: number | null }[] } | null>(`/api/v1/deals/${deal}/package-options`),
+    // Fehlt die Kurzfassung (Firma entscheidet du/Sie), noch einmal holen.
+    kurzVorher ? Promise.resolve(null) : apiAufruf<Kurzfassung>(`/api/v1/deals/${deal}/kurzfassung`),
   ]);
+  const kurz = kurzVorher ?? (kurzNeu?.ok ? kurzNeu.data : null);
   if (link.art !== "ok") {
     const m = statusLinkMeldung(link);
     const ziel =
@@ -50,7 +53,7 @@ export async function kvNachrichtWeg(dealId: string, kurz: Kurzfassung | null, g
   const text = kvFertigNachricht({
     firma: kurz?.kunde.firma ?? null,
     vorname: vornameAus(kurz?.name),
-    preis: kvPreisAusAngebot(angebot.ok ? angebot.data : null),
+    preis: kvPreisAus(angebot.ok ? angebot.data : null, optionen.ok ? (optionen.data?.options ?? []) : []),
     url: link.url,
     dealNumber: link.dealNumber,
   });
@@ -66,6 +69,6 @@ export async function kvNachrichtWeg(dealId: string, kurz: Kurzfassung | null, g
     const vorgabe = verfassenAus(new URL(folge.url, "http://x").searchParams);
     if (vorgabe) return { art: "verfassen", text, vorgabe };
   }
-  if (folge.art === "neu_laden") return { art: "neu_laden", text };
+  if (folge.art === "neu_laden") return { art: "neu_laden", text, gespraechId: folge.conversationId };
   return { art: "meldung", titel: "WhatsApp konnte nicht gestartet werden.", text: "Unerwartete Antwort des Servers.", nachricht: text };
 }

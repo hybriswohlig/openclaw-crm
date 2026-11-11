@@ -105,6 +105,37 @@ describe("kvNachrichtWeg", () => {
     expect(aufrufe).not.toContain(`POST ${LINK}`);
   });
 
+  it("nennt Pakete aus den Paketoptionen und holt die fehlende Kurzfassung (Kottke duzt)", async () => {
+    const aufrufe = fetchMit({
+      [`GET ${LINK}`]: { body: { data: { url: "https://p/s/tok", revokedAt: null } } },
+      [`GET ${ANGEBOT}`]: { body: { data: { fixedPrice: "2480.00", isVariable: false } } },
+      ["GET /api/v1/deals/d1/package-options"]: { body: { data: { options: [{ priceCents: 199000 }, { priceCents: 249000 }, { priceCents: 299000 }] } } },
+      ["GET /api/v1/deals/d1/kurzfassung"]: { body: { data: KURZ } },
+    });
+    const weg = await kvNachrichtWeg("d1", null, gespraech([kanal({})]));
+    expect(aufrufe).toContain("GET /api/v1/deals/d1/kurzfassung");
+    expect(weg.art === "einfuegen" && weg.text).toContain("Du kannst zwischen 3 Paketen wählen, ab 1.990 € zum Festpreis.");
+  });
+
+  it("gibt nach „WhatsApp starten“ mit offenem Gespräch dessen Kennung mit", async () => {
+    fetchMit({
+      [`GET ${LINK}`]: { body: { data: { url: "https://p/s/tok", revokedAt: null } } },
+      ["POST /api/v1/inbox/whatsapp/start-from-record"]: { body: { data: { mode: "open", conversationId: "conv-9" } } },
+    });
+    const weg = await kvNachrichtWeg("d1", KURZ, gespraech([]));
+    expect(weg).toMatchObject({ art: "neu_laden", gespraechId: "conv-9" });
+  });
+
+  it("legt bei gescheitertem Start den fertigen Text bei", async () => {
+    fetchMit({
+      [`GET ${LINK}`]: { body: { data: { url: "https://p/s/tok", revokedAt: null } } },
+      ["POST /api/v1/inbox/whatsapp/start-from-record"]: { status: 400, body: { error: { code: "NO_PHONE", message: "Keine Nummer." } } },
+    });
+    const weg = await kvNachrichtWeg("d1", KURZ, gespraech([]));
+    expect(weg).toMatchObject({ art: "meldung", text: "Keine Nummer." });
+    expect(weg.art === "meldung" && weg.nachricht).toContain("https://p/s/tok");
+  });
+
   it("meldet ein ausgeschaltetes Portal", async () => {
     fetchMit({
       [`POST ${LINK}`]: { body: { data: { url: null, skipped: true } } },

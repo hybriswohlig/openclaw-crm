@@ -104,3 +104,19 @@
   color: var(--blue-ink);
   font-weight: 600;
 }
+
+[data-neu] .kv-pakete-frage {
+  display: grid;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--blue) 8%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--blue) 25%, transparent);
+}
+
+[data-neu] .kv-pakete-frage-knoepfe {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}

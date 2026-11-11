@@ -13,7 +13,8 @@ import type { InboxEintrag, Kurzfassung } from "@/lib/inbox-neu";
 import type { Gespraech } from "@/services/gespraech";
 import { AVATAR_GRAU, SCHNELLAKTION_TEXT, avatarFarbe, gespraechUnterzeile, type Schluessel } from "./inbox-logik";
 import type { LaneAktionen } from "./lane-aktionen";
-import { kvNachrichtWeg, sendeZiel, type KvWeg } from "./kv-nachricht";
+import { fensterZu } from "@/components/neu/akte/gespraech-texte";
+import { kvNachrichtWeg, type KvWeg } from "./kv-nachricht";
 import { Schnellaktionen } from "./schnellaktionen";
 
 /** „Im Chat senden“ nach dem KV (kv-danach): Auftrag an die Mitte dieses Deals. */
@@ -73,13 +74,20 @@ export function InboxMitte({
   const einfuegen = (text: string) => griff.current?.einfuegen(text);
 
   // ── Kurztext nach dem KV (kv-danach), einmal je Auftrag ──
-  const kvGestartet = useRef(false);
+  // Der Auftrag (`kv`) ist in der Seite gemerkt und fällt nach `onErledigt` weg; ein neuer
+  // „Im Chat senden“ setzt ihn neu. Beim Wechsel des Gesprächs wird ein laufender Auftrag
+  // verworfen (kein Verfassen-Fenster für den vorigen Deal).
   const stand = useRef({ kurz, gespraech, onNeuLaden, vorlageOeffnen });
   stand.current = { kurz, gespraech, onNeuLaden, vorlageOeffnen };
   useEffect(() => {
-    if (!kv || !dealId || kvGestartet.current) return;
-    kvGestartet.current = true;
+    if (!kv || !dealId) return;
+    let verworfen = false;
     const { onErledigt, onVerfassen } = kv;
+    // Kopieren nur per Knopf im Hinweis: dort ist es eine Nutzergeste, die Zwischenablage nimmt es an.
+    const kopierKnopf = (text: string) => ({
+      label: "Text kopieren",
+      onClick: () => void textKopieren(Promise.resolve(text)).then((ok) => (ok ? toast.success("Text kopiert.") : toast.error("Kopieren ging nicht."))),
+    });
 
     const insFeld = (text: string, zu: boolean) => {
       griff.current?.einfuegen(text);
@@ -89,13 +97,12 @@ export function InboxMitte({
       }
       // Wie das gesperrte Eingabefeld: freier Text erst nach einer Antwort des Kunden.
       const vorlage = stand.current.vorlageOeffnen;
-      void textKopieren(Promise.resolve(text)).then((kopiert) =>
-        toast.warning("24-Stunden-Fenster zu.", {
-          description: `Bitte zuerst eine Vorlage senden.${kopiert ? " Der vorbereitete Text liegt in der Zwischenablage." : ""}`,
-          action: vorlage ? { label: "Vorlage", onClick: vorlage } : undefined,
-          duration: 12_000,
-        })
-      );
+      toast.warning("24-Stunden-Fenster zu.", {
+        description: "Bitte zuerst eine Vorlage senden. Den vorbereiteten Text kannst du kopieren und nach der Antwort senden.",
+        action: vorlage ? { label: "Vorlage", onClick: vorlage } : undefined,
+        cancel: kopierKnopf(text),
+        duration: 20_000,
+      });
     };
 
     const ausfuehren = async (weg: KvWeg) => {
@@ -103,28 +110,36 @@ export function InboxMitte({
       if (weg.art === "verfassen") return onVerfassen(weg.vorgabe, weg.text);
       if (weg.art === "neu_laden") {
         const frisch = await stand.current.onNeuLaden();
-        const ziel = frisch ? sendeZiel(frisch) : null;
-        if (ziel) return insFeld(weg.text, ziel.fensterZu);
-        const kopiert = await textKopieren(Promise.resolve(weg.text));
-        toast.message("Das WhatsApp-Gespräch hängt an einem anderen Deal.", {
-          description: kopiert ? "Der vorbereitete Text liegt in der Zwischenablage." : undefined,
-        });
+        if (verworfen) return;
+        const k = frisch?.kanaele.find((x) => x.gespraechId === weg.gespraechId && x.kannSenden);
+        if (k) {
+          griff.current?.waehlen(k.gespraechId);
+          return insFeld(weg.text, fensterZu(k));
+        }
+        toast.message("Das WhatsApp-Gespräch hängt an einem anderen Deal.", { cancel: kopierKnopf(weg.text), duration: 20_000 });
         return;
       }
       const ziel = weg.ziel;
-      // Fehlt nur das Gespräch, ist der Text trotzdem fertig: in die Zwischenablage.
-      const kopiert = weg.nachricht ? await textKopieren(Promise.resolve(weg.nachricht)) : false;
       toast.error(weg.titel, {
-        description: [weg.text, kopiert ? "Der vorbereitete Text liegt in der Zwischenablage." : null].filter(Boolean).join(" "),
+        description: weg.text,
         action: ziel ? { label: ziel.label, onClick: () => window.location.assign(ziel.href) } : undefined,
-        duration: 12_000,
+        // Fehlt nur das Gespräch, ist der Text trotzdem fertig.
+        cancel: weg.nachricht ? kopierKnopf(weg.nachricht) : undefined,
+        duration: weg.nachricht ? 20_000 : 12_000,
       });
     };
 
     void kvNachrichtWeg(dealId, stand.current.kurz, stand.current.gespraech)
-      .then(ausfuehren)
-      .catch(() => toast.error("Nachricht konnte nicht vorbereitet werden."))
-      .finally(onErledigt);
+      .then((weg) => (verworfen ? undefined : ausfuehren(weg)))
+      .catch(() => {
+        if (!verworfen) toast.error("Nachricht konnte nicht vorbereitet werden.");
+      })
+      .finally(() => {
+        if (!verworfen) onErledigt();
+      });
+    return () => {
+      verworfen = true;
+    };
   }, [kv, dealId]);
 
   return (

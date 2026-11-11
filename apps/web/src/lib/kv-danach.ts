@@ -81,21 +81,30 @@ export function statusLinkMeldung(l: Exclude<StatusLink, { art: "ok" }>): { tite
 // ─── Kurztext „Angebot ist fertig“ ───────────────────────────────────────────
 
 export type KvPreis =
-  | { art: "fest"; cent: number; pakete: boolean }
+  | { art: "fest"; cent: number }
+  /** Paketoptionen des Deals im Portal: „ab“ dem günstigsten. */
+  | { art: "pakete"; abCent: number; anzahl: number }
   | { art: "stunden" }
   /** Kein Preis bekannt: der Satz entfällt, der Link zeigt ihn. */
   | { art: "offen" };
 
-/** Preis aus `GET /deals/{id}/quotation` (Ausschnitt). */
-export function kvPreisAusAngebot(
-  q: { fixedPrice?: string | number | null; isVariable?: boolean | null; selectedPackageSlug?: string | null } | null | undefined
+/**
+ * Preis aus `GET /deals/{id}/quotation` (Ausschnitt) und den Paketoptionen des
+ * Deals (`GET /deals/{id}/package-options`, dieselben Karten wie im Portal).
+ * Ab zwei Optionen gilt der Paketsatz, sonst Festpreis oder Stunden.
+ */
+export function kvPreisAus(
+  q: { fixedPrice?: string | number | null; isVariable?: boolean | null } | null | undefined,
+  optionen: readonly { priceCents?: number | null }[] = []
 ): KvPreis {
+  const preise = optionen.map((o) => o.priceCents).filter((c): c is number => typeof c === "number" && c > 0);
+  if (preise.length >= 2) return { art: "pakete", abCent: Math.min(...preise), anzahl: preise.length };
   if (!q) return { art: "offen" };
   if (q.isVariable) return { art: "stunden" };
   const roh = q.fixedPrice;
   const eur = typeof roh === "number" ? roh : typeof roh === "string" && roh.trim() !== "" ? Number(roh) : NaN;
   if (!Number.isFinite(eur) || eur <= 0) return { art: "offen" };
-  return { art: "fest", cent: Math.round(eur * 100), pakete: Boolean(q.selectedPackageSlug) };
+  return { art: "fest", cent: Math.round(eur * 100) };
 }
 
 /**
@@ -117,7 +126,14 @@ export function kvFertigNachricht(e: {
   const saetze = [t(`Ihr Angebot${ref} ist fertig.`, `dein Angebot${ref} ist fertig.`)];
   if (e.preis.art === "fest") {
     saetze.push(`Der Festpreis liegt bei ${euroText(e.preis.cent)}.`);
-    if (e.preis.pakete) saetze.push(t("Im Angebot können Sie zwischen den Paketen wählen.", "Im Angebot kannst du zwischen den Paketen wählen."));
+  } else if (e.preis.art === "pakete") {
+    const ab = euroText(e.preis.abCent);
+    saetze.push(
+      t(
+        `Sie können zwischen ${e.preis.anzahl} Paketen wählen, ab ${ab} zum Festpreis.`,
+        `Du kannst zwischen ${e.preis.anzahl} Paketen wählen, ab ${ab} zum Festpreis.`
+      )
+    );
   } else if (e.preis.art === "stunden") {
     saetze.push("Abgerechnet wird nach Aufwand, die Stundensätze stehen im Angebot.");
   }
