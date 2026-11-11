@@ -398,14 +398,18 @@ describe("calculation tools", () => {
       "crm_lock_calculation_version",
       "crm_render_kv_from_version",
       "crm_update_quotation_details",
+      "crm_get_offer_change",
+      "crm_propose_offer_change",
     ]);
     const frozen = new Set<string>(WEB_ONLY_TOOL_NAMES);
     const overlap = WEB_ONLY_BY_DESIGN.filter((name) => frozen.has(name));
     expect(overlap).toEqual([]);
     for (const name of WEB_ONLY_BY_DESIGN) {
       expect(CRM_TOOL_NAMES, name).toContain(name);
-      expect(MCP_MUTATING_TOOL_NAMES.has(name), name).toBe(true);
-      expect(MCP_READ_TOOL_NAMES.has(name), name).toBe(false);
+      // Plan 16: crm_get_offer_change liest nur.
+      const liest = name === "crm_get_offer_change";
+      expect(MCP_MUTATING_TOOL_NAMES.has(name), name).toBe(!liest);
+      expect(MCP_READ_TOOL_NAMES.has(name), name).toBe(liest);
     }
     expect(CRM_TOOL_NAMES).toContain("crm_get_calculation");
     expect(MCP_READ_TOOL_NAMES.has("crm_get_calculation")).toBe(true);

@@ -1614,6 +1614,21 @@ describe("calculation MCP tools", () => {
     expect((k.calls[0].options.body as { copy: unknown }).copy).toEqual({ intro: "Hallo" });
   });
 
+  it("Plan 16: proposes offer changes (only proposals) and reads the change state", async () => {
+    const p = fakeClient();
+    await handleTool(p.client, "crm_propose_offer_change", {
+      recordId: "d1",
+      aenderungen: '[{"art":"teil_hinzu","name":"Fahrrad"}]',
+      zitat: "Das Fahrrad kommt noch mit",
+    });
+    expect(p.calls[0].path).toBe("/api/v1/deals/d1/angebot-aenderung/vorschlag");
+    expect(p.calls[0].options.method).toBe("POST");
+    expect(p.calls[0].options.body).toEqual({ aenderungen: [{ art: "teil_hinzu", name: "Fahrrad" }], zitat: "Das Fahrrad kommt noch mit" });
+    const g = fakeClient();
+    await handleTool(g.client, "crm_get_offer_change", { recordId: "d1" });
+    expect(g.calls[0].path).toBe("/api/v1/deals/d1/angebot-aenderung");
+  });
+
   it("locks a calculation version", async () => {
     const confirmed = fakeClient();
     await handleTool(confirmed.client, "crm_lock_calculation_version", {

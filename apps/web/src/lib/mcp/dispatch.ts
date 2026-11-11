@@ -743,6 +743,13 @@ async function dispatch(client: CrmClient, name: string, args: Args): Promise<un
         { method: "POST", body }
       );
     }
+    case "crm_get_offer_change":
+      return client.request(`/api/v1/deals/${encodeURIComponent(str(args.recordId))}/angebot-aenderung`);
+    case "crm_propose_offer_change": {
+      const body: Record<string, unknown> = { aenderungen: asBody(args.aenderungen) };
+      if (args.zitat !== undefined && args.zitat !== null && args.zitat !== "") body.zitat = str(args.zitat);
+      return client.request(`/api/v1/deals/${encodeURIComponent(str(args.recordId))}/angebot-aenderung/vorschlag`, { method: "POST", body });
+    }
     case "crm_render_kv_from_version": {
       const body: Record<string, unknown> = {};
       if (args.copy !== undefined) body.copy = asBody(args.copy);

@@ -88,6 +88,9 @@ export const CRM_TOOL_NAMES = [
   "crm_render_kv_from_version",
   "crm_set_deal_anzahlung",
   "crm_update_quotation_details",
+  // Plan 16: Änderungen an einem verschickten Angebot nur als Vorschlag.
+  "crm_get_offer_change",
+  "crm_propose_offer_change",
   // ── Documents ─────────────────────────────────────────────────────
   "crm_get_deal_document",
   "crm_generate_document",
@@ -345,6 +348,9 @@ export const WEB_ONLY_BY_DESIGN = [
   "crm_render_kv_from_version",
   // Plan 14: Ersatz für die Detailfelder von crm_update_deal_quotation.
   "crm_update_quotation_details",
+  // Plan 16: „Angebot ändern“ (Vorschlagsliste), bewusst nur auf dem App-Server.
+  "crm_get_offer_change",
+  "crm_propose_offer_change",
 ] as const;
 
 /**

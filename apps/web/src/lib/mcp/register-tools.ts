@@ -523,7 +523,7 @@ export function registerCrmTools(server: McpServer, req?: Request): void {
   tool(
     server,
     "crm_update_deal_quotation",
-    "Deprecated: writes the quotation without a calculation version; the KV loses its link to the calculation. Prefer crm_override_calculation + crm_lock_calculation_version. Being switched off: every call is counted, and once writing is locked (QUOTATION_PUT_STUFE=sperren) this tool writes nothing and answers QUOTATION_PUT_GONE; use crm_update_quotation_details for validity, notes, summary, payment method and service type. Replace a deal's quotation (PUT semantics — omitted fields are cleared, so read crm_get_deal_quotation first and merge). Saving also mints the customer portal link and anchors the scope baseline. ALWAYS pass serviceType: 'move' (Umzug), 'kitchen_installation' (Küchenmontage), 'clearance' (Entrümpelung) or 'clearance_move' (Entrümpelung + Umzug). It drives the customer portal wording, the logo and the Widerruf rules. Omitted, a stored service stays; a new quotation is guessed from its text and otherwise becomes 'move'.",
+    "Deprecated: writes the quotation without a calculation version; the KV loses its link to the calculation. Prefer crm_override_calculation + crm_lock_calculation_version. Refused for bots once a quotation from a calculation version was sent (409 ANGEBOT_VERSCHICKT; use crm_propose_offer_change). Being switched off: every call is counted, and once writing is locked (QUOTATION_PUT_STUFE=sperren) this tool writes nothing and answers QUOTATION_PUT_GONE; use crm_update_quotation_details for validity, notes, summary, payment method and service type. Replace a deal's quotation (PUT semantics — omitted fields are cleared, so read crm_get_deal_quotation first and merge). Saving also mints the customer portal link and anchors the scope baseline. ALWAYS pass serviceType: 'move' (Umzug), 'kitchen_installation' (Küchenmontage), 'clearance' (Entrümpelung) or 'clearance_move' (Entrümpelung + Umzug). It drives the customer portal wording, the logo and the Widerruf rules. Omitted, a stored service stays; a new quotation is guessed from its text and otherwise becomes 'move'.",
     {
       recordId: z.string(),
       isVariable: z.boolean().optional(),
@@ -569,11 +569,29 @@ export function registerCrmTools(server: McpServer, req?: Request): void {
   tool(
     server,
     "crm_lock_calculation_version",
-    "Lock a calculation version and write the deal quotation and its line items from that version. Refused after customer acceptance (409 KVA_ACCEPTED), for deals with package options, for hourly quotations when called by a bot, and while the Rechner result is missing. Set bestaetigtSpanne to true to confirm locking when the calculation is a price range (for example unknown floor).",
+    "Lock a calculation version and write the deal quotation and its line items from that version. Refused after customer acceptance (409 KVA_ACCEPTED), for deals with package options, for hourly quotations when called by a bot, and while the Rechner result is missing. Once a quotation of this deal was sent (KV PDF stored or sent), a bot may not lock a new version (409 AENDERUNG_NUR_MENSCH): propose the change with crm_propose_offer_change instead. Set bestaetigtSpanne to true to confirm locking when the calculation is a price range (for example unknown floor).",
     {
       recordId: z.string(),
       version: z.number().int().min(1),
       bestaetigtSpanne: z.boolean().optional(),
+    },
+    req
+  );
+  tool(
+    server,
+    "crm_get_offer_change",
+    "Read the state of changing an already sent quotation (Plan 16): the binding locked version (sent, accepted), the running change draft, the proposal list (source chat, eingabe, bot, foto; status offen, uebernommen, verworfen), the comparison old to new (parts, assembly, inputs, volume, team, hours, price, margin, origin per line) and the draft message to the customer. Read only.",
+    { recordId: z.string() },
+    req
+  );
+  tool(
+    server,
+    "crm_propose_offer_change",
+    "Propose changes to an already sent quotation (Plan 16). Writes ONLY proposals into the change list of the deal (creating the next draft version from the binding locked version if needed); a human ticks them, applies them and locks the new version. Never changes the sent quotation, never locks, never messages the customer. Use this instead of crm_update_deal_quotation or crm_lock_calculation_version once a quotation was sent. aenderungen is a list of objects with art and fields: teil_hinzu {name, menge?, groesse? klein|mittel|gross|sperrig}; teil_weg {name}; teil_menge {name, menge}; montage {name, abbau?, aufbau?: wir|kunde|nicht_noetig}; halteverbot {seite: beladen|entladen, an: boolean}; etage {seite, etage}; aufzug {seite, aufzug: keiner|klein|gross}; tragweg {seite, meter}; termin {datum? YYYY-MM-DD, text} (note only, nothing is rebooked); kartons {anzahl} (boxes the customer packs); einpacken {anzahl} (our packing service, 0 = off); posten_hinzu {bezeichnung, minuten | betrag}; posten_weg {hebel: montage|halteverbot|einpacken|kueche}; hinweis {text} (for the customer message); each may carry zitat (the customer's sentence). Names of existing parts must match the inventory (crm_get_deal_inventory). Anything that does not fit becomes 'unklar' with the original text. Prices, discounts and margins cannot be proposed.",
+    {
+      recordId: z.string(),
+      aenderungen: z.array(z.record(z.unknown())).min(1).max(40),
+      zitat: z.string().max(300).optional(),
     },
     req
   );
