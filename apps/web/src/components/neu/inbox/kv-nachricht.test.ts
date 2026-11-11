@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Kurzfassung } from "@/lib/inbox-neu";
 import type { Gespraech, GespraechKanal } from "@/services/gespraech";
-import { kvNachrichtWeg, sendeZiel } from "./kv-nachricht";
+import { kvNachrichtWeg, kvTextFuerVersion, sendeZiel } from "./kv-nachricht";
 
 function kanal(teil: Partial<GespraechKanal>): GespraechKanal {
   return {
@@ -160,3 +160,31 @@ describe("kvNachrichtWeg", () => {
     expect(weg).toMatchObject({ art: "meldung", titel: "Kundenportal ist für diese Firma aus." });
   });
 });
+
+describe("Plan 16: geänderte Version", () => {
+  const AEND = { vorgang: { status: "gesperrt" as const }, nachricht: { text: "Hallo Max,\n\nwir haben dein Angebot wie besprochen angepasst:\n• Fahrrad kommt dazu\n\nDas aktualisierte Angebot findest du hier: https://alt/s/tok\n\nHerzliche Grüße", link: "https://alt/s/tok" } };
+
+  it("Änderungsnachricht statt Kurztext, mit dem Link aus dem Statuslink; offene Änderung oder keine: Kurztext", () => {
+    expect(kvTextFuerVersion(AEND, "KURZ", "https://p/s/tok")).toContain("Fahrrad kommt dazu");
+    expect(kvTextFuerVersion(AEND, "KURZ", "https://p/s/tok")).toContain("https://p/s/tok");
+    expect(kvTextFuerVersion(AEND, "KURZ", "https://p/s/tok")).not.toContain("https://alt/s/tok");
+    expect(kvTextFuerVersion({ ...AEND, vorgang: { status: "entwurf" } }, "KURZ", "u")).toBe("KURZ");
+    expect(kvTextFuerVersion(null, "KURZ", "u")).toBe("KURZ");
+    expect(kvTextFuerVersion({ vorgang: null, nachricht: null }, "KURZ", "u")).toBe("KURZ");
+  });
+
+  it("kvNachrichtWeg nimmt nach Angebot ändern die Änderungsnachricht, genau eine", async () => {
+    fetchMit({
+      ["GET /api/v1/customer-link/d1"]: { body: { data: { url: "https://p/s/tok", dealNumber: "2026-003" } } },
+      ["GET /api/v1/deals/d1/quotation"]: { body: { data: { fixedPrice: "2560.00", isVariable: false } } },
+      ["GET /api/v1/deals/d1/angebot-aenderung"]: { body: { data: AEND } },
+    });
+    const weg = await kvNachrichtWeg("d1", KURZ, gespraech([kanal({})]));
+    expect(weg.art).toBe("einfuegen");
+    if (weg.art !== "einfuegen") return;
+    expect(weg.text).toContain("Fahrrad kommt dazu");
+    expect(weg.text).toContain("https://p/s/tok");
+    expect(weg.text.match(/Herzliche Grüße|Viele Grüße/g)).toHaveLength(1);
+  });
+});
+

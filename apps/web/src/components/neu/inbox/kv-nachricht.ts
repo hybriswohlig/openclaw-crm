@@ -12,6 +12,24 @@ import { kvFertigNachricht, kvPreisAus, type KvPreisAngebot, type KvPreisOption,
 import type { Gespraech } from "@/services/gespraech";
 import { vornameAus } from "./inbox-logik";
 
+/** Was „Im Chat senden“ von „Angebot ändern“ braucht (Plan 16). */
+export interface AenderungsStandFuerKv {
+  vorgang: { status: "entwurf" | "gesperrt" } | null;
+  nachricht: { text: string; link: string | null } | null;
+}
+
+/**
+ * Plan 16: nach „Angebot ändern“ und Sperren ist die maßgebliche Version die geänderte
+ * (`vorgang.status` gesperrt). Dann nie zwei Nachrichten: die Änderungsnachricht (Änderungen,
+ * neuer statt alter Preis) ersetzt den Kurztext, mit dem Link aus „Statuslink kopieren“.
+ */
+export function kvTextFuerVersion(a: AenderungsStandFuerKv | null, standard: string, url: string): string {
+  if (!a?.vorgang || a.vorgang.status !== "gesperrt" || !a.nachricht?.text) return standard;
+  const { text, link } = a.nachricht;
+  if (!link) return `${text.replace(/\n\nHerzliche Grüße/, `\n${url}\n\nHerzliche Grüße`)}`;
+  return link === url ? text : text.split(link).join(url);
+}
+
 export type KvWeg =
   /** Es gibt ein sendefähiges Gespräch: Text ins Eingabefeld (bei WABA außerhalb des Fensters gesperrt, dann Vorlage). */
   | { art: "einfuegen"; text: string; fensterZu: boolean; gespraechId: string }
@@ -38,13 +56,15 @@ export function sendeZiel(g: Pick<Gespraech, "kanaele" | "vorauswahl">): { gespr
 
 export async function kvNachrichtWeg(dealId: string, kurzVorher: Kurzfassung | null, gespraech: Gespraech): Promise<KvWeg> {
   const deal = encodeURIComponent(dealId);
-  const [link, angebot, optionen, tage, kurzNeu] = await Promise.all([
+  const [link, angebot, optionen, tage, kurzNeu, aenderung] = await Promise.all([
     statusLinkHolen(dealId),
     apiAufruf<KvPreisAngebot | null>(`/api/v1/deals/${deal}/quotation`),
     apiAufruf<{ options?: KvPreisOption[] } | null>(`/api/v1/deals/${deal}/package-options`),
     apiAufruf<{ offers?: KvPreisTag[] } | null>(`/api/v1/deals/${deal}/date-offers`),
     // Fehlt die Kurzfassung (Firma entscheidet du/Sie), noch einmal holen.
     kurzVorher ? Promise.resolve(null) : apiAufruf<Kurzfassung>(`/api/v1/deals/${deal}/kurzfassung`),
+    // Plan 16: ist das aktuelle Angebot eine geänderte Version, gilt die Änderungsnachricht.
+    apiAufruf<AenderungsStandFuerKv>(`/api/v1/deals/${deal}/angebot-aenderung`),
   ]);
   const kurz = kurzVorher ?? (kurzNeu?.ok ? kurzNeu.data : null);
   if (link.art !== "ok") {
@@ -57,7 +77,7 @@ export async function kvNachrichtWeg(dealId: string, kurzVorher: Kurzfassung | n
           : undefined;
     return { art: "meldung", titel: m.titel, text: m.text, ziel };
   }
-  const text = kvFertigNachricht({
+  const standard = kvFertigNachricht({
     firma: kurz?.kunde.firma ?? null,
     vorname: vornameAus(kurz?.name),
     preis: kvPreisAus(
@@ -68,6 +88,7 @@ export async function kvNachrichtWeg(dealId: string, kurzVorher: Kurzfassung | n
     url: link.url,
     dealNumber: link.dealNumber,
   });
+  const text = kvTextFuerVersion(aenderung.ok ? aenderung.data : null, standard, link.url);
 
   const ziel = sendeZiel(gespraech);
   if (ziel) return { art: "einfuegen", text, fensterZu: ziel.fensterZu, gespraechId: ziel.gespraechId };
