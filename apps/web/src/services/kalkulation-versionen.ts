@@ -907,6 +907,48 @@ export async function uebersteuern(
 
 const OHNE_RECHNER: ReadonlySet<string> = new Set(["paketpreis", "tagespreis", "kv_darstellung"]);
 
+/**
+ * Plan 16 (Entscheidung Inhaber, Review M3): die Marge der alten Version gilt im Änderungsentwurf
+ * weiter, als Übersteuerung „Marge wie vN“ (änderbar). Nur, wenn der Entwurf keine eigene Marge
+ * hat; Werte außerhalb von 30 bis 60 % bleiben beim Vorschlag des Rechners. Keine Meldung.
+ * Liefert den Entwurf nach der Neuberechnung bzw. unverändert.
+ */
+export async function margeWieBasis(
+  ws: string,
+  deal: string,
+  entwurfVersion: number,
+  basis: { version: number; prozent: number | null },
+  autor: Autor,
+  opts?: VersionsOptionen
+): Promise<VersionsZeile | null> {
+  const d = await abhaengigkeiten(opts);
+  const ziel = await d.speicher.entwurf(ws, deal);
+  if (!ziel || ziel.version !== entwurfVersion) return null;
+  if (basis.prozent === null || wirksamerWert(ziel.overrides, "marge", "marge") !== null) return ziel;
+  let geprueft: ReturnType<typeof pruefeUebersteuerung>;
+  try {
+    geprueft = pruefeUebersteuerung({ art: "marge", key: "marge", wert: Math.round(basis.prozent * 100) / 100, grund: `Marge wie v${basis.version} (Angebot ändern)` });
+  } catch {
+    return ziel;
+  }
+  const e = ziel.rechnerResult;
+  const neue: Uebersteuerung = {
+    id: crypto.randomUUID(),
+    art: "marge",
+    key: "marge",
+    rechnerwert: e?.preis?.margeVorschlag?.prozent ?? e?.margeVorschlag?.prozent ?? e?.preis?.margeWirksamProzent ?? null,
+    wert: geprueft.wert,
+    grund: geprueft.grund,
+    autor: { userId: autor.userId, quelle: autor.quelle },
+    zeit: d.jetzt().toISOString(),
+    fotoRef: null,
+  };
+  const lead = await leadOderFehler(ws, deal, d);
+  const kontext = await kontextLaden(ws, deal, d);
+  const mit = await d.speicher.anhaengen(ziel.id, neue);
+  return d.speicher.aktualisieren(ziel.id, await neuBerechnen(ws, deal, lead, mit.overrides, d, { kontext, tage: tageKonfigAus(mit.dayPrices) }));
+}
+
 /** Plan 16: Arten, die eine Kundenänderung setzen darf (keine Preise, Sätze oder Zeilen). */
 const AENDERUNGS_ARTEN: ReadonlySet<string> = new Set(["eingabe", "montage", "zeitposten", "material_frei"]);
 

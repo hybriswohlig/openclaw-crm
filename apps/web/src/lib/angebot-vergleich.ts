@@ -53,6 +53,34 @@ export interface Vergleich {
   personenStunden: VonBis<number>;
   preisCent: VonBis<number> & { differenzCent: number | null };
   margeProzent: VonBis<number>;
+  /**
+   * Entscheidung Inhaber: was sich ohne Kundenänderung durch die Neuberechnung ändert (Datum,
+   * Termin, Tarif, Fahrzeit, Lead-Stand). `preisCent`: Preis gleich nach dem Start minus alter Preis.
+   */
+  neuberechnung?: Neuberechnung | null;
+}
+
+export interface Neuberechnung {
+  preisCent: number | null;
+  zeilen: { text: string; alt: string | null; neu: string | null }[];
+}
+
+const DATUM = (iso: string | null) => (iso && /^\d{4}-\d{2}-\d{2}$/.test(iso) ? `${iso.slice(8, 10)}.${iso.slice(5, 7)}.${iso.slice(0, 4)}` : iso);
+
+/** Neuberechnung ohne Kundenänderung: Betrag (mit Startpreis) und die Größen, die sich dabei ändern. */
+export function neuberechnungAus(alt: VersionsSchnitt, neu: VersionsSchnitt, startPreisCent: number | null): Neuberechnung {
+  const zeilen: Neuberechnung["zeilen"] = [];
+  const zeile = (text: string, a: string | null, n: string | null) => {
+    if (a !== n) zeilen.push({ text, alt: a, neu: n });
+  };
+  const feld = (s: VersionsSchnitt, f: string) => (typeof s.anfrage?.[f] === "string" ? (s.anfrage[f] as string) : null);
+  zeile("Berechnet am", DATUM(feld(alt, "heute")), DATUM(feld(neu, "heute")));
+  zeile("Termin", DATUM(feld(alt, "umzugsdatum")), DATUM(feld(neu, "umzugsdatum")));
+  const tarif = (s: VersionsSchnitt) => (s.ergebnis?.tarif ? `v${s.ergebnis.tarif.version}` : null);
+  zeile("Tarif", tarif(alt), tarif(neu));
+  const fahrt = (s: VersionsSchnitt) => (typeof s.ergebnis?.zeiten?.fahrtMin === "number" ? `${Math.round(s.ergebnis.zeiten.fahrtMin)} min` : null);
+  zeile("Fahrzeit", fahrt(alt), fahrt(neu));
+  return { preisCent: startPreisCent !== null && alt.priceCents !== null ? startPreisCent - alt.priceCents : null, zeilen };
 }
 
 /** Wer je Seite (für die Montage-Zeilen); exportiert für Tests und Anzeige. */

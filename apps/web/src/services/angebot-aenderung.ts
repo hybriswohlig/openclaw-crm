@@ -29,7 +29,7 @@ import {
   type Vorschlag,
   type Wer,
 } from "@/lib/angebot-aenderung";
-import { vergleichVersionen, type Vergleich, type VersionsSchnitt } from "@/lib/angebot-vergleich";
+import { neuberechnungAus, vergleichVersionen, type Vergleich, type VersionsSchnitt } from "@/lib/angebot-vergleich";
 import { inventarListe, type InventarQuelle } from "@/lib/kalkulation-inventar";
 import type { Autor, VersionsZeile } from "./kalkulation-versionen";
 
@@ -105,6 +105,14 @@ export interface AenderungsQuellen {
     entwurfVersion: number
   ) => Promise<{ version: VersionsZeile }>;
   neuRechnen: (ws: string, deal: string, version: number, autor: Autor) => Promise<void>;
+  /** Marge der Basis in den Entwurf übernehmen (Entscheidung Inhaber); Entwurf danach oder null. */
+  margeWieBasis: (
+    ws: string,
+    deal: string,
+    entwurfVersion: number,
+    basis: { version: number; prozent: number | null },
+    autor: Autor
+  ) => Promise<VersionsZeile | null>;
   leadSchritt: (ws: string, deal: string, s: LeadSchritt, autor: Autor) => Promise<void>;
 }
 
@@ -282,7 +290,13 @@ export async function ansicht(ws: string, deal: string, quellen?: Partial<Aender
     l.vorgang ? q.fotoStand(deal).catch(() => ({ offen: 0, gescheitert: 0 })) : Promise.resolve({ offen: 0, gescheitert: 0 }),
   ]);
   const stand = aenderungsStand(l.ereignisse, l.vorgang?.version ?? null, l.fotoVorschlaege);
-  const vergleich = l.basis && l.vorgang && l.vorgang.id !== l.basis.id ? vergleichVersionen(schnitt(l.basis), schnitt(l.vorgang), herkunftAus(stand.vorschlaege)) : null;
+  let vergleich: Vergleich | null = null;
+  if (l.basis && l.vorgang && l.vorgang.id !== l.basis.id) {
+    const alt = schnitt(l.basis);
+    const neu = schnitt(l.vorgang);
+    const start = startVon(l.ereignisse, l.vorgang.version);
+    vergleich = { ...vergleichVersionen(alt, neu, herkunftAus(stand.vorschlaege)), neuberechnung: neuberechnungAus(alt, neu, start?.startPreisCent ?? null) };
+  }
 
   let nachricht: AenderungsAnsicht["nachricht"] = null;
   if (l.basis && l.vorgang && l.vorgang.id !== l.basis.id) {
@@ -345,7 +359,11 @@ export async function starten(ws: string, deal: string, autor: Autor, quellen?: 
   if (!basis) throw new AenderungsFehler("KEIN_ANGEBOT", KEIN_ANGEBOT_TEXT);
   const { version, neu } = await q.entwurfHolen(ws, deal, autor);
   if (!startVon(l.ereignisse, version.version)) {
-    await q.schreiben(ws, deal, { typ: "start", entwurfVersion: version.version, basisVersion: basis.version }, autor);
+    // Entscheidung Inhaber: die Marge der alten Version gilt weiter (als Übersteuerung, änderbar).
+    const prozent = basis.rechnerResult?.preis?.margeWirksamProzent ?? basis.margin?.gewaehltProzent ?? null;
+    const nachMarge = await q.margeWieBasis(ws, deal, version.version, { version: basis.version, prozent }, autor).catch(() => null);
+    const startPreisCent = (nachMarge ?? version).priceCents ?? null;
+    await q.schreiben(ws, deal, { typ: "start", entwurfVersion: version.version, basisVersion: basis.version, startPreisCent }, autor);
   }
   return { entwurfVersion: version.version, neu };
 }
@@ -658,6 +676,7 @@ const standardSchluessel: Record<keyof AenderungsQuellen, true> = {
   entwurfHolen: true,
   anwenden: true,
   neuRechnen: true,
+  margeWieBasis: true,
   leadSchritt: true,
 };
 
@@ -832,6 +851,7 @@ export async function standardQuellen(): Promise<AenderungsQuellen> {
     neuRechnen: async (ws, deal, version, autor) => {
       await versionen.entwurfNeuRechnen(ws, deal, version, autor);
     },
+    margeWieBasis: (ws, deal, v, basis, autor) => versionen.margeWieBasis(ws, deal, v, basis, autor),
     leadSchritt: async (ws, deal, s, autor) => {
       const { INVENTAR_KORRIGIERT_EVENT, korrekturPayload, volumenBeiMenge } = await import("@/lib/inventar-korrektur");
       const { kalkulationAnstossen } = await import("./rechner/ausloeser");

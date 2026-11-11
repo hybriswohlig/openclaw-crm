@@ -351,6 +351,22 @@ export function VergleichAnsicht({ v }: { v: Vergleich }) {
         <Zahl titel="Team" alt={v.team.alt} neu={v.team.neu} format={(n) => `${n} Pers.`} />
         <Zahl titel="Personenstunden" alt={v.personenStunden.alt} neu={v.personenStunden.neu} format={(h) => `${ZAHL.format(h)} h`} />
       </div>
+      {v.neuberechnung && (v.neuberechnung.zeilen.length > 0 || (v.neuberechnung.preisCent ?? 0) !== 0) ? (
+        <div className="aa-neuberechnung" role="note">
+          <b>
+            Neuberechnung, nicht vom Kunden
+            {v.neuberechnung.preisCent !== null && v.neuberechnung.preisCent !== 0
+              ? `: ${v.neuberechnung.preisCent > 0 ? "+" : "−"}${euro(Math.abs(v.neuberechnung.preisCent))}`
+              : ""}
+          </b>
+          {v.neuberechnung.zeilen.length > 0 ? (
+            <span>{v.neuberechnung.zeilen.map((z) => `${z.text} ${z.alt ?? "·"} → ${z.neu ?? "·"}`).join(" · ")}</span>
+          ) : null}
+          {v.neuberechnung.preisCent !== null && v.preisCent.differenzCent !== null ? (
+            <span>Durch Kundenänderungen: {v.preisCent.differenzCent - v.neuberechnung.preisCent >= 0 ? "+" : "−"}{euro(Math.abs(v.preisCent.differenzCent - v.neuberechnung.preisCent))}</span>
+          ) : null}
+        </div>
+      ) : null}
       {v.zeilen.length > 0 ? (
         <table className="aa-vergleich">
           <thead>

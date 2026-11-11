@@ -571,3 +571,19 @@ describe("vergleichVersionen", () => {
     });
   });
 });
+
+describe("neuberechnungAus (Entscheidung Inhaber)", () => {
+  it("Betrag aus dem Startpreis, Zeilen für Datum, Termin, Tarif, Fahrzeit", async () => {
+    const { neuberechnungAus } = await import("./angebot-vergleich");
+    const alt = { version: 1, priceCents: 100000, margeProzent: 40, anfrage: { heute: "2026-11-04", umzugsdatum: "2026-11-20" }, ergebnis: { tarif: { id: "t", version: 3, marke: null }, zeiten: { fahrtMin: 40 } } };
+    const neu = { version: 2, priceCents: 125000, margeProzent: 40, anfrage: { heute: "2026-11-11", umzugsdatum: "2026-11-20" }, ergebnis: { tarif: { id: "t", version: 4, marke: null }, zeiten: { fahrtMin: 40 } } };
+    const n = neuberechnungAus(alt, neu, 108000);
+    expect(n.preisCent).toBe(8000);
+    expect(n.zeilen).toEqual([
+      { text: "Berechnet am", alt: "04.11.2026", neu: "11.11.2026" },
+      { text: "Tarif", alt: "v3", neu: "v4" },
+    ]);
+    expect(neuberechnungAus(alt, neu, null).preisCent).toBeNull();
+  });
+});
+

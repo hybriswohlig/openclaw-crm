@@ -101,7 +101,8 @@ export interface InventarZeile {
 export const AENDERUNG_EVENT = "angebot.aenderung" as const;
 
 export type AenderungsPayload =
-  | { typ: "start"; entwurfVersion: number; basisVersion: number | null }
+  /** `startPreisCent`: Preis des Entwurfs gleich nach dem Start (Neuberechnung ohne Kundenänderung). */
+  | { typ: "start"; entwurfVersion: number; basisVersion: number | null; startPreisCent?: number | null }
   | {
       typ: "vorschlaege";
       entwurfVersion: number;

@@ -81,6 +81,11 @@ function aufbau(opts: { entwurf?: boolean; inventar?: InventarDbZeile[]; texte?:
     }),
     anwenden: vi.fn(async () => ({ version: versionen[1] })),
     neuRechnen: vi.fn(async () => undefined),
+    margeWieBasis: vi.fn(async () => {
+      const e = versionen.find((v) => v.status === "entwurf")!;
+      e.priceCents = 110000; // Neuberechnung ohne Kundenänderung: 1.000 € → 1.100 €
+      return structuredClone(e);
+    }),
     leadSchritt: vi.fn(async () => undefined),
   };
   return {
@@ -103,12 +108,16 @@ describe("starten und Ansicht", () => {
     const t = aufbau();
     expect(await starten("ws", "deal", MENSCH, t.q)).toEqual({ entwurfVersion: 2, neu: true });
     await starten("ws", "deal", MENSCH, t.q);
-    expect(t.log.filter((e) => e.payload.typ === "start")).toEqual([expect.objectContaining({ payload: { typ: "start", entwurfVersion: 2, basisVersion: 1 } })]);
+    expect(t.log.filter((e) => e.payload.typ === "start")).toEqual([expect.objectContaining({ payload: { typ: "start", entwurfVersion: 2, basisVersion: 1, startPreisCent: 110000 } })]);
     const a = await ansicht("ws", "deal", t.q);
     expect(a.basis).toMatchObject({ version: 1, verschickt: true, angenommen: false, preisCent: 100000 });
     expect(a.vorgang).toMatchObject({ version: 2, status: "entwurf" });
-    expect(a.vergleich?.preisCent).toMatchObject({ alt: 100000, neu: 120000 });
-    expect(a.nachricht?.text).toContain("1.200 €");
+    expect(a.vergleich?.preisCent).toMatchObject({ alt: 100000, neu: 110000 });
+    // Entscheidung Inhaber: Marge der Basis übernommen, Neuberechnung getrennt ausgewiesen.
+    expect(t.q.margeWieBasis).toHaveBeenCalledWith("ws", "deal", 2, { version: 1, prozent: 40 }, MENSCH);
+    expect(t.log.find((e) => e.payload.typ === "start")?.payload).toMatchObject({ startPreisCent: 110000 });
+    expect(a.vergleich?.neuberechnung?.preisCent).toBe(10000);
+    expect(a.nachricht?.text).toContain("1.100 €");
     expect(a.nachricht?.text).toContain("bisher 1.000 €");
     expect(a.nachricht?.text).toContain("https://crm.example/s/abc");
     expect(a.nachricht?.text).not.toContain("erneut an");

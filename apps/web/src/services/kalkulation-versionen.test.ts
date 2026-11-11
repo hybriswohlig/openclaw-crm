@@ -1071,6 +1071,20 @@ describe("Plan 16: Angebot ändern beim Sperren und Anwenden", () => {
     expect(r.version.overrides.at(-1)).toMatchObject({ key: "umzugskartons", herkunft: "eingabe" });
   });
 
+  it("margeWieBasis: Marge der alten Version als Übersteuerung, nicht doppelt, außerhalb 30 bis 60 nicht", async () => {
+    const t = aufbau();
+    t.lege(1);
+    await entwurfHolenOderAnlegen("ws", "deal1", MENSCH, t.deps);
+    const { margeWieBasis } = await import("./kalkulation-versionen");
+    const r = await margeWieBasis("ws", "deal1", 2, { version: 1, prozent: 42 }, MENSCH, t.deps);
+    expect(r?.overrides.at(-1)).toMatchObject({ art: "marge", wert: 42, grund: "Marge wie v1 (Angebot ändern)" });
+    const zweimal = await margeWieBasis("ws", "deal1", 2, { version: 1, prozent: 45 }, MENSCH, t.deps);
+    expect(zweimal?.overrides.filter((u) => u.art === "marge")).toHaveLength(1);
+    expect(await margeWieBasis("ws", "deal1", 3, { version: 1, prozent: 42 }, MENSCH, t.deps)).toBeNull();
+    await t.alleNachher();
+    expect(t.melde).not.toHaveBeenCalled();
+  });
+
   it("Agent sperrt das erste Angebot wie bisher (nichts verschickt)", async () => {
     const t = aufbau();
     await entwurfHolenOderAnlegen("ws", "deal1", AGENT, t.deps);
