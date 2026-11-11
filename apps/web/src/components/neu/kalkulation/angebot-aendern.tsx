@@ -488,7 +488,7 @@ export function AenderungSperrenDialog({
           <div className="aa-rueckfrage" role="alert">
             <span>
               Der Kunde hat v{daten.basis?.version} schon angenommen. Sperren hebt diese Annahme auf; der Kunde muss das neue Angebot neu annehmen. Termin und Reservierung
-              bleiben. AB und Rechnung werden nicht still geändert, bitte bei Bedarf neu erstellen.
+              bleiben. AB und Rechnung werden nicht still geändert, bitte bei Bedarf neu erstellen. Eine ältere AB sieht der Kunde im Portal danach nicht mehr.
             </span>
             {daten.darfAnnahmeAufheben ? (
               <label htmlFor={id} className="aa-haken">
