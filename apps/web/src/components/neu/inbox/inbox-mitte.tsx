@@ -1,16 +1,27 @@
 "use client";
 
 import Link from "next/link";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import { GlassButton } from "@/components/glassyui/glass-button";
 import { GespraechPanel, type GespraechPanelGriff } from "@/components/neu/akte/gespraech-panel";
 import { VorlageDialog } from "@/components/neu/akte/vorlage-dialog";
 import { usePortalZiel } from "@/components/neu/portal-ziel";
+import { textKopieren } from "@/components/neu/kv-danach/status-link";
+import type { VerfassenVorgabe } from "@/lib/handy-links";
 import type { InboxEintrag, Kurzfassung } from "@/lib/inbox-neu";
 import type { Gespraech } from "@/services/gespraech";
 import { AVATAR_GRAU, SCHNELLAKTION_TEXT, avatarFarbe, gespraechUnterzeile, type Schluessel } from "./inbox-logik";
 import type { LaneAktionen } from "./lane-aktionen";
+import { kvNachrichtWeg, sendeZiel, type KvWeg } from "./kv-nachricht";
 import { Schnellaktionen } from "./schnellaktionen";
+
+/** „Im Chat senden“ nach dem KV (kv-danach): Auftrag an die Mitte dieses Deals. */
+export interface KvAuftrag {
+  onErledigt: () => void;
+  /** Kein Gespräch: das WhatsApp-Verfassen mit dem vorbereiteten Text öffnen. */
+  onVerfassen: (vorgabe: VerfassenVorgabe, text: string) => void;
+}
 
 /**
  * Die Mitte der Inbox: dasselbe Gespräch-Panel wie in der Akte (Entscheidung 8)
@@ -20,6 +31,11 @@ import { Schnellaktionen } from "./schnellaktionen";
  * Am Handy (`kompakt`, Entscheidung 15) als Vollbild: „‹ Inbox“, Kürzel, Name
  * und Unterzeile, Chipzeile „Akte öffnen“, „Fotos anfordern“, „Kein Lead“,
  * darunter das Panel ohne eigenen Kopf und ohne Schnellaktionen.
+ *
+ * `kv` (kv-danach): nach „Im Chat senden“ den Kurztext zum KV einmal
+ * vorbereiten und ins Eingabefeld legen, nie senden. Ohne Gespräch öffnet die
+ * Seite das WhatsApp-Verfassen mit dem Text; bei WABA außerhalb des Fensters
+ * ein Hinweis auf die Vorlage wie im gesperrten Eingabefeld.
  */
 export function InboxMitte({
   schluessel,
@@ -29,6 +45,7 @@ export function InboxMitte({
   kompakt = false,
   aktionen,
   onNeuLaden,
+  kv,
 }: {
   schluessel: Schluessel;
   /** Der Listeneintrag, wenn er in der geladenen Liste steht. */
@@ -39,6 +56,7 @@ export function InboxMitte({
   /** Für „Kein Lead“ in der Chipzeile am Handy. */
   aktionen?: LaneAktionen;
   onNeuLaden: () => Promise<Gespraech | null>;
+  kv?: KvAuftrag;
 }) {
   const griff = useRef<GespraechPanelGriff>(null);
   const [vorlage, setVorlage] = useState(false);
@@ -53,6 +71,58 @@ export function InboxMitte({
   const wabaKanaele = gespraech.kanaele.filter((k) => k.istWaba && k.direkt);
   const vorlageOeffnen = wabaKanaele.length > 0 ? () => setVorlage(true) : undefined;
   const einfuegen = (text: string) => griff.current?.einfuegen(text);
+
+  // ── Kurztext nach dem KV (kv-danach), einmal je Auftrag ──
+  const kvGestartet = useRef(false);
+  const stand = useRef({ kurz, gespraech, onNeuLaden, vorlageOeffnen });
+  stand.current = { kurz, gespraech, onNeuLaden, vorlageOeffnen };
+  useEffect(() => {
+    if (!kv || !dealId || kvGestartet.current) return;
+    kvGestartet.current = true;
+    const { onErledigt, onVerfassen } = kv;
+
+    const insFeld = (text: string, zu: boolean) => {
+      griff.current?.einfuegen(text);
+      if (!zu) {
+        toast.success("Nachricht vorbereitet.", { description: "Sie steht im Eingabefeld. Gesendet wird erst mit deinem Klick." });
+        return;
+      }
+      // Wie das gesperrte Eingabefeld: freier Text erst nach einer Antwort des Kunden.
+      const vorlage = stand.current.vorlageOeffnen;
+      void textKopieren(Promise.resolve(text)).then((kopiert) =>
+        toast.warning("24-Stunden-Fenster zu.", {
+          description: `Bitte zuerst eine Vorlage senden.${kopiert ? " Der vorbereitete Text liegt in der Zwischenablage." : ""}`,
+          action: vorlage ? { label: "Vorlage", onClick: vorlage } : undefined,
+          duration: 12_000,
+        })
+      );
+    };
+
+    const ausfuehren = async (weg: KvWeg) => {
+      if (weg.art === "einfuegen") return insFeld(weg.text, weg.fensterZu);
+      if (weg.art === "verfassen") return onVerfassen(weg.vorgabe, weg.text);
+      if (weg.art === "neu_laden") {
+        const frisch = await stand.current.onNeuLaden();
+        const ziel = frisch ? sendeZiel(frisch) : null;
+        if (ziel) return insFeld(weg.text, ziel.fensterZu);
+        const kopiert = await textKopieren(Promise.resolve(weg.text));
+        toast.message("Das WhatsApp-Gespräch hängt an einem anderen Deal.", {
+          description: kopiert ? "Der vorbereitete Text liegt in der Zwischenablage." : undefined,
+        });
+        return;
+      }
+      const ziel = weg.ziel;
+      toast.error(weg.titel, {
+        description: weg.text,
+        action: ziel ? { label: ziel.label, onClick: () => window.location.assign(ziel.href) } : undefined,
+      });
+    };
+
+    void kvNachrichtWeg(dealId, stand.current.kurz, stand.current.gespraech)
+      .then(ausfuehren)
+      .catch(() => toast.error("Nachricht konnte nicht vorbereitet werden."))
+      .finally(onErledigt);
+  }, [kv, dealId]);
 
   return (
     <>

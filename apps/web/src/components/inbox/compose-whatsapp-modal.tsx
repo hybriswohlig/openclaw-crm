@@ -50,6 +50,7 @@ export function ComposeWhatsAppModal({
   initialChannelAccountId,
   initialPhone,
   initialCustomerName,
+  initialMessage,
   dealRecordId,
 }: {
   accounts: ChannelAccount[];
@@ -58,6 +59,8 @@ export function ComposeWhatsAppModal({
   initialChannelAccountId?: string;
   initialPhone?: string;
   initialCustomerName?: string;
+  /** Vorbereiteter Freitext (nur persönliches WhatsApp); gesendet wird erst mit dem Knopf. */
+  initialMessage?: string;
   dealRecordId?: string | null;
 }) {
   const [channelAccountId, setChannelAccountId] = useState<string>(
@@ -75,7 +78,7 @@ export function ComposeWhatsAppModal({
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   // Free-text body, used only by the Baileys (personal WhatsApp) branch.
-  const [messageText, setMessageText] = useState("");
+  const [messageText, setMessageText] = useState(initialMessage ?? "");
 
   // Transport of the selected sender. Baileys accounts have no
   // waPhoneNumberId; only the in-house bridge can send outbound from the CRM.

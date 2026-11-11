@@ -12,6 +12,7 @@ import { apiAufruf } from "@/components/neu/akte/api";
 import { useBreit } from "@/components/neu/breit";
 import { nachVerfassenSchluessel, verfassenAus, type VerfassenVorgabe } from "@/lib/handy-links";
 import type { InboxChips, InboxFilter, InboxListe, Kurzfassung } from "@/lib/inbox-neu";
+import { KV_NACHRICHT_PARAM } from "@/lib/kv-danach";
 import type { Gespraech } from "@/services/gespraech";
 import { InboxChipsZeile } from "./inbox-chips";
 import { InboxLeiste } from "./inbox-leiste";
@@ -29,7 +30,7 @@ import {
   type LadeGrund,
   type Schluessel,
 } from "./inbox-logik";
-import { InboxMitte } from "./inbox-mitte";
+import { InboxMitte, type KvAuftrag } from "./inbox-mitte";
 import { KontaktKarte } from "./kontakt-karte";
 import { KurzfassungSpalte } from "./kurzfassung-spalte";
 import { useLaneAktionen } from "./lane-aktionen";
@@ -48,8 +49,8 @@ const LEERE_VORGABE: VerfassenVorgabe = { channelAccountId: null, telefon: null,
 
 type VerfassenZustand =
   | { art: "zu" }
-  | { art: "laden"; vorgabe: VerfassenVorgabe }
-  | { art: "offen"; vorgabe: VerfassenVorgabe; konten: ChannelAccount[] };
+  | { art: "laden"; vorgabe: VerfassenVorgabe; text?: string }
+  | { art: "offen"; vorgabe: VerfassenVorgabe; konten: ChannelAccount[]; text?: string };
 
 type ListeZustand = { art: "laden" } | { art: "fehler"; meldung: string } | { art: "fertig"; liste: InboxListe };
 
@@ -199,8 +200,8 @@ export function InboxSeite() {
   // ── Verfassen (Plan 10, Entscheidung 8) ────────────────────────────────────
 
   /** Öffnet das WhatsApp-Fenster; Konten wie in der alten Inbox: nur WhatsApp und aktiv. */
-  const verfassenOeffnen = useCallback(async (vorgabe: VerfassenVorgabe) => {
-    setVerfassen({ art: "laden", vorgabe });
+  const verfassenOeffnen = useCallback(async (vorgabe: VerfassenVorgabe, text?: string) => {
+    setVerfassen({ art: "laden", vorgabe, text });
     const r = await apiAufruf<ChannelAccount[]>("/api/v1/inbox/channel-accounts");
     if (!r.ok) {
       setVerfassen({ art: "zu" });
@@ -208,8 +209,33 @@ export function InboxSeite() {
       return;
     }
     const konten = (r.data ?? []).filter((k) => k.channelType === "whatsapp" && k.isActive);
-    setVerfassen((z) => (z.art === "laden" ? { art: "offen", vorgabe, konten } : z));
+    setVerfassen((z) => (z.art === "laden" ? { art: "offen", vorgabe, konten, text } : z));
+    // kv-danach: WhatsApp Business beginnt ein Gespräch nur mit Vorlage, freier Text geht dort nicht.
+    const konto = konten.find((k) => k.id === vorgabe.channelAccountId) ?? konten[0];
+    if (text && konto?.waPhoneNumberId) {
+      toast.message("Erster Kontakt über WhatsApp Business geht nur mit Vorlage.", {
+        description: "Den vorbereiteten Text kannst du nach der Antwort des Kunden senden.",
+      });
+    }
   }, []);
+
+  // ── „Im Chat senden“ nach dem KV (kv-danach) ──────────────────────────────
+
+  /** Deal, für den der Kurztext zum KV vorbereitet wird; `?kv=1` wird sofort abgeräumt. */
+  const [kvDeal, setKvDeal] = useState<string | null>(null);
+  useEffect(() => {
+    if (params.get(KV_NACHRICHT_PARAM) !== "1") return;
+    const s = schluesselAus(params.get("e"));
+    const rest = new URLSearchParams(params.toString());
+    rest.delete(KV_NACHRICHT_PARAM);
+    const q = rest.toString();
+    window.history.replaceState(null, "", q ? `/app/inbox?${q}` : "/app/inbox");
+    if (s?.art === "deal") setKvDeal(s.id);
+  }, [params]);
+  const kvAuftrag = useMemo<KvAuftrag>(
+    () => ({ onErledigt: () => setKvDeal(null), onVerfassen: (vorgabe, text) => void verfassenOeffnen(vorgabe, text) }),
+    [verfassenOeffnen]
+  );
 
   // `?verfassen=1` (Akte, alte Links) öffnet das Fenster einmal; die Abfrage wird sofort
   // abgeräumt, damit ein Neuladen es nicht erneut öffnet.
@@ -283,6 +309,7 @@ export function InboxSeite() {
           initialChannelAccountId={verfassen.vorgabe.channelAccountId ?? undefined}
           initialPhone={verfassen.vorgabe.telefon ?? undefined}
           initialCustomerName={verfassen.vorgabe.name ?? undefined}
+          initialMessage={verfassen.text}
           dealRecordId={verfassen.vorgabe.dealRecordId}
           onClose={() => setVerfassen({ art: "zu" })}
           onSent={nachGesendet}
@@ -323,6 +350,8 @@ export function InboxSeite() {
             eintrag={eintrag}
             kompakt
             aktionen={aktionen}
+            kv={kvDeal ? kvAuftrag : undefined}
+            kvDeal={kvDeal}
             onNeuLaden={neuLaden}
             onErneut={() => void gespraechLaden(schluessel, "oeffnen")}
           />
@@ -374,7 +403,15 @@ export function InboxSeite() {
       <div className="inbox-koerper">
         {listePanel}
         <section className="akte-gespraech inbox-mitte" data-slot="gespraech" aria-label="Gespräch">
-          <Mitte zustand={mitte} schluessel={schluessel} eintrag={eintrag} onNeuLaden={neuLaden} onErneut={() => schluessel && void gespraechLaden(schluessel, "oeffnen")} />
+          <Mitte
+            zustand={mitte}
+            schluessel={schluessel}
+            eintrag={eintrag}
+            kv={kvDeal ? kvAuftrag : undefined}
+            kvDeal={kvDeal}
+            onNeuLaden={neuLaden}
+            onErneut={() => schluessel && void gespraechLaden(schluessel, "oeffnen")}
+          />
         </section>
         <aside className="inbox-rechts" aria-label="Deal-Kurzfassung">
           {mitte.art === "fertig" && schluessel ? (
@@ -403,6 +440,8 @@ function Mitte({
   eintrag,
   kompakt = false,
   aktionen,
+  kv,
+  kvDeal = null,
   onNeuLaden,
   onErneut,
 }: {
@@ -411,6 +450,9 @@ function Mitte({
   eintrag: ReturnType<typeof gruppieren>["haupt"][number] | null;
   kompakt?: boolean;
   aktionen?: ReturnType<typeof useLaneAktionen>;
+  /** kv-danach: Auftrag für den Deal `kvDeal`; nur die Mitte genau dieses Deals bekommt ihn. */
+  kv?: KvAuftrag;
+  kvDeal?: string | null;
   onNeuLaden: () => Promise<Gespraech | null>;
   onErneut: () => void;
 }) {
@@ -467,6 +509,7 @@ function Mitte({
       kurz={zustand.kurz}
       kompakt={kompakt}
       aktionen={aktionen}
+      kv={kv && schluessel.art === "deal" && schluessel.id === kvDeal ? kv : undefined}
       onNeuLaden={onNeuLaden}
     />
   );
