@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthContext, unauthorized, success } from "@/lib/api-utils";
+import { verschicktFuerSchluessel } from "@/lib/verschickt-sperre";
 import {
   extractDealInventory,
   applyDealInventory,
@@ -22,6 +23,9 @@ export async function POST(
   if (!ctx) return unauthorized(req);
 
   const { recordId } = await params;
+  // Plan 16 (Review I4): nach dem Versand ersetzt die Extraktion für Bots keine Chat-Zeilen mehr.
+  const gesperrt = await verschicktFuerSchluessel(ctx, recordId);
+  if (gesperrt) return gesperrt;
   const result = await extractDealInventory(ctx.workspaceId, recordId, {
     background: true,
   });

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { verschicktFuerSchluessel } from "@/lib/verschickt-sperre";
 import { forbidden, getAuthContext, isReadOnlyApiKey, unauthorized, notFound, success } from "@/lib/api-utils";
 import { db } from "@/db";
 import { dealInventoryItems } from "@/db/schema/inventory";
@@ -125,20 +126,4 @@ export async function DELETE(
   }
   kalkulationAnstossen(ctx.workspaceId, recordId);
   return success({ deleted: row.id });
-}
-
-/** Plan 16 (Review 1): Schlüssel (Bots) ändern das Inventar nach dem Versand nicht mehr direkt. */
-async function verschicktFuerSchluessel(ctx: { authMethod?: string; workspaceId: string }, recordId: string): Promise<NextResponse | null> {
-  if (ctx.authMethod !== "api_key") return null;
-  const { istVerschickt } = await import("@/services/kalkulation-versionen-speicher");
-  if (!(await istVerschickt(ctx.workspaceId, recordId))) return null;
-  return NextResponse.json(
-    {
-      error: {
-        code: "AENDERUNG_NUR_MENSCH",
-        message: "Das Angebot ist schon verschickt. Inventar-Änderungen bitte über crm_propose_offer_change vorschlagen; ein Mensch übernimmt sie.",
-      },
-    },
-    { status: 409 }
-  );
 }
