@@ -56,6 +56,8 @@ vi.mock("@/services/quotations", () => ({ getQuotation: mocks.getQuotation }));
 vi.mock("@/services/kalkulation-versionen-speicher", () => ({
   get dbVersionsSpeicher() { return mocks.speicher; },
   ladePaketHebel: async () => null,
+  // Plan 16: nichts verschickt, Bots dürfen wie bisher.
+  istVerschickt: async () => false,
 }));
 vi.mock("@/services/customer-portal-data", () => ({ ensureCustomerStatusLink: mocks.ensureCustomerStatusLink }));
 vi.mock("@/services/scope-guard", () => ({ captureScopeSnapshot: mocks.captureScopeSnapshot }));
