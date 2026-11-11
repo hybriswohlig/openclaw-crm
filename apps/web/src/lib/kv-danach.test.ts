@@ -14,14 +14,19 @@ import {
 const URL_ = "https://portal.example/s/abc";
 
 describe("Statuslink", () => {
-  it("nimmt einen bestehenden Link und legt nur bei 404 an", () => {
+  it("nimmt einen bestehenden Link und legt nur bei KEIN_LINK an", () => {
     expect(statusLinkAusGet({ ok: true, data: { url: URL_, dealNumber: "2026-003", revokedAt: null } })).toEqual({
       art: "ok",
       url: URL_,
       dealNumber: "2026-003",
       neu: false,
     });
-    expect(statusLinkAusGet({ ok: false, status: 404, message: "No customer link" })).toBe("anlegen");
+    expect(statusLinkAusGet({ ok: false, status: 404, code: "KEIN_LINK", message: "No customer link" })).toBe("anlegen");
+    // 404 für den Deal selbst (fremder Workspace, gelöscht): nie anlegen.
+    expect(statusLinkAusGet({ ok: false, status: 404, code: "NOT_FOUND", message: "Deal nicht gefunden." })).toEqual({
+      art: "fehler",
+      text: "Deal nicht gefunden.",
+    });
     expect(statusLinkAusGet({ ok: false, status: 500, message: "kaputt" })).toEqual({ art: "fehler", text: "kaputt" });
   });
 

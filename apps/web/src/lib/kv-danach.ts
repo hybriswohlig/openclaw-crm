@@ -10,7 +10,10 @@ import { euroText } from "@/lib/anzeige";
 // ─── Statuslink ──────────────────────────────────────────────────────────────
 
 /** Antwort von `apiAufruf` in der Form, die hier gelesen wird. */
-type Antwort<T> = { ok: true; data: T } | { ok: false; status: number; message: string };
+type Antwort<T> = { ok: true; data: T } | { ok: false; status: number; message: string; code?: string | null };
+
+/** 404-Code von `GET /customer-link/{deal}`: Deal im Workspace, aber noch kein Link. Nur dann wird angelegt. */
+export const KEIN_LINK_CODE = "KEIN_LINK";
 
 /** `GET /api/v1/customer-link/{deal}` (Ausschnitt). */
 export interface LinkGet {
@@ -35,10 +38,11 @@ export type StatusLink =
 
 /**
  * Erst lesen: gibt es den Link, nimm ihn (gesperrt bleibt gesperrt). Nur bei
- * 404 „anlegen“ über den bestehenden Weg (`POST`, idempotent).
+ * 404 mit `KEIN_LINK` „anlegen“ über den bestehenden Weg (`POST`, idempotent).
  */
 export function statusLinkAusGet(a: Antwort<LinkGet | null>): StatusLink | "anlegen" {
-  if (!a.ok) return a.status === 404 ? "anlegen" : { art: "fehler", text: a.message };
+  // Anlegen nur bei „kein Link“; ein 404 für den Deal selbst (fremder Workspace, gelöscht) ist ein Fehler.
+  if (!a.ok) return a.status === 404 && a.code === KEIN_LINK_CODE ? "anlegen" : { art: "fehler", text: a.message };
   if (!a.data) return "anlegen";
   if (a.data.revokedAt) return { art: "gesperrt" };
   if (typeof a.data.url === "string" && a.data.url !== "") {

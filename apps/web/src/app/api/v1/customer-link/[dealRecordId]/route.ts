@@ -11,9 +11,11 @@
  * to NEXT_PUBLIC_APP_URL. See resolveCustomerLinkOrigin in
  * services/customer-portal-data.ts.
  */
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { and, eq } from "drizzle-orm";
 import { getAuthContext, unauthorized, notFound, success } from "@/lib/api-utils";
+import { dealImWorkspace, dealNichtGefunden } from "@/lib/kalkulation-versionen-antwort";
+import { KEIN_LINK_CODE } from "@/lib/kv-danach";
 import { db } from "@/db";
 import { customerStatusLinks } from "@/db/schema/customer-portal";
 import { dealNumbers } from "@/db/schema/financial";
@@ -56,6 +58,8 @@ export async function GET(
   const ctx = await getAuthContext(req);
   if (!ctx) return unauthorized(req);
   const { dealRecordId } = await params;
+  // Fremder oder unbekannter Deal: NOT_FOUND. Deal da, nur kein Link: KEIN_LINK (dann darf angelegt werden).
+  if (!(await dealImWorkspace(ctx.workspaceId, dealRecordId))) return dealNichtGefunden();
 
   const [row] = await db
     .select()
@@ -68,7 +72,9 @@ export async function GET(
     )
     .limit(1);
 
-  if (!row) return notFound("No customer link for this deal");
+  if (!row) {
+    return NextResponse.json({ error: { code: KEIN_LINK_CODE, message: "No customer link for this deal" } }, { status: 404 });
+  }
 
   const origin = await resolveCustomerLinkOrigin(
     dealRecordId,
@@ -100,6 +106,8 @@ export async function POST(
   const ctx = await getAuthContext(req);
   if (!ctx) return unauthorized(req);
   const { dealRecordId } = await params;
+  // Nie den Link eines Deals aus einem anderen Workspace herausgeben oder anlegen.
+  if (!(await dealImWorkspace(ctx.workspaceId, dealRecordId))) return dealNichtGefunden();
 
   const result = await ensureCustomerStatusLink({
     workspaceId: ctx.workspaceId,

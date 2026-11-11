@@ -163,15 +163,30 @@ export interface EnsureLinkResult {
 export async function ensureCustomerStatusLink(
   input: CreateLinkInput
 ): Promise<EnsureLinkResult> {
+  // Nur im eigenen Workspace suchen: nie den Token eines fremden Workspace zurückgeben.
   const existing = await db
     .select({ token: customerStatusLinks.token })
     .from(customerStatusLinks)
-    .where(eq(customerStatusLinks.dealRecordId, input.dealRecordId))
+    .where(
+      and(
+        eq(customerStatusLinks.workspaceId, input.workspaceId),
+        eq(customerStatusLinks.dealRecordId, input.dealRecordId)
+      )
+    )
     .limit(1);
 
   if (existing.length > 0) {
     return { token: existing[0].token, created: false, skipped: false };
   }
+
+  // Nur für einen Deal dieses Workspace anlegen (der Aufrufer prüft meist schon; hier hart).
+  const [deal] = await db
+    .select({ id: records.id })
+    .from(records)
+    .innerJoin(objects, eq(records.objectId, objects.id))
+    .where(and(eq(records.id, input.dealRecordId), eq(objects.workspaceId, input.workspaceId), eq(objects.slug, "deals")))
+    .limit(1);
+  if (!deal) return { token: null, created: false, skipped: true };
 
   // Block link creation for deals whose operating company has the feature off.
   const dealAttrs = await loadDealAttributeMap(input.workspaceId);

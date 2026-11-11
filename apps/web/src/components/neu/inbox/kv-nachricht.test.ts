@@ -64,6 +64,7 @@ describe("kvNachrichtWeg", () => {
 
   it("legt einen fehlenden Link an und legt den Text ins Eingabefeld, ohne zu senden", async () => {
     const aufrufe = fetchMit({
+      [`GET ${LINK}`]: { status: 404, body: { error: { code: "KEIN_LINK", message: "No customer link for this deal" } } },
       [`POST ${LINK}`]: { body: { data: { url: "https://p/s/tok", dealNumber: "2026-003" } } },
       [`GET ${ANGEBOT}`]: { body: { data: { fixedPrice: "2480.00", isVariable: false } } },
     });
@@ -136,8 +137,16 @@ describe("kvNachrichtWeg", () => {
     expect(weg.art === "meldung" && weg.nachricht).toContain("https://p/s/tok");
   });
 
+  it("legt für einen fremden oder gelöschten Deal nie einen Link an", async () => {
+    const aufrufe = fetchMit({});
+    const weg = await kvNachrichtWeg("d1", KURZ, gespraech([kanal({})]));
+    expect(weg).toMatchObject({ art: "meldung", titel: "Statuslink konnte nicht geholt werden." });
+    expect(aufrufe).not.toContain(`POST ${LINK}`);
+  });
+
   it("meldet ein ausgeschaltetes Portal", async () => {
     fetchMit({
+      [`GET ${LINK}`]: { status: 404, body: { error: { code: "KEIN_LINK", message: "No customer link for this deal" } } },
       [`POST ${LINK}`]: { body: { data: { url: null, skipped: true } } },
       [`GET ${ANGEBOT}`]: { body: { data: null } },
     });
