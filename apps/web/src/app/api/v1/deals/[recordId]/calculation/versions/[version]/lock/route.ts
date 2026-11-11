@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { badRequest, getAuthContext, unauthorized, success } from "@/lib/api-utils";
+import { badRequest, forbidden, getAuthContext, unauthorized, success } from "@/lib/api-utils";
 import {
   autorAus,
   dealImWorkspace,
@@ -21,6 +21,8 @@ import { sperren } from "@/services/kalkulation-versionen";
  * Ablehnungen mit dem Code des Dienstes (PAKETE, STUNDEN, RECHNER_FEHLER, SPANNE,
  * PREIS_GEAENDERT, UEBERSTEUERUNG_VERWAIST und die Plan-5b-Codes: 409; UNGUELTIG: 400;
  * NICHT_GEFUNDEN: 404), Kundenannahme 409 KVA_ACCEPTED.
+ * Plan 16: `annahmeAufhebenBestaetigt` (nur Admin in der Sitzung) hebt die Annahme in derselben
+ * Transaktion auf; Bots sperren nicht, sobald ein Angebot verschickt ist (409 AENDERUNG_NUR_MENSCH).
  */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ recordId: string; version: string }> }) {
   const ctx = await getAuthContext(req);
@@ -36,7 +38,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ rec
     erwartetPreisHash?: unknown;
     modusWechselBestaetigt?: unknown;
     ohneAdresseBestaetigt?: unknown;
+    annahmeAufhebenBestaetigt?: unknown;
   } | null;
+  // Plan 16 (Bauteil 4): eine Kundenannahme hebt beim Sperren nur ein Admin auf (wie „Annahme aufheben“).
+  const aufheben = body?.annahmeAufhebenBestaetigt === true;
+  if (aufheben && (ctx.workspaceRole !== "admin" || ctx.authMethod === "api_key")) {
+    return forbidden("Nur Admins können ein angenommenes Angebot ändern.");
+  }
   const erwartet = body && "erwartetPreisCent" in body ? body.erwartetPreisCent : undefined;
   if (erwartet !== undefined && !(typeof erwartet === "number" && Number.isSafeInteger(erwartet) && erwartet >= 0)) {
     return badRequest("erwartetPreisCent muss eine ganze Zahl in Cent sein.");
@@ -53,8 +61,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ rec
       ...(body?.modusWechselBestaetigt === true ? { modusWechselBestaetigt: true } : {}),
       // Plan 15 (Bauteil 5): „Preis ohne echte Fahrzeiten“ bestätigt (nur Menschen; ein Agent bekommt 409 ADRESSE_FEHLT).
       ...(body?.ohneAdresseBestaetigt === true ? { ohneAdresseBestaetigt: true } : {}),
+      ...(aufheben ? { annahmeAufhebenBestaetigt: true } : {}),
     });
-    return success({ version: r.version, quotation: r.quotation, gueltigkeitHinweis: r.gueltigkeitHinweis });
+    return success({ version: r.version, quotation: r.quotation, gueltigkeitHinweis: r.gueltigkeitHinweis, annahmeAufgehoben: r.annahmeAufgehoben });
   } catch (err) {
     const antwort = versionsFehlerAntwort(err);
     if (antwort) return antwort;

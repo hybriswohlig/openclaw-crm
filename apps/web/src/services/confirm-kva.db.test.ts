@@ -210,6 +210,51 @@ describe.skipIf(!url)("Annahme unter der Deal-Sperre (DB)", { timeout: 20_000 },
     expect(await annahmen()).toEqual([{ confirmed_total_cents: 150000, calculation_version_id: v2, quotation_document_id: pdf2 }]);
   });
 
+  it("Plan 16: angenommen, dann geändert mit Bestätigung: Annahme aufgehoben (Grund), altes PDF nicht annehmbar, neues schon", async () => {
+    await kvPdf(v1, 60);
+    expect((await annehmen(100000)).ok).toBe(true);
+    // Ohne Bestätigung wie bisher abgelehnt.
+    await expect(sperren()).rejects.toBeInstanceOf(annahme.AngebotAngenommenError);
+    const r = await speicher.dbVersionsSpeicher.sperrenUndAngebot(
+      ws,
+      deal,
+      v2,
+      { lineItems: [{ description: "Küchenmontage", quantity: 1, unitRate: "1500" }], validUntil: null, calculationAssumptions: null, documentDetails: null, notes: null } as never,
+      [{ type: "other", description: "Küchenmontage", quantity: 1, unitRate: 1500 }] as never,
+      "user-1",
+      { uebersteuerungen: 0, annahmeAufheben: { userId: "user-1", grund: "Angebot geändert, neue Version v2" } }
+    );
+    expect(r.annahmeAufgehoben).toMatchObject({ totalCents: 100000 });
+    const zeilen = await sql`select superseded_at, superseded_by, superseded_reason from kva_confirmations where deal_record_id = ${deal}`;
+    expect(zeilen).toHaveLength(1);
+    expect(zeilen[0]).toMatchObject({ superseded_by: "user-1", superseded_reason: "Angebot geändert, neue Version v2" });
+    expect(zeilen[0].superseded_at).not.toBeNull();
+    expect(await quotation()).toEqual({ fixed_price: "1500.00", calculation_version_id: v2 });
+    // Das alte PDF ist nicht mehr annehmbar und wird nicht gezeigt.
+    expect(await annehmen(150000)).toEqual({ ok: false, reason: "kv_veraltet" });
+    const c = await portal.loadContextByToken(token);
+    expect(c?.documents.quotationUrl).toBeNull();
+    // Neues PDF: neue Annahme mit neuem Preis.
+    await kvPdf(v2);
+    expect((await annehmen(150000)).ok).toBe(true);
+    const aktiv = await sql`select confirmed_total_cents, calculation_version_id from kva_confirmations where deal_record_id = ${deal} and superseded_at is null`;
+    expect(aktiv).toEqual([{ confirmed_total_cents: 150000, calculation_version_id: v2 }]);
+  });
+
+  it("Plan 16: istVerschickt erst mit KV-PDF einer gesperrten Version oder Versandvermerk", async () => {
+    expect(await speicher.istVerschickt(ws, deal)).toBe(false);
+    await kvPdf(null);
+    expect(await speicher.istVerschickt(ws, deal)).toBe(false);
+    await kvPdf(v2); // Entwurf zählt nicht
+    expect(await speicher.istVerschickt(ws, deal)).toBe(false);
+    await kvPdf(v1);
+    expect(await speicher.istVerschickt(ws, deal)).toBe(true);
+    await sql`delete from deal_documents where deal_record_id = ${deal}`;
+    await sql`update deal_calculation_versions set sent_at = now() where id = ${v1}`;
+    expect(await speicher.istVerschickt(ws, deal)).toBe(true);
+    expect(await speicher.istVerschickt(randomUUID(), deal)).toBe(false);
+  });
+
   it("kv_veraltet auch ohne jedes PDF, wenn die Quotation eine Version trägt", async () => {
     expect(await annehmen(100000)).toEqual({ ok: false, reason: "kv_veraltet" });
   });

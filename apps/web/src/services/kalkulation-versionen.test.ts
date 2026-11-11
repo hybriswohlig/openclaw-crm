@@ -1036,3 +1036,98 @@ describe("angebotAusVersionSchreiben", () => {
     expect(log.insertQuotation).toBeUndefined();
   });
 });
+
+describe("Plan 16: Angebot ändern beim Sperren und Anwenden", () => {
+  it("Agent sperrt nicht, sobald ein Angebot verschickt ist (AENDERUNG_NUR_MENSCH); der Mensch schon", async () => {
+    const t = aufbau();
+    t.lege(1);
+    await entwurfHolenOderAnlegen("ws", "deal1", MENSCH, t.deps);
+    const deps = { ...t.deps, istVerschickt: vi.fn(async () => true) };
+    await expect(sperren("ws", "deal1", 2, AGENT, {}, deps)).rejects.toMatchObject({ code: "AENDERUNG_NUR_MENSCH", status: 409 });
+    expect(t.speicher.sperrenUndAngebot).not.toHaveBeenCalled();
+    const r = await sperren("ws", "deal1", 2, MENSCH, {}, deps);
+    expect(r.version.status).toBe("gesperrt");
+  });
+
+  it("Agent sperrt das erste Angebot wie bisher (nichts verschickt)", async () => {
+    const t = aufbau();
+    await entwurfHolenOderAnlegen("ws", "deal1", AGENT, t.deps);
+    const r = await sperren("ws", "deal1", 1, AGENT, {}, { ...t.deps, istVerschickt: vi.fn(async () => false) });
+    expect(r.version.status).toBe("gesperrt");
+  });
+
+  it("angenommen: ohne Bestätigung KVA_ACCEPTED; mit Bestätigung keine Vorprüfung, Aufheben in der Transaktion und Ereignis", async () => {
+    const t = aufbau();
+    t.lege(1);
+    await entwurfHolenOderAnlegen("ws", "deal1", MENSCH, t.deps);
+    t.deps.pruefeAnnahme.mockRejectedValue(new AngebotAngenommenError());
+    await expect(sperren("ws", "deal1", 2, MENSCH, {}, t.deps)).rejects.toBeInstanceOf(AngebotAngenommenError);
+
+    const meldeAufhebung = vi.fn(async () => undefined);
+    vi.mocked(t.speicher.sperrenUndAngebot).mockImplementationOnce(async (_ws, _deal, id, _a, kvItems, von, stand) => {
+      expect(stand?.annahmeAufheben).toEqual({ userId: "usr_1", grund: "Angebot geändert, neue Version v2" });
+      const z = t.zeilen.find((x) => x.id === id)!;
+      Object.assign(z, { status: "gesperrt", kvItems, priceCents: centSumme(kvItems), lockedBy: von });
+      return { version: structuredClone(z), annahmeAufgehoben: { id: "kva_1", totalCents: 149000 } };
+    });
+    const r = await sperren("ws", "deal1", 2, MENSCH, { annahmeAufhebenBestaetigt: true }, { ...t.deps, meldeAufhebung });
+    expect(r.annahmeAufgehoben).toBe(true);
+    expect(t.deps.pruefeAnnahme).toHaveBeenCalledTimes(1); // nur beim ersten Versuch
+    expect(meldeAufhebung).toHaveBeenCalledWith(expect.objectContaining({ id: "kva_1", deal: "deal1", grund: "Angebot geändert, neue Version v2" }));
+  });
+
+  it("Bestätigung zählt für einen Agenten nicht", async () => {
+    const t = aufbau();
+    await entwurfHolenOderAnlegen("ws", "deal1", AGENT, t.deps);
+    t.deps.pruefeAnnahme.mockRejectedValue(new AngebotAngenommenError());
+    await expect(sperren("ws", "deal1", 1, AGENT, { annahmeAufhebenBestaetigt: true }, t.deps)).rejects.toBeInstanceOf(AngebotAngenommenError);
+  });
+
+  it("aenderungenAnwenden: legt den Entwurf aus v1 an, hängt alle an (mit Herkunft), rechnet einmal, meldet nichts", async () => {
+    const t = aufbau();
+    t.lege(1, { overrides: [{ ...fruehereUebersteuerung }] });
+    const { aenderungenAnwenden } = await import("./kalkulation-versionen");
+    const r = await aenderungenAnwenden(
+      "ws",
+      "deal1",
+      [
+        { art: "eingabe", key: "halteverbot.entladen", wert: false, grund: "Kundenänderung aus dem Chat: „Halteverbot weg“", herkunft: "chat" },
+        { art: "eingabe", key: "umzugskartons", wert: 12, grund: "Kundenänderung Eingabe", herkunft: "eingabe" },
+      ],
+      MENSCH,
+      t.deps
+    );
+    expect(r.neu).toBe(true);
+    expect(r.version.version).toBe(2);
+    expect(r.version.overrides.map((u) => [u.art, u.key, u.herkunft ?? null])).toEqual([
+      ["marge", "marge", null],
+      ["eingabe", "halteverbot.entladen", "chat"],
+      ["eingabe", "umzugskartons", "eingabe"],
+    ]);
+    expect(t.rechner).toHaveBeenCalledTimes(2); // Anlegen + eine Neuberechnung
+    await t.alleNachher();
+    expect(t.melde).not.toHaveBeenCalled();
+  });
+
+  it("aenderungenAnwenden: Wahl je Möbel wird mit der wirksamen zusammengeführt; Preise und Zeilen sind keine Kundenänderung", async () => {
+    const t = aufbau();
+    t.lege(1, {
+      overrides: [
+        { id: "m1", art: "montage", key: "moebel", rechnerwert: null, wert: { positionen: { bett: { abbau: "company", aufbau: "company" } } }, grund: "x", autor: { userId: "usr_1", quelle: "mensch" }, zeit: "2026-11-01T10:00:00.000Z", fotoRef: null },
+      ],
+    });
+    const { aenderungenAnwenden } = await import("./kalkulation-versionen");
+    const r = await aenderungenAnwenden(
+      "ws",
+      "deal1",
+      [{ art: "montage", key: "moebel", wert: { positionen: { schrank: { abbau: "company", aufbau: "customer" } } }, grund: "Kundenänderung Eingabe", herkunft: "eingabe" }],
+      MENSCH,
+      t.deps
+    );
+    expect(r.version.overrides.at(-1)?.wert).toEqual({ positionen: { bett: { abbau: "company", aufbau: "company" }, schrank: { abbau: "company", aufbau: "customer" } } });
+    await expect(
+      aenderungenAnwenden("ws", "deal1", [{ art: "zeile", key: "halteverbot", wert: 0, grund: "x", herkunft: "bot" }], MENSCH, t.deps)
+    ).rejects.toBeInstanceOf(UebersteuerungFehler);
+  });
+});
+

@@ -100,6 +100,23 @@ export async function PUT(
     return NextResponse.json({ error: { code, message, ersatz } }, { status });
   }
   if (!jsonOk) return badRequest("Invalid JSON body");
+  // Plan 16 (Bauteil 6): von außen (Bot, API-Schlüssel) nie am verschickten Angebot vorbei schreiben.
+  // Gezählt ist der Aufruf schon; Änderungen schlagen Bots über crm_propose_offer_change vor.
+  if (ctx.authMethod === "api_key") {
+    const { istVerschickt } = await import("@/services/kalkulation-versionen-speicher");
+    if (await istVerschickt(ctx.workspaceId, recordId)) {
+      return NextResponse.json(
+        {
+          error: {
+            code: "ANGEBOT_VERSCHICKT",
+            message:
+              "Das Angebot ist schon verschickt. Änderungen bitte über crm_propose_offer_change vorschlagen; ein Mensch übernimmt und sperrt die neue Version.",
+          },
+        },
+        { status: 409 }
+      );
+    }
+  }
 
   let data: Awaited<ReturnType<typeof upsertQuotation>>;
   try {

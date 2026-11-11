@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   ensureCustomerStatusLink: vi.fn(),
   captureScopeSnapshot: vi.fn(),
   completeAgentPriceTasks: vi.fn(),
+  istVerschickt: vi.fn(),
 }));
 
 vi.mock("@/lib/api-utils", async (importOriginal) => {
@@ -32,6 +33,7 @@ vi.mock("@/services/quotations", async (importOriginal) => {
 vi.mock("@/services/customer-portal-data", () => ({ ensureCustomerStatusLink: mocks.ensureCustomerStatusLink }));
 vi.mock("@/services/scope-guard", () => ({ captureScopeSnapshot: mocks.captureScopeSnapshot }));
 vi.mock("@/services/agent/agent-tasks", () => ({ completeAgentPriceTasks: mocks.completeAgentPriceTasks }));
+vi.mock("@/services/kalkulation-versionen-speicher", () => ({ istVerschickt: mocks.istVerschickt }));
 
 import { PUT } from "./route";
 
@@ -69,6 +71,7 @@ beforeEach(() => {
   mocks.ensureCustomerStatusLink.mockResolvedValue(undefined);
   mocks.captureScopeSnapshot.mockResolvedValue(undefined);
   mocks.completeAgentPriceTasks.mockResolvedValue(undefined);
+  mocks.istVerschickt.mockResolvedValue(false);
   vi.spyOn(console, "warn").mockImplementation(() => {});
 });
 afterEach(() => {
@@ -205,5 +208,31 @@ describe("PUT /quotation: Stufe sperren", () => {
     expect(mocks.ensureCustomerStatusLink).not.toHaveBeenCalled();
     expect(mocks.captureScopeSnapshot).not.toHaveBeenCalled();
     expect(mocks.completeAgentPriceTasks).not.toHaveBeenCalled();
+  });
+});
+
+describe("PUT /quotation: verschicktes Angebot (Plan 16)", () => {
+  it("lehnt einen Schlüssel am verschickten Angebot mit 409 ab, gezählt, nichts geschrieben", async () => {
+    mocks.getAuthContext.mockResolvedValue(SCHLUESSEL);
+    mocks.istVerschickt.mockResolvedValue(true);
+    const res = await PUT(put(BODY), p());
+    expect(res.status).toBe(409);
+    expect((await res.json()).error.code).toBe("ANGEBOT_VERSCHICKT");
+    expect(letzteZaehlung().payload).toMatchObject({ abgelehnt: false });
+    expect(mocks.upsertQuotation).not.toHaveBeenCalled();
+  });
+
+  it("lässt die Oberfläche auch am verschickten Angebot schreiben (fragt gar nicht)", async () => {
+    mocks.istVerschickt.mockResolvedValue(true);
+    const res = await PUT(put(BODY, { "x-crm-client": "ui" }), p());
+    expect(res.status).toBe(200);
+    expect(mocks.istVerschickt).not.toHaveBeenCalled();
+  });
+
+  it("lässt einen Schlüssel ohne verschicktes Angebot schreiben wie bisher", async () => {
+    mocks.getAuthContext.mockResolvedValue(SCHLUESSEL);
+    const res = await PUT(put(BODY), p());
+    expect(res.status).toBe(200);
+    expect(mocks.upsertQuotation).toHaveBeenCalledTimes(1);
   });
 });
