@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, type ReactNode } from "react";
 import {
   Loader2,
   Plus,
@@ -30,6 +30,13 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { BaileysPairingPanel } from "./_components/BaileysPairingPanel";
+import {
+  BAILEYS_REPAIR_EVENT,
+  BAILEYS_REPAIR_LIST,
+  BAILEYS_REPAIR_QUERY,
+  KANAL_ACCOUNTS_ANCHOR,
+  baileysRepairMode,
+} from "@/lib/baileys-repair";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -1131,6 +1138,15 @@ interface ChannelAccount {
 
 type WhatsAppProvider = "waba" | "baileys";
 
+function stripRepairQuery() {
+  const url = new URL(window.location.href);
+  if (!url.searchParams.has(BAILEYS_REPAIR_QUERY) && !url.hash) return;
+  url.searchParams.delete(BAILEYS_REPAIR_QUERY);
+  if (url.hash === `#${KANAL_ACCOUNTS_ANCHOR}`) url.hash = "";
+  const next = `${url.pathname}${url.search}${url.hash}`;
+  window.history.replaceState({}, "", next);
+}
+
 interface OperatingCompany {
   id: string;
   name: string;
@@ -1149,9 +1165,13 @@ function ChannelAccountsSection({ canManage }: { canManage: boolean }) {
   const [editTarget, setEditTarget] = useState<ChannelAccount | null>(null);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
-  // After a Baileys row is created or "Re-pair" is clicked, the modal swaps
+  // After a Baileys row is created or "Neu verbinden" is clicked, the modal swaps
   // to the QR pairing panel for this account id. null = no panel open.
   const [pairingFor, setPairingFor] = useState<string | null>(null);
+  // True when the open panel must wipe this account's session before scanning.
+  const [pairingReset, setPairingReset] = useState(false);
+  // Banner asked to scroll the list because more than one account is down.
+  const [highlightDown, setHighlightDown] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   // Result banner after returning from the Gmail OAuth round-trip.
   const [gmailNotice, setGmailNotice] = useState<
@@ -1311,7 +1331,9 @@ function ChannelAccountsSection({ canManage }: { canManage: boolean }) {
       if (isBaileys) {
         // Stay in the modal — swap body to the QR pairing panel for the new
         // account. The panel calls /integrations/baileys/start on mount and
-        // then polls /integrations/baileys/qr.
+        // then polls /integrations/baileys/qr. A new row has no session, so
+        // this must not take the re-pair path that deletes auth state.
+        setPairingReset(false);
         setPairingFor(json.data.id);
       } else {
         setAddOpen(false);
@@ -1350,10 +1372,17 @@ function ChannelAccountsSection({ canManage }: { canManage: boolean }) {
     setAddOpen(true);
   }
 
-  // Open the QR pairing panel for an existing Baileys row (Re-pair flow). If
-  // the row was deactivated on logout, reactivate it before the bridge starts.
+  // Open the QR panel for an existing Baileys row.
+  // `repair` clears that account's auth inside the panel (POST /baileys/repair)
+  // before the bridge starts, so a logged-out session gets a fresh QR and the
+  // row id — and its conversations — stay put.
+  // `resume` only restarts a socket whose creds are still valid. Reactivating
+  // here is safe because we do not delete auth; doing it before a repair would
+  // let the bridge reconcile the dead session back in.
   async function openPairing(acc: ChannelAccount) {
-    if (!acc.isActive) {
+    const mode = baileysRepairMode(acc);
+    if (!mode) return;
+    if (mode === "resume" && !acc.isActive) {
       await fetch(`/api/v1/inbox/channel-accounts/${acc.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -1363,9 +1392,63 @@ function ChannelAccountsSection({ canManage }: { canManage: boolean }) {
     }
     setEditTarget(null);
     setForm(emptyForm);
+    setSaveError(null);
+    setPairingReset(mode === "repair");
     setPairingFor(acc.id);
     setAddOpen(true);
   }
+
+  const openPairingRef = useRef(openPairing);
+  openPairingRef.current = openPairing;
+  const accountsRef = useRef(accounts);
+  accountsRef.current = accounts;
+  const loadingRef = useRef(loading);
+  loadingRef.current = loading;
+  const pendingRepair = useRef<string | null>(null);
+
+  const consumeRepairTarget = useCallback(() => {
+    const target = pendingRepair.current;
+    if (!target || loadingRef.current) return;
+    if (target === BAILEYS_REPAIR_LIST) {
+      pendingRepair.current = null;
+      stripRepairQuery();
+      setHighlightDown(true);
+      requestAnimationFrame(() => {
+        document.getElementById(KANAL_ACCOUNTS_ANCHOR)?.scrollIntoView({
+          behavior: "smooth",
+          block: "start",
+        });
+      });
+      return;
+    }
+    const acc = accountsRef.current.find((row) => row.id === target);
+    if (!acc) {
+      pendingRepair.current = null;
+      stripRepairQuery();
+      return;
+    }
+    pendingRepair.current = null;
+    stripRepairQuery();
+    void openPairingRef.current(acc);
+  }, []);
+
+  useEffect(() => {
+    const fromUrl = new URLSearchParams(window.location.search).get(BAILEYS_REPAIR_QUERY);
+    if (fromUrl) pendingRepair.current = fromUrl;
+    function onRepair(event: Event) {
+      const target = (event as CustomEvent<{ target?: string }>).detail?.target;
+      if (!target) return;
+      pendingRepair.current = target;
+      consumeRepairTarget();
+    }
+    window.addEventListener(BAILEYS_REPAIR_EVENT, onRepair);
+    consumeRepairTarget();
+    return () => window.removeEventListener(BAILEYS_REPAIR_EVENT, onRepair);
+  }, [consumeRepairTarget]);
+
+  useEffect(() => {
+    consumeRepairTarget();
+  }, [consumeRepairTarget, loading, accounts]);
 
   async function handleDisconnect(acc: ChannelAccount) {
     if (!confirm(`Verbindung zu ${acc.name} trennen?`)) return;
@@ -1387,7 +1470,7 @@ function ChannelAccountsSection({ canManage }: { canManage: boolean }) {
   }
 
   return (
-    <section className="space-y-4">
+    <section id={KANAL_ACCOUNTS_ANCHOR} className="scroll-mt-4 space-y-4">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
@@ -1442,7 +1525,98 @@ function ChannelAccountsSection({ canManage }: { canManage: boolean }) {
           )}
         </div>
       ) : (
-        <div className="rounded-xl border border-border overflow-hidden">
+        <div className="space-y-3">
+          {highlightDown && (
+            <p className="rounded-lg border border-red-500/30 bg-red-500/5 px-3 py-2 text-sm text-red-700 dark:text-red-300">
+              Diese WhatsApp-Konten sind nicht verbunden. Tippe auf Neu verbinden, um denselben Account erneut zu koppeln.
+            </p>
+          )}
+          <ul className="space-y-3 md:hidden">
+            {accounts.map((acc) => {
+              const isBaileys =
+                acc.channelType === "whatsapp" &&
+                acc.baileysBridgeProvider === "inhouse";
+              const mode = isBaileys ? baileysRepairMode(acc) : null;
+              return (
+                <li
+                  key={acc.id}
+                  className={`rounded-xl border border-border p-4 space-y-3 ${
+                    highlightDown && mode ? "ring-2 ring-red-500/60" : ""
+                  }`}
+                >
+                  <div>
+                    <div className="font-medium">{acc.name}</div>
+                    <div className="mt-0.5 font-mono text-xs text-muted-foreground break-all">{acc.address}</div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border font-medium
+                      ${acc.channelType === "email" ? "text-blue-600 bg-blue-500/10 border-blue-400/20" : "text-emerald-600 bg-emerald-500/10 border-emerald-400/20"}`}>
+                      {acc.channelType === "email"
+                        ? "E-Mail"
+                        : isBaileys
+                          ? "WhatsApp (Baileys)"
+                          : "WhatsApp (Business)"}
+                    </span>
+                    {isBaileys ? (
+                      <PairingStatusBadge
+                        status={acc.baileysPairingStatus}
+                        isActive={acc.isActive}
+                        onReconnect={isAdmin && mode ? () => void openPairing(acc) : undefined}
+                      />
+                    ) : acc.channelType === "email" && acc.emailProvider === "gmail_api" ? (
+                      <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border font-medium text-emerald-600 bg-emerald-500/10 border-emerald-400/20">
+                        <CheckCircle2 className="h-3 w-3" />
+                        {acc.isActive ? "Gmail verbunden" : "Neu verbinden"}
+                      </span>
+                    ) : null}
+                  </div>
+                  {isAdmin && isBaileys && mode && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="min-h-11 w-full touch-manipulation"
+                      onClick={() => void openPairing(acc)}
+                    >
+                      <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
+                      {mode === "resume" && acc.isActive ? "Pairing öffnen" : "Neu verbinden"}
+                    </Button>
+                  )}
+                  {isAdmin && isBaileys && !mode && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="min-h-11 w-full"
+                      onClick={() => handleDisconnect(acc)}
+                    >
+                      <Plug className="h-3.5 w-3.5 mr-1.5" />
+                      Trennen
+                    </Button>
+                  )}
+                  {isAdmin && (
+                    <div className="flex items-center gap-2">
+                      {acc.channelType === "email" && (
+                        <button
+                          type="button"
+                          onClick={() => connectGmail(acc)}
+                          className="min-h-11 flex-1 rounded-md px-2 text-xs text-primary hover:bg-muted"
+                        >
+                          {acc.emailProvider === "gmail_api" ? "Gmail neu verbinden" : "Gmail verbinden"}
+                        </button>
+                      )}
+                      <button type="button" onClick={() => openEdit(acc)} className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md text-muted-foreground hover:bg-muted">
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                      <button type="button" onClick={() => handleDelete(acc.id)} disabled={deleting === acc.id} className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md text-muted-foreground hover:text-destructive hover:bg-muted">
+                        {deleting === acc.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                      </button>
+                    </div>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        <div className="hidden overflow-x-auto rounded-xl border border-border md:block">
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-muted/50 border-b border-border">
@@ -1460,8 +1634,9 @@ function ChannelAccountsSection({ canManage }: { canManage: boolean }) {
                 const isBaileys =
                   acc.channelType === "whatsapp" &&
                   acc.baileysBridgeProvider === "inhouse";
+                const mode = isBaileys ? baileysRepairMode(acc) : null;
                 return (
-                <tr key={acc.id} className="border-b border-border last:border-0 hover:bg-muted/20">
+                <tr key={acc.id} className={`border-b border-border last:border-0 hover:bg-muted/20 ${highlightDown && mode ? "bg-red-500/5" : ""}`}>
                   <td className="px-4 py-3 font-medium">{acc.name}</td>
                   <td className="px-4 py-3 text-muted-foreground font-mono text-xs">{acc.address}</td>
                   <td className="px-4 py-3">
@@ -1476,7 +1651,11 @@ function ChannelAccountsSection({ canManage }: { canManage: boolean }) {
                   </td>
                   <td className="px-4 py-3">
                     {isBaileys ? (
-                      <PairingStatusBadge status={acc.baileysPairingStatus} isActive={acc.isActive} />
+                      <PairingStatusBadge
+                        status={acc.baileysPairingStatus}
+                        isActive={acc.isActive}
+                        onReconnect={isAdmin && mode ? () => void openPairing(acc) : undefined}
+                      />
                     ) : acc.channelType === "email" && acc.emailProvider === "gmail_api" ? (
                       <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border font-medium text-emerald-600 bg-emerald-500/10 border-emerald-400/20">
                         <CheckCircle2 className="h-3 w-3" />
@@ -1501,6 +1680,7 @@ function ChannelAccountsSection({ canManage }: { canManage: boolean }) {
                           <>
                             {(acc.baileysPairingStatus === "connected" && acc.isActive) ? (
                               <button
+                                type="button"
                                 onClick={() => handleDisconnect(acc)}
                                 title="Verbindung trennen"
                                 className="h-7 px-2 rounded-md flex items-center gap-1 text-xs text-muted-foreground hover:text-destructive hover:bg-muted transition-colors"
@@ -1510,16 +1690,13 @@ function ChannelAccountsSection({ canManage }: { canManage: boolean }) {
                               </button>
                             ) : (
                               <button
-                                onClick={() => openPairing(acc)}
-                                title="QR scannen"
+                                type="button"
+                                onClick={() => void openPairing(acc)}
+                                title="Neu verbinden"
                                 className="h-7 px-2 rounded-md flex items-center gap-1 text-xs text-primary hover:bg-muted transition-colors"
                               >
                                 <RefreshCw className="h-3.5 w-3.5" />
-                                {acc.baileysPairingStatus === "logged_out" ||
-                                acc.baileysPairingStatus === "error" ||
-                                !acc.isActive
-                                  ? "Erneut pairen"
-                                  : "Pairing öffnen"}
+                                {mode === "resume" && acc.isActive ? "Pairing öffnen" : "Neu verbinden"}
                               </button>
                             )}
                           </>
@@ -1549,6 +1726,7 @@ function ChannelAccountsSection({ canManage }: { canManage: boolean }) {
             </tbody>
           </table>
         </div>
+        </div>
       )}
 
       {/* Add/Edit modal — also doubles as the QR pairing step for Baileys */}
@@ -1559,6 +1737,7 @@ function ChannelAccountsSection({ canManage }: { canManage: boolean }) {
             setAddOpen(false);
             setEditTarget(null);
             setPairingFor(null);
+            setPairingReset(false);
             setSaveError(null);
             setForm(emptyForm);
             // Pull fresh status after the modal closes (covers both pair-
@@ -1567,21 +1746,25 @@ function ChannelAccountsSection({ canManage }: { canManage: boolean }) {
           }
         }}
       >
-        <DialogContent className="max-w-md">
-          <DialogHeader>
+        <DialogContent className="left-3 right-3 top-[max(0.75rem,env(safe-area-inset-top))] flex w-auto max-w-md translate-x-0 translate-y-0 flex-col gap-4 overflow-hidden max-h-[calc(100dvh-1.5rem-env(safe-area-inset-top)-env(safe-area-inset-bottom))]">
+          <DialogHeader className="shrink-0 pr-8">
             <DialogTitle>
               {pairingFor
-                ? "WhatsApp pairen"
+                ? pairingReset
+                  ? "WhatsApp neu verbinden"
+                  : "WhatsApp pairen"
                 : editTarget
                   ? "Kanal-Account bearbeiten"
                   : "Kanal-Account hinzufügen"}
             </DialogTitle>
           </DialogHeader>
 
+          <div className="min-h-0 overflow-y-auto overscroll-contain">
           {pairingFor ? (
             <div className="py-2">
               <BaileysPairingPanel
                 accountId={pairingFor}
+                resetSession={pairingReset}
                 onConnected={() => {
                   // Refresh table so the status badge flips to "connected".
                   void fetchAccounts();
@@ -1611,7 +1794,7 @@ function ChannelAccountsSection({ canManage }: { canManage: boolean }) {
                   {form.channelType === "whatsapp" && (
                     <div>
                       <label className="text-xs text-muted-foreground mb-1 block">WhatsApp-Anbindung</label>
-                      <div className="grid grid-cols-2 gap-2">
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                         <label
                           className={`flex flex-col gap-0.5 rounded-md border p-3 text-xs cursor-pointer transition-colors
                             ${form.waProvider === "baileys" ? "border-primary bg-primary/5" : "border-input hover:bg-muted/30"}`}
@@ -1742,13 +1925,15 @@ function ChannelAccountsSection({ canManage }: { canManage: boolean }) {
               )}
             </div>
           )}
+          </div>
 
-          <DialogFooter>
+          <DialogFooter className="shrink-0">
             {pairingFor ? (
               <Button
                 onClick={() => {
                   setAddOpen(false);
                   setPairingFor(null);
+                  setPairingReset(false);
                   void fetchAccounts();
                 }}
               >
@@ -1781,61 +1966,76 @@ function ChannelAccountsSection({ canManage }: { canManage: boolean }) {
 function PairingStatusBadge({
   status,
   isActive,
+  onReconnect,
 }: {
   status: ChannelAccount["baileysPairingStatus"];
   isActive: boolean;
+  /** When set, the chip itself opens the re-pair dialog (the row action was off-screen on phones). */
+  onReconnect?: () => void;
 }) {
-  if (!isActive) {
+  const mark = (label: string, className: string, icon: ReactNode) => {
+    if (onReconnect) {
+      return (
+        <button
+          type="button"
+          onClick={onReconnect}
+          title="Neu verbinden"
+          aria-label={`${label}. Neu verbinden`}
+          className={`inline-flex min-h-8 touch-manipulation items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-medium ${className}`}
+        >
+          {icon}
+          {label}
+        </button>
+      );
+    }
     return (
-      <Badge className="bg-muted text-muted-foreground border-border gap-1">
-        <XCircle className="h-3 w-3" />
-        Inaktiv
+      <Badge className={`gap-1 ${className}`}>
+        {icon}
+        {label}
       </Badge>
     );
+  };
+
+  if (!isActive) {
+    return mark("Inaktiv", "bg-muted text-muted-foreground border-border", <XCircle className="h-3 w-3" />);
   }
   switch (status) {
     case "connected":
-      return (
-        <Badge className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20 dark:text-emerald-400 gap-1">
-          <CheckCircle2 className="h-3 w-3" />
-          Verbunden
-        </Badge>
+      return mark(
+        "Verbunden",
+        "bg-emerald-500/10 text-emerald-600 border-emerald-500/20 dark:text-emerald-400",
+        <CheckCircle2 className="h-3 w-3" />,
       );
     case "awaiting_qr":
     case "awaiting_code":
-      return (
-        <Badge className="bg-blue-500/10 text-blue-600 border-blue-500/20 gap-1">
-          <Loader2 className="h-3 w-3 animate-spin" />
-          QR scannen
-        </Badge>
+      return mark(
+        "QR scannen",
+        "bg-blue-500/10 text-blue-600 border-blue-500/20",
+        <Loader2 className="h-3 w-3 animate-spin" />,
       );
     case "connecting":
-      return (
-        <Badge className="bg-blue-500/10 text-blue-600 border-blue-500/20 gap-1">
-          <Loader2 className="h-3 w-3 animate-spin" />
-          Verbinde…
-        </Badge>
+      return mark(
+        "Verbinde…",
+        "bg-blue-500/10 text-blue-600 border-blue-500/20",
+        <Loader2 className="h-3 w-3 animate-spin" />,
       );
     case "logged_out":
-      return (
-        <Badge className="bg-amber-500/10 text-amber-600 border-amber-500/20 gap-1">
-          <AlertTriangle className="h-3 w-3" />
-          Abgemeldet
-        </Badge>
+      return mark(
+        "Abgemeldet",
+        "bg-amber-500/10 text-amber-600 border-amber-500/20",
+        <AlertTriangle className="h-3 w-3" />,
       );
     case "error":
-      return (
-        <Badge className="bg-red-500/10 text-red-600 border-red-500/20 gap-1">
-          <XCircle className="h-3 w-3" />
-          Fehler
-        </Badge>
+      return mark(
+        "Fehler",
+        "bg-red-500/10 text-red-600 border-red-500/20",
+        <XCircle className="h-3 w-3" />,
       );
     default:
-      return (
-        <Badge className="bg-muted text-muted-foreground border-border gap-1">
-          <Clock className="h-3 w-3" />
-          Bereit
-        </Badge>
+      return mark(
+        "Bereit",
+        "bg-muted text-muted-foreground border-border",
+        <Clock className="h-3 w-3" />,
       );
   }
 }

@@ -27,11 +27,12 @@ import {
   setSecret,
   deleteSetting,
 } from "@/services/workspace-settings";
+import { baileysAuthStateKey } from "@/lib/baileys-repair";
 
 export const dynamic = "force-dynamic";
 
 function authStateKey(accountId: string): string {
-  return `baileys.auth_state.${accountId}`;
+  return baileysAuthStateKey(accountId);
 }
 
 async function resolveAccount(
