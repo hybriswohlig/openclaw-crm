@@ -1049,6 +1049,28 @@ describe("Plan 16: Angebot ändern beim Sperren und Anwenden", () => {
     expect(r.version.status).toBe("gesperrt");
   });
 
+  it("Review 1: Agent übersteuert nach dem Versand nicht (auch nicht im Entwurf); Mensch schon", async () => {
+    const t = aufbau();
+    t.lege(1);
+    const deps = { ...t.deps, istVerschickt: vi.fn(async () => true) };
+    await expect(uebersteuern("ws", "deal1", 1, ueberHalteverbot, AGENT, deps)).rejects.toMatchObject({ code: "AENDERUNG_NUR_MENSCH" });
+    expect(t.speicher.anhaengen).not.toHaveBeenCalled();
+    const r = await uebersteuern("ws", "deal1", 1, { art: "marge", key: "marge", wert: 42, grund: "Stammkunde" }, MENSCH, deps);
+    expect(r.version.version).toBe(2);
+  });
+
+  it("Review 6: aenderungenAnwenden nur am erwarteten Entwurf", async () => {
+    const t = aufbau();
+    t.lege(1);
+    await entwurfHolenOderAnlegen("ws", "deal1", MENSCH, t.deps);
+    const { aenderungenAnwenden } = await import("./kalkulation-versionen");
+    const e = [{ art: "eingabe", key: "umzugskartons", wert: 5, grund: "Kundenänderung Eingabe", herkunft: "eingabe" as const }];
+    await expect(aenderungenAnwenden("ws", "deal1", e, MENSCH, t.deps, 3)).rejects.toMatchObject({ code: "UNGUELTIG" });
+    expect(t.speicher.anhaengen).not.toHaveBeenCalled();
+    const r = await aenderungenAnwenden("ws", "deal1", e, MENSCH, t.deps, 2);
+    expect(r.version.overrides.at(-1)).toMatchObject({ key: "umzugskartons", herkunft: "eingabe" });
+  });
+
   it("Agent sperrt das erste Angebot wie bisher (nichts verschickt)", async () => {
     const t = aufbau();
     await entwurfHolenOderAnlegen("ws", "deal1", AGENT, t.deps);

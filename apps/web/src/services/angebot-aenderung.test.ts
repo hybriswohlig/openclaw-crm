@@ -174,6 +174,20 @@ describe("Eingabe mit Verlauf", () => {
     expect(a.vorschlaege.filter((v) => v.status === "offen").map((v) => v.text)).toEqual(["Kleiderschrank: Abbau wir, Aufbau wir"]);
   });
 
+  it("Review 5: läuft schon eine Auswertung, wird die zweite Eingabe nicht geschrieben; der Platz bleibt bis zum Ende der KI belegt", async () => {
+    const t = aufbau({ entwurf: true });
+    let fertig!: (x: unknown[]) => void;
+    vi.mocked(t.q.ki).mockImplementationOnce(() => new Promise((r) => (fertig = r)));
+    const erste = ausEingabe("ws", "deal", "Fahrrad dazu", MENSCH, t.q);
+    await vi.waitFor(() => expect(t.q.ki).toHaveBeenCalledTimes(1));
+    await expect(ausEingabe("ws", "deal", "und 2 Kartons", MENSCH, t.q)).rejects.toMatchObject({ code: "UNGUELTIG" });
+    expect(t.log.filter((e) => e.payload.typ === "eingabe")).toHaveLength(1);
+    fertig([{ art: "teil_hinzu", name: "Fahrrad" }]);
+    await erste;
+    await ausEingabe("ws", "deal", "und 2 Kartons", MENSCH, t.q);
+    expect(t.log.filter((e) => e.payload.typ === "eingabe")).toHaveLength(2);
+  });
+
   it("leerer oder zu langer Text: UNGUELTIG", async () => {
     const t = aufbau({ entwurf: true });
     await expect(ausEingabe("ws", "deal", "  ", MENSCH, t.q)).rejects.toMatchObject({ code: "UNGUELTIG" });
@@ -201,6 +215,7 @@ describe("Übernehmen", () => {
     expect(r).toEqual({ uebernommen: 3, uebersprungen: 0 });
     expect(t.q.leadSchritt).toHaveBeenCalledWith("ws", "deal", { art: "hinzu", name: "Fahrrad", menge: 1, groesse: null }, MENSCH);
     const eingaben = vi.mocked(t.q.anwenden).mock.calls[0][2];
+    expect(vi.mocked(t.q.anwenden).mock.calls[0][4]).toBe(2); // Review 6: an genau diesen Entwurf
     expect(eingaben.map((e) => [e.art, e.key, e.herkunft])).toEqual([
       ["eingabe", "halteverbot.entladen", "eingabe"],
       ["montage", "moebel", "eingabe"],

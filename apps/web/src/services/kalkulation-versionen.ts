@@ -775,6 +775,10 @@ export async function uebersteuern(
 ): Promise<{ version: VersionsZeile; neu: boolean }> {
   const d = await abhaengigkeiten(opts);
   const geprueft = pruefeUebersteuerung(eingabe);
+  // Plan 16 (Review 1): nach dem Versand ändern Bots nichts mehr direkt, sie schlagen vor.
+  if (autor.quelle === "agent" && (await d.istVerschickt(ws, deal))) {
+    throw new VersionsFehler("AENDERUNG_NUR_MENSCH", AENDERUNG_NUR_MENSCH_TEXT);
+  }
   const angefragt = await versionOderFehler(ws, deal, version, d);
   const lead = await leadOderFehler(ws, deal, d);
   const kontext = await kontextLaden(ws, deal, d);
@@ -918,7 +922,9 @@ export async function aenderungenAnwenden(
   deal: string,
   eingaben: Array<{ art: string; key: string; wert: unknown; grund: string; herkunft: "chat" | "eingabe" | "bot" | "foto" }>,
   autor: Autor,
-  opts?: VersionsOptionen
+  opts?: VersionsOptionen,
+  /** Review 6: nur an genau diesem Entwurf; ist er inzwischen gesperrt oder ein anderer, nichts anhängen. */
+  entwurfVersion?: number
 ): Promise<{ version: VersionsZeile; neu: boolean }> {
   const d = await abhaengigkeiten(opts);
   const geprueft = eingaben.map((e) => {
@@ -927,7 +933,11 @@ export async function aenderungenAnwenden(
   });
   const lead = await leadOderFehler(ws, deal, d);
   const kontext = await kontextLaden(ws, deal, d);
-  const { version: ziel, neu } = await entwurfAnlegen(ws, deal, autor, d);
+  const { version: ziel, neu } =
+    entwurfVersion === undefined ? await entwurfAnlegen(ws, deal, autor, d) : { version: await d.speicher.entwurf(ws, deal), neu: false };
+  if (!ziel || (entwurfVersion !== undefined && ziel.version !== entwurfVersion)) {
+    throw new VersionsFehler("UNGUELTIG", "Der Entwurf wurde gerade gesperrt. Bitte die Änderung neu starten.");
+  }
   if (geprueft.length === 0) return { version: ziel, neu };
 
   let stand = ziel;

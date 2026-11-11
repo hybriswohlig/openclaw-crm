@@ -92,7 +92,9 @@ export interface AenderungsQuellen {
     ws: string,
     deal: string,
     eingaben: Array<{ art: string; key: string; wert: unknown; grund: string; herkunft: "chat" | "eingabe" | "bot" | "foto" }>,
-    autor: Autor
+    autor: Autor,
+    /** Nur an genau diesem Entwurf (sonst Fehler, nichts angehängt). */
+    entwurfVersion: number
   ) => Promise<{ version: VersionsZeile }>;
   neuRechnen: (ws: string, deal: string, version: number, autor: Autor) => Promise<void>;
   leadSchritt: (ws: string, deal: string, s: LeadSchritt, autor: Autor) => Promise<void>;
@@ -336,25 +338,33 @@ async function kiEinmal(ws: string, deal: string, schluessel: string, q: Aenderu
   if (schon) {
     // Eine Auswertung je Deal: eine andere läuft gerade.
     await schon.catch(() => null);
-    throw new AenderungsFehler("UNGUELTIG", "Gerade läuft schon eine Auswertung für diesen Deal. Bitte gleich noch einmal.");
+    throw new AenderungsFehler("UNGUELTIG", LAEUFT_TEXT);
   }
   let timer: ReturnType<typeof setTimeout> | null = null;
-  const lauf = Promise.race([
-    q.ki(ws, e),
-    new Promise<null>((_, nein) => {
-      timer = setTimeout(() => nein(new AenderungsFehler("KI_FEHLER", "Die KI hat nicht rechtzeitig geantwortet. Bitte noch einmal versuchen.")), KI_ZEITGRENZE_MS);
-    }),
-  ]);
-  laufend.set(k, lauf);
+  const ki = q.ki(ws, e);
+  // Review 5: der Platz bleibt belegt, bis der KI-Aufruf selbst endet (auch nach der Zeitgrenze).
+  laufend.set(k, ki);
+  void ki.catch(() => null).finally(() => {
+    if (laufend.get(k) === ki) laufend.delete(k);
+  });
   void schluessel;
   try {
-    const r = await lauf;
+    const r = await Promise.race([
+      ki,
+      new Promise<null>((_, nein) => {
+        timer = setTimeout(() => nein(new AenderungsFehler("KI_FEHLER", "Die KI hat nicht rechtzeitig geantwortet. Bitte noch einmal versuchen.")), KI_ZEITGRENZE_MS);
+      }),
+    ]);
     if (r === null) throw new AenderungsFehler("KI_FEHLER", "Die KI-Auswertung hat nicht geklappt. Bitte noch einmal versuchen.");
     return r;
   } finally {
     if (timer) clearTimeout(timer);
-    laufend.delete(k);
   }
+}
+
+const LAEUFT_TEXT = "Gerade läuft schon eine Auswertung für diesen Deal. Bitte gleich noch einmal.";
+function frei(ws: string, deal: string) {
+  if (laufend.has(`${ws}:${deal}`)) throw new AenderungsFehler("UNGUELTIG", LAEUFT_TEXT);
 }
 
 async function aktiverVorgang(ws: string, deal: string, autor: Autor, q: AenderungsQuellen): Promise<Lage & { vorgang: VersionsZeile; basis: VersionsZeile }> {
@@ -401,6 +411,8 @@ export async function ausEingabe(ws: string, deal: string, text: string, autor: 
   const vorher = aenderungsStand(l.ereignisse, l.vorgang.version);
   const verlauf = [...vorher.verlauf.map((v) => v.text), t];
   const standText = verlauf.join("\n");
+  // Läuft schon eine Auswertung, den Text gar nicht erst in den Verlauf schreiben.
+  frei(ws, deal);
   await q.schreiben(ws, deal, { typ: "eingabe", entwurfVersion: l.vorgang.version, text: t }, autor);
   // Derselbe Verlauf wurde schon ausgewertet (Doppelklick): nichts Neues an die KI.
   if (vorher.eingabeStand === standText) return { hinweis: null };
@@ -489,7 +501,7 @@ export async function uebernehmen(
   }
   for (const s of plan.lead) await q.leadSchritt(ws, deal, s, autor);
   if (plan.uebersteuerungen.length > 0) {
-    await q.anwenden(ws, deal, plan.uebersteuerungen, autor);
+    await q.anwenden(ws, deal, plan.uebersteuerungen, autor, l.vorgang.version);
   } else if (plan.lead.length > 0) {
     await q.neuRechnen(ws, deal, l.vorgang.version, autor);
   }
@@ -668,9 +680,10 @@ export async function standardQuellen(): Promise<AenderungsQuellen> {
         .select({ payload: activityEvents.payload, createdAt: activityEvents.createdAt })
         .from(activityEvents)
         .where(and(eq(activityEvents.workspaceId, ws), eq(activityEvents.recordId, deal), eq(activityEvents.eventType, AENDERUNG_EVENT)))
-        .orderBy(asc(activityEvents.createdAt), asc(activityEvents.id))
+        .orderBy(desc(activityEvents.createdAt), desc(activityEvents.id))
         .limit(2000);
-      return zeilen.map((z) => ({ zeit: new Date(z.createdAt).toISOString(), payload: z.payload as AenderungsPayload }));
+      // Review 7: die neuesten 2000, für die Faltung älteste zuerst.
+      return zeilen.reverse().map((z) => ({ zeit: new Date(z.createdAt).toISOString(), payload: z.payload as AenderungsPayload }));
     },
     schreiben: async (ws, deal, payload, autor) => {
       await emitEvent({
@@ -726,7 +739,8 @@ export async function standardQuellen(): Promise<AenderungsQuellen> {
       const { runAITask } = await import("@/services/ai/run-task");
       const { AI_TASK_SLUGS } = await import("@/services/ai/task-registry");
       // Locker lesen, streng prüfen: `normalisiereVorschlaege` macht aus allem Unpassenden „unklar“.
-      const schema = z.object({ aenderungen: z.array(z.record(z.unknown())).max(60).catch([]) });
+      // Review 8: lange Listen kürzen statt verwerfen (normalisiereVorschlaege nimmt höchstens 40).
+      const schema = z.object({ aenderungen: z.array(z.unknown()).catch([]).transform((l) => l.slice(0, 60)) });
       const r = await runAITask({
         workspaceId: ws,
         taskSlug: AI_TASK_SLUGS.DEAL_EXTRACT_INSIGHTS,
@@ -754,7 +768,7 @@ export async function standardQuellen(): Promise<AenderungsQuellen> {
       return n && n.source === "person" ? n.fullName : null;
     },
     entwurfHolen: (ws, deal, autor) => versionen.entwurfHolenOderAnlegen(ws, deal, autor),
-    anwenden: (ws, deal, eingaben, autor) => versionen.aenderungenAnwenden(ws, deal, eingaben, autor),
+    anwenden: (ws, deal, eingaben, autor, entwurfVersion) => versionen.aenderungenAnwenden(ws, deal, eingaben, autor, undefined, entwurfVersion),
     neuRechnen: async (ws, deal, version, autor) => {
       await versionen.entwurfNeuRechnen(ws, deal, version, autor);
     },
@@ -773,7 +787,21 @@ export async function standardQuellen(): Promise<AenderungsQuellen> {
           .limit(1);
         if (da) {
           vorher = da;
-          [nachher] = await db.update(t).set({ moveFlag: true, quantity: da.moveFlag ? da.quantity : s.menge, source: "operator", updatedAt: new Date() }).where(wo(da.id)).returning();
+          // Review 4: kommt das Teil schon mit, kommen die neuen Stück dazu; sonst gilt die neue Menge.
+          const menge = da.moveFlag ? da.quantity + s.menge : s.menge;
+          const skaliert = volumenBeiMenge(da, menge);
+          [nachher] = await db
+            .update(t)
+            .set({
+              moveFlag: true,
+              quantity: menge,
+              ...(skaliert !== null ? { volumeCbmEstimate: skaliert } : {}),
+              ...(s.groesse && !da.sizeClass ? { sizeClass: s.groesse } : {}),
+              source: "operator",
+              updatedAt: new Date(),
+            })
+            .where(wo(da.id))
+            .returning();
         } else {
           const [{ maxSort }] = await db
             .select({ maxSort: sql<number>`coalesce(max(${t.sortOrder}), -1)` })

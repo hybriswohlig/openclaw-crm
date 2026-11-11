@@ -504,7 +504,13 @@ export function uebernahmePlan(
         const z = inventarTreffer(a.name, opts.inventar);
         const key = positionSchluessel(z?.name ?? a.name);
         const jetzt = opts.montageJetzt[key] ?? { abbau: "nicht_noetig" as Wer, aufbau: "nicht_noetig" as Wer };
-        montage[key] = { abbau: TRAEGER[a.abbau ?? jetzt.abbau], aufbau: TRAEGER[a.aufbau ?? jetzt.aufbau] };
+        // Review 3: ein zweiter Vorschlag zum selben Möbel ändert nur seine Seite; die andere bleibt,
+        // wie ein früherer Vorschlag sie gesetzt hat, sonst wie die Kalkulation sie annimmt.
+        const vorher = montage[key];
+        montage[key] = {
+          abbau: a.abbau ? TRAEGER[a.abbau] : vorher?.abbau ?? TRAEGER[jetzt.abbau],
+          aufbau: a.aufbau ? TRAEGER[a.aufbau] : vorher?.aufbau ?? TRAEGER[jetzt.aufbau],
+        };
         montageGrund ??= { grund: aenderungsGrund(v), herkunft: v.quelle };
         break;
       }

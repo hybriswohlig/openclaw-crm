@@ -25,6 +25,8 @@ export async function PATCH(
   if (isReadOnlyApiKey(ctx)) return forbidden("Nur-Lese-Schlüssel darf das Inventar nicht ändern.");
 
   const { recordId, itemId } = await params;
+  const gesperrt = await verschicktFuerSchluessel(ctx, recordId);
+  if (gesperrt) return gesperrt;
   const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
   // Plan 15 (Bauteil 14): Stand vorher für die Korrektur (Herkunft und Lernsignal).
   const [vorher] = await db.select().from(dealInventoryItems).where(zeileWo(itemId, recordId, ctx.workspaceId)).limit(1);
@@ -97,6 +99,8 @@ export async function DELETE(
   if (isReadOnlyApiKey(ctx)) return forbidden("Nur-Lese-Schlüssel darf das Inventar nicht ändern.");
 
   const { recordId, itemId } = await params;
+  const gesperrt = await verschicktFuerSchluessel(ctx, recordId);
+  if (gesperrt) return gesperrt;
   const [vorher] = await db.select().from(dealInventoryItems).where(zeileWo(itemId, recordId, ctx.workspaceId)).limit(1);
   const [row] = await db
     .delete(dealInventoryItems)
@@ -121,4 +125,20 @@ export async function DELETE(
   }
   kalkulationAnstossen(ctx.workspaceId, recordId);
   return success({ deleted: row.id });
+}
+
+/** Plan 16 (Review 1): Schlüssel (Bots) ändern das Inventar nach dem Versand nicht mehr direkt. */
+async function verschicktFuerSchluessel(ctx: { authMethod?: string; workspaceId: string }, recordId: string): Promise<NextResponse | null> {
+  if (ctx.authMethod !== "api_key") return null;
+  const { istVerschickt } = await import("@/services/kalkulation-versionen-speicher");
+  if (!(await istVerschickt(ctx.workspaceId, recordId))) return null;
+  return NextResponse.json(
+    {
+      error: {
+        code: "AENDERUNG_NUR_MENSCH",
+        message: "Das Angebot ist schon verschickt. Inventar-Änderungen bitte über crm_propose_offer_change vorschlagen; ein Mensch übernimmt sie.",
+      },
+    },
+    { status: 409 }
+  );
 }

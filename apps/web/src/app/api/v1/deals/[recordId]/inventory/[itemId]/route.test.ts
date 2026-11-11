@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   sets: [] as Record<string, unknown>[],
   kick: vi.fn(),
   event: vi.fn(),
+  istVerschickt: vi.fn(),
   vorher: [{ id: "item-1", name: "Gartensessel", quantity: 1, sizeClass: "mittel", volumeCbmEstimate: null, source: "foto", photoAttachmentId: "att_1" }] as unknown[],
 }));
 
@@ -33,6 +34,8 @@ vi.mock("@/services/rechner/ausloeser", () => ({
 
 vi.mock("@/services/activity-events", () => ({ emitEvent: (...args: unknown[]) => mocks.event(...args) }));
 
+vi.mock("@/services/kalkulation-versionen-speicher", () => ({ istVerschickt: (...args: unknown[]) => mocks.istVerschickt(...args) }));
+
 import { PATCH } from "./route";
 
 function patch(body: unknown) {
@@ -57,6 +60,7 @@ beforeEach(() => {
     authMethod: "session",
   });
   mocks.returning.mockResolvedValue([{ id: "item-1", dismantlingOwner: "company" }]);
+  mocks.istVerschickt.mockResolvedValue(false);
 });
 
 describe("PATCH inventory item", () => {
@@ -105,5 +109,26 @@ describe("PATCH inventory item, Plan 15 (Bauteil 14)", () => {
   });
   it("ungültige Größe 400", async () => {
     expect((await patch({ sizeClass: "riesig" })).status).toBe(400);
+  });
+});
+
+describe("Plan 16: verschicktes Angebot", () => {
+  const schluessel = { userId: "usr_bot", workspaceId: "ws_kottke", workspaceRole: "admin", permissions: {}, authMethod: "api_key", apiKeyAccess: "full" };
+
+  it("Bot (Schlüssel) am verschickten Angebot: 409 AENDERUNG_NUR_MENSCH, nichts geschrieben", async () => {
+    mocks.getAuthContext.mockResolvedValue(schluessel);
+    mocks.istVerschickt.mockResolvedValue(true);
+    const res = await patch({ quantity: 2 });
+    expect(res.status).toBe(409);
+    expect((await res.json()).error.code).toBe("AENDERUNG_NUR_MENSCH");
+    expect(mocks.sets).toEqual([]);
+  });
+
+  it("Bot ohne verschicktes Angebot und Mensch am verschickten schreiben wie bisher", async () => {
+    mocks.getAuthContext.mockResolvedValue(schluessel);
+    expect((await patch({ quantity: 2 })).status).toBe(200);
+    mocks.getAuthContext.mockResolvedValue({ userId: "usr_dario", workspaceId: "ws_kottke", workspaceRole: "admin", permissions: {}, authMethod: "session" });
+    mocks.istVerschickt.mockResolvedValue(true);
+    expect((await patch({ quantity: 3 })).status).toBe(200);
   });
 });

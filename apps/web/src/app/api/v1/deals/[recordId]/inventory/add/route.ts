@@ -21,6 +21,8 @@ export async function POST(
   if (isReadOnlyApiKey(ctx)) return forbidden("Nur-Lese-Schlüssel darf das Inventar nicht ändern.");
 
   const { recordId } = await params;
+  const gesperrt = await verschicktFuerSchluessel(ctx, recordId);
+  if (gesperrt) return gesperrt;
   const body = (await req.json().catch(() => ({}))) as {
     name?: string;
     quantity?: number;
@@ -78,4 +80,20 @@ export async function POST(
   });
   kalkulationAnstossen(ctx.workspaceId, recordId);
   return success(row);
+}
+
+/** Plan 16 (Review 1): Schlüssel (Bots) ändern das Inventar nach dem Versand nicht mehr direkt. */
+async function verschicktFuerSchluessel(ctx: { authMethod?: string; workspaceId: string }, recordId: string): Promise<NextResponse | null> {
+  if (ctx.authMethod !== "api_key") return null;
+  const { istVerschickt } = await import("@/services/kalkulation-versionen-speicher");
+  if (!(await istVerschickt(ctx.workspaceId, recordId))) return null;
+  return NextResponse.json(
+    {
+      error: {
+        code: "AENDERUNG_NUR_MENSCH",
+        message: "Das Angebot ist schon verschickt. Inventar-Änderungen bitte über crm_propose_offer_change vorschlagen; ein Mensch übernimmt sie.",
+      },
+    },
+    { status: 409 }
+  );
 }

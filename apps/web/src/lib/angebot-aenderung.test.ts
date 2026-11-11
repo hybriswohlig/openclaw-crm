@@ -527,3 +527,19 @@ describe("Foto-Vorschläge (Zusatz Inhaber)", () => {
     expect(s.vorschlaege.map((v) => [v.id, v.status])).toEqual([["foto:f1", "verworfen"]]);
   });
 });
+
+describe("Review 3: zwei Montage-Vorschläge zum selben Möbel", () => {
+  it("die zweite Seite überschreibt die erste nicht", () => {
+    const v = (id: string, a: Aenderung): Vorschlag => ({ id, quelle: "eingabe", aenderung: a, zitat: "", status: "offen", zeit: ZEIT });
+    const plan = uebernahmePlan(
+      [
+        v("a", { art: "montage", name: "Bett", abbau: "kunde", aufbau: null }),
+        v("b", { art: "montage", name: "Bett", abbau: null, aufbau: "wir" }),
+      ],
+      { inventar: [{ id: "i1", name: "Bett", quantity: 1, moveFlag: true }], montageJetzt: { bett: { abbau: "wir", aufbau: "kunde" } } }
+    );
+    expect(plan.uebersteuerungen).toEqual([
+      expect.objectContaining({ art: "montage", wert: { positionen: { bett: { abbau: "customer", aufbau: "company" } } } }),
+    ]);
+  });
+});
