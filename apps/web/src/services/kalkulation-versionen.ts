@@ -144,11 +144,14 @@ export type VersionsFehlerCode =
   | "PREIS_GEAENDERT"
   /** Plan 15 (Bauteil 5): ohne Belade- oder Entladeadresse; Mensch nach Rückfrage, Agent nie. */
   | "ADRESSE_FEHLT"
+  /** Plan 16: ein verschicktes Angebot ändert (sperrt) nur ein Mensch. */
+  | "AENDERUNG_NUR_MENSCH"
   | Plan5FehlerCode;
 
 const FEHLER_STATUS: Record<VersionsFehlerCode, number> = {
   NICHT_GEFUNDEN: 404,
   ADRESSE_FEHLT: 409,
+  AENDERUNG_NUR_MENSCH: 409,
   RECHNER_FEHLER: 409,
   PAKETE: 409,
   STUNDEN: 409,
@@ -167,6 +170,9 @@ const FEHLER_STATUS: Record<VersionsFehlerCode, number> = {
   TAGESPREIS_NUR_MENSCH: 409,
 };
 export const PREIS_GEAENDERT_TEXT = "Der Preis hat sich beim Neurechnen geändert. Bitte prüfen und erneut sperren.";
+/** Plan 16 (Bauteil 6): Bots schlagen Änderungen an einem verschickten Angebot nur vor. */
+export const AENDERUNG_NUR_MENSCH_TEXT =
+  "Das Angebot ist schon verschickt. Eine neue Version sperrt nur ein Mensch; Bots schlagen Änderungen über crm_propose_offer_change vor.";
 
 /** Fachlicher Fehler des Versionen-Dienstes; Routen antworten mit `status` und `code`. */
 export class VersionsFehler extends Error {
@@ -217,8 +223,18 @@ export interface VersionsSpeicher {
     angebot: AngebotsEingabe,
     kvItems: KvPosten[],
     von: string | null,
-    stand?: { uebersteuerungen: number; updatedAt?: Date; schnappschuss?: Schnappschuss; plan5?: Plan5Sperre }
-  ): Promise<{ version: VersionsZeile }>;
+    stand?: {
+      uebersteuerungen: number;
+      updatedAt?: Date;
+      schnappschuss?: Schnappschuss;
+      plan5?: Plan5Sperre;
+      /**
+       * Plan 16: eine aktive Kundenannahme in derselben Transaktion aufheben (statt abzulehnen).
+       * Terminwahl, Reservierung, AB und Rechnung bleiben unberührt.
+       */
+      annahmeAufheben?: { userId: string | null; grund: string };
+    }
+  ): Promise<{ version: VersionsZeile; annahmeAufgehoben?: { id: string; totalCents: number | null } | null }>;
 }
 
 /**
@@ -274,6 +290,10 @@ export interface VersionsOptionen {
   ladeWunschtermine?: (ws: string, deal: string) => Promise<string[]>;
   /** Plan 12b: Buchung für den Preis (Firmen-Schalter, Zuordnung); null = nichts zusätzlich an den Rechner. */
   ladeEinsatz?: (ws: string, deal: string) => Promise<EinsatzPreisKontext | null>;
+  /** Plan 16: Ist eine gesperrte Version des Deals schon verschickt (KV-PDF oder Versandvermerk)? */
+  istVerschickt?: (ws: string, deal: string) => Promise<boolean>;
+  /** Plan 16: Ereignis nach dem Aufheben einer Annahme beim Sperren. */
+  meldeAufhebung?: (e: { ws: string; deal: string; id: string; totalCents: number | null; grund: string; userId: string | null }) => Promise<void>;
 }
 
 type Abh = Required<VersionsOptionen>;
@@ -306,7 +326,25 @@ async function abhaengigkeiten(o: VersionsOptionen = {}): Promise<Abh> {
       (o.ladeSchalter
         ? async () => null
         : async (ws, deal) => (await import("./einsatz-preis")).einsatzPreisKontext(ws, deal, (await import("./plan5-schalter")).einsatzSchalter ?? null)),
+    // Tests mit eigenem Speicher berühren die Datenbank nie: ohne Vorgabe gilt „nicht verschickt“.
+    istVerschickt:
+      o.istVerschickt ??
+      (o.speicher ? async () => false : async (ws, deal) => (await import("./kalkulation-versionen-speicher")).istVerschickt(ws, deal)),
+    meldeAufhebung: o.meldeAufhebung ?? (o.speicher ? async () => {} : meldeAufhebungStandard),
   };
+}
+
+/** Ereignis wie „Annahme aufheben“ im Status-Link, mit dem Grund aus dem Sperren. */
+async function meldeAufhebungStandard(e: { ws: string; deal: string; id: string; totalCents: number | null; grund: string; userId: string | null }) {
+  const { emitEvent } = await import("./activity-events");
+  await emitEvent({
+    workspaceId: e.ws,
+    recordId: e.deal,
+    objectSlug: "deals",
+    eventType: "kva.annahme_aufgehoben",
+    payload: { confirmationId: e.id, confirmedTotalCents: e.totalCents, grund: e.grund, userId: e.userId },
+    actorId: e.userId,
+  });
 }
 
 /** Dieselben Schritte wie `calculation/apply` nach dem Speichern des Angebots. */
@@ -865,6 +903,68 @@ export async function uebersteuern(
 
 const OHNE_RECHNER: ReadonlySet<string> = new Set(["paketpreis", "tagespreis", "kv_darstellung"]);
 
+/** Plan 16: Arten, die eine Kundenänderung setzen darf (keine Preise, Sätze oder Zeilen). */
+const AENDERUNGS_ARTEN: ReadonlySet<string> = new Set(["eingabe", "montage", "zeitposten", "material_frei"]);
+
+/**
+ * Plan 16 (Bauteil 2): mehrere Übersteuerungen einer Kundenänderung in den Entwurf
+ * (angelegt, falls keiner), danach EINE Neuberechnung. Wie `uebersteuern`: geprüft,
+ * atomar angehängt, Rechnerwert der ersten Nennung, Wahl je Möbel mit der wirksamen
+ * zusammengeführt. Anders: jede trägt ihre Herkunft, und es gibt keine
+ * Kalibrierungsmeldung (der Kunde ändert den Umfang, der Rechner lag nicht falsch).
+ */
+export async function aenderungenAnwenden(
+  ws: string,
+  deal: string,
+  eingaben: Array<{ art: string; key: string; wert: unknown; grund: string; herkunft: "chat" | "eingabe" | "bot" | "foto" }>,
+  autor: Autor,
+  opts?: VersionsOptionen
+): Promise<{ version: VersionsZeile; neu: boolean }> {
+  const d = await abhaengigkeiten(opts);
+  const geprueft = eingaben.map((e) => {
+    if (!AENDERUNGS_ARTEN.has(e.art)) throw new UebersteuerungFehler(`Diese Art gehört nicht zu einer Kundenänderung: ${e.art}`);
+    return { ...pruefeUebersteuerung(e), herkunft: e.herkunft };
+  });
+  const lead = await leadOderFehler(ws, deal, d);
+  const kontext = await kontextLaden(ws, deal, d);
+  const { version: ziel, neu } = await entwurfAnlegen(ws, deal, autor, d);
+  if (geprueft.length === 0) return { version: ziel, neu };
+
+  let stand = ziel;
+  for (const g of geprueft) {
+    const erste = stand.overrides.find((u) => u.art === g.art && u.key === g.key);
+    const rechnerwert = erste ? erste.rechnerwert : rechnerwertFuer(g.art, g.key, stand.rechnerRequest ?? {}, stand.rechnerResult);
+    let wert = g.wert;
+    if (g.art === "montage" && wert && typeof wert === "object" && "positionen" in wert) {
+      const alt = wirksamerWert(stand.overrides, "montage", g.key);
+      const altePositionen = alt && typeof alt === "object" && "positionen" in alt ? (alt as MontageWert).positionen : {};
+      wert = { positionen: { ...altePositionen, ...(wert as MontageWert).positionen } };
+    }
+    const neue: Uebersteuerung = {
+      id: crypto.randomUUID(),
+      art: g.art,
+      key: g.key,
+      rechnerwert,
+      wert,
+      grund: g.grund,
+      autor: { userId: autor.userId, quelle: autor.quelle },
+      zeit: d.jetzt().toISOString(),
+      fotoRef: null,
+      herkunft: g.herkunft,
+    };
+    try {
+      stand = await d.speicher.anhaengen(ziel.id, neue);
+    } catch (err) {
+      if (err instanceof VersionsFehler && err.code === "UNGUELTIG") {
+        throw new VersionsFehler("UNGUELTIG", "Der Entwurf wurde gerade gesperrt. Bitte die Änderung neu starten.");
+      }
+      throw err;
+    }
+  }
+  const berechnet = await neuBerechnen(ws, deal, lead, stand.overrides, d, { kontext, tage: tageKonfigAus(stand.dayPrices) });
+  return { version: await d.speicher.aktualisieren(ziel.id, berechnet), neu };
+}
+
 /**
  * Plan-5b-Anpassungen gibt es nur mit dem Firmen-Schalter; Preismodus, Tagespreis
  * und „als ein Posten“ setzt nur ein Mensch (Entscheidung 14, F13).
@@ -957,6 +1057,11 @@ export interface SperrBody {
   modusWechselBestaetigt?: boolean;
   /** Plan 15 (Bauteil 5): ein Mensch bestätigt „Preis ohne echte Fahrzeiten“ (Belade- oder Entladeadresse fehlt). */
   ohneAdresseBestaetigt?: boolean;
+  /**
+   * Plan 16 (Bauteil 4): ein Mensch (Admin, prüft die Route) bestätigt, dass die Annahme des Kunden
+   * aufgehoben wird und der Kunde das neue Angebot erneut annehmen muss.
+   */
+  annahmeAufhebenBestaetigt?: boolean;
 }
 
 /** Wahlen, die der Kunde treffen kann (für Kern-Regel und fehlende Tagespreise). */
@@ -1013,7 +1118,7 @@ export async function sperren(
   autor: Autor,
   body: SperrBody,
   opts?: VersionsOptionen
-): Promise<{ version: VersionsZeile; quotation: Quotation | null; gueltigkeitHinweis: string | null }> {
+): Promise<{ version: VersionsZeile; quotation: Quotation | null; gueltigkeitHinweis: string | null; annahmeAufgehoben: boolean }> {
   const d = await abhaengigkeiten(opts);
   let v = await versionOderFehler(ws, deal, version, d);
   if (v.status !== "entwurf") throw new VersionsFehler("UNGUELTIG", `Version v${version} ist bereits gesperrt.`);
@@ -1031,7 +1136,13 @@ export async function sperren(
   });
   const vorab = sperrBefund(regel(v.pricingMode === "stunden" ? "stunden" : "fest", v.dayPrices?.length ?? 0));
   if (vorab) throw new VersionsFehler(vorab.code, vorab.text);
-  await d.pruefeAnnahme(deal);
+  // Plan 16 (Bauteil 6): ist schon ein Angebot verschickt, sperrt nur ein Mensch die geänderte Version.
+  if (autor.quelle === "agent" && (await d.istVerschickt(ws, deal))) {
+    throw new VersionsFehler("AENDERUNG_NUR_MENSCH", AENDERUNG_NUR_MENSCH_TEXT);
+  }
+  // Plan 16 (Bauteil 4): mit Bestätigung hebt das Sperren die Annahme auf (in der Transaktion), sonst wie bisher.
+  const annahmeAufheben = autor.quelle === "mensch" && body.annahmeAufhebenBestaetigt === true;
+  if (!annahmeAufheben) await d.pruefeAnnahme(deal);
 
   const lead = await leadOderFehler(ws, deal, d);
   const heute = heuteBerlin(d.jetzt());
@@ -1167,7 +1278,8 @@ export async function sperren(
     plan5Sperre = { preise: r.preise, standard: r.standard, stunden: r.stunden };
   }
 
-  const { version: gesperrt } = await d.speicher.sperrenUndAngebot(ws, deal, v.id, eingabe, sperrKvItems, autor.userId, {
+  const aufhebGrund = `Angebot geändert, neue Version v${v.version}`;
+  const { version: gesperrt, annahmeAufgehoben } = await d.speicher.sperrenUndAngebot(ws, deal, v.id, eingabe, sperrKvItems, autor.userId, {
     uebersteuerungen: v.overrides.length,
     updatedAt: v.updatedAt,
     schnappschuss: {
@@ -1183,7 +1295,13 @@ export async function sperren(
       vehicleBookingId: buchungDesHauptdatums(v.rechnerRequest, v.rechnerResult),
     },
     ...(plan5Sperre ? { plan5: plan5Sperre } : {}),
+    ...(annahmeAufheben ? { annahmeAufheben: { userId: autor.userId, grund: aufhebGrund } } : {}),
   });
+  if (annahmeAufgehoben) {
+    await d
+      .meldeAufhebung({ ws, deal, id: annahmeAufgehoben.id, totalCents: annahmeAufgehoben.totalCents, grund: aufhebGrund, userId: autor.userId })
+      .catch((err) => console.warn("[kalkulation-versionen] Ereignis Annahme aufgehoben fehlgeschlagen", err));
+  }
   await d.nachSperren(ws, deal, autor);
 
   // Marge: einmal beim Sperren, mit der Marge, die jetzt gilt (Rechnerwert = sein Vorschlag).
@@ -1210,7 +1328,7 @@ export async function sperren(
   if (plan5Sperre) meldePreisAnpassungen(d, deal, v, gesperrt);
 
   const quotation = await d.ladeAngebot(deal);
-  return { version: gesperrt, quotation, gueltigkeitHinweis: u.gueltigkeitHinweis };
+  return { version: gesperrt, quotation, gueltigkeitHinweis: u.gueltigkeitHinweis, annahmeAufgehoben: !!annahmeAufgehoben };
 }
 
 /**

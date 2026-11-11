@@ -23,6 +23,8 @@ export type ActivityEventType =
   | "deal.kunde_bearbeitet"
   /** Letzte KI-Auswertung der eingehenden Nachrichten für „Aus dem Chat übernehmen“ (still, Cache je Nachrichtenstand) */
   | "deal.kunde_vorschlag"
+  /** Plan 16: Schritt eines Vorgangs „Angebot ändern“ (still, nur anhängen; lib/angebot-aenderung.ts) */
+  | "angebot.aenderung"
   /** Plan 15: Inventarzeile von Hand korrigiert (Herkunft und Lernsignal der Fotoerkennung) */
   | "inventar.korrigiert"
   /** Plan 15: „Pakete anbieten“ je Deal umgeschaltet */

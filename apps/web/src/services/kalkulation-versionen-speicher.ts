@@ -135,11 +135,25 @@ export const dbVersionsSpeicher: VersionsSpeicher = {
       // innerhalb der Transaktion: nichts wird geschrieben.
       await angebotSperren(tx, deal);
       const [annahme] = await tx
-        .select({ id: kvaConfirmations.id })
+        .select({ id: kvaConfirmations.id, total: kvaConfirmations.confirmedTotalCents })
         .from(kvaConfirmations)
         .where(aktivBedingung(deal))
         .limit(1);
-      if (annahme) throw new AngebotAngenommenError();
+      if (annahme && !stand?.annahmeAufheben) throw new AngebotAngenommenError();
+      // Plan 16 (Bauteil 4): bestätigt aufheben, unter derselben Sperre wie die Annahme im Portal.
+      // Nur die Annahme: Terminwahl, Reservierung, AB und Rechnung bleiben, wie sie sind.
+      let annahmeAufgehoben: { id: string; totalCents: number | null } | null = null;
+      if (annahme && stand?.annahmeAufheben) {
+        await tx
+          .update(kvaConfirmations)
+          .set({
+            supersededAt: new Date(),
+            supersededBy: stand.annahmeAufheben.userId,
+            supersededReason: stand.annahmeAufheben.grund.slice(0, 500),
+          })
+          .where(eq(kvaConfirmations.id, annahme.id));
+        annahmeAufgehoben = { id: annahme.id, totalCents: annahme.total ?? null };
+      }
 
       const jetzt = new Date();
       const t = dealCalculationVersions;
@@ -202,10 +216,28 @@ export const dbVersionsSpeicher: VersionsSpeicher = {
       } else {
         await angebotAusVersionSchreiben(tx, deal, angebot, id);
       }
-      return { version: alsZeile(z) };
+      return { version: alsZeile(z), annahmeAufgehoben };
     });
   },
 };
+
+/**
+ * Plan 16: Hat der Deal ein verschicktes Angebot aus einer Version? Verschickt heißt:
+ * zu einer gesperrten Version gibt es ein KV-PDF (der Kunde sieht es im Portal) oder
+ * einen Versandvermerk (`sent_at`).
+ */
+export async function istVerschickt(ws: string, deal: string): Promise<boolean> {
+  const r = await db.execute(sql`
+    select 1 from ${dealCalculationVersions} v
+    where v.workspace_id = ${ws} and v.deal_record_id = ${deal} and v.status = 'gesperrt'
+      and (v.sent_at is not null or exists (
+        select 1 from deal_documents d
+        where d.workspace_id = v.workspace_id and d.deal_record_id = v.deal_record_id
+          and d.document_type = 'quotation' and d.calculation_version_id = v.id))
+    limit 1`);
+  const zeilen = (r as unknown as { rows?: unknown[] }).rows ?? (Array.isArray(r) ? (r as unknown[]) : []);
+  return zeilen.length > 0;
+}
 
 /** Hebel je Paket-Slug aus den aktiven offer_packages der Firma des Deals; null ohne Firma oder Pakete. */
 export async function ladePaketHebel(ws: string, deal: string): Promise<Record<string, HebelArt[]> | null> {

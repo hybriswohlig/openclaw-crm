@@ -153,6 +153,8 @@ export interface Uebersteuerung {
   autor: { userId: string | null; quelle: "mensch" | "agent" };
   zeit: string;
   fotoRef: string | null;
+  /** Plan 16: Herkunft einer Kundenänderung (Chat, Eingabe, Bot); fehlt bei Änderungen von Hand. */
+  herkunft?: "chat" | "eingabe" | "bot" | "foto";
 }
 
 export interface Kostenzeile {

@@ -17,8 +17,10 @@ import type { HebelArt } from "@/services/rechner/kv-posten";
 
 // ─── Typen ──────────────────────────────────────────────────────────────────
 
-export type Quelle = "chat" | "eingabe" | "bot" | "hand";
+export type Quelle = "chat" | "eingabe" | "bot" | "foto" | "hand";
 export type VorschlagQuelle = Exclude<Quelle, "hand">;
+/** Quellen, die Vorschläge ins Log schreiben (Foto-Vorschläge entstehen live aus dem Inventar). */
+export type LogQuelle = Exclude<VorschlagQuelle, "foto">;
 export type Wer = "wir" | "kunde" | "nicht_noetig";
 export type Seite = "beladen" | "entladen";
 export type Aufzug = "keiner" | "klein" | "gross";
@@ -76,6 +78,11 @@ export interface Vorschlag {
   status: VorschlagStatus;
   /** ISO-Zeit, zu der der Vorschlag entstand. */
   zeit: string;
+  /**
+   * Nur Quelle „foto“: das Teil steht schon im Lead-Inventar (Fotoerkennung nach dem Sperren der
+   * maßgeblichen Version) und damit im Entwurf. `dublette`: Name eines älteren, ähnlichen Teils.
+   */
+  foto?: { inventarId: string; fotoUrl: string | null; mitnehmen: boolean; dublette: string | null };
 }
 
 /** Inventarzeile des Leads, wie Normalisierung und Übernahme sie brauchen. */
@@ -139,12 +146,17 @@ export function istAenderungsPayload(p: unknown): p is AenderungsPayload {
  * Stand des Vorgangs zum Entwurf `entwurfVersion`: Faltung der Ereignisse (älteste zuerst).
  * Ereignisse anderer Entwürfe zählen nicht (ein gesperrter Entwurf beendet seinen Vorgang).
  */
-export function aenderungsStand(ereignisse: readonly AenderungsEreignis[], entwurfVersion: number | null): AenderungsStand {
+export function aenderungsStand(
+  ereignisse: readonly AenderungsEreignis[],
+  entwurfVersion: number | null,
+  /** Vorschläge, die nicht im Log stehen, sondern live entstehen (neue Foto-Teile); Status kommt aus dem Log. */
+  live: readonly Vorschlag[] = []
+): AenderungsStand {
   const stand: AenderungsStand = {
     entwurfVersion,
     basisVersion: null,
     gestartet: false,
-    vorschlaege: [],
+    vorschlaege: live.map((v) => ({ ...v, status: "offen" as const })),
     verlauf: [],
     chatStand: null,
     eingabeStand: null,
@@ -413,7 +425,9 @@ export type LeadSchritt =
   | { art: "hinzu"; name: string; menge: number; groesse: Groessenklasse | null }
   | { art: "menge"; id: string; name: string; menge: number }
   /** „Kommt nicht mit“: moveFlag aus (die Zeile bleibt als „bleibt da“ sichtbar). */
-  | { art: "weg"; id: string; name: string };
+  | { art: "weg"; id: string; name: string }
+  /** Foto-Teil, das „bleibt da“ steht, wieder mitnehmen. */
+  | { art: "wieder"; id: string; name: string };
 
 /** Übersteuerung, wie `POST …/overrides` und `aenderungenAnwenden` sie erwarten. */
 export interface AenderungsUebersteuerung {
@@ -439,7 +453,7 @@ const TRAEGER: Record<Wer, MontageTraeger> = { wir: "company", kunde: "customer"
 
 /** Grund der Übersteuerung: Herkunft und Originaltext (gekürzt). */
 export function aenderungsGrund(v: Pick<Vorschlag, "quelle" | "zitat">): string {
-  const wo = v.quelle === "chat" ? "aus dem Chat" : v.quelle === "bot" ? "vom Bot" : "Eingabe";
+  const wo = v.quelle === "chat" ? "aus dem Chat" : v.quelle === "bot" ? "vom Bot" : v.quelle === "foto" ? "aus neuen Fotos" : "Eingabe";
   const z = v.zitat.trim().slice(0, 160);
   return z ? `Kundenänderung ${wo}: „${z}“` : `Kundenänderung ${wo}`;
 }
@@ -469,7 +483,12 @@ export function uebernahmePlan(
     plan.ids.push(v.id);
     switch (a.art) {
       case "teil_hinzu":
-        plan.lead.push({ art: "hinzu", name: a.name, menge: a.menge, groesse: a.groesse });
+        // Foto-Teile stehen schon im Lead: nichts anlegen, höchstens wieder mitnehmen.
+        if (v.foto) {
+          if (!v.foto.mitnehmen) plan.lead.push({ art: "wieder", id: v.foto.inventarId, name: a.name });
+        } else {
+          plan.lead.push({ art: "hinzu", name: a.name, menge: a.menge, groesse: a.groesse });
+        }
         break;
       case "teil_weg": {
         const z = inventarTreffer(a.name, opts.inventar);
@@ -573,7 +592,9 @@ export function herkunftSchluessel(a: Aenderung): string[] {
 export function herkunftAus(vorschlaege: readonly Vorschlag[]): (schluessel: string) => Quelle {
   const m = new Map<string, Quelle>();
   for (const v of vorschlaege) {
-    if (v.status !== "uebernommen") continue;
+    // Foto-Teile stecken schon im Entwurf (Lead-Inventar): Herkunft „Foto“, solange nicht verworfen.
+    const wirkt = v.status === "uebernommen" || (v.quelle === "foto" && v.status === "offen");
+    if (!wirkt) continue;
     for (const k of herkunftSchluessel(v.aenderung)) m.set(k, v.quelle);
   }
   return (k) => m.get(k) ?? "hand";
