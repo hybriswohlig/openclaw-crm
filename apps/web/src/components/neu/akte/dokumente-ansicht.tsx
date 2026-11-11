@@ -25,6 +25,20 @@ export function kvErsetzt(d: Pick<Dokument, "id" | "documentType" | "kvVersion">
   return aktuell !== null && typeof d.kvVersion === "number" && d.kvVersion < aktuell;
 }
 
+/**
+ * Plan 16 (Review M5): KV-Nummer ist die Nummer des VPS im Dateinamen („KV-KO-20261110-ART-3“),
+ * sonst keine. Die Version heißt „Kalkulation vN“, damit sie nicht wie eine zweite Nummer aussieht.
+ */
+export function kvNummer(fileName: string): string | null {
+  const m = /^(KV-[A-Z]{2,}-\d{8}-[A-Z0-9]+(?:-\d+)?)(?:\.pdf)?$/i.exec(fileName.trim());
+  return m ? m[1] : null;
+}
+
+export function kvMeta(d: Pick<Dokument, "fileName" | "kvVersion">): string {
+  const nr = kvNummer(d.fileName);
+  return [nr ? `Nr. ${nr}` : null, typeof d.kvVersion === "number" ? `Kalkulation v${d.kvVersion}` : null].filter(Boolean).map((t) => `${t} · `).join("");
+}
+
 /** Kürzel und Bezeichnung je Dokumentart (wie DOC_TYPE_LABELS der alten Finanzen). */
 const TYP: Record<string, { kurz: string; lang: string }> = {
   quotation: { kurz: "KV", lang: "Kostenvoranschlag" },
@@ -94,7 +108,7 @@ export function DokumenteAnsicht({ dealId, kvVersionAktuell = null }: { dealId: 
                 <span className="akte-gespraech-zeile-text">
                   <span className="akte-gespraech-zeile-name">{d.fileName}</span>
                   <span className="akte-gespraech-zeile-meta">
-                    {d.documentType === "quotation" && typeof d.kvVersion === "number" ? `KV v${d.kvVersion} · ` : ""}
+                    {d.documentType === "quotation" ? kvMeta(d) : ""}
                     {tagKurz(d.uploadedAt)} · {groesse(d.fileSize)}
                     {ersetzt ? " · ersetzt" : ""}
                   </span>
