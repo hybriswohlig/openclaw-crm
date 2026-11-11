@@ -78,7 +78,12 @@ export interface AenderungsQuellen {
   /** Hochladezeit des neuesten KV-PDFs (Rückfall für „seit“). */
   letzterKv: (ws: string, deal: string) => Promise<Date | null>;
   /** Annahme: aktiv (irgendeine Version) und ob die Basisversion angenommen war (auch inzwischen aufgehoben). */
-  angenommen: (deal: string, basisVersionId: string) => Promise<{ aktiv: boolean; basis: boolean }>;
+  angenommen: (
+    ws: string,
+    deal: string,
+    basisVersionId: string,
+    vorgangVersion: number | null
+  ) => Promise<{ aktiv: boolean; basis: boolean }>;
   ereignisse: (ws: string, deal: string) => Promise<AenderungsEreignis[]>;
   schreiben: (ws: string, deal: string, payload: AenderungsPayload, autor: Autor) => Promise<void>;
   inventar: (ws: string, deal: string) => Promise<InventarDbZeile[]>;
@@ -273,7 +278,7 @@ export async function ansicht(ws: string, deal: string, quellen?: Partial<Aender
   const l = await lageLaden(ws, deal, q);
   const [verschickt, annahme, fotoStand] = await Promise.all([
     l.basis ? q.versionVerschickt(ws, deal, l.basis.id) : Promise.resolve(false),
-    l.basis ? q.angenommen(deal, l.basis.id) : Promise.resolve({ aktiv: false, basis: false }),
+    l.basis ? q.angenommen(ws, deal, l.basis.id, l.vorgang?.version ?? null) : Promise.resolve({ aktiv: false, basis: false }),
     l.vorgang ? q.fotoStand(deal).catch(() => ({ offen: 0, gescheitert: 0 })) : Promise.resolve({ offen: 0, gescheitert: 0 }),
   ]);
   const stand = aenderungsStand(l.ereignisse, l.vorgang?.version ?? null, l.fotoVorschlaege);
@@ -296,7 +301,9 @@ export async function ansicht(ws: string, deal: string, quellen?: Partial<Aender
         preis: { art: "fest", altCent: l.basis.priceCents, neuCent: l.vorgang.priceCents },
         link,
         // War das alte Angebot angenommen, muss der Kunde das neue erneut annehmen.
-        neuAnnehmen: annahme.basis,
+        // Review I3: auch eine Altannahme ohne gebundene Version, die dieses Sperren aufgehoben hat, oder eine
+        // noch aktive Annahme, solange die Änderung offen ist.
+        neuAnnehmen: annahme.basis || (l.vorgang.status === "entwurf" && annahme.aktiv),
       }),
     };
   }
@@ -698,14 +705,23 @@ export async function standardQuellen(): Promise<AenderungsQuellen> {
         .limit(1);
       return d?.t ?? null;
     },
-    angenommen: async (deal, basisVersionId) => {
+    angenommen: async (ws, deal, basisVersionId, vorgangVersion) => {
       const { kvaConfirmations } = await import("@/db/schema/customer-portal");
       const zeilen = await db
-        .select({ aufgehoben: kvaConfirmations.supersededAt, version: kvaConfirmations.calculationVersionId })
+        .select({
+          aufgehoben: kvaConfirmations.supersededAt,
+          version: kvaConfirmations.calculationVersionId,
+          grund: kvaConfirmations.supersededReason,
+        })
         .from(kvaConfirmations)
-        .where(eq(kvaConfirmations.dealRecordId, deal))
+        .where(and(eq(kvaConfirmations.dealRecordId, deal), eq(kvaConfirmations.workspaceId, ws)))
+        .orderBy(desc(kvaConfirmations.signedAt))
         .limit(50);
-      return { aktiv: zeilen.some((z) => z.aufgehoben === null), basis: zeilen.some((z) => z.version === basisVersionId) };
+      const aufhebGrund = vorgangVersion !== null ? `Angebot geändert, neue Version v${vorgangVersion}` : null;
+      return {
+        aktiv: zeilen.some((z) => z.aufgehoben === null),
+        basis: zeilen.some((z) => z.version === basisVersionId || (aufhebGrund !== null && z.grund === aufhebGrund)),
+      };
     },
     ereignisse: async (ws, deal) => {
       const zeilen = await db

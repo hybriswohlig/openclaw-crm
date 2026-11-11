@@ -125,6 +125,9 @@ describe("starten und Ansicht", () => {
     // War v1 angenommen (auch inzwischen aufgehoben), bittet die Nachricht um eine neue Annahme.
     t.q.angenommen = async () => ({ aktiv: false, basis: true });
     expect((await ansicht("ws", "deal", t.q)).nachricht?.text).toContain("bitte nehmen Sie es dort erneut an");
+    // Review I3: Altannahme ohne Version, noch aktiv, Änderung offen: ebenfalls die Bitte.
+    t.q.angenommen = async () => ({ aktiv: true, basis: false });
+    expect((await ansicht("ws", "deal", t.q)).nachricht?.text).toContain("bitte nehmen Sie es dort erneut an");
   });
 });
 

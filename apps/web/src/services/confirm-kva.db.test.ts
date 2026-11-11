@@ -241,6 +241,17 @@ describe.skipIf(!url)("Annahme unter der Deal-Sperre (DB)", { timeout: 20_000 },
     expect(aktiv).toEqual([{ confirmed_total_cents: 150000, calculation_version_id: v2 }]);
   });
 
+  it("Plan 16 (Review I3): Altannahme ohne Version, beim Sperren aufgehoben: zählt als Annahme der Basis", async () => {
+    await sql`update quotations set calculation_version_id = null where deal_record_id = ${deal}`;
+    expect((await annehmen(100000)).ok).toBe(true);
+    const { standardQuellen } = await import("./angebot-aenderung");
+    const q = await standardQuellen();
+    expect(await q.angenommen(ws, deal, v1, 2)).toEqual({ aktiv: true, basis: false });
+    await sql`update kva_confirmations set superseded_at = now(), superseded_reason = 'Angebot geändert, neue Version v2' where deal_record_id = ${deal}`;
+    expect(await q.angenommen(ws, deal, v1, 2)).toEqual({ aktiv: false, basis: true });
+    expect(await q.angenommen(randomUUID(), deal, v1, 2)).toEqual({ aktiv: false, basis: false });
+  });
+
   it("Plan 16: istVerschickt erst mit KV-PDF einer gesperrten Version oder Versandvermerk", async () => {
     expect(await speicher.istVerschickt(ws, deal)).toBe(false);
     await kvPdf(null);
