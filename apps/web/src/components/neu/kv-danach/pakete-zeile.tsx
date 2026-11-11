@@ -57,11 +57,19 @@ export function PaketeZeileKasten({
     if (!z.schalter || laeuft) return;
     setFrage(false);
     setLaeuft(true);
-    const r = await apiAufruf<unknown>(
-      `/api/v1/deals/${encodeURIComponent(kontext.dealId)}/calculation/pakete`,
-      jsonAufruf("PUT", { wert: z.schalter.wert })
-    );
-    setLaeuft(false);
+    // Während des Umschaltens ist die Seite beschäftigt: kein Sperren dazwischen (Review M4).
+    kontext.setzeLauf("speichern");
+    let r: Awaited<ReturnType<typeof apiAufruf<unknown>>>;
+    try {
+      r = await apiAufruf<unknown>(
+        `/api/v1/deals/${encodeURIComponent(kontext.dealId)}/calculation/pakete`,
+        jsonAufruf("PUT", { wert: z.schalter.wert })
+      );
+    } finally {
+      setLaeuft(false);
+      // Gleich danach setzt `neuRechnen` seinen eigenen Lauf (im selben Takt gebündelt).
+      kontext.setzeLauf(null);
+    }
     if (!r.ok) {
       toast.error("Pakete konnten nicht umgestellt werden.", { description: r.message });
       return;
