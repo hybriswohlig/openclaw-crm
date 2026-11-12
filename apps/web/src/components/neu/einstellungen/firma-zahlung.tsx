@@ -24,7 +24,7 @@ const FELD_TEXT: Record<keyof ZahlungEntwurf, string> = {
   erinnerung2Tage: `${TEXT.zahlungZweite}: ganze Zahl von 1 bis 60.`,
 };
 
-/** (a) Zahlung: Basis, Tage, Erinnerung (Plan 9), gespeichert über `PUT company-settings`. */
+/** (a) Zahlung: Erinnerung (Plan 9). Der Restbetrag ist fest am Umzugstag fällig; gespeichert über `PUT company-settings`. */
 export function FirmaZahlung({
   firma,
   portalZiel,
@@ -48,7 +48,10 @@ export function FirmaZahlung({
   function senden() {
     if (!geprueft.ok) return;
     void s.speichern(() =>
-      apiAufruf(`/api/v1/company-settings/${encodeURIComponent(firma.id)}`, jsonAufruf("PUT", { zahlung: geprueft.regel })),
+      apiAufruf(
+        `/api/v1/company-settings/${encodeURIComponent(firma.id)}`,
+        jsonAufruf("PUT", { zahlung: { ...geprueft.regel, basis: "umzugstag", tage: 0 } }),
+      ),
     );
   }
 
@@ -73,28 +76,7 @@ export function FirmaZahlung({
         onSpeichern={klick}
         kinder={
           <div className="einst-raster">
-            <div className="einst-feld einst-feld-breit">
-              <span className="einst-label" id={`basis-${firma.id}`}>
-                {TEXT.zahlungBasis}
-              </span>
-              <GlassSegmentedControl
-                value={e.basis}
-                onValueChange={(v) => (v === "umzugstag" || v === "rechnungstag") && setE({ ...e, basis: v })}
-                aria-labelledby={`basis-${firma.id}`}
-              >
-                <GlassSegmentedControlItem value="umzugstag">{TEXT.zahlungBasisUmzug}</GlassSegmentedControlItem>
-                <GlassSegmentedControlItem value="rechnungstag">{TEXT.zahlungBasisRechnung}</GlassSegmentedControlItem>
-              </GlassSegmentedControl>
-            </div>
-            <div className="einst-feld einst-feld-zahl">
-              <GlassInput
-                label={TEXT.zahlungTage}
-                inputMode="numeric"
-                value={e.tage}
-                onChange={setz("tage")}
-                aria-invalid={!geprueft.ok && geprueft.feld === "tage"}
-              />
-            </div>
+            <p className="einst-feld einst-feld-breit text-sm text-muted-foreground">{TEXT.zahlungFest}</p>
             <div className="einst-feld einst-feld-breit">
               <span className="einst-label" id={`erinnerung-${firma.id}`}>
                 {TEXT.zahlungErinnerung}

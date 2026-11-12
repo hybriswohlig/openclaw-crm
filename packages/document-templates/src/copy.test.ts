@@ -289,24 +289,29 @@ describe("preview", () => {
     expect(firm.html).not.toContain("Frau/Herr");
   });
 
-  it("prints the due date only when one is stored, and never the service date", () => {
-    const early = preview({ kind: "RE", dueDate: "2026-10-13" });
+  it("prints a deposit date only before the job, and never a later balance date", () => {
+    const early = preview({ kind: "KV", dueDate: "2026-10-13" });
     expect(early.model.paymentTerms).toContain("13.10.2026 (vor Einsatz)");
     expect(early.html).toContain("13.10.2026 (vor Einsatz)");
+    expect(early.model.paymentTerms).toContain(KOTTKE_RESTBETRAG_UMZUG);
     expect(early.model.paymentTerms).not.toContain("03.11.2026");
 
     const later = preview({ kind: "KV", dueDate: "2026-11-20" });
-    expect(later.model.paymentTerms).toContain("bis spätestens 20.11.2026");
-    expect(later.model.paymentTerms).not.toContain("vor Einsatz");
+    expect(later.model.paymentTerms).not.toContain("bis spätestens");
+    expect(later.model.paymentTerms).not.toContain("20.11.2026");
+    expect(later.model.paymentTerms).toContain(KOTTKE_RESTBETRAG_UMZUG);
 
-    const missing = preview({ kind: "RE" });
-    expect(missing.model.paymentTerms).not.toMatch(/\d{2}\.\d{2}\.\d{4}/);
-    expect(missing.html).toContain("03.11.2026");
+    const invoice = preview({ kind: "RE", dueDate: "2026-11-20" });
+    expect(invoice.model.paymentTerms).not.toMatch(/\d{2}\.\d{2}\.\d{4}/);
+    expect(invoice.model.paymentTerms).toContain(KOTTKE_RESTBETRAG_UMZUG);
+    expect(invoice.html).toContain("03.11.2026");
   });
 
   it("mentions card payment only for card, and transfer otherwise", () => {
     const card = preview({ kind: "RE", method: "card", serviceType: "clearance" });
-    expect(card.model.paymentTerms).toBe("Die Zahlung erfolgt per Karte vor Ort.");
+    expect(card.model.paymentTerms).toBe(
+      `Die Zahlung erfolgt per Karte vor Ort. ${KOTTKE_RESTBETRAG_EINSATZ}`,
+    );
     expect(card.html).not.toContain("Keine Kartenzahlung");
     expect(card.html).not.toContain("überweisen");
 
@@ -325,9 +330,9 @@ describe("preview", () => {
     expect(cash.model.paymentTerms).not.toContain("auf Rechnung");
   });
 
-  it("Kottke KV/AB: Restbetrag am Umzugstag, Anzahlung behält ihr Datum, Rechnung bleibt beim Fälligkeitsdatum", () => {
-    const offer = preview({ kind: "KV", dueDate: "2026-11-20" });
-    expect(offer.model.paymentTerms).toContain("Die Anzahlung ist bis spätestens 20.11.2026");
+  it("KV/AB/RE: Restbetrag am Umzugstag, Anzahlung nur mit Datum vor dem Einsatz", () => {
+    const offer = preview({ kind: "KV", dueDate: "2026-10-13" });
+    expect(offer.model.paymentTerms).toContain("Die Anzahlung ist bis spätestens 13.10.2026 (vor Einsatz)");
     expect(offer.model.paymentTerms).toContain(KOTTKE_RESTBETRAG_UMZUG);
 
     const whole = preview({
@@ -335,7 +340,7 @@ describe("preview", () => {
       dueDate: "2026-11-20",
       method: "bank_transfer",
     });
-    // Default quotation still has a deposit, so the date stays on the Anzahlung.
+    expect(whole.model.paymentTerms).not.toContain("20.11.2026");
     expect(whole.model.paymentTerms).toContain(KOTTKE_RESTBETRAG_UMZUG);
 
     const noDeposit = buildDocumentModel({
@@ -352,16 +357,18 @@ describe("preview", () => {
     expect(clearance.model.paymentTerms).not.toContain("Umzugstag");
 
     const invoice = preview({ kind: "RE", dueDate: "2026-11-20", method: "bank_transfer" });
-    expect(invoice.model.paymentTerms).toContain("bis spätestens 20.11.2026");
-    expect(invoice.model.paymentTerms).not.toContain("Restbetrag");
+    expect(invoice.model.paymentTerms).toContain("Bitte überweisen Sie den offenen Betrag auf das unten genannte Konto.");
+    expect(invoice.model.paymentTerms).toContain(KOTTKE_RESTBETRAG_UMZUG);
+    expect(invoice.model.paymentTerms).not.toContain("bis spätestens");
+    expect(invoice.model.paymentTerms).not.toContain("auf Rechnung");
 
     const ceylan = buildDocumentModel({
       kind: "KV",
       deal: { ...deal, firma: "ceylan", dueDate: "2026-11-20" },
       quotation: quotation({ depositRequiredCents: null }),
     });
-    expect(ceylan.paymentTerms).toContain("bis spätestens 20.11.2026");
-    expect(ceylan.paymentTerms).not.toContain("Restbetrag");
+    expect(ceylan.paymentTerms).toBe(KOTTKE_RESTBETRAG_UMZUG);
+    expect(ceylan.paymentTerms).not.toContain("bis spätestens");
   });
 
   it("lets intro, closing and remarks replace the default without touching the price", () => {

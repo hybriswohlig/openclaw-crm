@@ -1,6 +1,6 @@
-import { invoiceDueDay } from "@/lib/invoice-due-date";
+import { explicitInvoiceDueDay, invoiceDueDay } from "@/lib/invoice-due-date";
 import { getObjectBySlug } from "@/services/objects";
-import { updateRecord } from "@/services/records";
+import { getRecord, updateRecord } from "@/services/records";
 
 /**
  * Writes the existing date attribute. No new column and no migration:
@@ -52,10 +52,20 @@ export async function leereRechnungFaelligAm(input: {
   }
 }
 
+async function umzugstag(objectId: string, dealRecordId: string): Promise<string | null> {
+  try {
+    const record = await getRecord(objectId, dealRecordId);
+    return explicitInvoiceDueDay(record?.values?.move_date);
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Invoice stores set `rechnung_faellig_am`. Every other document type
- * leaves the field alone. An explicit due date wins; otherwise the
- * upload day is used for Kottke and Ceylan alike.
+ * leaves the field alone. The day is the move date, or the invoice date
+ * when the invoice is issued on or after the move. A later explicit day
+ * is not written. The same rule applies to every company.
  */
 export async function applyInvoiceDueDate(input: {
   documentType: string;
@@ -66,7 +76,11 @@ export async function applyInvoiceDueDate(input: {
   now?: Date;
 }): Promise<{ rechnungFaelligAm: string | null; dueDateWarning?: string }> {
   if (input.documentType !== "invoice") return { rechnungFaelligAm: null };
-  const dueDay = invoiceDueDay(input.explicitDueDate, input.now);
+  const obj = await getObjectBySlug(input.workspaceId, "deals");
+  if (!obj) {
+    return { rechnungFaelligAm: null, dueDateWarning: "failed to set rechnung_faellig_am: deals object missing" };
+  }
+  const dueDay = invoiceDueDay(input.explicitDueDate, input.now, await umzugstag(obj.id, input.dealRecordId));
   const stamped = await setRechnungFaelligAm({
     workspaceId: input.workspaceId,
     dealRecordId: input.dealRecordId,

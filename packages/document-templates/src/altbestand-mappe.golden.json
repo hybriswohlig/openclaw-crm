@@ -284,6 +284,7 @@
         "Angebot angenommen am 22. Oktober 2026 um 10:15 Uhr im Kundenportal.",
         "Für Umzugsaufträge mit festem Termin besteht kein gesetzliches Widerrufsrecht (§ 312g Abs. 2 Satz 1 Nr. 9 BGB).",
         "Haftungshinweis nach § 451g HGB vor der Annahme bestätigt.",
+        "Der Restbetrag ist am Umzugstag direkt nach dem Umzug fällig (bar oder Überweisung).",
         "Mit meiner Unterschrift bestätige ich den oben bezeichneten Vertrag."
       ],
       "unterschrift": {
@@ -312,13 +313,14 @@
       "AGB-Fassung: kottke-2026-10, SHA-256 abababababababababababababababababababababababababababababababab",
       "Für Umzugsaufträge mit festem Termin besteht kein gesetzliches Widerrufsrecht (§ 312g Abs. 2 Satz 1 Nr. 9 BGB).",
       "Haftungshinweis nach § 451g HGB vor der Annahme bestätigt.",
+      "Der Restbetrag ist am Umzugstag direkt nach dem Umzug fällig (bar oder Überweisung).",
       "",
       "Mit meiner Unterschrift bestätige ich den oben bezeichneten Vertrag.",
       "",
       "Name: Anna Muster",
       "Unterschrieben am 22. Oktober 2026 um 10:20 Uhr, IP 203.0.113.5, Art: als Name getippt."
     ],
-    "seite": "6438a293c2ecc9e7ea7dd7a176d14eab0e4eb1e527c484ae43d80340d5799d7a"
+    "seite": "f745991b21b3e2205b777cff1a6d6b27f9c4be498f1ab888a6a5baa946f4def7"
   },
   "felder-leer": {
     "modell": {

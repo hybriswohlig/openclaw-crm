@@ -65,7 +65,8 @@ describe("Fix-Durchgang Bestätigung", () => {
     expect(t).toContain("binnen vierzehn Tagen");
     expect(t).toContain("Muster-Widerrufsformular");
     expect(t).not.toContain("in der E-Mail");
-    expect(t).not.toContain("Restbetrag");
+    expect(t).toContain(KOTTKE_RESTBETRAG_EINSATZ);
+    expect(t).not.toContain("Umzugstag");
     expect(t.length).toBeLessThan(4096);
   });
   it("variables Angebot: voraussichtlich statt Endpreis", () => {

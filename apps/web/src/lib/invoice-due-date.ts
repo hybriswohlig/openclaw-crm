@@ -2,9 +2,11 @@
  * Due day written to the existing deal attribute `rechnung_faellig_am`
  * when an invoice (documentType invoice / RE) is uploaded or stored.
  *
- * Default is the upload/invoice calendar day in Europe/Berlin ("sofort"),
- * not today + 7. There is no separate Ceylan rule in code, so this applies
- * to every company. A caller-supplied day is kept as given.
+ * The day is the move date when the invoice is issued before the move.
+ * When the invoice is issued on or after the move day, the day is the
+ * invoice date. There is no later default and no today + 7. The same
+ * rule applies to every company. A caller-supplied day is kept only
+ * when it is not later than that day.
  */
 
 const ISO_DAY = /^(\d{4})-(\d{2})-(\d{2})/;
@@ -50,9 +52,22 @@ export function explicitInvoiceDueDay(value: unknown): string | null {
 }
 
 /**
- * Explicit ISO/German day when one was passed, otherwise the Berlin
- * calendar day of `now` (the upload/invoice date).
+ * Move day when the invoice is issued before the move, otherwise the
+ * invoice day. A missing or invalid move day leaves the invoice day.
  */
-export function invoiceDueDay(explicit: unknown, now = new Date()): string {
-  return explicitInvoiceDueDay(explicit) ?? berlinCalendarDay(now);
+export function restDueDay(invoiceDay: string, moveDay: string | null | undefined): string {
+  if (moveDay && /^\d{4}-\d{2}-\d{2}$/.test(moveDay) && moveDay > invoiceDay) return moveDay;
+  return invoiceDay;
+}
+
+/**
+ * The remaining-balance day. An explicit day is kept when it is not later
+ * than that day. "sofort" and any other non-date fall through to the rule.
+ */
+export function invoiceDueDay(explicit: unknown, now = new Date(), moveDate?: unknown): string {
+  const invoiceDay = berlinCalendarDay(now);
+  const rule = restDueDay(invoiceDay, explicitInvoiceDueDay(moveDate));
+  const passed = explicitInvoiceDueDay(explicit);
+  if (passed && passed <= rule) return passed;
+  return rule;
 }

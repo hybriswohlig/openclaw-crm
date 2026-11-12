@@ -182,12 +182,12 @@ export function neueZeitpostenId(liste: readonly ZeitpostenVorlage[]): string {
   return `zp-${n}`;
 }
 
-/** Ein Satz unter dem Abschnitt Zahlung. */
+/** Ein Satz unter dem Abschnitt Zahlung. Tage nach dem Umzug gibt es nicht. */
 export function zahlungsregelText(r: ZahlungsregelSpiegel): string {
+  void r.basis;
+  void r.tage;
   const ziel =
-    r.tage === 0
-      ? r.basis === "umzugstag" ? "Rest fällig am Umzugstag" : "Fällig am Rechnungstag"
-      : `Fällig ${r.tage} ${r.tage === 1 ? "Tag" : "Tage"} nach dem ${r.basis === "umzugstag" ? "Umzugstag" : "Rechnungstag"}`;
+    "Der Restbetrag ist am Umzugstag fällig, direkt nach dem Umzug. Liegt der Rechnungstag am oder nach dem Umzugstag, ist die Rechnung an dem Tag fällig";
   const erinnerung =
     r.erinnerungModus === "aus"
       ? "Erinnerungen aus."

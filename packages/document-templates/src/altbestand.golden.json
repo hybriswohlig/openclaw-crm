@@ -137,15 +137,15 @@
       "depositLabel": "400,00 €",
       "remainderLabel": "1.320,00 €",
       "paymentMethodLabel": "Überweisung",
-      "paymentTerms": "Die Anzahlung ist per Überweisung zu zahlen.",
+      "paymentTerms": "Die Anzahlung ist per Überweisung zu zahlen. Der Restbetrag ist am Umzugstag direkt nach dem Umzug fällig (bar oder Überweisung).",
       "closing": [
         "Über eine Rückmeldung freuen wir uns."
       ],
       "taxNote": "Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.",
       "showBank": true
     },
-    "html": "a07788885c4a050a5d1e41e825bd70f0cea128995ad174231a3573e60fb22f67",
-    "pdf": "8bce9a78d4d8843b4c034c4c82f3f41679dae4941cccac874a6ea0484691ee1b"
+    "html": "cb04be8af279431b4e015f54976530fb4703956b96b233e67cc951e8452e0cea",
+    "pdf": "d6660c74b59f37956849689e2dcc9ee96261fc087cc1e784e8c313932082d2a2"
   },
   "kv-paket-passt-nicht": {
     "model": {
@@ -205,15 +205,15 @@
       "depositLabel": "400,00 €",
       "remainderLabel": "1.490,00 €",
       "paymentMethodLabel": "Bar",
-      "paymentTerms": "Die Anzahlung ist bar zu entrichten.",
+      "paymentTerms": "Die Anzahlung ist bar zu entrichten. Der Restbetrag ist am Umzugstag direkt nach dem Umzug fällig (bar oder Überweisung).",
       "closing": [
         "Über eine Rückmeldung freuen wir uns."
       ],
       "taxNote": "Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.",
       "showBank": false
     },
-    "html": "53696cff236d475e0ecc2c5710ccfbb1c436add783ddd40c58eec809dc23c468",
-    "pdf": "9b71c68bda9d0acf9c56c124232db030c47b2c75eb1d3fd66821fc7a43996a6d"
+    "html": "b4549f63988e5f0f4fb3445468f289aa5c98a9d134a8db04a834dbcaa8372427",
+    "pdf": "62173bbd8fd7cca72c971d30b32f7e61c60e456ffb3731e2b984f052aa8a9c26"
   },
   "kv-paket-passt": {
     "model": {
@@ -278,15 +278,15 @@
       "depositLabel": "400,00 €",
       "remainderLabel": "1.490,00 €",
       "paymentMethodLabel": "Bar",
-      "paymentTerms": "Die Anzahlung ist bar zu entrichten.",
+      "paymentTerms": "Die Anzahlung ist bar zu entrichten. Der Restbetrag ist am Umzugstag direkt nach dem Umzug fällig (bar oder Überweisung).",
       "closing": [
         "Über eine Rückmeldung freuen wir uns."
       ],
       "taxNote": "Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.",
       "showBank": false
     },
-    "html": "403dcc646c98da17e86626bd895de3f95871bef9386148c361c9378b0a4444af",
-    "pdf": "0e52d62e670d54cb2fd9ccbc7e6fc020fd7e58bd0619c1479d84af80cbc52b2e"
+    "html": "7ed08f5d1b26918f76c4d9ee719051bca841d01318643ca9371ce67b0599fac9",
+    "pdf": "d3e1f7c2f8e2e9e380fac896cfe62379debc5d3893d372a65335dd94be70dc0a"
   },
   "kv-stunden-alt": {
     "model": {
@@ -355,15 +355,15 @@
       "totalCaption": "Voraussichtlicher Gesamtbetrag",
       "variable": true,
       "paymentMethodLabel": "Überweisung",
-      "paymentTerms": "Die Zahlung erfolgt per Überweisung.",
+      "paymentTerms": "Der Restbetrag ist am Umzugstag direkt nach dem Umzug fällig (bar oder Überweisung).",
       "closing": [
         "Über eine Rückmeldung freuen wir uns."
       ],
       "taxNote": "Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.",
       "showBank": true
     },
-    "html": "389800ded7aea2f1db9d554369baaef2e8efdccf23e2dc63b29458517d6f96a8",
-    "pdf": "71d6b33199d5b6d3c9d12d5f98136a0c04a9549c452c68746f9f23dadd0891bb"
+    "html": "e1f45333b11754bf6356624909a3795d2810cab3e763bb0d5a32f338069c836a",
+    "pdf": "bcdd1f3bfd107b52ba66589f47222a49e996b9d2a2c30be6ec0de57d61a64763"
   },
   "kv-stunden-alt-andere-details": {
     "model": {
@@ -432,15 +432,15 @@
       "totalCaption": "Voraussichtlicher Gesamtbetrag",
       "variable": true,
       "paymentMethodLabel": "Überweisung",
-      "paymentTerms": "Die Zahlung erfolgt per Überweisung.",
+      "paymentTerms": "Der Restbetrag ist am Umzugstag direkt nach dem Umzug fällig (bar oder Überweisung).",
       "closing": [
         "Über eine Rückmeldung freuen wir uns."
       ],
       "taxNote": "Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.",
       "showBank": true
     },
-    "html": "389800ded7aea2f1db9d554369baaef2e8efdccf23e2dc63b29458517d6f96a8",
-    "pdf": "71d6b33199d5b6d3c9d12d5f98136a0c04a9549c452c68746f9f23dadd0891bb"
+    "html": "e1f45333b11754bf6356624909a3795d2810cab3e763bb0d5a32f338069c836a",
+    "pdf": "bcdd1f3bfd107b52ba66589f47222a49e996b9d2a2c30be6ec0de57d61a64763"
   },
   "ab-annahme": {
     "model": {
@@ -578,7 +578,7 @@
       "variable": true,
       "depositLabel": "400,00 €",
       "paymentMethodLabel": "Karte",
-      "paymentTerms": "Die Zahlung erfolgt per Karte vor Ort.",
+      "paymentTerms": "Die Zahlung erfolgt per Karte vor Ort. Der Restbetrag ist am Umzugstag direkt nach dem Umzug fällig (bar oder Überweisung).",
       "paidLabel": "100,00 €",
       "openLabel": "155,00 €",
       "closing": [
@@ -587,8 +587,8 @@
       "taxNote": "Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.",
       "showBank": true
     },
-    "html": "b9035f88163e0ce24faf81bde638362c5aff817621f7e9440deec50e799e686f",
-    "pdf": "68b4934235716c5af0eaea13ae11fda6cc18a52452012e0565a9e6122091164a"
+    "html": "f0ba2eecd054dbabca09a58696a978b36df075b5cceb5e5d7d21bff523c4fa42",
+    "pdf": "9944291cf036a65c2a29a4c94a7abe77ed0333a8b7ccbd22f884ff80a2aee4b2"
   },
   "kv-du-firma-rabatt": {
     "model": {
@@ -658,15 +658,15 @@
       "totalCaption": "Festpreis",
       "variable": false,
       "paymentMethodLabel": "Überweisung",
-      "paymentTerms": "Die Zahlung erfolgt per Überweisung.",
+      "paymentTerms": "Der Restbetrag ist am Umzugstag direkt nach dem Umzug fällig (bar oder Überweisung).",
       "closing": [
         "Über eine Rückmeldung freuen wir uns."
       ],
       "taxNote": "Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.",
       "showBank": true
     },
-    "html": "6f7b449623ec4a79bfb4bb9204dd0c2e9e4cda00885a92b613aed5584aab4c7b",
-    "pdf": "72fd7ddebb388203353692829c3187a31e7e3190f3d1e2ddeed30a062b627062"
+    "html": "e63a0b56b4339a7c103ce8a5de0322014ed91f26df3920e94a5c0501ee0ab7b2",
+    "pdf": "14d770f3e6302c82a7a7fd2f3b0abe7eeabb75eaf94479e7c0acaab786d60c5c"
   },
   "kv-du-privat": {
     "model": {
@@ -723,14 +723,14 @@
       "depositLabel": "400,00 €",
       "remainderLabel": "250,00 €",
       "paymentMethodLabel": "Bar",
-      "paymentTerms": "Die Anzahlung ist bar zu entrichten.",
+      "paymentTerms": "Die Anzahlung ist bar zu entrichten. Der Restbetrag ist am Umzugstag direkt nach dem Umzug fällig (bar oder Überweisung).",
       "closing": [
         "Über eine Rückmeldung freuen wir uns."
       ],
       "taxNote": "Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.",
       "showBank": false
     },
-    "html": "610499a9b9c80e259228089372eb33a1b814dd5a8156b6b920a404b5bcb85d10",
-    "pdf": "96e69bc063d17a243e06ef56b6aa6d2762a25c797ee56276a2e65a587de5bbf4"
+    "html": "3c60f1bb5406e0f51e6c9e50cff9608e9c35624c09b94cc307edf7d7dd4515b3",
+    "pdf": "6cc93827a5823dbf1870ce2b65fe9ded710ce368c9782ad8c7761a52f22de80a"
   }
 }

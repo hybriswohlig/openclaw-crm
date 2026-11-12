@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   getObjectBySlug: vi.fn(),
   updateRecord: vi.fn(),
+  getRecord: vi.fn(),
 }));
 
 vi.mock("@/services/objects", () => ({
@@ -11,6 +12,7 @@ vi.mock("@/services/objects", () => ({
 
 vi.mock("@/services/records", () => ({
   updateRecord: mocks.updateRecord,
+  getRecord: mocks.getRecord,
 }));
 
 import { applyInvoiceDueDate } from "./rechnung-faellig";
@@ -19,6 +21,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.getObjectBySlug.mockResolvedValue({ id: "obj_deals" });
   mocks.updateRecord.mockResolvedValue({ id: "deal_1", values: {} });
+  mocks.getRecord.mockResolvedValue({ values: {} });
 });
 
 describe("applyInvoiceDueDate", () => {
@@ -41,23 +44,44 @@ describe("applyInvoiceDueDate", () => {
     );
   });
 
-  it("keeps an explicit due date", async () => {
+  it("uses the move day when the invoice is issued before the move", async () => {
+    mocks.getRecord.mockResolvedValue({ values: { move_date: "2026-11-21" } });
     const result = await applyInvoiceDueDate({
+      documentType: "invoice",
+      workspaceId: "ws",
+      dealRecordId: "deal_1",
+      updatedBy: "usr_1",
+      now: new Date("2026-11-02T12:00:00.000Z"),
+    });
+    expect(result.rechnungFaelligAm).toBe("2026-11-21");
+    expect(mocks.updateRecord).toHaveBeenCalledWith(
+      "obj_deals",
+      "deal_1",
+      { rechnung_faellig_am: "2026-11-21" },
+      "usr_1"
+    );
+  });
+
+  it("uses the invoice day when the invoice is issued on or after the move, and drops a later explicit day", async () => {
+    mocks.getRecord.mockResolvedValue({ values: { move_date: "2026-11-21" } });
+    const onMove = await applyInvoiceDueDate({
       documentType: "invoice",
       workspaceId: "ws",
       dealRecordId: "deal_1",
       explicitDueDate: "2026-12-01",
       updatedBy: null,
-      now: new Date("2026-11-02T12:00:00.000Z"),
+      now: new Date("2026-11-21T12:00:00.000Z"),
     });
+    expect(onMove.rechnungFaelligAm).toBe("2026-11-21");
 
-    expect(result.rechnungFaelligAm).toBe("2026-12-01");
-    expect(mocks.updateRecord).toHaveBeenCalledWith(
-      "obj_deals",
-      "deal_1",
-      { rechnung_faellig_am: "2026-12-01" },
-      null
-    );
+    const after = await applyInvoiceDueDate({
+      documentType: "invoice",
+      workspaceId: "ws",
+      dealRecordId: "deal_1",
+      updatedBy: null,
+      now: new Date("2026-11-25T12:00:00.000Z"),
+    });
+    expect(after.rechnungFaelligAm).toBe("2026-11-25");
   });
 
   it("does not touch the field for a quotation", async () => {
