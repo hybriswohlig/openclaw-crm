@@ -8,6 +8,7 @@
  * Tagesabschluss, Stunden-Vorschlag, Zahlungserinnerung samt Kundentexten.
  */
 import type { StundenAngebot } from "@/lib/angebot-wahl";
+import { restDueDay } from "@/lib/invoice-due-date";
 import type { Zahlungsart } from "@/lib/zahlungsart";
 import {
   MELDUNG_BESTAETIGT,
@@ -196,9 +197,12 @@ export function berlinTag(iso: string | Date): string {
 // ─── Firmenregel (company_settings, Plan 13 hängt die Oberfläche dran) ─────
 
 export interface FirmenZahlungsregel {
-  /** Worauf das Zahlungsziel aufsetzt (G1: Rest fällig am Umzugstag). */
+  /**
+   * Gespeichert, setzt die Fälligkeit aber nicht mehr. Der Rest ist am
+   * Umzugstag fällig, am Rechnungstag nur wenn die Rechnung dann schon liegt.
+   */
   basis: "umzugstag" | "rechnungstag";
-  /** Tage nach der Basis, 0 bis 60. */
+  /** Gespeichert, wird für die Fälligkeit nicht mehr addiert. 0 bis 60. */
   tage: number;
   /** G2: zuerst nur Entwurf zur Freigabe; Standard aus. */
   erinnerungModus: "aus" | "entwurf";
@@ -280,9 +284,10 @@ export function rechnungsDateiStamm(nummer: string, firma: string): string {
 }
 
 /**
- * Fälligkeit (G1). Basis Umzugstag (ohne Umzugstag: Rechnungstag) oder
- * Rechnungstag, plus `tage`; nie vor dem Rechnungstag. Ein ausdrückliches
- * Datum gewinnt, auch wenn es vor dem Rechnungstag liegt (API wie heute).
+ * Fälligkeit der Rechnung. Umzugstag, wenn die Rechnung davor liegt.
+ * Liegt der Rechnungstag am oder nach dem Umzugstag, gilt der Rechnungstag.
+ * `regel.tage` und `regel.basis` schieben den Tag nicht nach hinten.
+ * Ein früheres ausdrückliches Datum bleibt, ein späteres nicht.
  */
 export function faelligAm(e: {
   rechnungstag: string;
@@ -290,10 +295,11 @@ export function faelligAm(e: {
   regel: Pick<FirmenZahlungsregel, "basis" | "tage">;
   ausdruecklich?: string | null;
 }): string {
-  if (e.ausdruecklich && TAG.test(e.ausdruecklich)) return e.ausdruecklich;
-  const basis = e.regel.basis === "umzugstag" && e.umzugstag && TAG.test(e.umzugstag) ? e.umzugstag : e.rechnungstag;
-  const tag = tagPlusTage(basis, e.regel.tage);
-  return tag < e.rechnungstag ? e.rechnungstag : tag;
+  void e.regel;
+  const umzug = e.umzugstag && TAG.test(e.umzugstag) ? e.umzugstag : null;
+  const regel = restDueDay(e.rechnungstag, umzug);
+  if (e.ausdruecklich && TAG.test(e.ausdruecklich) && e.ausdruecklich <= regel) return e.ausdruecklich;
+  return regel;
 }
 
 // ─── Ein Begriff „offen“ ────────────────────────────────────────────────────

@@ -1,11 +1,12 @@
 /**
- * Vertragsmappe ohne Plan-5b-Felder bleibt unverändert (Nachtrag D2).
+ * Sperre der Vertragsmappe ohne Plan-5b-Felder (Nachtrag D2).
  *
- * `altbestand-mappe.golden.json` ist mit der Mappe vor `gewaehlt` und
- * `preisAngabe` erzeugt (Stand 5c92d3d0). Verglichen werden Annahmeseiten-Modell
- * und Textzeilen vollständig und der Seiteninhalt der Annahmeseite als Hash.
+ * Verglichen werden Annahmeseiten-Modell und Textzeilen vollständig und der
+ * Seiteninhalt der Annahmeseite als Hash. Die Golddatei enthält den
+ * Restbetrag-Satz am Umzugstag für jede Firma.
  *
- * Neu schreiben (nur aus dem alten Stand): GOLDEN_SCHREIBEN=<pfad> npx vitest run src/altbestand-mappe.test.ts
+ * Neu schreiben, wenn der gedruckte Text absichtlich geändert wurde:
+ * GOLDEN_SCHREIBEN=<pfad> npx vitest run src/altbestand-mappe.test.ts
  */
 import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
@@ -60,7 +61,7 @@ async function annahmeSeite(pdf: Uint8Array): Promise<string> {
 const GOLDEN = new URL("./altbestand-mappe.golden.json", import.meta.url);
 
 describe("Vertragsmappe ohne Wahl und ohne Preisangabe", () => {
-  it("bleibt wie vor 5b", async () => {
+  it("bleibt wie die Golddatei", async () => {
     const jetzt: Record<string, unknown> = {};
     for (const [name, d] of BEISPIELE) {
       jetzt[name] = {

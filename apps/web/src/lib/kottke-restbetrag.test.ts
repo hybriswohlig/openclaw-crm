@@ -14,7 +14,8 @@ describe("portalRestbetragSatz", () => {
     expect(KOTTKE_RESTBETRAG_EINSATZ).not.toContain("Umzug");
   });
 
-  it("Ceylan bleibt ohne diesen Satz", () => {
-    expect(portalRestbetragSatz("ceylan", "move")).toBeNull();
+  it("Ceylan nutzt denselben Satz, die Vorlage ist gemeinsam", () => {
+    expect(portalRestbetragSatz("ceylan", "move")).toBe(KOTTKE_RESTBETRAG_UMZUG);
+    expect(portalRestbetragSatz("ceylan", "kitchen_installation")).toBe(KOTTKE_RESTBETRAG_EINSATZ);
   });
 });

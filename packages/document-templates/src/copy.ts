@@ -335,23 +335,26 @@ function defaultClosing(kind: DocKind, nouns: Nouns): string {
   return nouns.invoiceThanks ?? "Vielen Dank.";
 }
 
-function dueClause(dueDate?: string | null, serviceDate?: string | null): string {
-  if (!dueDate || !/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) return "";
-  const label = formatGermanDate(dueDate);
-  const before =
-    !!serviceDate && /^\d{4}-\d{2}-\d{2}$/.test(serviceDate) && dueDate < serviceDate;
-  return before ? ` bis spätestens ${label} (vor Einsatz)` : ` bis spätestens ${label}`;
+/**
+ * Anzahlung only. A date is printed when it is strictly before the job.
+ * A date on or after the job would be a post-move term, so it is left off.
+ * The remaining balance never uses this clause.
+ */
+function anzahlungFrist(dueDate?: string | null, serviceDate?: string | null): string {
+  if (!dueDate || !serviceDate) return "";
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dueDate) || !/^\d{4}-\d{2}-\d{2}$/.test(serviceDate)) return "";
+  if (dueDate >= serviceDate) return "";
+  return ` bis spätestens ${formatGermanDate(dueDate)} (vor Einsatz)`;
 }
 
 /**
  * When the money is due and how it is paid. The sentence never contains an
- * amount. A missing due date stays missing: the service date is not a due date,
- * and a deposit is not described as due before the job unless a due date is stored.
- * The method is the quotation's payment method. Card is mentioned only then.
+ * amount. The method is the quotation's payment method. Card is mentioned only then.
  *
- * Kottke KV/AB add the moving-day rule for the remaining balance. A deposit
- * sentence stays (the Anzahlung can still be due earlier). An invoice (RE)
- * keeps its own due-date sentence, including an empty one ("sofort").
+ * The remaining balance is due on the job day, right after the job, for every
+ * company that uses this template. A deposit sentence stays, and may name a
+ * date only when that date is before the job. An invoice names the method and
+ * the same job-day sentence. It does not name a later calendar day.
  */
 export function paymentDueWording(input: {
   kind: DocKind;
@@ -364,7 +367,7 @@ export function paymentDueWording(input: {
   firma?: FirmaSlug | null;
   serviceKind?: DocumentServiceKind | null;
 }): string | null {
-  return mitKottkeRestbetrag(paymentDuePrimary(input), input);
+  return mitRestbetrag(paymentDuePrimary(input), input);
 }
 
 function paymentDuePrimary(input: {
@@ -379,10 +382,10 @@ function paymentDuePrimary(input: {
   if (input.kind === "RE" && input.openCents === 0) {
     return "Der Betrag ist ausgeglichen. Diese Rechnung gilt als Quittung.";
   }
-  const due = dueClause(input.dueDate, input.serviceDate);
+  const frist = input.kind === "RE" ? "" : anzahlungFrist(input.dueDate, input.serviceDate);
   if (input.methodLabel === "Karte") {
-    return due
-      ? `Die Zahlung erfolgt per Karte vor Ort${due}.`
+    return frist
+      ? `Die Zahlung erfolgt per Karte vor Ort${frist}.`
       : "Die Zahlung erfolgt per Karte vor Ort.";
   }
   const channel =
@@ -394,37 +397,38 @@ function paymentDuePrimary(input: {
   if (input.kind === "RE") {
     if (input.methodLabel === "Bar") {
       const verb = input.addressForm === "du" ? "zu zahlen" : "zu entrichten";
-      return `Der offene Betrag ist${due} bar ${verb}.`;
+      return `Der offene Betrag ist bar ${verb}.`;
     }
     if (input.methodLabel === "PayPal") {
-      return `Der offene Betrag ist${due} per PayPal zu zahlen.`;
+      return "Der offene Betrag ist per PayPal zu zahlen.";
     }
     const verb = input.addressForm === "du" ? "Bitte überweise" : "Bitte überweisen Sie";
-    return `${verb} den offenen Betrag${due} auf das unten genannte Konto.`;
+    return `${verb} den offenen Betrag auf das unten genannte Konto.`;
   }
   if (input.hasDeposit) {
     const verb = input.methodLabel === "Bar" ? "zu entrichten" : "zu zahlen";
-    return due
-      ? `Die Anzahlung ist${due} ${channel} ${verb}.`
+    return frist
+      ? `Die Anzahlung ist${frist} ${channel} ${verb}.`
       : `Die Anzahlung ist ${channel} ${verb}.`;
   }
-  if (input.methodLabel === "Bar") return `Die Zahlung erfolgt bar${due}.`;
-  if (input.methodLabel === "PayPal") return `Die Zahlung erfolgt per PayPal${due}.`;
-  return `Die Zahlung erfolgt per Überweisung${due}.`;
+  if (input.methodLabel === "Bar") return "Die Zahlung erfolgt bar.";
+  if (input.methodLabel === "PayPal") return "Die Zahlung erfolgt per PayPal.";
+  return "Die Zahlung erfolgt per Überweisung.";
 }
 
-function mitKottkeRestbetrag(
+function mitRestbetrag(
   primary: string | null,
   input: {
     kind: DocKind;
-    firma?: FirmaSlug | null;
     serviceKind?: DocumentServiceKind | null;
     hasDeposit: boolean;
+    openCents: number | null;
   },
 ): string | null {
-  if (input.kind === "RE" || input.firma !== "kottke" || !input.serviceKind) return primary;
+  if (input.kind === "RE" && input.openCents === 0) return primary;
+  if (!input.serviceKind) return primary;
   const satz = kottkeRestbetragSatz(input.serviceKind === "move");
-  if (!input.hasDeposit) return satz;
+  if (input.kind !== "RE" && !input.hasDeposit) return satz;
   return primary ? `${primary} ${satz}` : satz;
 }
 

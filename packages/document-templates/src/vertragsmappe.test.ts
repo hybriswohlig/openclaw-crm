@@ -61,7 +61,7 @@ describe("annahmeSeiteModell", () => {
     expect(m.rechtstexte).toContain(KOTTKE_RESTBETRAG_UMZUG);
     expect(annahmeSeiteZeilen(basis).join("\n")).toContain(KOTTKE_RESTBETRAG_UMZUG);
     const ceylan = annahmeSeiteModell({ ...basis, marke: { ...basis.marke, firmaSlug: "ceylan" } });
-    expect(ceylan.rechtstexte.join("\n")).not.toContain("Restbetrag");
+    expect(ceylan.rechtstexte).toContain(KOTTKE_RESTBETRAG_UMZUG);
     const kueche = annahmeSeiteModell({ ...basis, leistung: "Küchenmontage", haftungshinweis: false });
     expect(kueche.rechtstexte).toContain(KOTTKE_RESTBETRAG_EINSATZ);
     expect(kueche.rechtstexte.join("\n")).not.toContain("Umzugstag");

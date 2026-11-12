@@ -105,6 +105,7 @@ export const TEXT = {
   kalenderSeit: "Erstellt am",
 
   zahlung: "Zahlung",
+  zahlungFest: "Der Restbetrag ist am Umzugstag direkt nach dem Umzug fällig. Ein späteres Zahlungsziel gibt es nicht.",
   zahlungBasis: "Zahlungsziel ab",
   zahlungBasisUmzug: "Umzugstag",
   zahlungBasisRechnung: "Rechnungstag",

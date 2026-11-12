@@ -255,7 +255,7 @@ describe("template version", () => {
       deal: { ...deal, firma: "ceylan" },
       quotation: quotation({ paymentMethodPreference: "bank_transfer" }),
     });
-    expect(TEMPLATE_VERSION).toBe("kv-ab-re/6");
+    expect(TEMPLATE_VERSION).toBe("kv-ab-re/7");
     expect(html).toContain(`content="${TEMPLATE_VERSION}"`);
     expect(html).toContain(`Vorlage ${TEMPLATE_VERSION}`);
     expect(text).toContain(TEMPLATE_VERSION);
@@ -741,7 +741,7 @@ describe("Stunden-KV aus der Version (kv-ab-re/5)", () => {
   });
 });
 
-describe("Rechnungsnummer und Steuernummer (kv-ab-re/6, Plan 9)", () => {
+describe("Rechnungsnummer und Steuernummer (kv-ab-re/7, Plan 9)", () => {
   it("druckt die Nummer im Kopf und benennt die Datei danach", async () => {
     const { html, text, model } = await rendered({
       kind: "RE",

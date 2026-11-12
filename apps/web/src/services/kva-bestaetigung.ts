@@ -118,8 +118,6 @@ function text(d: BestaetigungsDaten, sie: string, du: string): string {
 }
 
 function restbetragHinweis(d: BestaetigungsDaten): string | null {
-  const name = `${d.kontakt.firma} ${d.kontakt.email ?? ""}`;
-  if (!/kottke/i.test(name)) return null;
   return kottkeRestbetragSatz(d.widerrufModus === "ausgeschlossen");
 }
 
