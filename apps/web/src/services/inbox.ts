@@ -916,6 +916,8 @@ export async function createDealForNewConversation(params: {
   sourceDetail?: string | null;
   /** Inbound capture time. Not overwritten when Quelle is already set. */
   sourceReceivedAt?: Date | null;
+  /** History import must not start the insights model. */
+  skipAutoInsights?: boolean;
 }): Promise<string | null> {
   const { workspaceId, conversationId, dealName, contactId, channelAccountId } = params;
   try {
@@ -1041,6 +1043,9 @@ export async function createDealForNewConversation(params: {
     // 7. Fire-and-forget: extract AI insights from the first message and
     // post an initial activity note. Only the note is auto-applied — field
     // updates are left for the user to review via the KI-Analyse panel.
+    // History import skips this: the model must not run on a catch-up burst.
+    if (params.skipAutoInsights) return deal.id;
+
     extractDealInsights(workspaceId, deal.id)
       .then((result) => {
         if (result.insights) {

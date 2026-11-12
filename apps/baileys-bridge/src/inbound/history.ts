@@ -2,24 +2,55 @@
  * Cutoff for a re-pair history catch-up.
  *
  * WhatsApp sends the phone's chat history once, when a linked device is
- * paired. The CRM already has everything it received live before the
- * outage, so the cutoff is the newest stored message (minus a short
- * overlap). The unique index drops true duplicates. When the account has
- * no stored messages, fall back to a bounded window so a first pair does
- * not mint leads out of years of old chats.
+ * paired. The CRM cursor (`historySince`) is the start of the import
+ * window. This module subtracts a short overlap; the CRM dedupes by
+ * WhatsApp message id. When the cursor omits `historySince`, fall back to
+ * a bounded window so a first pair does not mint leads out of years of
+ * old chats. The default is 7 days (`HISTORY_SYNC_WINDOW_DAYS`, clamped
+ * to 1..30) and matches the CRM cursor.
  */
 export const HISTORY_OVERLAP_MS = 5 * 60 * 1000;
-export const HISTORY_FALLBACK_MS = 21 * 24 * 60 * 60 * 1000;
+export const DEFAULT_HISTORY_WINDOW_DAYS = 7;
+export const HISTORY_FALLBACK_MS = DEFAULT_HISTORY_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+
+export function historyWindowDays(
+  raw: string | undefined = process.env.HISTORY_SYNC_WINDOW_DAYS,
+): number {
+  if (raw == null || raw.trim() === "") return DEFAULT_HISTORY_WINDOW_DAYS;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 1 || n > 30) return DEFAULT_HISTORY_WINDOW_DAYS;
+  return n;
+}
+
+export function historyFallbackMs(raw?: string): number {
+  return historyWindowDays(raw) * 24 * 60 * 60 * 1000;
+}
 
 export function historyCutoffMs(
   historySinceIso: string | null,
   now = Date.now(),
+  fallbackMs = historyFallbackMs(),
 ): number {
   if (historySinceIso) {
     const since = Date.parse(historySinceIso);
     if (Number.isFinite(since)) return since - HISTORY_OVERLAP_MS;
   }
-  return now - HISTORY_FALLBACK_MS;
+  return now - fallbackMs;
+}
+
+/**
+ * Baileys defaults `shouldSyncHistoryMessage` to "everything except FULL".
+ * `syncFullHistory: true` asks the phone for those FULL chunks, then the
+ * library drops them unless this returns true. A fresh pair accepts FULL;
+ * the handler still keeps only the window. A restored session keeps the
+ * library default so a reconnect does not decode a full history dump.
+ */
+export function allowHistorySyncType(args: {
+  isFull: boolean;
+  requestFullHistory: boolean;
+}): boolean {
+  if (args.isFull && !args.requestFullHistory) return false;
+  return true;
 }
 
 export function isWithinHistoryWindow(

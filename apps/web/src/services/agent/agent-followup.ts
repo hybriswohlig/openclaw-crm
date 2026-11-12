@@ -20,6 +20,7 @@ import { runAITask } from "@/services/ai/run-task";
 import { AI_TASK_SLUGS } from "@/services/ai/task-registry";
 import { emitEvent } from "@/services/activity-events";
 import { excludeInternalPhotoMessages } from "@/services/deal-photos";
+import { followupTrailingOutbound, isHistorySyncMarker } from "@/services/baileys-history-sync";
 import { weiterLink } from "@/lib/handy-links";
 import { sendPush } from "@/services/push";
 import { getObjectBySlug } from "@/services/objects";
@@ -124,6 +125,8 @@ async function trailingOutboundCount(conversationId: string): Promise<{
       body: inboxMessages.body,
       sentAt: inboxMessages.sentAt,
       createdAt: inboxMessages.createdAt,
+      rawHeaders: inboxMessages.rawHeaders,
+      aiSkipReason: inboxMessages.aiSkipReason,
     })
     .from(inboxMessages)
     .where(
@@ -134,17 +137,19 @@ async function trailingOutboundCount(conversationId: string): Promise<{
     .orderBy(desc(inboxMessages.sentAt), desc(inboxMessages.createdAt))
     .limit(MAX_TRANSCRIPT_MESSAGES);
   const recent = rows.reverse();
-  let trailing = 0;
-  for (let i = recent.length - 1; i >= 0; i--) {
-    if (recent[i].direction === "outbound") trailing++;
-    else break;
-  }
+  const speaker = followupTrailingOutbound(
+    recent.map((m) => ({
+      direction: m.direction,
+      historySync: m.aiSkipReason === "history-sync" || isHistorySyncMarker(m.rawHeaders),
+    })),
+  );
+  const trailing = speaker.trailing;
   const transcript = recent
     .map((m) => `${m.direction === "inbound" ? "Kunde" : "Wir"}: ${(m.body ?? "").trim()}`)
     .filter((l) => l.length > 7)
     .join("\n");
   const anrede = anredeAus(recent.map((m) => ({ eingehend: m.direction === "inbound", text: m.body ?? "" })));
-  return { trailing, lastIsOutbound: recent.length > 0 && recent[recent.length - 1].direction === "outbound", transcript, anrede };
+  return { trailing, lastIsOutbound: speaker.lastIsOutbound, transcript, anrede };
 }
 
 async function runForWorkspace(

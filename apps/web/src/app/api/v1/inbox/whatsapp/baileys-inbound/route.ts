@@ -22,6 +22,11 @@ import { channelAccounts, inboxMessageAttachments } from "@/db/schema/inbox";
 import { eq, and, isNull } from "drizzle-orm";
 import { getAuthContext, unauthorized, requireBridgeApiKey } from "@/lib/api-utils";
 import { ingestInboundWhatsAppMessage } from "@/services/inbox-whatsapp";
+import {
+  historyWindowStartMs,
+  isHistorySyncExcludedAccount,
+  isSkippedWhatsAppThread,
+} from "@/services/baileys-history-sync";
 
 // Freigabe-Befehle laufen per after() weiter (KI-Überarbeitung bis ~2 Minuten).
 export const maxDuration = 300;
@@ -86,6 +91,11 @@ interface BaileysInboundPayload {
    * never block ingest (matches the WABA media path in inbox-whatsapp.ts).
    */
   attachments?: BaileysInboundAttachment[];
+  /**
+   * True when the bridge is replaying `messaging-history.set` / offline
+   * append. Stored, deduped, and never armed or sent.
+   */
+  historySync?: boolean;
 }
 
 function badRequest(message: string, extra?: Record<string, unknown>) {
@@ -117,6 +127,17 @@ export async function POST(req: NextRequest) {
   }
   if (!payload.externalMessageId || typeof payload.externalMessageId !== "string") {
     return badRequest("externalMessageId required");
+  }
+
+  const historySync =
+    payload.historySync === true || payload.rawHeaders?.source === "history-sync";
+  if (historySync && !payload.sentAt) {
+    return badRequest("sentAt required for historySync");
+  }
+  // Excluded accounts are refused before any database read. Live ingest of
+  // those accounts is unchanged; only the history path bails out here.
+  if (historySync && isHistorySyncExcludedAccount(payload.accountId)) {
+    return NextResponse.json({ ok: true, skipped: true, reason: "excluded", stored: false });
   }
 
   // Resolve channel account, scoped to this workspace + Baileys-only.
@@ -186,6 +207,12 @@ export async function POST(req: NextRequest) {
   if (Number.isNaN(sentAt.getTime())) {
     return badRequest("sentAt must be a valid ISO timestamp");
   }
+  if (historySync && isSkippedWhatsAppThread(payload.peerJid, peerWaId)) {
+    return NextResponse.json({ ok: true, skipped: true, reason: "group_or_status", stored: false });
+  }
+  if (historySync && sentAt.getTime() < historyWindowStartMs()) {
+    return NextResponse.json({ ok: true, skipped: true, reason: "outside_window", stored: false });
+  }
 
   // Attachment shape check. We only inspect the envelope; the actual base64
   // is opaque to us. Reject obviously malformed entries up front so we don't
@@ -213,6 +240,10 @@ export async function POST(req: NextRequest) {
   // angelegt. Eingehende Befehle (Freigaben) verarbeitet später der Freigabe-Kanal.
   const intern = findeInterne(await ladeInterneNummern(account.workspaceId), { peerWaId, peerJid, peerLid });
   if (intern) {
+    // History must not run approval commands: those send WhatsApp.
+    if (historySync) {
+      return NextResponse.json({ ok: true, intern: true, stored: false, executed: false });
+    }
     console.log(`[baileys-inbound] interne Nummer (${intern.name}), nicht ins CRM übernommen`);
     // Nach der Antwort an die Brücke verarbeiten: eine KI-Überarbeitung dauert
     // bis zu 2 Minuten, so lange darf die Brücke nicht warten (sonst Wiederholung).
@@ -239,7 +270,12 @@ export async function POST(req: NextRequest) {
       externalMessageId: payload.externalMessageId,
       sentAt,
       toAddress: account.address,
-      rawHeaders: { provider: "baileys", ...(payload.rawHeaders ?? {}) },
+      rawHeaders: {
+        provider: "baileys",
+        ...(payload.rawHeaders ?? {}),
+        ...(historySync ? { source: "history-sync", historySync: true } : {}),
+      },
+      historySync,
     });
 
     // Persist attachments only when we actually inserted a new message row.

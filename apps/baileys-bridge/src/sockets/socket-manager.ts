@@ -9,7 +9,7 @@
  * already-running entry, so the HTTP control plane can fire the same
  * call repeatedly without spawning duplicate sockets.
  */
-import { makeWASocket } from "baileys";
+import { makeWASocket, proto } from "baileys";
 import type { WASocket } from "baileys";
 import type { Logger } from "../lib/logger.js";
 import type { CrmClient } from "../lib/crm-client.js";
@@ -18,7 +18,7 @@ import {
   type CrmAuthStateHandle,
 } from "../auth-state/crm-auth-state.js";
 import { attachInboundHandler } from "../inbound/handler.js";
-import { historyCatchupConfig } from "../inbound/history.js";
+import { allowHistorySyncType, historyCatchupConfig } from "../inbound/history.js";
 import { attachStatusHandler } from "../inbound/status-handler.js";
 import {
   peerJidFor,
@@ -273,9 +273,9 @@ export class SocketManager {
       // `registered` stays false on restored sessions in this deployment.
       // A missing `me` id is the fresh-pair case that still needs a QR.
       const freshPair = !authState.state.creds.me?.id;
-      // postToCrm stays false unless the CRM opted in. A 404 cursor (the
-      // web app today) spools a fresh pair and leaves a restored session
-      // with no catch-up, so reconnect does not replay history.
+      // postToCrm stays false unless the CRM opted in. A missing cursor
+      // spools a fresh pair and leaves a restored session with no catch-up,
+      // so a restart cannot replay history through live ingest.
       const history = historyCatchupConfig({
         freshPair,
         cursorSupported: cursor.supported,
@@ -299,6 +299,14 @@ export class SocketManager {
         printQRInTerminal: false,
         markOnlineOnConnect: false,
         syncFullHistory: requestFullHistory,
+        // Library default drops HistorySyncType.FULL, which is the chunk
+        // syncFullHistory asks the phone to send. Accept it only on a fresh
+        // pair; the handler then applies the CRM window.
+        shouldSyncHistoryMessage: (notification) =>
+          allowHistorySyncType({
+            isFull: notification.syncType === proto.HistorySync.HistorySyncType.FULL,
+            requestFullHistory,
+          }),
       });
       entry.sock = sock;
       entry.status = "starting";
