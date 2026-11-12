@@ -3,9 +3,9 @@ import { firmaKontakt } from "@openclaw-crm/customer-portal-core";
 import { bestaetigungsMailText, bestaetigungsTextWhatsApp, type BestaetigungsDaten } from "./kva-bestaetigung";
 
 /**
- * Plan 5b: Bestätigungen ohne Plan-5-Wahl (Altbestand, Firmen ohne Schalter)
- * bleiben Wort für Wort wie vor Task W. Snapshots mit dem Code der Basis
- * f70e6a72 erzeugt.
+ * Plan 5b: Bestätigungen ohne Plan-5-Wahl (Altbestand, Firmen ohne Schalter).
+ * Der Restbetrag-Satz gehört zum aktuellen Text. Sonst bleiben die
+ * Bestätigungen wie vor Task W.
  */
 const kottke: BestaetigungsDaten = {
   firma: "Kottke Dienstleistungen", kontakt: firmaKontakt("kottke"), dealNumber: "K-1042",
