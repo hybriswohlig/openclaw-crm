@@ -3,6 +3,8 @@
 import { GlassSlider } from "@/components/glassyui/glass-slider";
 import type { MargeAnsicht } from "@/lib/kalkulations-ansicht";
 
+const PROZENT = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 2 });
+
 /** Position auf der Schiene in Prozent der Breite. */
 export function reglerPosition(m: Pick<MargeAnsicht, "min" | "max">, prozent: number): number {
   const spanne = m.max - m.min;
@@ -58,7 +60,7 @@ export function MargeRegler({
           }}
         />
         <span className="kalk-regler-wert" style={{ left: `${wertPos}%` }} data-rand={rand(wertPos)} data-speichert={speichert ? "" : undefined} aria-hidden="true">
-          {wert} %{speichert ? " …" : ""}
+          {PROZENT.format(wert)} %{speichert ? " …" : ""}
         </span>
       </div>
       <div className="kalk-regler-enden" aria-hidden="true">

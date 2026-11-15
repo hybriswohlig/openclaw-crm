@@ -41,6 +41,7 @@ import {
 import { StundenBlock } from "./stunden-ansicht";
 import { MargeRegler } from "./marge-regler";
 import { margeVorschau } from "./marge-vorschau";
+import { PreisEingabe } from "./preis-eingabe";
 import { uebersteuerbareZeilen } from "./selbstkosten-spalte";
 import { SperrenBereich } from "./sperren-bereich";
 import { ohneVerwaiste } from "./verwaist-logik";
@@ -114,16 +115,17 @@ export function MargeSpalte({ ansicht, kontext }: { ansicht: KalkulationsAnsicht
   const { setzeAusstehend, uebersteuern } = kontext;
 
   const speichern = useCallback(
-    (prozent: number) => {
+    (prozent: number, grund: string = REGLER_GRUND): Promise<boolean> => {
       ausstehend.current = null;
       setzeAusstehend(false);
       setSpeichert(true);
-      void uebersteuern([{ art: "marge", key: "marge", wert: prozent, grund: REGLER_GRUND }]).then((r) => {
+      return uebersteuern([{ art: "marge", key: "marge", wert: prozent, grund }]).then((r) => {
         setSpeichert(false);
         if (!r.ok) {
           toast.error("Marge konnte nicht gespeichert werden.", { description: r.message });
           setEntwurf(null);
         }
+        return r.ok;
       });
     },
     [setzeAusstehend, uebersteuern]
@@ -144,7 +146,7 @@ export function MargeSpalte({ ansicht, kontext }: { ansicht: KalkulationsAnsicht
     () => () => {
       if (timer.current) clearTimeout(timer.current);
       timer.current = null;
-      if (ausstehend.current !== null) speichern(ausstehend.current);
+      if (ausstehend.current !== null) void speichern(ausstehend.current);
     },
     [speichern]
   );
@@ -171,8 +173,16 @@ export function MargeSpalte({ ansicht, kontext }: { ansicht: KalkulationsAnsicht
     setzeAusstehend(true);
     timer.current = setTimeout(() => {
       timer.current = null;
-      speichern(prozent);
+      void speichern(prozent);
     }, REGLER_WARTEZEIT_MS);
+  }
+
+  /** Preis direkt eingegeben: ein laufender Reglerwert wird verworfen, gespeichert wird die errechnete Marge. */
+  function preisUebernehmen(prozent: number, preisCent: number): Promise<boolean> {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = null;
+    setEntwurf(null);
+    return speichern(prozent, `Preis direkt eingegeben (${euro(preisCent)})`);
   }
 
   const wert = entwurf ?? basis;
@@ -306,6 +316,13 @@ export function MargeSpalte({ ansicht, kontext }: { ansicht: KalkulationsAnsicht
 
       {stundenModus ? null : (
         <>
+          <PreisEingabe
+            marge={marge}
+            aktuellCent={preis.gerundetCent}
+            gesperrt={!kontext.bearbeitbar || beschaeftigt || speichert}
+            onUebernehmen={preisUebernehmen}
+          />
+          <p className="kalk-marge-oder">oder Marge mit dem Regler wählen</p>
           <div className="kalk-marge">
             <MargeRegler marge={marge} wert={wert} gesperrt={!kontext.bearbeitbar || beschaeftigt} speichert={speichert} onWert={reglerWert} />
             <ul className="kalk-gruende" aria-label="Gründe des Vorschlags">
@@ -318,7 +335,7 @@ export function MargeSpalte({ ansicht, kontext }: { ansicht: KalkulationsAnsicht
               {marge.gewaehltProzent !== null ? (
                 <li data-gewaehlt="">
                   <span>{marge.gewaehltVon ? `Gewählt von ${marge.gewaehltVon}` : "Gewählt"}</span>
-                  <b>{marge.gewaehltProzent} %</b>
+                  <b>{PROZENT.format(marge.gewaehltProzent)} %</b>
                 </li>
               ) : null}
             </ul>
