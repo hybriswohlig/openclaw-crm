@@ -22,7 +22,7 @@ export function preisGrenzen(m: M): { minCent: number; maxCent: number } {
 }
 
 export type PreisEingabeErgebnis =
-  | { ok: true; prozent: number; preisCent: number; gewinnCent: number; aufgerundet: boolean }
+  | { ok: true; prozent: number; preisCent: number; gewinnCent: number; aufgerundet: boolean; abweichend: boolean }
   | { ok: false; meldung: string };
 
 const EURO = new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR", maximumFractionDigits: 0 });
@@ -51,5 +51,7 @@ export function margeAusPreis(m: M, eingabe: string): PreisEingabeErgebnis {
   for (let i = 0; i < 500 && preisBei(p) > zielCent && p > MARGE_MIN_PROZENT; i++) p = zwei(p - 0.01);
   for (let i = 0; i < 500 && p < MARGE_MAX_PROZENT && preisBei(zwei(p + 0.01)) <= zielCent; i++) p = zwei(p + 0.01);
   const preisCent = preisBei(p);
-  return { ok: true, prozent: p, preisCent, gewinnCent: preisCent - cent(s), aufgerundet: zielCent !== cent(eur) };
+  // Bei sehr hohen Selbstkosten springt der Preis je Hundertstel Marge um mehr als eine Rundungsstufe:
+  // dann gibt es genau diesen Preis nicht, und `abweichend` sagt das (Review Grok 15.11.).
+  return { ok: true, prozent: p, preisCent, gewinnCent: preisCent - cent(s), aufgerundet: zielCent !== cent(eur), abweichend: preisCent !== zielCent };
 }

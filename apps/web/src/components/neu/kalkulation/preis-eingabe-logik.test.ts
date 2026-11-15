@@ -70,4 +70,17 @@ describe("margeAusPreis", () => {
       }
     }
   });
+
+  it("sagt ehrlich, wenn es genau diesen Preis nicht gibt (sehr hohe Selbstkosten nahe 60 %)", () => {
+    const r = margeAusPreis({ selbstkostenEur: 33000, rundungEur: 10 }, "82490");
+    if (!r.ok) throw new Error(r.meldung);
+    expect(r.abweichend).toBe(true);
+    expect(r.preisCent).toBe(preisBeiMarge(33000, r.prozent, 10) * 100);
+    expect(r.preisCent).not.toBe(8249000);
+  });
+
+  it("ist bei üblichen Preisen nicht abweichend", () => {
+    const r = margeAusPreis(m, "2450");
+    expect(r.ok && r.abweichend).toBe(false);
+  });
 });

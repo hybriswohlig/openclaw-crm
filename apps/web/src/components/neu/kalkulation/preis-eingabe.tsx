@@ -73,7 +73,7 @@ export function PreisEingabe({
             ? `Möglich von ${euro(grenzen.minCent)} (30 %) bis ${euro(grenzen.maxCent)} (60 %).`
             : "Erst rechnen lassen, dann geht der Preis."
           : ergebnis.ok
-            ? `${gleich ? "Das ist schon der Preis. " : ""}${ergebnis.aufgerundet ? `Aufgerundet auf ${euro(ergebnis.preisCent)}. ` : ""}Ergibt ${PROZENT.format(ergebnis.prozent)} % Marge, Gewinn ${euro(ergebnis.gewinnCent)}.`
+            ? `${gleich ? "Das ist schon der Preis. " : ""}${ergebnis.abweichend ? `Genau so geht es nicht, nächster Preis ${euro(ergebnis.preisCent)}. ` : ergebnis.aufgerundet ? `Aufgerundet auf ${euro(ergebnis.preisCent)}. ` : ""}Ergibt ${PROZENT.format(ergebnis.prozent)} % Marge, Gewinn ${euro(ergebnis.gewinnCent)}.`
             : ergebnis.meldung}
       </p>
     </form>
