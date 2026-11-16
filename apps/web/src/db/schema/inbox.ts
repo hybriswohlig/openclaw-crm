@@ -401,6 +401,9 @@ export const inboxMessageAttachments = pgTable(
     // failed permanently (won't be retried); transcribedAt NULL = still pending.
     transcript: text("transcript"),
     transcribedAt: timestamp("transcribed_at"),
+    /** Crew-Portal (0066): Bild für die Crew freigegeben (nur Innen- und Objektfotos). */
+    crewFreigegebenAt: timestamp("crew_freigegeben_at", { withTimezone: true }),
+    crewFreigegebenBy: text("crew_freigegeben_by"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (table) => [

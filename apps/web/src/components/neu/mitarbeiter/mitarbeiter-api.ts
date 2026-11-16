@@ -38,3 +38,31 @@ export async function kapazitaetLaden(von: string, bis: string): Promise<ApiAntw
   const r = await apiAufruf<PlanAntwort>(`/api/v1/plan?von=${von}&bis=${bis}`);
   return r.ok ? { ok: true, data: r.data.kapazitaet ?? [] } : r;
 }
+
+/** Crew-Link einer Person (Crew-Portal). */
+export interface CrewLinkAnsicht {
+  url: string;
+  createdAt: string;
+  revokedAt: string | null;
+  lastSeenAt: string | null;
+  viewCount: number;
+  aktiv: boolean;
+}
+
+const crewLinkPfad = (id: string) => `/api/v1/employees/${encodeURIComponent(id)}/crew-link`;
+
+export function crewLinkLaden(id: string): Promise<ApiAntwort<CrewLinkAnsicht | null>> {
+  return apiAufruf<CrewLinkAnsicht | null>(crewLinkPfad(id));
+}
+
+export function crewLinkAnlegen(id: string): Promise<ApiAntwort<CrewLinkAnsicht>> {
+  return apiAufruf<CrewLinkAnsicht>(crewLinkPfad(id), { method: "POST" });
+}
+
+export function crewLinkErneuern(id: string): Promise<ApiAntwort<CrewLinkAnsicht>> {
+  return apiAufruf<CrewLinkAnsicht>(crewLinkPfad(id), jsonAufruf("PATCH", { neu: true }));
+}
+
+export function crewLinkSperren(id: string): Promise<ApiAntwort<CrewLinkAnsicht | null>> {
+  return apiAufruf<CrewLinkAnsicht | null>(crewLinkPfad(id), { method: "DELETE" });
+}

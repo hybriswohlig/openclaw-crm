@@ -30,6 +30,9 @@ const publicPaths = [
   // Employee portal APIs — they enforce employee auth in the handler
   // (getEmployeePortalContextFromHeaders) or are token-based (set-password).
   "/api/v1/portal/",
+  // Crew-Portal API: nur Server zu Server, Anmeldung allein in der Route
+  // (requireCrew: X-Crew-Secret und X-Crew-Token). Keine Sitzung, kein CORS.
+  "/api/crew/",
   // Remote MCP (Streamable HTTP) — auth via Bearer API key inside the handler
   // (withMcpAuth). Must not redirect to /login or Claude/mcp-remote break.
   "/api/mcp",

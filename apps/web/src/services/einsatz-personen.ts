@@ -16,13 +16,16 @@ import {
   type EinsatzPerson,
   type StammdatenEingabe,
 } from "@/lib/einsatz";
+import type { CrewLocale } from "@/lib/crew/contract";
+import { istCrewLocale, telefonE164 } from "@/lib/crew/telefon";
 
 export type DbExecutor = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 type PersonZeile = Pick<
   typeof employees.$inferSelect,
   "id" | "name" | "active" | "homePlz" | "homeTown" | "canDriveSprinter" | "ownCar" | "rateDriveCents" | "rateWorkCents"
->;
+> &
+  Partial<Pick<typeof employees.$inferSelect, "phone" | "locale" | "photoConsentAt">>;
 
 export function personAus(z: PersonZeile): EinsatzPerson {
   const name = z.name?.trim() || "Ohne Namen";
@@ -37,6 +40,9 @@ export function personAus(z: PersonZeile): EinsatzPerson {
     eigenerPkw: z.ownCar,
     satzFahrtCent: z.rateDriveCents,
     satzArbeitCent: z.rateWorkCents,
+    telefon: z.phone ?? null,
+    sprache: z.locale ?? "de",
+    fotoEinwilligungAm: z.photoConsentAt ? z.photoConsentAt.toISOString() : null,
   };
 }
 
@@ -50,6 +56,9 @@ export const PERSON_SPALTEN = {
   ownCar: employees.ownCar,
   rateDriveCents: employees.rateDriveCents,
   rateWorkCents: employees.rateWorkCents,
+  phone: employees.phone,
+  locale: employees.locale,
+  photoConsentAt: employees.photoConsentAt,
 } as const;
 
 /** Alle Personen des Workspace (auch inaktive), nach Name. */
@@ -82,6 +91,25 @@ function wohnfeld(wert: string | null | undefined): string | null {
   if (wert === undefined || wert === null) return null;
   const text = wert.trim();
   return text === "" ? null : text;
+}
+
+/** Telefon wie eingegeben plus E.164; leer löscht beides. Der Aufrufer hat die Form geprüft. */
+function telefonFelder(telefon: string | null | undefined): { phone?: string | null; phoneCanonical?: string | null } {
+  if (telefon === undefined) return {};
+  const roh = telefon?.trim() ?? "";
+  if (roh === "") return { phone: null, phoneCanonical: null };
+  return { phone: roh, phoneCanonical: telefonE164(roh) };
+}
+
+/** Unique-Verletzung der Telefonnummer je Workspace (0066). */
+export function istTelefonDoppelt(err: unknown): boolean {
+  for (let x: unknown = err, i = 0; x && i < 4; x = (x as { cause?: unknown }).cause, i++) {
+    const e = x as { code?: unknown; constraint_name?: unknown; constraint?: unknown; message?: unknown };
+    if (e.code === "23505" && [e.constraint_name, e.constraint, e.message].some((v) => typeof v === "string" && v.includes("employees_phone_canonical_uq"))) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function notizAus(notiz: string | null | undefined): string | null {
@@ -119,6 +147,9 @@ export async function personAnlegen(ws: string, e: StammdatenEingabe, ex: DbExec
       rateWorkCents,
       hourlyRate: hourlyRateAusCent(rateWorkCents),
       active: e.aktiv ?? true,
+      ...telefonFelder(e.telefon),
+      ...(e.sprache !== undefined && istCrewLocale(e.sprache) ? { locale: e.sprache } : {}),
+      ...(e.fotoEinwilligung === true ? { photoConsentAt: new Date() } : {}),
     })
     .returning();
   return personAus(row);
@@ -127,7 +158,7 @@ export async function personAnlegen(ws: string, e: StammdatenEingabe, ex: DbExec
 /** Nur gesetzte Felder. `satzArbeitCent` schreibt auch `hourly_rate`. null, wenn die Id nicht im Workspace liegt. */
 export async function personAendern(ws: string, id: string, e: StammdatenEingabe, ex: DbExecutor = db): Promise<EinsatzPerson | null> {
   const [aktuell] = await ex
-    .select({ active: employees.active })
+    .select({ active: employees.active, photoConsentAt: employees.photoConsentAt })
     .from(employees)
     .where(and(eq(employees.id, id), eq(employees.workspaceId, ws)))
     .limit(1);
@@ -145,6 +176,10 @@ export async function personAendern(ws: string, id: string, e: StammdatenEingabe
     hourlyRate?: string;
     active?: boolean;
     deactivatedAt?: Date | null;
+    phone?: string | null;
+    phoneCanonical?: string | null;
+    locale?: CrewLocale;
+    photoConsentAt?: Date | null;
   } = { updatedAt: new Date() };
   if (e.name !== undefined) set.name = e.name.trim();
   if (e.plz !== undefined) set.homePlz = wohnfeld(e.plz);
@@ -156,6 +191,10 @@ export async function personAendern(ws: string, id: string, e: StammdatenEingabe
     set.rateWorkCents = e.satzArbeitCent;
     set.hourlyRate = hourlyRateAusCent(e.satzArbeitCent);
   }
+  if (e.telefon !== undefined) Object.assign(set, telefonFelder(e.telefon));
+  if (e.sprache !== undefined && istCrewLocale(e.sprache)) set.locale = e.sprache;
+  if (e.fotoEinwilligung === true && !aktuell.photoConsentAt) set.photoConsentAt = new Date();
+  if (e.fotoEinwilligung === false) set.photoConsentAt = null;
   if (e.aktiv === false) {
     set.active = false;
     if (aktuell.active) set.deactivatedAt = new Date();

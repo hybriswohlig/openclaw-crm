@@ -111,6 +111,9 @@ export const jobMedia = pgTable(
     etag: text("etag"),
     caption: text("caption"),
     capturedAt: timestamp("captured_at"),
+    /** Crew-Portal (0066): freigegeben für die Crew (nur Innen- und Objektfotos). */
+    crewFreigegebenAt: timestamp("crew_freigegeben_at", { withTimezone: true }),
+    crewFreigegebenBy: text("crew_freigegeben_by"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (t) => [

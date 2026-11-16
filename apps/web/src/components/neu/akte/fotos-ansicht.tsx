@@ -9,14 +9,22 @@ import {
 } from "@/components/glassyui/glass-dialog";
 import { tagKurz, uhrzeitKurz } from "@/lib/anzeige";
 import { usePortalZiel } from "@/components/neu/portal-ziel";
-import { apiAufruf } from "./api";
+import { toast } from "sonner";
+import { apiAufruf, jsonAufruf } from "./api";
 
 export interface Foto {
   id: string;
   name: string;
   /** ISO-Zeit, wenn bekannt. */
   am?: string | null;
+  /** Crew-Portal: für die Crew freigegeben. */
+  crew?: boolean;
+  /** Crew-Portal: Format lässt sich freigeben (JPEG, PNG, WebP, GIF). */
+  crewMoeglich?: boolean;
 }
+
+/** Gleiche Liste wie die Crew-API (`CREW_FOTO_TYPEN`); HEIC und SVG nie. */
+const CREW_FORMATE = new Set(["image/jpeg", "image/jpg", "image/png", "image/webp", "image/gif"]);
 
 interface Anhang {
   id: string;
@@ -24,6 +32,7 @@ interface Anhang {
   mimeType: string;
   fileSize: number;
   createdAt: string;
+  crewFreigegebenAt?: string | null;
 }
 
 export function istBild(mime: string): boolean {
@@ -41,6 +50,22 @@ type Zustand = { art: "laden" } | { art: "fehler"; meldung: string } | { art: "f
 export function FotosAnsicht({ dealId }: { dealId: string }) {
   const [zustand, setZustand] = useState<Zustand>({ art: "laden" });
   const [offen, setOffen] = useState<Foto | null>(null);
+  const [schaltet, setSchaltet] = useState<string | null>(null);
+
+  async function crewUmschalten(f: Foto) {
+    const neu = !f.crew;
+    setSchaltet(f.id);
+    const r = await apiAufruf<{ crewFreigegebenAt: string | null }>(
+      `/api/v1/deals/${encodeURIComponent(dealId)}/fotos/${encodeURIComponent(f.id)}/crew`,
+      jsonAufruf("PATCH", { freigegeben: neu }),
+    );
+    setSchaltet(null);
+    if (!r.ok) {
+      toast.error("Freigabe nicht gespeichert.", { description: r.message });
+      return;
+    }
+    setZustand((z) => (z.art === "fertig" ? { ...z, fotos: z.fotos.map((x) => (x.id === f.id ? { ...x, crew: !!r.data.crewFreigegebenAt } : x)) } : z));
+  }
 
   useEffect(() => {
     let aktiv = true;
@@ -53,7 +78,7 @@ export function FotosAnsicht({ dealId }: { dealId: string }) {
       }
       const fotos = (r.data ?? [])
         .filter((a) => istBild(a.mimeType))
-        .map((a) => ({ id: a.id, name: a.fileName, am: a.createdAt }));
+        .map((a) => ({ id: a.id, name: a.fileName, am: a.createdAt, crew: !!a.crewFreigegebenAt, crewMoeglich: CREW_FORMATE.has(a.mimeType.toLowerCase()) }));
       setZustand({ art: "fertig", fotos });
     });
     return () => {
@@ -75,15 +100,26 @@ export function FotosAnsicht({ dealId }: { dealId: string }) {
       {zustand.art === "fertig" && zustand.fotos.length > 0 ? (
         <div className="akte-gespraech-raster">
           {zustand.fotos.map((f, i) => (
-            <button
-              key={f.id}
-              type="button"
-              className="akte-gespraech-foto"
-              onClick={() => setOffen(f)}
-              aria-label={`Foto ${i + 1} von ${zustand.fotos.length} öffnen: ${f.name}`}
-            >
-              <img src={anhangUrl(f.id)} alt="" loading="lazy" />
-            </button>
+            <div key={f.id} className="akte-foto-kachel">
+              <button
+                type="button"
+                className="akte-gespraech-foto"
+                onClick={() => setOffen(f)}
+                aria-label={`Foto ${i + 1} von ${zustand.fotos.length} öffnen: ${f.name}`}
+              >
+                <img src={anhangUrl(f.id)} alt="" loading="lazy" />
+              </button>
+              {f.crewMoeglich || f.crew ? (
+                <label className="akte-foto-crew" title="Nur Innen- und Möbelfotos. Keine Fassade, Hausnummer, Kennzeichen oder Gesichter.">
+                  <input type="checkbox" checked={!!f.crew} disabled={schaltet === f.id} onChange={() => void crewUmschalten(f)} />
+                  Für Crew freigeben
+                </label>
+              ) : (
+                <span className="akte-foto-crew" title="Nur JPEG, PNG, WebP oder GIF lassen sich für die Crew freigeben.">
+                  Format geht nicht für die Crew
+                </span>
+              )}
+            </div>
           ))}
         </div>
       ) : null}

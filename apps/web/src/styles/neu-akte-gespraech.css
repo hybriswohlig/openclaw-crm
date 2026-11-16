@@ -758,3 +758,20 @@
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
+
+/* Crew-Portal: Freigabe je Foto */
+[data-neu] .akte-foto-kachel {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+[data-neu] .akte-foto-crew {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--ink-2);
+  cursor: pointer;
+}

@@ -1541,3 +1541,84 @@
 [data-neu] .ez-zahl small {
   white-space: normal;
 }
+
+/* Crew-Link im Mitarbeiter-Panel (Crew-Portal) */
+[data-neu] .ma-crew {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+[data-neu] .ma-crew-link {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+[data-neu] .ma-crew-link input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--hair);
+  background: var(--flaeche);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+}
+
+/* Anfragen aus dem Crew-Portal im Einsatz-Dialog */
+[data-neu] .ez-anfragen {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--hair);
+  border-radius: 12px;
+  background: var(--flaeche);
+}
+
+[data-neu] .ez-anfragen h3 {
+  margin: 0;
+  font-size: 13.5px;
+  color: var(--ink);
+}
+
+[data-neu] .ez-anfragen-liste {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+[data-neu] .ez-anfrage {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  font-size: 13px;
+  color: var(--ink);
+}
+
+[data-neu] .ez-anfrage-name {
+  font-weight: 600;
+  min-width: 8em;
+}
+
+[data-neu] .ez-anfrage-zeit,
+[data-neu] .ez-anfrage-drin {
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+[data-neu] .ez-anfrage-zeit {
+  margin-right: auto;
+}
+
+[data-neu] .ez-anfragen-nein summary {
+  cursor: pointer;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}

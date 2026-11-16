@@ -11,6 +11,7 @@ import { tagKurz } from "@/lib/anzeige";
 import type { DoppelKonflikt, EinsatzKarte } from "@/lib/einsatz";
 import type { EinsatzAnsicht, EinsatzPersonLage } from "@/lib/einsatz-ansicht";
 import { anfahrtUebernehmen, EINSATZ_DIALOG_EVENT, einsatzLaden, ladeKarte, teamBestaetigen } from "./einsatz-api";
+import { EinsatzAnfragen } from "./einsatz-anfragen";
 import { EinsatzKartenAnsicht, type KarteLaden } from "./einsatz-karte";
 import {
   ansichtLesen,
@@ -333,6 +334,13 @@ export function EinsatzDialog({
             ))}
           </ul>
         ) : null}
+
+        <EinsatzAnfragen
+          anfragen={ansicht.anfragen ?? []}
+          personen={ansicht.personen}
+          imTeam={(id) => imTeam(auswahl, id)}
+          onInsTeam={umschalten}
+        />
 
         {rueckfrage ? (
           <div className="ez-rueckfrage" role="alertdialog" aria-labelledby="ez-rueckfrage-text">
