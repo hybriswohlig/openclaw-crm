@@ -35,6 +35,13 @@ export const employees = pgTable(
     /** Deaktivieren statt Löschen (Plan 12a Entscheidung 3). */
     active: boolean("active").notNull().default(true),
     deactivatedAt: timestamp("deactivated_at", { withTimezone: true }),
+    /** Crew-Portal (0066): Telefon wie eingegeben und als E.164 (`+4915112345678`), eindeutig je Workspace. */
+    phone: text("phone"),
+    phoneCanonical: text("phone_canonical"),
+    /** Sprache von Portal und Nachrichten an die Person (`CREW_LOCALES`). */
+    locale: text("locale").$type<"de" | "en" | "tr" | "ar" | "pl" | "uk" | "ru">().notNull().default("de"),
+    /** Schriftliche Einwilligung für echte Teamfotos im Portal; null = nur Initialen. */
+    photoConsentAt: timestamp("photo_consent_at", { withTimezone: true }),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
@@ -43,6 +50,11 @@ export const employees = pgTable(
     index("employees_user_idx").on(table.userId),
     check("employees_home_plz_format", sql`${table.homePlz} IS NULL OR ${table.homePlz} ~ '^[0-9]{5}$'`),
     check("employees_satz_abgeleitet", sql`${table.hourlyRate} = ${table.rateWorkCents} / 100.0`),
+    check("employees_locale_check", sql`${table.locale} IN ('de', 'en', 'tr', 'ar', 'pl', 'uk', 'ru')`),
+    check("employees_phone_canonical_format", sql`${table.phoneCanonical} IS NULL OR ${table.phoneCanonical} ~ '^\\+[1-9][0-9]{6,14}$'`),
+    uniqueIndex("employees_phone_canonical_uq")
+      .on(table.workspaceId, table.phoneCanonical)
+      .where(sql`${table.phoneCanonical} IS NOT NULL`),
   ]
 );
 

@@ -25,6 +25,9 @@ export const dealInternalPhotos = pgTable(
     fileSize: integer("file_size").notNull(),
     fileContent: text("file_content").notNull(), // base64
     contentSha256: text("content_sha256").notNull(),
+    /** Crew-Portal (0066): freigegeben für die Crew. */
+    crewFreigegebenAt: timestamp("crew_freigegeben_at", { withTimezone: true }),
+    crewFreigegebenBy: text("crew_freigegeben_by"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (table) => [

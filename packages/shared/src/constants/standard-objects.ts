@@ -454,6 +454,9 @@ export const STANDARD_OBJECTS: StandardObject[] = [
         ],
       },
       { slug: "worker_count", title: "Anzahl Arbeiter", type: "number", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
+      // Crew-Portal: Job im Portal ausschreiben. Kein Wert = ja (Standard an);
+      // nur ein ausdrückliches false hält den Auftrag aus dem Portal.
+      { slug: "crew_ausschreiben", title: "Im Crew-Portal ausschreiben", type: "checkbox", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
       { slug: "time_window_start", title: "Start (geplant)", type: "timestamp", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
       { slug: "time_window_end", title: "Ende (geplant)", type: "timestamp", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
       // parking_halteverbot_needed ist das Halteverbot am Abholort (Slug historisch).
