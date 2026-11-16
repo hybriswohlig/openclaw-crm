@@ -66,3 +66,8 @@ export function crewLinkErneuern(id: string): Promise<ApiAntwort<CrewLinkAnsicht
 export function crewLinkSperren(id: string): Promise<ApiAntwort<CrewLinkAnsicht | null>> {
   return apiAufruf<CrewLinkAnsicht | null>(crewLinkPfad(id), { method: "DELETE" });
 }
+
+/** Link per WhatsApp schicken (Absender Rümpeltürken); legt ihn bei Bedarf an. */
+export function crewLinkSenden(id: string): Promise<ApiAntwort<{ an: string; link: CrewLinkAnsicht }>> {
+  return apiAufruf<{ an: string; link: CrewLinkAnsicht }>(`${crewLinkPfad(id)}/senden`, { method: "POST" });
+}

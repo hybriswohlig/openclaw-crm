@@ -92,6 +92,25 @@ export async function crewLinkAnlegen(ws: string, employeeId: string, autor: str
   return zeile ? { ok: true, link: ansichtAus(zeile), neu: !!z } : { ok: false, code: "NICHT_GEFUNDEN" };
 }
 
+/**
+ * Für den Versand: Link anlegen, falls keiner da ist, aber einen gesperrten nie
+ * wieder freigeben (auch nicht, wenn gleichzeitig jemand sperrt). Ergebnis ist
+ * die Zeile nach dem Einfügen, gesperrt oder nicht.
+ */
+export async function crewLinkSicherstellen(ws: string, employeeId: string, autor: string): Promise<LinkErgebnis> {
+  const p = await personImWorkspace(ws, employeeId);
+  if (!p) return { ok: false, code: "NICHT_GEFUNDEN" };
+  if (!p.active) return { ok: false, code: "INAKTIV" };
+  const token = await generateToken();
+  const [neu] = await db
+    .insert(crewLinks)
+    .values({ workspaceId: ws, employeeId, token, createdBy: autor })
+    .onConflictDoNothing({ target: crewLinks.employeeId })
+    .returning();
+  const zeile = neu ?? (await zeileLesen(ws, employeeId));
+  return zeile ? { ok: true, link: ansichtAus(zeile), neu: !!neu } : { ok: false, code: "NICHT_GEFUNDEN" };
+}
+
 /** Neuer Token auf derselben Zeile, Sperre aufgehoben, Zähler bleiben. */
 export async function crewLinkErneuern(ws: string, employeeId: string): Promise<LinkErgebnis> {
   const p = await personImWorkspace(ws, employeeId);

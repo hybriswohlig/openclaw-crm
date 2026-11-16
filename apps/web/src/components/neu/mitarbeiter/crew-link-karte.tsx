@@ -1,33 +1,39 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { GlassButton } from "@/components/glassyui/glass-button";
 import type { ApiAntwort } from "@/components/neu/akte/api";
 import { tagKurz, uhrzeitKurz } from "@/lib/anzeige";
 import type { EinsatzPerson } from "@/lib/einsatz";
-import { crewLinkAnlegen, crewLinkErneuern, crewLinkLaden, crewLinkSperren, type CrewLinkAnsicht } from "./mitarbeiter-api";
+import { crewLinkAnlegen, crewLinkErneuern, crewLinkLaden, crewLinkSenden, crewLinkSperren, type CrewLinkAnsicht } from "./mitarbeiter-api";
 
 type Zustand = { art: "laedt" } | { art: "fehler"; meldung: string } | { art: "da"; link: CrewLinkAnsicht | null };
-type Frage = "erneuern" | "sperren" | null;
+type Frage = "erneuern" | "sperren" | "senden" | null;
 
 function wann(iso: string): string {
   return `${tagKurz(iso)}, ${uhrzeitKurz(iso)}`;
 }
 
 /**
- * Crew-Link einer Person (Crew-Portal): anlegen, kopieren, erneuern (der alte
- * Link geht sofort nicht mehr), sperren, zuletzt geöffnet.
+ * Crew-Link einer Person (Crew-Portal): anlegen, kopieren, per WhatsApp schicken
+ * (Absender anfangs immer Rümpeltürken), erneuern (der alte Link geht sofort
+ * nicht mehr), sperren, zuletzt geöffnet.
  */
 export function CrewLinkKarte({ person }: { person: EinsatzPerson }) {
   const [zustand, setZustand] = useState<Zustand>({ art: "laedt" });
   const [laeuft, setLaeuft] = useState(false);
   const [frage, setFrage] = useState<Frage>(null);
+  // Die Karte bleibt beim Wechsel der Person stehen: späte Antworten für die
+  // vorige Person dürfen deren Link nie bei der neuen anzeigen.
+  const aktuell = useRef(person.id);
+  aktuell.current = person.id;
 
   useEffect(() => {
     let aktiv = true;
     setZustand({ art: "laedt" });
     setFrage(null);
+    setLaeuft(false);
     void crewLinkLaden(person.id).then((r) => {
       if (!aktiv) return;
       setZustand(r.ok ? { art: "da", link: r.data ?? null } : { art: "fehler", meldung: r.message });
@@ -38,8 +44,10 @@ export function CrewLinkKarte({ person }: { person: EinsatzPerson }) {
   }, [person.id]);
 
   async function ausfuehren(aufruf: () => Promise<ApiAntwort<CrewLinkAnsicht | null>>, erfolg: string) {
+    const fuer = person.id;
     setLaeuft(true);
     const r = await aufruf();
+    if (aktuell.current !== fuer) return;
     setLaeuft(false);
     setFrage(null);
     if (!r.ok) {
@@ -48,6 +56,24 @@ export function CrewLinkKarte({ person }: { person: EinsatzPerson }) {
     }
     setZustand({ art: "da", link: r.data ?? null });
     toast.success(erfolg);
+  }
+
+  async function senden() {
+    const fuer = person.id;
+    setLaeuft(true);
+    const r = await crewLinkSenden(fuer);
+    if (aktuell.current !== fuer) return;
+    setLaeuft(false);
+    setFrage(null);
+    if (!r.ok) {
+      toast.error("Nicht gesendet.", { description: r.message });
+      // Der Link kann vor dem fehlgeschlagenen Versand angelegt worden sein.
+      const neu = await crewLinkLaden(fuer);
+      if (aktuell.current === fuer && neu.ok) setZustand({ art: "da", link: neu.data ?? null });
+      return;
+    }
+    if (r.data) setZustand({ art: "da", link: r.data.link });
+    toast.success(`Link per WhatsApp an ${r.data?.an ?? person.telefon} geschickt.`);
   }
 
   async function kopieren(url: string) {
@@ -60,6 +86,50 @@ export function CrewLinkKarte({ person }: { person: EinsatzPerson }) {
   }
 
   const link = zustand.art === "da" ? zustand.link : null;
+  const telefon = person.telefon?.trim() || null;
+
+  const rueckfrage = frage ? (
+    <div className="ez-rueckfrage" role="alertdialog" aria-label="Rückfrage">
+      <i aria-hidden="true" />
+      <p>
+        {frage === "senden"
+          ? `Link per WhatsApp an ${telefon} schicken? Absender ist Rümpeltürken.`
+          : frage === "erneuern"
+            ? "Neuen Link machen? Der alte geht dann sofort nicht mehr."
+            : `Link sperren? ${person.name} kommt dann nicht mehr an die Jobs.`}
+      </p>
+      <div className="ez-rueckfrage-knoepfe">
+        <GlassButton type="button" size="sm" variant="ghost" onClick={() => setFrage(null)}>
+          Abbrechen
+        </GlassButton>
+        <GlassButton
+          type="button"
+          size="sm"
+          disabled={laeuft}
+          onClick={() =>
+            void (frage === "senden"
+              ? senden()
+              : frage === "erneuern"
+                ? ausfuehren(() => crewLinkErneuern(person.id), "Neuer Link ist da. Der alte geht nicht mehr.")
+                : ausfuehren(() => crewLinkSperren(person.id), "Link gesperrt."))
+          }
+        >
+          {frage === "senden" ? "Senden" : frage === "erneuern" ? "Neuer Link" : "Sperren"}
+        </GlassButton>
+      </div>
+    </div>
+  ) : null;
+
+  const sendenKnopf =
+    person.aktiv && telefon && (!link || link.aktiv) ? (
+      <GlassButton type="button" size="sm" disabled={laeuft} onClick={() => setFrage("senden")}>
+        Per WhatsApp senden …
+      </GlassButton>
+    ) : null;
+  const ohneTelefon =
+    person.aktiv && !telefon && (!link || link.aktiv) ? (
+      <p className="ma-hinweis">Zum Senden per WhatsApp erst Telefon eintragen und speichern.</p>
+    ) : null;
 
   return (
     <div className="ma-abschnitt ma-crew">
@@ -80,11 +150,21 @@ export function CrewLinkKarte({ person }: { person: EinsatzPerson }) {
       {zustand.art === "da" && person.aktiv && !link ? (
         <>
           <p className="ma-hinweis">Persönlicher Link zu den Jobs. Ohne Passwort, per WhatsApp schicken.</p>
-          <div className="ma-knoepfe">
-            <GlassButton type="button" size="sm" disabled={laeuft} onClick={() => void ausfuehren(() => crewLinkAnlegen(person.id), "Link angelegt.")}>
-              Link anlegen
-            </GlassButton>
-          </div>
+          {ohneTelefon}
+          {rueckfrage ?? (
+            <div className="ma-knoepfe">
+              {sendenKnopf}
+              <GlassButton
+                type="button"
+                size="sm"
+                variant={sendenKnopf ? "ghost" : undefined}
+                disabled={laeuft}
+                onClick={() => void ausfuehren(() => crewLinkAnlegen(person.id), "Link angelegt.")}
+              >
+                Nur anlegen
+              </GlassButton>
+            </div>
+          )}
         </>
       ) : null}
 
@@ -102,34 +182,12 @@ export function CrewLinkKarte({ person }: { person: EinsatzPerson }) {
           )}
           <p className="ma-hinweis">{link.lastSeenAt ? `Zuletzt geöffnet: ${wann(link.lastSeenAt)}` : "Noch nie geöffnet."}</p>
 
-          {frage ? (
-            <div className="ez-rueckfrage" role="alertdialog" aria-label="Rückfrage">
-              <i aria-hidden="true" />
-              <p>
-                {frage === "erneuern"
-                  ? "Neuen Link machen? Der alte geht dann sofort nicht mehr."
-                  : `Link sperren? ${person.name} kommt dann nicht mehr an die Jobs.`}
-              </p>
-              <div className="ez-rueckfrage-knoepfe">
-                <GlassButton type="button" size="sm" variant="ghost" onClick={() => setFrage(null)}>
-                  Abbrechen
-                </GlassButton>
-                <GlassButton
-                  type="button"
-                  size="sm"
-                  disabled={laeuft}
-                  onClick={() =>
-                    void (frage === "erneuern"
-                      ? ausfuehren(() => crewLinkErneuern(person.id), "Neuer Link ist da. Der alte geht nicht mehr.")
-                      : ausfuehren(() => crewLinkSperren(person.id), "Link gesperrt."))
-                  }
-                >
-                  {frage === "erneuern" ? "Neuer Link" : "Sperren"}
-                </GlassButton>
-              </div>
-            </div>
+          {ohneTelefon}
+          {rueckfrage ? (
+            rueckfrage
           ) : (
             <div className="ma-knoepfe">
+              {sendenKnopf}
               {person.aktiv ? (
                 <GlassButton type="button" size="sm" variant="ghost" disabled={laeuft} onClick={() => setFrage("erneuern")}>
                   {link.aktiv ? "Neuer Link …" : "Wieder freigeben mit neuem Link …"}
