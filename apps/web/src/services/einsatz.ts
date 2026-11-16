@@ -422,6 +422,12 @@ export async function ladeEinsatz(ws: string, deal: string, o: EinsatzLadeOption
       console.error("[einsatz] Crew-Anfragen", err);
       return [];
     });
+  const crewAusschreibung = await import("./crew/ausschreibung")
+    .then((m) => m.crewAusschreibungLesen(ws, deal))
+    .catch((err) => {
+      console.error("[einsatz] Crew-Ausschreibung", err);
+      return null;
+    });
 
   return {
     dealId: deal,
@@ -449,6 +455,7 @@ export async function ladeEinsatz(ws: string, deal: string, o: EinsatzLadeOption
     klasseVorgabe: textWert("fahrzeugklasse"),
     hinweise,
     anfragen,
+    crewAusschreibung,
   };
 }
 

@@ -317,3 +317,13 @@ describe("Stammdaten mit Telefon und Sprache", async () => {
     expect(pruefeStammdaten({ sprache: "fr" }, false)).toBe("SPRACHE_UNGUELTIG");
   });
 });
+
+describe("personenZahl", () => {
+  it("Zahl oder Text, gerundet, 1 bis 50, sonst null", async () => {
+    const { personenZahl } = await import("./logik");
+    expect(personenZahl(3)).toBe(3);
+    expect(personenZahl("4")).toBe(4);
+    expect(personenZahl(2.6)).toBe(3);
+    for (const x of [0, -1, 51, "", " ", "x", null, undefined, Number.NaN, {}]) expect(personenZahl(x)).toBeNull();
+  });
+});

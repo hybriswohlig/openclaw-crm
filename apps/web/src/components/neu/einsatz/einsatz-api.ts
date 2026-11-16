@@ -4,7 +4,7 @@
  */
 import { apiAufruf, jsonAufruf, type ApiAntwort } from "@/components/neu/akte/api";
 import type { DoppelKonflikt, EinsatzKarte, Zuteilung } from "@/lib/einsatz";
-import type { EinsatzAnsicht, EinsatzBestaetigenBody } from "@/lib/einsatz-ansicht";
+import type { CrewAusschreibungAnsicht, EinsatzAnsicht, EinsatzBestaetigenBody } from "@/lib/einsatz-ansicht";
 
 export function einsatzLaden(dealId: string, frisch = false): Promise<ApiAntwort<EinsatzAnsicht>> {
   return apiAufruf<EinsatzAnsicht>(`/api/v1/deals/${encodeURIComponent(dealId)}/einsatz${frisch ? "?frisch=1" : ""}`);
@@ -51,4 +51,9 @@ export const EINSATZ_DIALOG_EVENT = "neu:einsatz-dialog-oeffnen";
 
 export function einsatzDialogOeffnen(dealId: string): void {
   window.dispatchEvent(new CustomEvent(EINSATZ_DIALOG_EVENT, { detail: { dealId } }));
+}
+
+/** Crew-Portal: gesuchte Leute (null = Kalkulation) und Ausschreiben; sofort gespeichert. */
+export function crewAusschreibungSetzen(dealId: string, body: { leute?: number | null; ausschreiben?: boolean }) {
+  return apiAufruf<CrewAusschreibungAnsicht>(`/api/v1/deals/${encodeURIComponent(dealId)}/einsatz/crew`, jsonAufruf("PATCH", body));
 }

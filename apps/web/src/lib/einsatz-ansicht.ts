@@ -94,6 +94,15 @@ export interface EinsatzAnsicht {
   hinweise: string[];
   /** Crew-Portal: Antworten von Personen, die noch nicht im Team sind (älteste zuerst). */
   anfragen?: EinsatzAnfrage[];
+  /** Crew-Portal: gesuchte Leute und ob der Job ausgeschrieben ist; null, wenn das Lesen scheiterte. */
+  crewAusschreibung?: CrewAusschreibungAnsicht | null;
+}
+
+export interface CrewAusschreibungAnsicht {
+  auftragId: string | null;
+  leute: number | null;
+  ausKalkulation: number | null;
+  ausschreiben: boolean;
 }
 
 export interface EinsatzBestaetigenBody {

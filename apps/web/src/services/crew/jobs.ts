@@ -30,6 +30,7 @@ import {
   konflikteAmTag,
   lohnSchaetzung,
   meinStatus,
+  personenZahl,
   sichtbarkeit,
   tagPlus,
   vornameAus,
@@ -220,6 +221,7 @@ export async function ladeGrund(k: CrewKontext, o: GrundOptionen = {}): Promise<
     mein_fahrt: number | null;
     antwort: GespeicherteAntwort | null;
     antwort_am: string | Date | null;
+    kalk_groesse: string | number | null;
   }>(
     await ex.execute(sql`
       WITH meine AS (
@@ -255,7 +257,7 @@ export async function ladeGrund(k: CrewKontext, o: GrundOptionen = {}): Promise<
       )
       SELECT k.id, k.kat, k.tag::text AS tag, k.meins, awj.aw, fn.name AS firma_name,
         mt.role AS mein_role, mt.planned_work_minutes AS mein_arbeit, mt.planned_drive_minutes AS mein_fahrt,
-        ma.answer AS antwort, ma.answered_at AS antwort_am
+        ma.answer AS antwort, ma.answered_at AS antwort_am, kg.groesse AS kalk_groesse
       FROM kand k
       LEFT JOIN LATERAL (
         SELECT ra.id FROM record_values rd
@@ -280,6 +282,12 @@ export async function ladeGrund(k: CrewKontext, o: GrundOptionen = {}): Promise<
         WHERE de.deal_record_id = k.id AND de.employee_id = ${ich} LIMIT 1
       ) mt ON true
       LEFT JOIN LATERAL (
+        -- Teamgröße der maßgeblichen Kalkulation (gesperrt vor neuester), wie im Einsatz-Dialog.
+        SELECT cv.rechner_result -> 'team' ->> 'groesse' AS groesse FROM deal_calculation_versions cv
+        WHERE cv.workspace_id = ${ws} AND cv.deal_record_id = k.id
+        ORDER BY (cv.status = 'gesperrt') DESC, cv.version DESC LIMIT 1
+      ) kg ON true
+      LEFT JOIN LATERAL (
         SELECT cr.answer, cr.answered_at FROM crew_job_responses cr
         WHERE cr.deal_record_id = k.id AND cr.employee_id = ${ich} AND cr.workspace_id = ${ws} LIMIT 1
       ) ma ON true
@@ -291,8 +299,8 @@ export async function ladeGrund(k: CrewKontext, o: GrundOptionen = {}): Promise<
     const datum = tagAus(z.tag);
     if (!datum) continue;
     const auftrag = werteAus(z.aw);
-    const wc = zahl(auftrag.worker_count);
-    const workerCount = wc !== null && wc >= 1 ? Math.round(wc) : null;
+    // Leute: am Auftrag eingetragen, sonst Teamgröße der Kalkulation.
+    const workerCount = personenZahl(zahl(auftrag.worker_count)) ?? personenZahl(z.kalk_groesse);
     const firma = firmaAus(z.firma_name);
     const meinTeam = z.mein_role
       ? { role: z.mein_role, plannedWorkMinutes: z.mein_arbeit ?? null, plannedDriveMinutes: z.mein_fahrt ?? null }

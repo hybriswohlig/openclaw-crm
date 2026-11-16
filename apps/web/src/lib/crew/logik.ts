@@ -43,6 +43,16 @@ export function lohnSchaetzung(input: {
   };
 }
 
+// ─── Leute ───────────────────────────────────────────────────────────────────
+
+/** Gesuchte Leute aus Auftrag oder Kalkulation: ganze Zahl 1 bis 50, sonst null. */
+export function personenZahl(x: unknown): number | null {
+  const n = typeof x === "number" ? x : typeof x === "string" && x.trim() !== "" ? Number(x) : Number.NaN;
+  if (!Number.isFinite(n)) return null;
+  const r = Math.round(n);
+  return r >= 1 && r <= 50 ? r : null;
+}
+
 // ─── Firma und Art ───────────────────────────────────────────────────────────
 
 /** Name der Betriebsfirma → Marke im Portal. Alles andere wird nicht gezeigt. */

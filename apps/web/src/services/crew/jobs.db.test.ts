@@ -103,6 +103,11 @@ describe.skipIf(!url)("Crew-Jobs, Antwort und Fotos (DB)", { timeout: 30_000 }, 
     await deal("dQuoted", { datum: "2026-11-25", stufe: "st_quoted" });
     await deal("dFremd", { datum: "2026-11-25", firma: "x1" });
     await deal("dOhneZahl", { datum: "2026-11-25", wc: null });
+    // Ohne Zahl am Auftrag gilt die Teamgröße der maßgeblichen Kalkulation (gesperrt vor neuer).
+    await deal("dKalk", { datum: "2026-11-26", wc: null });
+    await sql.unsafe(`INSERT INTO deal_calculation_versions (workspace_id, deal_record_id, status, version, rechner_result) VALUES
+      ('w1', 'dKalk', 'gesperrt', 1, '{"team":{"groesse":3}}'), ('w1', 'dKalk', 'entwurf', 2, '{"team":{"groesse":6}}'),
+      ('w1', 'dA', 'gesperrt', 1, '{"team":{"groesse":5}}')`);
     await deal("dWeg", { datum: "2026-11-25", geloescht: true });
     await deal("dMeinGestern", { datum: "2026-11-15", stufe: "st_done", von: { line1: "Mühlweg 7", line2: "3. OG", postcode: "70173", city: "Stuttgart" } });
     await sql`INSERT INTO deal_employees (deal_record_id, employee_id, role, planned_work_minutes, planned_drive_minutes) VALUES ('dMeinGestern', 'e1', 'lead', 240, 60)`;
@@ -125,7 +130,10 @@ describe.skipIf(!url)("Crew-Jobs, Antwort und Fotos (DB)", { timeout: 30_000 }, 
   describe("Jobs-Lader", () => {
     it("Regeln A und B in SQL und Code: genau die richtigen Jobs, sortiert, vertragskonform", async () => {
       const liste = await jobs.ladeCrewJobs(ich, { jetzt });
-      expect(liste.map((j) => j.id)).toEqual(["dMeinGestern", "dA", "dLine1Ort", "dRuempel", "dStrasse", "dPlz", "dWahl"]);
+      expect(liste.map((j) => j.id)).toEqual(["dMeinGestern", "dA", "dLine1Ort", "dRuempel", "dStrasse", "dPlz", "dKalk", "dWahl"]);
+      // Auftrag schlägt Kalkulation; ohne Auftragszahl die gesperrte Version.
+      expect(liste.find((j) => j.id === "dA")!.need).toBe(2);
+      expect(liste.find((j) => j.id === "dKalk")!.need).toBe(3);
       for (const j of liste) expect(CrewJob.strict().parse(j)).toEqual(j);
       expect(liste.find((j) => j.id === "dWahl")!.date).toBe("2026-11-30");
       expect(liste.find((j) => j.id === "dRuempel")!.company).toBe("ruempeltuerken");

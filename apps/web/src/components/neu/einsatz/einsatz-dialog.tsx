@@ -12,6 +12,7 @@ import type { DoppelKonflikt, EinsatzKarte } from "@/lib/einsatz";
 import type { EinsatzAnsicht, EinsatzPersonLage } from "@/lib/einsatz-ansicht";
 import { anfahrtUebernehmen, EINSATZ_DIALOG_EVENT, einsatzLaden, ladeKarte, teamBestaetigen } from "./einsatz-api";
 import { EinsatzAnfragen } from "./einsatz-anfragen";
+import { EinsatzCrew } from "./einsatz-crew";
 import { EinsatzKartenAnsicht, type KarteLaden } from "./einsatz-karte";
 import {
   ansichtLesen,
@@ -334,6 +335,8 @@ export function EinsatzDialog({
             ))}
           </ul>
         ) : null}
+
+        {ansicht.crewAusschreibung ? <EinsatzCrew dealId={ansicht.dealId} wert={ansicht.crewAusschreibung} /> : null}
 
         <EinsatzAnfragen
           anfragen={ansicht.anfragen ?? []}
