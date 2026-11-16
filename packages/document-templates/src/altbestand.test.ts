@@ -1,12 +1,13 @@
 /**
- * Altbestand bleibt unverändert bis auf TEMPLATE_VERSION (Plan 5b, Task D2).
+ * Sperre gegen unbeabsichtigte Textänderungen (Plan 5b, Task D2).
  *
- * `altbestand.golden.json` ist mit der Vorlage `kv-ab-re/4` (Stand f70e6a72)
- * erzeugt. Hier wird jedes Beispiel mit der heutigen Vorlage gebaut, die
- * Versionsangabe auf `kv-ab-re/4` zurückgesetzt und dann verglichen: Modell
- * vollständig, HTML und Seiteninhalt des PDFs als Hash.
+ * Jedes Beispiel wird mit der heutigen Vorlage gebaut, die Versionsangabe
+ * auf `kv-ab-re/4` zurückgesetzt und mit der Golddatei verglichen: Modell
+ * vollständig, HTML und Seiteninhalt des PDFs als Hash. Die Golddatei
+ * enthält den aktuellen Zahltext (Restbetrag am Umzugs- oder Einsatztag).
  *
- * Neu schreiben (nur aus dem alten Stand): GOLDEN_SCHREIBEN=<pfad> npx vitest run src/altbestand.test.ts
+ * Neu schreiben, wenn der gedruckte Text absichtlich geändert wurde:
+ * GOLDEN_SCHREIBEN=<pfad> npx vitest run src/altbestand.test.ts
  */
 import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
@@ -188,7 +189,7 @@ async function abdruck(input: RenderInput) {
 const GOLDEN = new URL("./altbestand.golden.json", import.meta.url);
 
 describe("Altbestand ohne Wahl und ohne Stunden aus der Version", () => {
-  it("rendert wie kv-ab-re/4, bis auf die Versionsangabe", async () => {
+  it("rendert wie die Golddatei, bis auf die Versionsangabe", async () => {
     const jetzt: Record<string, unknown> = {};
     for (const [name, input] of BEISPIELE) jetzt[name] = await abdruck(input);
     const ziel = process.env.GOLDEN_SCHREIBEN;

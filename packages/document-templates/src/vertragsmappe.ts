@@ -122,7 +122,6 @@ export function umbrechen(text: string, maxZeichen: number): string[] {
 }
 
 function restbetragZeile(d: VertragsmappeDaten): string | null {
-  if (d.marke.firmaSlug !== "kottke") return null;
   return kottkeRestbetragSatz(d.haftungshinweis || /umzug/i.test(d.leistung));
 }
 

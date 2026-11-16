@@ -7,9 +7,9 @@ import { festangebotFixture, portalFixture } from "../../../../../../e2e/portal-
 import { StageOneKva } from "./stage-one-kva";
 
 /**
- * Plan 5b, Review Focus 4: ohne Paket- und Tagespreise zeigt Stufe 1 genau
- * das HTML von vor Task W. Die Snapshots sind mit dem Code der Basis f70e6a72
- * erzeugt; jede Abweichung im Altbestand lässt diesen Test scheitern.
+ * Plan 5b, Review Focus 4: ohne Paket- und Tagespreise zeigt Stufe 1 das
+ * HTML von vor Task W, plus den Restbetrag-Satz am Umzugstag. Jede weitere
+ * Abweichung lässt diesen Test scheitern.
  */
 (globalThis as { React?: typeof React }).React = React;
 

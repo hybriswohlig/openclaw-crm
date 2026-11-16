@@ -146,11 +146,11 @@ describe("Firmen", () => {
 
   it("zahlungsregelText", () => {
     const r = ZAHLUNGSREGEL_STANDARD;
-    expect(zahlungsregelText(r)).toBe("Rest fällig am Umzugstag. Erinnerungen aus.");
-    expect(zahlungsregelText({ ...r, basis: "rechnungstag" })).toBe("Fällig am Rechnungstag. Erinnerungen aus.");
-    expect(zahlungsregelText({ ...r, tage: 1 })).toBe("Fällig 1 Tag nach dem Umzugstag. Erinnerungen aus.");
-    expect(zahlungsregelText({ ...r, basis: "rechnungstag", tage: 14, erinnerungModus: "entwurf" })).toBe(
-      "Fällig 14 Tage nach dem Rechnungstag. Erinnerung als Entwurf 7 Tage nach Fälligkeit, zweite 14 Tage danach.",
+    const fest = "Der Restbetrag ist am Umzugstag fällig, direkt nach dem Umzug. Liegt der Rechnungstag am oder nach dem Umzugstag, ist die Rechnung an dem Tag fällig.";
+    expect(zahlungsregelText(r)).toBe(`${fest} Erinnerungen aus.`);
+    expect(zahlungsregelText({ ...r, basis: "rechnungstag", tage: 14 })).toBe(`${fest} Erinnerungen aus.`);
+    expect(zahlungsregelText({ ...r, erinnerungModus: "entwurf" })).toBe(
+      `${fest} Erinnerung als Entwurf 7 Tage nach Fälligkeit, zweite 14 Tage danach.`,
     );
   });
 });
