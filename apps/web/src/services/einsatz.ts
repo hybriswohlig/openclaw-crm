@@ -86,7 +86,7 @@ export async function dealTerminLesen(ws: string, deal: string, ex: DbExecutor =
     SELECT
       (SELECT s.selected_date::text FROM customer_date_selections s
         WHERE s.workspace_id = ${ws} AND s.deal_record_id = ${deal}
-        ORDER BY s.created_at DESC LIMIT 1) AS wahl,
+        ORDER BY s.selected_at DESC LIMIT 1) AS wahl,
       (SELECT v.date_value::text FROM record_values v
         INNER JOIN attributes a ON a.id = v.attribute_id AND a.slug = 'move_date'
         INNER JOIN objects o ON o.id = a.object_id AND o.slug = 'deals' AND o.workspace_id = ${ws}
