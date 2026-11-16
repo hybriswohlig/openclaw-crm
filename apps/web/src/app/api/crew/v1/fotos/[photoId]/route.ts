@@ -1,7 +1,7 @@
 /**
  * Crew-API v1 `GET /fotos/:photoId`: Bytes eines für die Crew freigegebenen
- * Fotos, nur wenn sein Job für diesen Link sichtbar ist. Original ohne
- * Verkleinerung (siehe services/crew/fotos.ts).
+ * Fotos, nur wenn sein Job für diesen Link sichtbar ist. Immer neu kodiert
+ * (WebP, max. 1000 px, ohne EXIF/GPS; services/crew/bild.ts).
  */
 import { NextResponse, type NextRequest } from "next/server";
 import { crewFehler } from "@/lib/crew/antwort";
@@ -16,7 +16,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ phot
   const { photoId } = await params;
   const f = await crewFotoLaden(a.k, photoId);
   if (!f.ok) return crewFehler("JOB_NICHT_SICHTBAR");
-  return new NextResponse(f.body, {
+  return new NextResponse(f.body as BodyInit, {
     headers: {
       "Content-Type": f.contentType,
       "Cache-Control": "private, max-age=3600",

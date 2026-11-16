@@ -7,7 +7,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { notFound, success } from "@/lib/api-utils";
 import { einsatzAutor, einsatzVorlauf } from "@/lib/einsatz-route";
 import { dealImWorkspace } from "@/lib/kalkulation-versionen-antwort";
-import { crewFotoFreigeben } from "@/services/crew/fotos";
+import { crewFotoFreigeben, FREIGABE_FORMAT_TEXT } from "@/services/crew/fotos";
 
 export const dynamic = "force-dynamic";
 
@@ -22,8 +22,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ re
   }
   const r = await crewFotoFreigeben(v.ctx.workspaceId, recordId, fotoId, body.freigegeben, einsatzAutor(v.ctx));
   if (r.ok) return success({ crewFreigegebenAt: r.crewFreigegebenAt });
-  if (r.code === "KEIN_BILD") {
-    return NextResponse.json({ error: { code: "KEIN_BILD", message: "Nur Bilder lassen sich freigeben." } }, { status: 400 });
+  if (r.code === "FORMAT") {
+    return NextResponse.json({ error: { code: "FORMAT", message: FREIGABE_FORMAT_TEXT } }, { status: 400 });
   }
   return notFound("Foto nicht gefunden");
 }

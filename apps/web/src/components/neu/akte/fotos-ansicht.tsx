@@ -19,7 +19,12 @@ export interface Foto {
   am?: string | null;
   /** Crew-Portal: für die Crew freigegeben. */
   crew?: boolean;
+  /** Crew-Portal: Format lässt sich freigeben (JPEG, PNG, WebP, GIF). */
+  crewMoeglich?: boolean;
 }
+
+/** Gleiche Liste wie die Crew-API (`CREW_FOTO_TYPEN`); HEIC und SVG nie. */
+const CREW_FORMATE = new Set(["image/jpeg", "image/jpg", "image/png", "image/webp", "image/gif"]);
 
 interface Anhang {
   id: string;
@@ -73,7 +78,7 @@ export function FotosAnsicht({ dealId }: { dealId: string }) {
       }
       const fotos = (r.data ?? [])
         .filter((a) => istBild(a.mimeType))
-        .map((a) => ({ id: a.id, name: a.fileName, am: a.createdAt, crew: !!a.crewFreigegebenAt }));
+        .map((a) => ({ id: a.id, name: a.fileName, am: a.createdAt, crew: !!a.crewFreigegebenAt, crewMoeglich: CREW_FORMATE.has(a.mimeType.toLowerCase()) }));
       setZustand({ art: "fertig", fotos });
     });
     return () => {
@@ -104,10 +109,16 @@ export function FotosAnsicht({ dealId }: { dealId: string }) {
               >
                 <img src={anhangUrl(f.id)} alt="" loading="lazy" />
               </button>
-              <label className="akte-foto-crew" title="Nur Innen- und Möbelfotos. Keine Fassade, Hausnummer, Kennzeichen oder Gesichter.">
-                <input type="checkbox" checked={!!f.crew} disabled={schaltet === f.id} onChange={() => void crewUmschalten(f)} />
-                Für Crew freigeben
-              </label>
+              {f.crewMoeglich || f.crew ? (
+                <label className="akte-foto-crew" title="Nur Innen- und Möbelfotos. Keine Fassade, Hausnummer, Kennzeichen oder Gesichter.">
+                  <input type="checkbox" checked={!!f.crew} disabled={schaltet === f.id} onChange={() => void crewUmschalten(f)} />
+                  Für Crew freigeben
+                </label>
+              ) : (
+                <span className="akte-foto-crew" title="Nur JPEG, PNG, WebP oder GIF lassen sich für die Crew freigeben.">
+                  Format geht nicht für die Crew
+                </span>
+              )}
             </div>
           ))}
         </div>
