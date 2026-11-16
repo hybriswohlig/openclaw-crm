@@ -299,8 +299,9 @@ export async function ladeGrund(k: CrewKontext, o: GrundOptionen = {}): Promise<
     const datum = tagAus(z.tag);
     if (!datum) continue;
     const auftrag = werteAus(z.aw);
-    // Leute: am Auftrag eingetragen, sonst Teamgröße der Kalkulation.
-    const workerCount = personenZahl(zahl(auftrag.worker_count)) ?? personenZahl(z.kalk_groesse);
+    // Leute: am Auftrag eingetragen (auch 0 = nicht zeigen), nur ohne Eintrag die Teamgröße der Kalkulation.
+    const amAuftrag = zahl(auftrag.worker_count);
+    const workerCount = amAuftrag !== null ? personenZahl(amAuftrag) : personenZahl(z.kalk_groesse);
     const firma = firmaAus(z.firma_name);
     const meinTeam = z.mein_role
       ? { role: z.mein_role, plannedWorkMinutes: z.mein_arbeit ?? null, plannedDriveMinutes: z.mein_fahrt ?? null }

@@ -14,7 +14,7 @@ import { updateRecord } from "@/services/records";
 export interface CrewAusschreibung {
   /** null: zu diesem Deal gibt es (noch) keinen Auftrag. */
   auftragId: string | null;
-  /** Am Auftrag eingetragen. */
+  /** Am Auftrag eingetragen (0 möglich: dann sieht die Crew den Job nicht); null = nichts eingetragen. */
   leute: number | null;
   /** Teamgröße der maßgeblichen Kalkulation. */
   ausKalkulation: number | null;
@@ -38,10 +38,17 @@ export async function crewAusschreibungLesen(ws: string, deal: string): Promise<
   );
   return {
     auftragId: z?.auftrag_id ?? null,
-    leute: personenZahl(z?.leute ?? null),
+    leute: eingetragen(z?.leute ?? null),
     ausKalkulation: personenZahl(z?.kalk ?? null),
     ausschreiben: z?.ausschreiben !== false,
   };
+}
+
+/** Wert am Auftrag als ganze Zahl ab 0; leer bleibt null (dann gilt die Kalkulation). */
+function eingetragen(x: string | number | null): number | null {
+  if (x === null) return null;
+  const n = Number(x);
+  return Number.isFinite(n) ? Math.max(0, Math.round(n)) : null;
 }
 
 /** Neuester nicht gelöschter Auftrag des Deals im Workspace (wie die Crew-Jobs). */

@@ -105,9 +105,11 @@ describe.skipIf(!url)("Crew-Jobs, Antwort und Fotos (DB)", { timeout: 30_000 }, 
     await deal("dOhneZahl", { datum: "2026-11-25", wc: null });
     // Ohne Zahl am Auftrag gilt die Teamgröße der maßgeblichen Kalkulation (gesperrt vor neuer).
     await deal("dKalk", { datum: "2026-11-26", wc: null });
+    // Ausdrücklich 0 am Auftrag: bleibt verborgen, auch wenn die Kalkulation Leute hat.
+    await deal("dNull", { datum: "2026-11-26", wc: 0 });
     await sql.unsafe(`INSERT INTO deal_calculation_versions (workspace_id, deal_record_id, status, version, rechner_result) VALUES
       ('w1', 'dKalk', 'gesperrt', 1, '{"team":{"groesse":3}}'), ('w1', 'dKalk', 'entwurf', 2, '{"team":{"groesse":6}}'),
-      ('w1', 'dA', 'gesperrt', 1, '{"team":{"groesse":5}}')`);
+      ('w1', 'dA', 'gesperrt', 1, '{"team":{"groesse":5}}'), ('w1', 'dNull', 'gesperrt', 1, '{"team":{"groesse":4}}')`);
     await deal("dWeg", { datum: "2026-11-25", geloescht: true });
     await deal("dMeinGestern", { datum: "2026-11-15", stufe: "st_done", von: { line1: "Mühlweg 7", line2: "3. OG", postcode: "70173", city: "Stuttgart" } });
     await sql`INSERT INTO deal_employees (deal_record_id, employee_id, role, planned_work_minutes, planned_drive_minutes) VALUES ('dMeinGestern', 'e1', 'lead', 240, 60)`;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
+import { useId, useState } from "react";
 import { toast } from "sonner";
 import type { CrewAusschreibungAnsicht } from "@/lib/einsatz-ansicht";
 import { crewAusschreibungSetzen } from "./einsatz-api";
@@ -8,13 +8,14 @@ import { crewAusschreibungSetzen } from "./einsatz-api";
 /**
  * Crew-Portal im Einsatz-Dialog: wie viele Leute gesucht sind und ob der Job im
  * Portal steht. Wird sofort am Auftrag gespeichert, unabhängig von „Team bestätigen“.
- * Ohne eigene Zahl gilt die Teamgröße der Kalkulation.
+ * Ohne eigene Zahl gilt die Teamgröße der Kalkulation. Der Wert wird nur beim
+ * Öffnen übernommen (Aufrufer setzt `key`), damit ein später eintreffendes
+ * Neuladen eine gerade gespeicherte Eingabe nie überschreibt.
  */
 export function EinsatzCrew({ dealId, wert }: { dealId: string; wert: CrewAusschreibungAnsicht }) {
   const titelId = useId();
   const [w, setW] = useState(wert);
   const [laeuft, setLaeuft] = useState(false);
-  useEffect(() => setW(wert), [wert]);
 
   async function setzen(body: { leute?: number | null; ausschreiben?: boolean }) {
     setLaeuft(true);
@@ -64,9 +65,9 @@ export function EinsatzCrew({ dealId, wert }: { dealId: string; wert: CrewAussch
           </button>
         </span>
         {herkunft ? <span className="ez-crew-herkunft">{herkunft}</span> : null}
-        {w.leute !== null && w.ausKalkulation !== null && w.leute !== w.ausKalkulation ? (
+        {w.leute !== null && w.ausKalkulation !== null ? (
           <button type="button" className="ez-crew-link" disabled={laeuft} onClick={() => void setzen({ leute: null })}>
-            Kalkulation nehmen ({w.ausKalkulation})
+            der Kalkulation folgen ({w.ausKalkulation})
           </button>
         ) : null}
         <label className="ez-crew-schalter">
@@ -77,7 +78,7 @@ export function EinsatzCrew({ dealId, wert }: { dealId: string; wert: CrewAussch
       <p className="ez-notiz">
         {!w.ausschreiben
           ? "Die Crew sieht diesen Job nicht. Wer hier im Team bestätigt ist, sieht ihn trotzdem unter „Meine“."
-          : zahl === null
+          : zahl === null || zahl < 1
             ? "Ohne Zahl sieht die Crew diesen Job nicht. Bitte eintragen."
             : "Wer im Team bestätigt ist, sieht den Job im Portal unter „Meine“, mit Adresse."}
       </p>

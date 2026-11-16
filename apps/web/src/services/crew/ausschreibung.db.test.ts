@@ -41,7 +41,7 @@ describe.skipIf(!url)("Crew-Ausschreibung (DB)", { timeout: 20_000 }, () => {
       INSERT INTO workspaces VALUES ('w1'), ('w2');
       INSERT INTO objects VALUES ('od', 'w1', 'deals'), ('oa', 'w1', 'auftraege'), ('oa2', 'w2', 'auftraege');
       INSERT INTO attributes VALUES ('a_deal', 'oa', 'deal'), ('a_wc', 'oa', 'worker_count'), ('a_aus', 'oa', 'crew_ausschreiben'), ('a2_deal', 'oa2', 'deal');
-      INSERT INTO records (id, object_id) VALUES ('d1', 'od'), ('d2', 'od'), ('d3', 'od'), ('au1', 'oa'), ('au2', 'oa'), ('fremd', 'oa2');
+      INSERT INTO records (id, object_id) VALUES ('d1', 'od'), ('d2', 'od'), ('d3', 'od'), ('d4', 'od'), ('au1', 'oa'), ('au2', 'oa'), ('au4', 'oa'), ('fremd', 'oa2');
       INSERT INTO deal_calculation_versions (workspace_id, deal_record_id, status, version, rechner_result) VALUES
         ('w1', 'd1', 'gesperrt', 1, '{"team":{"groesse":4}}'), ('w1', 'd2', 'entwurf', 1, '{"team":{"groesse":3}}');
     `);
@@ -49,6 +49,8 @@ describe.skipIf(!url)("Crew-Ausschreibung (DB)", { timeout: 20_000 }, () => {
     await wertSetzen(sql, "au2", "a_deal", { ref: "d2" });
     await wertSetzen(sql, "au2", "a_wc", { zahl: 2 });
     await wertSetzen(sql, "au2", "a_aus", { ja: false });
+    await wertSetzen(sql, "au4", "a_deal", { ref: "d4" });
+    await wertSetzen(sql, "au4", "a_wc", { zahl: 0 });
     // Auftrag eines anderen Workspace, der auf d3 zeigt: darf nie gefunden werden.
     await wertSetzen(sql, "fremd", "a2_deal", { ref: "d3" });
     mod = await import("./ausschreibung");
@@ -64,6 +66,7 @@ describe.skipIf(!url)("Crew-Ausschreibung (DB)", { timeout: 20_000 }, () => {
   it("liest Zahl am Auftrag, Kalkulation und Ausschreiben (leer = ja)", async () => {
     expect(await mod.crewAusschreibungLesen("w1", "d1")).toEqual({ auftragId: "au1", leute: null, ausKalkulation: 4, ausschreiben: true });
     expect(await mod.crewAusschreibungLesen("w1", "d2")).toEqual({ auftragId: "au2", leute: 2, ausKalkulation: 3, ausschreiben: false });
+    expect(await mod.crewAusschreibungLesen("w1", "d4")).toMatchObject({ auftragId: "au4", leute: 0 });
     expect(await mod.crewAusschreibungLesen("w1", "d3")).toEqual({ auftragId: null, leute: null, ausKalkulation: null, ausschreiben: true });
   });
 

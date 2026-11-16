@@ -336,7 +336,7 @@ export function EinsatzDialog({
           </ul>
         ) : null}
 
-        {ansicht.crewAusschreibung ? <EinsatzCrew dealId={ansicht.dealId} wert={ansicht.crewAusschreibung} /> : null}
+        {ansicht.crewAusschreibung ? <EinsatzCrew key={ansicht.dealId} dealId={ansicht.dealId} wert={ansicht.crewAusschreibung} /> : null}
 
         <EinsatzAnfragen
           anfragen={ansicht.anfragen ?? []}
