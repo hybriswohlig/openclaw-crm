@@ -11,7 +11,7 @@ import { firmaAus } from "@/lib/crew/logik";
 import { crewLinkNachricht } from "@/lib/crew/link-nachricht";
 import { istCrewLocale } from "@/lib/crew/telefon";
 import { sendBaileysDirektText } from "@/services/inbox-whatsapp";
-import { crewLinkAnlegen, crewLinkLesen, type CrewLinkAnsicht } from "./links";
+import { crewLinkLesen, crewLinkSicherstellen, type CrewLinkAnsicht } from "./links";
 
 /** Firma, deren WhatsApp die Links verschickt. */
 export const CREW_LINK_ABSENDER_FIRMA = "ruempeltuerken" as const;
@@ -63,8 +63,9 @@ export type SendenErgebnis =
   | { ok: false; code: "VERSAND"; message: string };
 
 /**
- * Legt den Link bei Bedarf an und schickt ihn. Ein gesperrter Link wird nicht
- * still wieder freigegeben: erst „Wieder freigeben“, dann senden.
+ * Legt den Link bei Bedarf an und schickt ihn. Ein gesperrter Link wird nie
+ * still wieder freigegeben: erst „Wieder freigeben“, dann senden. Die frühe
+ * Prüfung spart nur Arbeit; maßgeblich ist die nach dem Anlegen.
  */
 export async function crewLinkSenden(ws: string, employeeId: string, autor: string, deps: SendenDeps = standard): Promise<SendenErgebnis> {
   const [p] = await db
@@ -82,9 +83,11 @@ export async function crewLinkSenden(ws: string, employeeId: string, autor: stri
   const konto = await deps.absender(ws);
   if (!konto) return { ok: false, code: "KEIN_ABSENDER" };
 
-  const r = await crewLinkAnlegen(ws, employeeId, autor);
+  // Anlegen ohne Freigabe: sperrt jemand in diesem Moment, bleibt es gesperrt.
+  const r = await crewLinkSicherstellen(ws, employeeId, autor);
   if (!r.ok) return r;
   if (!r.link) return { ok: false, code: "NICHT_GEFUNDEN" };
+  if (!r.link.aktiv) return { ok: false, code: "GESPERRT" };
 
   const text = crewLinkNachricht(istCrewLocale(p.sprache) ? p.sprache : "de", p.name, r.link.url);
   try {

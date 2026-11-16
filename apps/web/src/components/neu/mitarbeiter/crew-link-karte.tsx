@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { GlassButton } from "@/components/glassyui/glass-button";
 import type { ApiAntwort } from "@/components/neu/akte/api";
@@ -24,11 +24,16 @@ export function CrewLinkKarte({ person }: { person: EinsatzPerson }) {
   const [zustand, setZustand] = useState<Zustand>({ art: "laedt" });
   const [laeuft, setLaeuft] = useState(false);
   const [frage, setFrage] = useState<Frage>(null);
+  // Die Karte bleibt beim Wechsel der Person stehen: späte Antworten für die
+  // vorige Person dürfen deren Link nie bei der neuen anzeigen.
+  const aktuell = useRef(person.id);
+  aktuell.current = person.id;
 
   useEffect(() => {
     let aktiv = true;
     setZustand({ art: "laedt" });
     setFrage(null);
+    setLaeuft(false);
     void crewLinkLaden(person.id).then((r) => {
       if (!aktiv) return;
       setZustand(r.ok ? { art: "da", link: r.data ?? null } : { art: "fehler", meldung: r.message });
@@ -39,8 +44,10 @@ export function CrewLinkKarte({ person }: { person: EinsatzPerson }) {
   }, [person.id]);
 
   async function ausfuehren(aufruf: () => Promise<ApiAntwort<CrewLinkAnsicht | null>>, erfolg: string) {
+    const fuer = person.id;
     setLaeuft(true);
     const r = await aufruf();
+    if (aktuell.current !== fuer) return;
     setLaeuft(false);
     setFrage(null);
     if (!r.ok) {
@@ -52,12 +59,17 @@ export function CrewLinkKarte({ person }: { person: EinsatzPerson }) {
   }
 
   async function senden() {
+    const fuer = person.id;
     setLaeuft(true);
-    const r = await crewLinkSenden(person.id);
+    const r = await crewLinkSenden(fuer);
+    if (aktuell.current !== fuer) return;
     setLaeuft(false);
     setFrage(null);
     if (!r.ok) {
       toast.error("Nicht gesendet.", { description: r.message });
+      // Der Link kann vor dem fehlgeschlagenen Versand angelegt worden sein.
+      const neu = await crewLinkLaden(fuer);
+      if (aktuell.current === fuer && neu.ok) setZustand({ art: "da", link: neu.data ?? null });
       return;
     }
     if (r.data) setZustand({ art: "da", link: r.data.link });

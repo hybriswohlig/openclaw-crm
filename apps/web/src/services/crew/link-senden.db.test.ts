@@ -88,6 +88,20 @@ describe.skipIf(!url)("crewLinkSenden (DB)", { timeout: 20_000 }, () => {
     expect(senden).not.toHaveBeenCalled();
   });
 
+  it("gleichzeitig gesperrt: Senden gibt den Link nicht wieder frei und schickt nichts", async () => {
+    await sql.unsafe(`INSERT INTO ${h.schema}.employees (id, workspace_id, name, phone_canonical) VALUES ('e5', 'w1', 'Eda Ekin', '+491700000005')`);
+    await links.crewLinkAnlegen("w1", "e5", "u1");
+    // Gesperrt wird genau zwischen der frühen Prüfung und dem Anlegen.
+    absender.mockImplementationOnce(async () => {
+      await links.crewLinkSperren("w1", "e5");
+      return "konto-r";
+    });
+    expect(await mod.crewLinkSenden("w1", "e5", "u1", deps())).toEqual({ ok: false, code: "GESPERRT" });
+    const l = await links.crewLinkLesen("w1", "e5");
+    expect(l.ok && l.link?.aktiv).toBe(false);
+    expect(senden).not.toHaveBeenCalled();
+  });
+
   it("kein verbundenes Absenderkonto: KEIN_ABSENDER, kein Link angelegt", async () => {
     await sql.unsafe(`UPDATE ${h.schema}.employees SET phone_canonical = '+491700000002' WHERE id = 'e2'`);
     absender.mockResolvedValueOnce(null);
