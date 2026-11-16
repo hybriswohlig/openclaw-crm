@@ -1,20 +1,23 @@
 /**
  * Jobs für das Crew-Portal (Vertrag „Visibility“, „Data minimisation“, „Pay
- * estimate“). Liest nur. Kein N+1: eine feste Zahl von Abfragen für alle
- * Kandidaten zusammen (Deal- und Auftragswerte gebündelt aus dem EAV).
+ * estimate“). Liest nur. Zwei Abfragen, je eine Runde zur Datenbank:
  *
- * Kandidaten: alle lebenden Deals mit Stufe der Kategorie `booked` (Regel A)
- * plus die eigenen (deal_employees oder Antwort, Regel B). Danach entscheidet
- * `sichtbarkeit` je Deal.
+ * 1. Grund (`ladeGrund`): filtert schon in SQL auf Kandidaten (Stufe `booked`
+ *    und Termin ab heute, oder eigene Deals mit Termin ab gestern) und holt
+ *    je Kandidat nur, was die Sichtbarkeit braucht: Termin, Stufe, Auftrag
+ *    (neuester lebender) mit Anzahl, Ausschreiben, Firma und Zeitfenster,
+ *    meine Einteilung und meine Antwort.
+ * 2. Details (`ladeDetails`): nur für die Deals, die wirklich gebaut werden
+ *    (Adressen, Etagen, Team, Anfragen, KV-Leistung, Kalkulation, Fotos).
  *
- * Termin wie im Einsatz (`dealTerminLesen`): Datumswahl im Kundenportal, sonst
- * `move_date`. Auftrag = der neueste lebende Auftrag am Deal. Firma = die
- * ausführende Firma des Auftrags, sonst die Betriebsfirma des Deals.
+ * Termin wie im Einsatz: Datumswahl im Kundenportal, sonst `move_date`.
+ * Firma = ausführende Firma des Auftrags, sonst Betriebsfirma des Deals.
+ * Die endgültige Entscheidung trifft `sichtbarkeit` (lib/crew/logik.ts).
  */
 import { sql, type SQL } from "drizzle-orm";
 import { db } from "@/db";
 import { berlinDateString } from "@/lib/berlin-date";
-import { zeilen, alsJson } from "@/lib/db-werte";
+import { alsJson, zeilen } from "@/lib/db-werte";
 import { planMinutenJePerson } from "@/lib/einsatz";
 import type { CrewJob, CrewMember } from "@/lib/crew/contract";
 import {
@@ -28,6 +31,7 @@ import {
   lohnSchaetzung,
   meinStatus,
   sichtbarkeit,
+  tagPlus,
   vornameAus,
   type GespeicherteAntwort,
 } from "@/lib/crew/logik";
@@ -38,21 +42,7 @@ import type { RechnerAnfrage } from "@/services/rechner/eingabe";
 import type { RechnerErgebnis } from "@/services/rechner/client";
 import type { CrewKontext } from "./auth";
 
-const DEAL_SLUGS = [
-  "stage",
-  "move_date",
-  "operating_company",
-  "move_from_address",
-  "move_to_address",
-  "floors_from",
-  "floors_to",
-  "elevator_from",
-  "elevator_to",
-  "moving_lead_payload",
-] as const;
-
 const AUFTRAG_SLUGS = [
-  "deal",
   "operating_company",
   "worker_count",
   "crew_ausschreiben",
@@ -73,116 +63,449 @@ const AUFTRAG_SLUGS = [
   "drive_minutes_total",
 ] as const;
 
-/** Bildtypen, die jeder Browser zeigt; HEIC und Rest bleiben draußen. */
+const DEAL_DETAIL_SLUGS = ["move_from_address", "move_to_address", "floors_from", "floors_to", "elevator_from", "elevator_to"] as const;
+
+/** Bildtypen, die die Crew bekommt (Freigabe und Auslieferung). HEIC und SVG nie. */
 export const CREW_FOTO_TYPEN = ["image/jpeg", "image/jpg", "image/png", "image/webp", "image/gif"] as const;
 
-function idListe(ids: readonly string[]): SQL {
-  return sql`ARRAY[${sql.join(
-    ids.map((id) => sql`${id}`),
-    sql`, `,
-  )}]::text[]`;
+export function crewFotoTypErlaubt(mime: string | null | undefined): boolean {
+  return (CREW_FOTO_TYPEN as readonly string[]).includes((mime ?? "").split(";")[0]!.trim().toLowerCase());
 }
 
-const TYPEN_SQL = sql`ARRAY[${sql.join(
-  CREW_FOTO_TYPEN.map((t) => sql`${t}`),
-  sql`, `,
-)}]::text[]`;
+const liste = (ids: readonly string[]) => sql`${sql.param([...ids])}::text[]`;
 
-// ─── Werte aus record_values ─────────────────────────────────────────────────
+// ─── Werte aus dem EAV als ein jsonb je Record ───────────────────────────────
 
-interface WertZeile {
-  record_id: string;
-  attribute_id: string | null;
-  text_value: string | null;
-  number_value: string | number | null;
-  date_value: string | null;
-  boolean_value: boolean | null;
-  json_value: unknown;
-  referenced_record_id: string | null;
-  ts_value: string | null;
+/** Ein Wert je Slug (erster nach sort_order), mit Optionstitel bei Auswahlfeldern. */
+interface Wert {
+  t?: string | null;
+  n?: number | string | null;
+  d?: string | null;
+  b?: boolean | null;
+  j?: unknown;
+  r?: string | null;
+  ts?: string | null;
+  o?: string | null;
+}
+type Werte = Record<string, Wert | undefined>;
+
+function werteJson(ws: string, record: SQL, objekt: string, slugs: readonly string[]): SQL {
+  return sql`(
+    SELECT jsonb_object_agg(x.slug, x.w) FROM (
+      SELECT DISTINCT ON (a.slug) a.slug, jsonb_build_object(
+        't', v.text_value, 'n', v.number_value, 'd', v.date_value::text, 'b', v.boolean_value,
+        'j', v.json_value, 'r', v.referenced_record_id,
+        'ts', to_char(v.timestamp_value, 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), 'o', so.title) AS w
+      FROM record_values v
+      INNER JOIN attributes a ON a.id = v.attribute_id AND a.slug = ANY(${liste(slugs)})
+      INNER JOIN objects ob ON ob.id = a.object_id AND ob.slug = ${objekt} AND ob.workspace_id = ${ws}
+      LEFT JOIN select_options so ON so.id = v.text_value AND so.attribute_id = v.attribute_id
+      WHERE v.record_id = ${record}
+      ORDER BY a.slug, v.sort_order, v.id
+    ) x
+  )`;
 }
 
-type Werte = Map<string, WertZeile>;
-
-const WERT_SPALTEN = sql`v.attribute_id, v.text_value, v.number_value::text AS number_value, v.date_value::text AS date_value,
-  v.boolean_value, v.json_value, v.referenced_record_id,
-  to_char(v.timestamp_value, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS ts_value`;
-
-function nachRecord(rows: WertZeile[], slugVonAttr: Map<string, string>): Map<string, Werte> {
-  const out = new Map<string, Werte>();
-  for (const z of rows) {
-    if (!z.attribute_id) continue;
-    const slug = slugVonAttr.get(z.attribute_id);
-    if (!slug) continue;
-    let m = out.get(z.record_id);
-    if (!m) out.set(z.record_id, (m = new Map()));
-    // Mehrfachwerte (sortiert): der erste zählt.
-    if (!m.has(slug)) m.set(slug, z);
-  }
-  return out;
-}
-
-const zahl = (z: WertZeile | undefined): number | null => {
-  if (!z || z.number_value === null || z.number_value === undefined) return null;
-  const n = Number(z.number_value);
+const zahl = (w: Wert | undefined): number | null => {
+  if (!w || w.n === null || w.n === undefined) return null;
+  const n = Number(w.n);
   return Number.isFinite(n) ? n : null;
 };
-const janein = (z: WertZeile | undefined): boolean | null => (z && typeof z.boolean_value === "boolean" ? z.boolean_value : null);
-const tag = (x: string | null | undefined): string | null => (typeof x === "string" && /^\d{4}-\d{2}-\d{2}/.test(x) ? x.slice(0, 10) : null);
+const janein = (w: Wert | undefined): boolean | null => (w && typeof w.b === "boolean" ? w.b : null);
+const tagAus = (x: unknown): string | null => (typeof x === "string" && /^\d{4}-\d{2}-\d{2}/.test(x) ? x.slice(0, 10) : null);
+const werteAus = (x: unknown): Werte => {
+  const v = alsJson(x);
+  return v && typeof v === "object" ? (v as Werte) : {};
+};
 
-interface Ort {
+// ─── Adresse ─────────────────────────────────────────────────────────────────
+
+export interface Ort {
   line1: string | null;
+  line2: string | null;
   postcode: string | null;
   city: string | null;
 }
 
-function ortAus(z: WertZeile | undefined): Ort | null {
-  if (!z) return null;
-  let v: unknown = alsJson(z.json_value);
-  if (v === null || v === undefined) v = z.text_value;
+/** Gespeicherte Adresse (jsonb, auch `postalCode`/`street`) oder Freitext. */
+export function ortAus(w: Wert | undefined): Ort | null {
+  if (!w) return null;
+  let v: unknown = alsJson(w.j);
+  if (v === null || v === undefined) v = w.t;
   if (typeof v === "string") {
     const s = v.trim();
     if (!s) return null;
     try {
       v = JSON.parse(s);
     } catch {
-      return { line1: s, postcode: null, city: null };
+      return { line1: s, line2: null, postcode: null, city: null };
     }
   }
   if (!v || typeof v !== "object") return null;
   const o = v as Record<string, unknown>;
   const t = (x: unknown) => (typeof x === "string" && x.trim() !== "" ? x.trim() : null);
-  return { line1: t(o.line1), postcode: t(o.postcode), city: t(o.city) };
+  return { line1: t(o.line1) ?? t(o.street), line2: t(o.line2), postcode: t(o.postcode) ?? t(o.postalCode), city: t(o.city) };
 }
 
-function ortText(o: Ort | null): string | null {
+/** Volle Abholadresse wie gespeichert: „Straße Nr, Zusatz, PLZ Ort“. Nur für Bestätigte. */
+export function adresseText(o: Ort | null): string | null {
   if (!o) return null;
   const ort = [o.postcode, o.city].filter(Boolean).join(" ");
-  const teile = [o.line1, ort].filter((x): x is string => !!x);
+  const teile = [o.line1, o.line2, ort].filter((x): x is string => !!x);
   return teile.length > 0 ? teile.join(", ") : null;
 }
 
-/** Stadt ohne Straße: `city`, sonst `line1`, wenn darin keine Hausnummer steht. */
-function stadtAus(o: Ort | null): string {
-  if (!o) return "";
-  if (o.city) return o.city;
-  if (o.line1 && !/\d/.test(o.line1)) return o.line1;
-  return "";
+/**
+ * Grobe Lage für alle (auch Unbestätigte): nur Ort, sonst PLZ. Nie Text aus
+ * Straße oder Freitext, auch wenn `line1` wie ein Ort aussieht.
+ */
+export function lageAus(o: Ort | null): { town: string; district: string | null } {
+  if (!o) return { town: "", district: null };
+  const plz = o.postcode && /^\d{4,5}$/.test(o.postcode) ? o.postcode : null;
+  if (o.city) return { town: o.city, district: plz };
+  return { town: plz ?? "", district: null };
+}
+
+// ─── Stufe 1: Grund ──────────────────────────────────────────────────────────
+
+export interface CrewGrund {
+  dealId: string;
+  datum: string;
+  dateEnd: string | null;
+  start: string | null;
+  end: string | null;
+  workerCount: number | null;
+  firma: CrewJob["company"] | null;
+  sicht: { a: boolean; b: boolean };
+  /** Meine Zeile in deal_employees, sonst null. */
+  meinTeam: { role: string; plannedWorkMinutes: number | null; plannedDriveMinutes: number | null } | null;
+  meineAntwort: { answer: GespeicherteAntwort; answeredAt: string } | null;
+  auftrag: Werte;
+}
+
+export interface GrundOptionen {
+  jetzt?: Date;
+  /** Nur diese Deals (sonst alle Kandidaten). */
+  dealIds?: string[];
+  /** Zusätzlich meine eigenen Deals laden (für „Konflikt am Tag“). */
+  mitMeinen?: boolean;
+  /** Diesen Deal auch ohne Sichtbarkeit (nur nach einer gerade zurückgenommenen Antwort). */
+  erzwingen?: string;
+  ex?: DbExecutor;
+}
+
+export async function ladeGrund(k: CrewKontext, o: GrundOptionen = {}): Promise<CrewGrund[]> {
+  const ex = o.ex ?? db;
+  const ws = k.workspaceId;
+  const ich = k.employee.id;
+  const heute = berlinDateString(o.jetzt ?? new Date());
+  const gestern = tagPlus(heute, -1);
+  const ids = o.dealIds ? o.dealIds.filter((d) => typeof d === "string" && d.length > 0 && d.length <= 100) : null;
+  if (ids && ids.length === 0 && !o.mitMeinen) return [];
+  const erzwingen = o.erzwingen ?? null;
+
+  const filter = ids
+    ? sql`AND (r.id = ANY(${liste(ids)}) OR (${o.mitMeinen === true} AND r.id IN (SELECT id FROM meine)))`
+    : sql``;
+
+  const rows = zeilen<{
+    id: string;
+    kat: string | null;
+    tag: string | null;
+    meins: boolean;
+    aw: unknown;
+    firma_name: string | null;
+    mein_role: string | null;
+    mein_arbeit: number | null;
+    mein_fahrt: number | null;
+    antwort: GespeicherteAntwort | null;
+    antwort_am: string | Date | null;
+  }>(
+    await ex.execute(sql`
+      WITH meine AS (
+        SELECT de.deal_record_id AS id FROM deal_employees de
+        INNER JOIN employees e ON e.id = de.employee_id AND e.workspace_id = ${ws}
+        WHERE de.employee_id = ${ich}
+        UNION
+        SELECT cr.deal_record_id FROM crew_job_responses cr WHERE cr.employee_id = ${ich} AND cr.workspace_id = ${ws}
+      ),
+      basis AS (
+        SELECT r.id, (r.id IN (SELECT id FROM meine)) AS meins,
+          (SELECT s.stage_category FROM record_values v
+             INNER JOIN attributes a ON a.id = v.attribute_id AND a.slug = 'stage' AND a.object_id = r.object_id
+             INNER JOIN statuses s ON s.id = v.text_value AND s.attribute_id = a.id
+           WHERE v.record_id = r.id ORDER BY v.sort_order, v.id LIMIT 1) AS kat,
+          COALESCE(
+            (SELECT c.selected_date FROM customer_date_selections c WHERE c.deal_record_id = r.id AND c.workspace_id = ${ws} LIMIT 1),
+            (SELECT v.date_value FROM record_values v
+               INNER JOIN attributes a ON a.id = v.attribute_id AND a.slug = 'move_date' AND a.object_id = r.object_id
+             WHERE v.record_id = r.id AND v.date_value IS NOT NULL ORDER BY v.sort_order, v.id LIMIT 1)
+          ) AS tag
+        FROM records r
+        INNER JOIN objects od ON od.id = r.object_id AND od.workspace_id = ${ws} AND od.slug = 'deals'
+        WHERE r.deleted_at IS NULL ${filter}
+      ),
+      kand AS (
+        SELECT * FROM basis
+        WHERE tag IS NOT NULL AND (
+          (kat = 'booked' AND tag >= ${heute}::date)
+          OR (meins AND tag >= ${gestern}::date AND COALESCE(kat, '') NOT IN ('lost', 'kein_lead'))
+          OR id = ${erzwingen}
+        )
+      )
+      SELECT k.id, k.kat, k.tag::text AS tag, k.meins, awj.aw, fn.name AS firma_name,
+        mt.role AS mein_role, mt.planned_work_minutes AS mein_arbeit, mt.planned_drive_minutes AS mein_fahrt,
+        ma.answer AS antwort, ma.answered_at AS antwort_am
+      FROM kand k
+      LEFT JOIN LATERAL (
+        SELECT ra.id FROM record_values rd
+        INNER JOIN attributes a ON a.id = rd.attribute_id AND a.slug = 'deal'
+        INNER JOIN objects ao ON ao.id = a.object_id AND ao.slug = 'auftraege' AND ao.workspace_id = ${ws}
+        INNER JOIN records ra ON ra.id = rd.record_id AND ra.object_id = ao.id AND ra.deleted_at IS NULL
+        WHERE rd.referenced_record_id = k.id
+        ORDER BY ra.created_at DESC, ra.id DESC LIMIT 1
+      ) au ON true
+      LEFT JOIN LATERAL (SELECT ${werteJson(ws, sql`au.id`, "auftraege", AUFTRAG_SLUGS)} AS aw) awj ON true
+      LEFT JOIN LATERAL (SELECT ${werteJson(ws, sql`k.id`, "deals", ["operating_company"])} AS dw) dwj ON true
+      LEFT JOIN LATERAL (
+        SELECT v.text_value AS name FROM record_values v
+        INNER JOIN attributes a ON a.id = v.attribute_id AND a.slug = 'name'
+        INNER JOIN objects oc ON oc.id = a.object_id AND oc.slug = 'operating_companies' AND oc.workspace_id = ${ws}
+        WHERE v.record_id = COALESCE(awj.aw -> 'operating_company' ->> 'r', dwj.dw -> 'operating_company' ->> 'r')
+        ORDER BY v.sort_order, v.id LIMIT 1
+      ) fn ON true
+      LEFT JOIN LATERAL (
+        SELECT de.role, de.planned_work_minutes, de.planned_drive_minutes FROM deal_employees de
+        INNER JOIN employees e ON e.id = de.employee_id AND e.workspace_id = ${ws}
+        WHERE de.deal_record_id = k.id AND de.employee_id = ${ich} LIMIT 1
+      ) mt ON true
+      LEFT JOIN LATERAL (
+        SELECT cr.answer, cr.answered_at FROM crew_job_responses cr
+        WHERE cr.deal_record_id = k.id AND cr.employee_id = ${ich} AND cr.workspace_id = ${ws} LIMIT 1
+      ) ma ON true
+    `),
+  );
+
+  const out: CrewGrund[] = [];
+  for (const z of rows) {
+    const datum = tagAus(z.tag);
+    if (!datum) continue;
+    const auftrag = werteAus(z.aw);
+    const wc = zahl(auftrag.worker_count);
+    const workerCount = wc !== null && wc >= 1 ? Math.round(wc) : null;
+    const firma = firmaAus(z.firma_name);
+    const meinTeam = z.mein_role
+      ? { role: z.mein_role, plannedWorkMinutes: z.mein_arbeit ?? null, plannedDriveMinutes: z.mein_fahrt ?? null }
+      : null;
+    const meineAntwort = z.antwort ? { answer: z.antwort, answeredAt: new Date(z.antwort_am ?? 0).toISOString() } : null;
+    let sicht = sichtbarkeit({
+      geloescht: false,
+      stufeKategorie: z.kat,
+      datum,
+      heute,
+      workerCount,
+      ausschreiben: janein(auftrag.crew_ausschreiben),
+      firma,
+      meins: meinTeam !== null || meineAntwort !== null,
+    });
+    if (erzwingen === z.id && firma) sicht = { a: sicht.a, b: true };
+
+    // Zeitfenster aus dem Auftrag (UTC gespeichert), nur wenn es zum Termin passt.
+    const startB = auftrag.time_window_start?.ts ? berlinDateAndTime(new Date(auftrag.time_window_start.ts)) : null;
+    const endB = auftrag.time_window_end?.ts ? berlinDateAndTime(new Date(auftrag.time_window_end.ts)) : null;
+    const passt = startB === null || startB.date === datum;
+    out.push({
+      dealId: z.id,
+      datum,
+      dateEnd: endB && passt && endB.date > datum ? endB.date : null,
+      start: startB && startB.date === datum ? startB.time : null,
+      end: endB && passt && endB.date >= datum ? endB.time : null,
+      workerCount,
+      firma,
+      sicht,
+      meinTeam,
+      meineAntwort,
+      auftrag,
+    });
+  }
+  return out;
+}
+
+export const istSichtbar = (g: CrewGrund) => (g.sicht.a || g.sicht.b) && g.firma !== null;
+
+/** Sichtbarkeit genau eines Deals für diesen Link (Foto, Antwort unter Sperre). */
+export async function dealSichtbar(k: CrewKontext, dealId: string, o: { jetzt?: Date; ex?: DbExecutor } = {}): Promise<CrewGrund | null> {
+  const [g] = await ladeGrund(k, { dealIds: [dealId], jetzt: o.jetzt, ex: o.ex });
+  return g && g.dealId === dealId && istSichtbar(g) ? g : null;
+}
+
+// ─── Stufe 2: Details nur für die gebauten Jobs ──────────────────────────────
+
+interface Detail {
+  dw: Werte;
+  leadType: string | null;
+  serviceType: string | null;
+  version: { anfrage: RechnerAnfrage | null; ergebnis: RechnerErgebnis | null } | null;
+  team: Array<{ id: string; role: string; name: string | null; sprinter: boolean }>;
+  offene: number;
+  fotos: string[];
+}
+
+async function ladeDetails(ex: DbExecutor, k: CrewKontext, ids: string[]): Promise<Map<string, Detail>> {
+  const ws = k.workspaceId;
+  const ich = k.employee.id;
+  const typen = liste(CREW_FOTO_TYPEN);
+  const rows = zeilen<{
+    id: string;
+    dw: unknown;
+    lead_type: string | null;
+    service_type: string | null;
+    version: unknown;
+    team: unknown;
+    offene: number;
+    fotos: unknown;
+  }>(
+    await ex.execute(sql`
+      SELECT r.id,
+        ${werteJson(ws, sql`r.id`, "deals", DEAL_DETAIL_SLUGS)} AS dw,
+        (SELECT v.json_value ->> 'leadType' FROM record_values v
+           INNER JOIN attributes a ON a.id = v.attribute_id AND a.slug = 'moving_lead_payload' AND a.object_id = r.object_id
+         WHERE v.record_id = r.id ORDER BY v.sort_order, v.id LIMIT 1) AS lead_type,
+        (SELECT q.service_type FROM quotations q WHERE q.deal_record_id = r.id ORDER BY q.created_at LIMIT 1) AS service_type,
+        (SELECT jsonb_build_object('anfrage', cv.rechner_request, 'ergebnis', cv.rechner_result) FROM deal_calculation_versions cv
+         WHERE cv.workspace_id = ${ws} AND cv.deal_record_id = r.id
+         ORDER BY (cv.status = 'gesperrt') DESC, cv.version DESC LIMIT 1) AS version,
+        (SELECT jsonb_agg(jsonb_build_object('id', de.employee_id, 'role', de.role, 'name', e.name, 'sprinter', e.can_drive_sprinter)
+                ORDER BY (de.role = 'lead') DESC, de.created_at, de.id)
+         FROM deal_employees de INNER JOIN employees e ON e.id = de.employee_id AND e.workspace_id = ${ws}
+         WHERE de.deal_record_id = r.id) AS team,
+        (SELECT count(*) FROM crew_job_responses cr
+         WHERE cr.workspace_id = ${ws} AND cr.deal_record_id = r.id AND cr.answer = 'ja' AND cr.employee_id <> ${ich}
+           AND NOT EXISTS (SELECT 1 FROM deal_employees de WHERE de.deal_record_id = r.id AND de.employee_id = cr.employee_id))::int AS offene,
+        (SELECT jsonb_agg(f.id ORDER BY f.created_at, f.id) FROM (
+           SELECT a.id, a.created_at FROM inbox_message_attachments a
+           WHERE a.workspace_id = ${ws} AND a.deal_record_id = r.id AND a.crew_freigegeben_at IS NOT NULL AND lower(a.mime_type) = ANY(${typen})
+           UNION ALL
+           SELECT p.id, p.created_at FROM deal_internal_photos p
+           WHERE p.workspace_id = ${ws} AND p.deal_record_id = r.id AND p.crew_freigegeben_at IS NOT NULL AND lower(p.mime_type) = ANY(${typen})
+           UNION ALL
+           SELECT m.id, m.created_at FROM job_media m
+           WHERE m.workspace_id = ${ws} AND m.deal_record_id = r.id AND m.crew_freigegeben_at IS NOT NULL AND lower(m.content_type) = ANY(${typen})
+         ) f) AS fotos
+      FROM records r
+      WHERE r.id = ANY(${liste(ids)})
+    `),
+  );
+  const out = new Map<string, Detail>();
+  for (const z of rows) {
+    const v = alsJson(z.version) as { anfrage?: unknown; ergebnis?: unknown } | null;
+    out.set(z.id, {
+      dw: werteAus(z.dw),
+      leadType: z.lead_type ?? null,
+      serviceType: z.service_type ?? null,
+      version: v ? { anfrage: (alsJson(v.anfrage) ?? null) as RechnerAnfrage | null, ergebnis: (alsJson(v.ergebnis) ?? null) as RechnerErgebnis | null } : null,
+      team: (alsJson(z.team) as Detail["team"] | null) ?? [],
+      offene: Number(z.offene) || 0,
+      fotos: (alsJson(z.fotos) as string[] | null) ?? [],
+    });
+  }
+  return out;
+}
+
+function jobBauen(k: CrewKontext, g: CrewGrund, d: Detail): CrewJob {
+  const ich = k.employee.id;
+  const a = g.auftrag;
+  const dw = d.dw;
+  const crew: CrewMember[] = d.team.map((t) => {
+    const name = t.name?.trim() || "Team";
+    return {
+      firstName: vornameAus(name),
+      initials: initialenAus(name),
+      role: t.role === "lead" ? "lead" : "helper",
+      isMe: t.id === ich,
+      color: farbeAus(t.id),
+    };
+  });
+  const status = meinStatus({ zugeteilt: g.meinTeam !== null, antwort: g.meineAntwort?.answer ?? null });
+  const need = g.workerCount ?? Math.max(1, d.team.length);
+  const art = jobArtAus({ serviceType: d.serviceType, leadType: d.leadType });
+  const abholung = ortAus(dw.move_from_address);
+  const lage = lageAus(abholung);
+
+  // Minuten: eingeteilt → geplante Minuten; sonst Auftrag; sonst Kalkulation je Person.
+  const rechner = d.version ? rechnerDatenAus(d.version.anfrage, d.version.ergebnis) : null;
+  const ausKalk = rechner
+    ? planMinutenJePerson({ teamgroesse: need, fahrtMin: rechner.fahrtMin, personenH: rechner.personenH, personalStunden: rechner.personalStunden })
+    : { fahrtMin: null, arbeitMin: null };
+  const arbeitMin = g.meinTeam?.plannedWorkMinutes ?? zahl(a.load_unload_minutes) ?? ausKalk.arbeitMin;
+  const fahrtMin = g.meinTeam?.plannedDriveMinutes ?? zahl(a.drive_minutes_total) ?? ausKalk.fahrtMin;
+
+  // Sprinter: Transporter im Auftrag oder Fahrzeug in der Kalkulation, und niemand im Team darf ihn fahren.
+  const fahrzeug = a.transporter?.o ?? null;
+  const brauchtFahrzeug =
+    (fahrzeug !== null && /sprinter|boxer|transporter/i.test(fahrzeug)) ||
+    (rechner?.empfehlung !== null && rechner?.empfehlung !== undefined && rechner.auftragsart !== "kuechenmontage");
+
+  return {
+    id: g.dealId,
+    company: g.firma!,
+    type: art,
+    date: g.datum,
+    dateEnd: g.dateEnd,
+    start: g.start,
+    end: g.end,
+    town: lage.town,
+    district: lage.district,
+    need,
+    crew,
+    openRequests: d.offene,
+    tasks: aufgabenAus({
+      art,
+      etageVon: zahl(dw.floors_from),
+      etageNach: zahl(dw.floors_to),
+      zugangVon: dw.elevator_from?.o ?? null,
+      zugangNach: dw.elevator_to?.o ?? null,
+      volumenCbm: zahl(a.volume_cbm),
+      klavier: janein(a.piano_transport) === true,
+      abbau: janein(a.dismantling_required) === true,
+      einpacken: janein(a.packing_service) === true,
+      entsorgung: janein(a.disposal_required) === true,
+      einlagerung: janein(a.storage_required) === true,
+      halteverbot: janein(a.parking_halteverbot_needed) === true || (art === "move" && janein(a.parking_halteverbot_to) === true),
+      laufwegVonM: zahl(a.walking_distance_from_m),
+      laufwegNachM: zahl(a.walking_distance_to_m),
+    }),
+    sprinterNeeded: brauchtFahrzeug && !d.team.some((t) => t.sprinter),
+    // Freitext (Sonderwünsche) bleibt in v1 draußen: er kann Namen, Nummern und Preise enthalten.
+    note: null,
+    pay: lohnSchaetzung({
+      workMinutes: arbeitMin,
+      driveMinutes: fahrtMin,
+      rateWorkCents: k.employee.rateWorkCents,
+      rateDriveCents: k.employee.rateDriveCents,
+    }),
+    photos: d.fotos.map((id) => ({ id, w: null, h: null })),
+    my: { status, answeredAt: g.meineAntwort?.answeredAt ?? null },
+    isLead: g.meinTeam?.role === "lead",
+    full: istVoll(d.team.length, g.workerCount),
+    conflictSameDay: false,
+    address: status === "bestaetigt" ? adresseText(abholung) : null,
+  };
 }
 
 // ─── Laden ───────────────────────────────────────────────────────────────────
 
 export interface CrewJobIntern {
   job: CrewJob;
-  /** Rohwert `worker_count` (null = nicht gesetzt). */
   workerCount: number | null;
   sicht: { a: boolean; b: boolean };
 }
 
 export interface CrewJobsOptionen {
   jetzt?: Date;
-  /** Nur diese Deals prüfen (Antwort, Foto); Regeln gelten unverändert. */
+  /** Nur diese Jobs bauen; „Konflikt am Tag“ zählt trotzdem gegen alle eigenen. */
   dealIds?: string[];
+  erzwingen?: string;
   ex?: DbExecutor;
 }
 
@@ -192,340 +515,31 @@ export async function ladeCrewJobs(k: CrewKontext, o: CrewJobsOptionen = {}): Pr
 
 export async function ladeCrewJobsIntern(k: CrewKontext, o: CrewJobsOptionen = {}): Promise<CrewJobIntern[]> {
   const ex = o.ex ?? db;
-  const ws = k.workspaceId;
-  const ich = k.employee.id;
-  const heute = berlinDateString(o.jetzt ?? new Date());
-
-  // 1) Objekte und Attribute (eine Abfrage).
-  const meta = zeilen<{ objekt: string; objekt_id: string; slug: string; id: string }>(
-    await ex.execute(sql`
-      SELECT o.slug AS objekt, o.id AS objekt_id, a.slug, a.id
-      FROM objects o INNER JOIN attributes a ON a.object_id = o.id
-      WHERE o.workspace_id = ${ws} AND o.slug IN ('deals', 'auftraege', 'operating_companies')
-    `),
+  const grund = (
+    await ladeGrund(k, { jetzt: o.jetzt, dealIds: o.dealIds, mitMeinen: !!o.dealIds, erzwingen: o.erzwingen, ex })
+  ).filter(istSichtbar);
+  const bauen = o.dealIds ? grund.filter((g) => o.dealIds!.includes(g.dealId)) : grund;
+  if (bauen.length === 0) return [];
+  const details = await ladeDetails(
+    ex,
+    k,
+    bauen.map((g) => g.dealId),
   );
-  const objektId = (s: string) => meta.find((m) => m.objekt === s)?.objekt_id ?? null;
-  const attr = (objekt: string, slug: string) => meta.find((m) => m.objekt === objekt && m.slug === slug)?.id ?? null;
-  const dealObj = objektId("deals");
-  const stageAttr = attr("deals", "stage");
-  if (!dealObj || !stageAttr) return [];
 
-  // 2) Kandidaten: gebuchte lebende Deals plus die eigenen (oder die vorgegebenen).
-  let kandidaten: string[];
-  if (o.dealIds) {
-    kandidaten = [...new Set(o.dealIds.filter((d) => typeof d === "string" && d.length > 0 && d.length <= 100))];
-  } else {
-    kandidaten = zeilen<{ id: string }>(
-      await ex.execute(sql`
-        SELECT r.id FROM records r
-        INNER JOIN record_values v ON v.record_id = r.id AND v.attribute_id = ${stageAttr}
-        INNER JOIN statuses s ON s.id = v.text_value AND s.attribute_id = ${stageAttr}
-        WHERE r.object_id = ${dealObj} AND r.deleted_at IS NULL AND s.stage_category = 'booked'
-        UNION
-        SELECT de.deal_record_id FROM deal_employees de WHERE de.employee_id = ${ich}
-        UNION
-        SELECT cr.deal_record_id FROM crew_job_responses cr WHERE cr.employee_id = ${ich} AND cr.workspace_id = ${ws}
-      `),
-    ).map((z) => z.id);
-  }
-  if (kandidaten.length === 0) return [];
-  const liste = idListe(kandidaten);
-
-  const dealAttrIds = DEAL_SLUGS.map((s) => attr("deals", s)).filter((x): x is string => !!x);
-  const auftragObj = objektId("auftraege");
-  const auftragDealAttr = attr("auftraege", "deal");
-  const auftragAttrIds = AUFTRAG_SLUGS.map((s) => attr("auftraege", s)).filter((x): x is string => !!x);
-  const slugVonAttr = new Map(meta.map((m) => [m.id, m.slug]));
-
-  // 3) Deals (nur dieses Workspace) mit ihren Werten.
-  const dealRows = zeilen<WertZeile & { geloescht: boolean }>(
-    await ex.execute(sql`
-      SELECT r.id AS record_id, (r.deleted_at IS NOT NULL) AS geloescht, ${WERT_SPALTEN}
-      FROM records r
-      LEFT JOIN record_values v ON v.record_id = r.id AND v.attribute_id = ANY(${idListe(dealAttrIds.length ? dealAttrIds : ["-"])})
-      WHERE r.id = ANY(${liste}) AND r.object_id = ${dealObj}
-      ORDER BY r.id, v.sort_order, v.id
-    `),
+  // Konflikt gegen alle sichtbaren eigenen Jobs (Status aus der Grund-Stufe).
+  const status = (g: CrewGrund) => meinStatus({ zugeteilt: g.meinTeam !== null, antwort: g.meineAntwort?.answer ?? null });
+  const konflikt = konflikteAmTag(
+    grund.map((g) => ({ id: g.dealId, date: g.datum, dateEnd: g.dateEnd, my: { status: status(g), answeredAt: null } })),
   );
-  const dealIds = [...new Set(dealRows.map((z) => z.record_id))];
-  if (dealIds.length === 0) return [];
-  const geloescht = new Map(dealRows.map((z) => [z.record_id, z.geloescht === true]));
-  const dealWerte = nachRecord(dealRows, slugVonAttr);
-  const dl = idListe(dealIds);
 
-  // 4) Auftrag je Deal (neuester lebender) und seine Werte.
-  const auftragJeDeal = new Map<string, string>();
-  let auftragWerte = new Map<string, Werte>();
-  if (auftragObj && auftragDealAttr) {
-    for (const z of zeilen<{ deal_id: string; auftrag_id: string }>(
-      await ex.execute(sql`
-        SELECT DISTINCT ON (rd.referenced_record_id) rd.referenced_record_id AS deal_id, ra.id AS auftrag_id
-        FROM record_values rd
-        INNER JOIN records ra ON ra.id = rd.record_id AND ra.object_id = ${auftragObj} AND ra.deleted_at IS NULL
-        WHERE rd.attribute_id = ${auftragDealAttr} AND rd.referenced_record_id = ANY(${dl})
-        ORDER BY rd.referenced_record_id, ra.created_at DESC, ra.id DESC
-      `),
-    )) {
-      auftragJeDeal.set(z.deal_id, z.auftrag_id);
-    }
-    const auftragIds = [...auftragJeDeal.values()];
-    if (auftragIds.length > 0 && auftragAttrIds.length > 0) {
-      auftragWerte = nachRecord(
-        zeilen<WertZeile>(
-          await ex.execute(sql`
-            SELECT v.record_id, ${WERT_SPALTEN} FROM record_values v
-            WHERE v.record_id = ANY(${idListe(auftragIds)}) AND v.attribute_id = ANY(${idListe(auftragAttrIds)})
-            ORDER BY v.record_id, v.sort_order, v.id
-          `),
-        ),
-        slugVonAttr,
-      );
-    }
-  }
-  const aw = (deal: string, slug: string) => {
-    const a = auftragJeDeal.get(deal);
-    return a ? auftragWerte.get(a)?.get(slug) : undefined;
-  };
-  const dw = (deal: string, slug: string) => dealWerte.get(deal)?.get(slug);
-
-  // 5) Stufen, Auswahl-Optionen, Firmennamen, Datumswahl (je eine Abfrage).
-  const optionIds = new Set<string>();
-  const firmaIds = new Set<string>();
-  for (const d of dealIds) {
-    for (const s of ["elevator_from", "elevator_to"]) {
-      const t = dw(d, s)?.text_value;
-      if (t) optionIds.add(t);
-    }
-    const tr = aw(d, "transporter")?.text_value;
-    if (tr) optionIds.add(tr);
-    const f = aw(d, "operating_company")?.referenced_record_id ?? dw(d, "operating_company")?.referenced_record_id;
-    if (f) firmaIds.add(f);
-  }
-  const [stufen, optionen, firmen, wahlen] = await Promise.all([
-    ex.execute(sql`SELECT id, stage_category FROM statuses WHERE attribute_id = ${stageAttr}`),
-    optionIds.size > 0 ? ex.execute(sql`SELECT id, title FROM select_options WHERE id = ANY(${idListe([...optionIds])})`) : Promise.resolve([]),
-    firmaIds.size > 0 && attr("operating_companies", "name")
-      ? ex.execute(sql`
-          SELECT v.record_id AS id, v.text_value AS name FROM record_values v
-          WHERE v.attribute_id = ${attr("operating_companies", "name")} AND v.record_id = ANY(${idListe([...firmaIds])})
-        `)
-      : Promise.resolve([]),
-    ex.execute(sql`
-      SELECT s.deal_record_id AS deal_id, s.selected_date::text AS tag
-      FROM customer_date_selections s
-      WHERE s.workspace_id = ${ws} AND s.deal_record_id = ANY(${dl})
-    `),
-  ]);
-  const stufeKat = new Map(zeilen<{ id: string; stage_category: string | null }>(stufen).map((z) => [z.id, z.stage_category]));
-  const optionTitel = new Map(zeilen<{ id: string; title: string }>(optionen).map((z) => [z.id, z.title]));
-  const firmaName = new Map(zeilen<{ id: string; name: string | null }>(firmen).map((z) => [z.id, z.name]));
-  const wahl = new Map(zeilen<{ deal_id: string; tag: string | null }>(wahlen).map((z) => [z.deal_id, tag(z.tag)]));
-
-  // 6) Team, Antworten, KV-Leistung, Kalkulation, Fotos (je eine Abfrage).
-  const [teamRes, antwortRes, kvRes, versionRes, fotoRes] = await Promise.all([
-    ex.execute(sql`
-      SELECT de.deal_record_id AS deal_id, de.employee_id, de.role, de.planned_work_minutes, de.planned_drive_minutes,
-        e.name, e.can_drive_sprinter
-      FROM deal_employees de
-      INNER JOIN employees e ON e.id = de.employee_id AND e.workspace_id = ${ws}
-      WHERE de.deal_record_id = ANY(${dl})
-      ORDER BY de.deal_record_id, (de.role = 'lead') DESC, de.created_at, de.id
-    `),
-    ex.execute(sql`
-      SELECT cr.deal_record_id AS deal_id, cr.employee_id, cr.answer, cr.answered_at
-      FROM crew_job_responses cr
-      WHERE cr.workspace_id = ${ws} AND cr.deal_record_id = ANY(${dl})
-    `),
-    ex.execute(sql`
-      SELECT DISTINCT ON (q.deal_record_id) q.deal_record_id AS deal_id, q.service_type
-      FROM quotations q WHERE q.deal_record_id = ANY(${dl})
-      ORDER BY q.deal_record_id, q.created_at
-    `),
-    ex.execute(sql`
-      SELECT DISTINCT ON (v.deal_record_id) v.deal_record_id AS deal_id, v.rechner_request, v.rechner_result
-      FROM deal_calculation_versions v
-      WHERE v.workspace_id = ${ws} AND v.deal_record_id = ANY(${dl})
-      ORDER BY v.deal_record_id, (v.status = 'gesperrt') DESC, v.version DESC
-    `),
-    ex.execute(sql`
-      SELECT id, deal_record_id AS deal_id, created_at FROM (
-        SELECT a.id, a.deal_record_id, a.created_at FROM inbox_message_attachments a
-        WHERE a.workspace_id = ${ws} AND a.deal_record_id = ANY(${dl}) AND a.crew_freigegeben_at IS NOT NULL
-          AND lower(a.mime_type) = ANY(${TYPEN_SQL})
-        UNION ALL
-        SELECT p.id, p.deal_record_id, p.created_at FROM deal_internal_photos p
-        WHERE p.workspace_id = ${ws} AND p.deal_record_id = ANY(${dl}) AND p.crew_freigegeben_at IS NOT NULL
-          AND lower(p.mime_type) = ANY(${TYPEN_SQL})
-        UNION ALL
-        SELECT m.id, m.deal_record_id, m.created_at FROM job_media m
-        WHERE m.workspace_id = ${ws} AND m.deal_record_id = ANY(${dl}) AND m.crew_freigegeben_at IS NOT NULL
-          AND lower(m.content_type) = ANY(${TYPEN_SQL})
-      ) f ORDER BY created_at, id
-    `),
-  ]);
-
-  type TeamZeile = {
-    deal_id: string;
-    employee_id: string;
-    role: string;
-    planned_work_minutes: number | null;
-    planned_drive_minutes: number | null;
-    name: string | null;
-    can_drive_sprinter: boolean;
-  };
-  const team = new Map<string, TeamZeile[]>();
-  for (const z of zeilen<TeamZeile>(teamRes)) {
-    const l = team.get(z.deal_id);
-    if (l) l.push(z);
-    else team.set(z.deal_id, [z]);
-  }
-  type AntwortZeile = { deal_id: string; employee_id: string; answer: GespeicherteAntwort; answered_at: string | Date | null };
-  const antworten = new Map<string, AntwortZeile[]>();
-  for (const z of zeilen<AntwortZeile>(antwortRes)) {
-    const l = antworten.get(z.deal_id);
-    if (l) l.push(z);
-    else antworten.set(z.deal_id, [z]);
-  }
-  const kv = new Map(zeilen<{ deal_id: string; service_type: string | null }>(kvRes).map((z) => [z.deal_id, z.service_type]));
-  const versionen = new Map(
-    zeilen<{ deal_id: string; rechner_request: unknown; rechner_result: unknown }>(versionRes).map((z) => [
-      z.deal_id,
-      { anfrage: alsJson(z.rechner_request) as RechnerAnfrage | null, ergebnis: alsJson(z.rechner_result) as RechnerErgebnis | null },
-    ]),
-  );
-  const fotos = new Map<string, Array<{ id: string; w: null; h: null }>>();
-  for (const z of zeilen<{ id: string; deal_id: string }>(fotoRes)) {
-    const l = fotos.get(z.deal_id);
-    const f = { id: z.id, w: null, h: null };
-    if (l) l.push(f);
-    else fotos.set(z.deal_id, [f]);
-  }
-
-  // 7) Jobs bauen.
   const out: CrewJobIntern[] = [];
-  for (const d of dealIds) {
-    const stufeId = dw(d, "stage")?.text_value ?? null;
-    const datum = wahl.get(d) ?? tag(dw(d, "move_date")?.date_value);
-    const firmaRef = aw(d, "operating_company")?.referenced_record_id ?? dw(d, "operating_company")?.referenced_record_id ?? null;
-    const firma = firmaAus(firmaRef ? firmaName.get(firmaRef) : null);
-    const wc = zahl(aw(d, "worker_count"));
-    const workerCount = wc !== null && wc >= 1 ? Math.round(wc) : null;
-    const meinTeam = (team.get(d) ?? []).find((t) => t.employee_id === ich) ?? null;
-    const alleAntworten = antworten.get(d) ?? [];
-    const meineAntwort = alleAntworten.find((a) => a.employee_id === ich) ?? null;
-
-    const sicht = sichtbarkeit({
-      geloescht: geloescht.get(d) ?? true,
-      stufeKategorie: stufeId ? (stufeKat.get(stufeId) ?? null) : null,
-      datum,
-      heute,
-      workerCount,
-      ausschreiben: janein(aw(d, "crew_ausschreiben")),
-      firma,
-      meins: meinTeam !== null || meineAntwort !== null,
-    });
-    if (!(sicht.a || sicht.b) || !firma || !datum) continue;
-
-    const bestaetigte = team.get(d) ?? [];
-    const teamIds = new Set(bestaetigte.map((t) => t.employee_id));
-    const crew: CrewMember[] = bestaetigte.map((t) => {
-      const name = t.name?.trim() || "Team";
-      return {
-        firstName: vornameAus(name),
-        initials: initialenAus(name),
-        role: t.role === "lead" ? "lead" : "helper",
-        isMe: t.employee_id === ich,
-        color: farbeAus(t.employee_id),
-      };
-    });
-    const status = meinStatus({ zugeteilt: meinTeam !== null, antwort: meineAntwort?.answer ?? null });
-    const need = workerCount ?? Math.max(1, bestaetigte.length);
-
-    // Zeitfenster aus dem Auftrag (UTC gespeichert), nur wenn es zum Termin passt.
-    const startTs = aw(d, "time_window_start")?.ts_value ?? null;
-    const endTs = aw(d, "time_window_end")?.ts_value ?? null;
-    const startB = startTs ? berlinDateAndTime(new Date(startTs)) : null;
-    const endB = endTs ? berlinDateAndTime(new Date(endTs)) : null;
-    const start = startB && startB.date === datum ? startB.time : null;
-    const end = endB && endB.date >= datum && (startB === null || startB.date === datum) ? endB.time : null;
-    const dateEnd = endB && endB.date > datum && (startB === null || startB.date === datum) ? endB.date : null;
-
-    const payload = alsJson(dw(d, "moving_lead_payload")?.json_value) as { leadType?: unknown } | null;
-    const art = jobArtAus({
-      serviceType: kv.get(d) ?? null,
-      leadType: payload && typeof payload.leadType === "string" ? payload.leadType : null,
-    });
-    const abholung = ortAus(dw(d, "move_from_address"));
-    const titel = (id: string | null | undefined) => (id ? (optionTitel.get(id) ?? null) : null);
-
-    // Minuten: eingeteilt → geplante Minuten; sonst Auftrag; sonst Kalkulation je Person.
-    const version = versionen.get(d);
-    const rechner = version ? rechnerDatenAus(version.anfrage, version.ergebnis) : null;
-    const ausKalk = rechner
-      ? planMinutenJePerson({ teamgroesse: need, fahrtMin: rechner.fahrtMin, personenH: rechner.personenH, personalStunden: rechner.personalStunden })
-      : { fahrtMin: null, arbeitMin: null };
-    const arbeitMin = meinTeam?.planned_work_minutes ?? zahl(aw(d, "load_unload_minutes")) ?? ausKalk.arbeitMin;
-    const fahrtMin = meinTeam?.planned_drive_minutes ?? zahl(aw(d, "drive_minutes_total")) ?? ausKalk.fahrtMin;
-
-    // Sprinter: Transporter im Auftrag oder Fahrzeug in der Kalkulation, und niemand im Team darf ihn fahren.
-    const fahrzeug = titel(aw(d, "transporter")?.text_value);
-    const brauchtFahrzeug =
-      (fahrzeug !== null && /sprinter|boxer|transporter/i.test(fahrzeug)) ||
-      (rechner?.empfehlung !== null && rechner?.empfehlung !== undefined && rechner.auftragsart !== "kuechenmontage");
-    const sprinterNeeded = brauchtFahrzeug && !bestaetigte.some((t) => t.can_drive_sprinter);
-
-    const halteverbot = janein(aw(d, "parking_halteverbot_needed")) === true || (art === "move" && janein(aw(d, "parking_halteverbot_to")) === true);
-
-    const job: CrewJob = {
-      id: d,
-      company: firma,
-      type: art,
-      date: datum,
-      dateEnd,
-      start,
-      end,
-      town: stadtAus(abholung),
-      district: abholung?.postcode ?? null,
-      need,
-      crew,
-      openRequests: alleAntworten.filter((a) => a.answer === "ja" && a.employee_id !== ich && !teamIds.has(a.employee_id)).length,
-      tasks: aufgabenAus({
-        art,
-        etageVon: zahl(dw(d, "floors_from")),
-        etageNach: zahl(dw(d, "floors_to")),
-        zugangVon: titel(dw(d, "elevator_from")?.text_value),
-        zugangNach: titel(dw(d, "elevator_to")?.text_value),
-        volumenCbm: zahl(aw(d, "volume_cbm")),
-        klavier: janein(aw(d, "piano_transport")) === true,
-        abbau: janein(aw(d, "dismantling_required")) === true,
-        einpacken: janein(aw(d, "packing_service")) === true,
-        entsorgung: janein(aw(d, "disposal_required")) === true,
-        einlagerung: janein(aw(d, "storage_required")) === true,
-        halteverbot,
-        laufwegVonM: zahl(aw(d, "walking_distance_from_m")),
-        laufwegNachM: zahl(aw(d, "walking_distance_to_m")),
-      }),
-      sprinterNeeded,
-      // Freitext (Sonderwünsche) bleibt in v1 draußen: er kann Namen, Nummern und Preise enthalten.
-      note: null,
-      pay: lohnSchaetzung({
-        workMinutes: arbeitMin,
-        driveMinutes: fahrtMin,
-        rateWorkCents: k.employee.rateWorkCents,
-        rateDriveCents: k.employee.rateDriveCents,
-      }),
-      photos: fotos.get(d) ?? [],
-      my: { status, answeredAt: meineAntwort?.answered_at ? new Date(meineAntwort.answered_at).toISOString() : null },
-      isLead: meinTeam?.role === "lead",
-      full: istVoll(bestaetigte.length, workerCount),
-      conflictSameDay: false,
-      address: status === "bestaetigt" ? ortText(abholung) : null,
-    };
-    out.push({ job, workerCount, sicht });
+  for (const g of bauen) {
+    const d = details.get(g.dealId);
+    if (!d) continue;
+    const job = jobBauen(k, g, d);
+    job.conflictSameDay = konflikt.get(g.dealId) ?? false;
+    out.push({ job, workerCount: g.workerCount, sicht: g.sicht });
   }
-
-  const konflikt = konflikteAmTag(out.map((j) => j.job));
-  for (const j of out) j.job.conflictSameDay = konflikt.get(j.job.id) ?? false;
   out.sort(
     (x, y) =>
       x.job.date.localeCompare(y.job.date) ||

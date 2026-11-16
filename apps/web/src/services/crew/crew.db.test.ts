@@ -1,20 +1,14 @@
-import { readFileSync } from "node:fs";
 import postgres from "postgres";
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import type { CrewJob } from "@/lib/crew/contract";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { crewTestSchemaAnlegen } from "./testdb";
 
 /**
- * Crew-Dienste gegen die Wegwerf-Postgres (EINSATZ_TEST_DATABASE_URL): eigenes
- * Schema mit dem Stand vor 0066 (nur die Spalten, die die Dienste lesen), dann
- * die echte Migration 0066. Jobs-Laden ist gemockt (eigene Tests für die
- * Regeln in lib/crew/logik.test.ts); hier zählen Token, Zähler, Link-Lebenslauf
- * und die Antwort-Transaktion.
+ * Crew-Link und Anmeldung gegen die Wegwerf-Postgres (EINSATZ_TEST_DATABASE_URL):
+ * eigenes Schema aus `./testdb.ts` mit der echten Migration 0066. Jobs, Antwort
+ * und Fotos stehen in `jobs.db.test.ts`.
  */
 const url = process.env.EINSATZ_TEST_DATABASE_URL;
-const h = vi.hoisted(() => ({
-  schema: `crew_${Date.now().toString(36)}`,
-  job: null as null | { job: CrewJob; workerCount: number | null },
-}));
+const h = vi.hoisted(() => ({ schema: `crew_${Date.now().toString(36)}` }));
 
 vi.mock("@/db", async () => {
   const { drizzle } = await import("drizzle-orm/postgres-js");
@@ -27,64 +21,27 @@ vi.mock("@/db", async () => {
   });
   return { db: drizzle(client, { schema }) };
 });
-vi.mock("./jobs", () => ({
-  CREW_FOTO_TYPEN: ["image/jpeg"],
-  ladeCrewJobsIntern: async () => (h.job ? [{ ...h.job, sicht: { a: true, b: false } }] : []),
-  ladeCrewJobs: async () => [],
-}));
 
-const TOKEN = "Tok_en-0123456789abcdefghijklmnop".slice(0, 32);
-
-function jobFake(): CrewJob {
-  return {
-    id: "d1", company: "kottke", type: "move", date: "2026-11-20", dateEnd: null, start: null, end: null,
-    town: "Stuttgart", district: "70176", need: 2, crew: [], openRequests: 0, tasks: [], sprinterNeeded: false,
-    note: null, pay: null, photos: [], my: { status: "offen", answeredAt: null }, isLead: false, full: false,
-    conflictSameDay: false, address: null,
-  };
-}
-
-describe.skipIf(!url)("Crew-Dienste (DB)", { timeout: 20_000 }, () => {
+describe.skipIf(!url)("Crew-Link und Anmeldung (DB)", { timeout: 20_000 }, () => {
   let sql: postgres.Sql;
   let auth: typeof import("./auth");
   let links: typeof import("./links");
-  let antwort: typeof import("./antwort");
 
   beforeAll(async () => {
     sql = postgres(url!, { max: 1, onnotice: () => {} });
-    await sql.unsafe(`CREATE SCHEMA ${h.schema}`);
-    await sql.unsafe(`SET search_path TO ${h.schema}`);
+    await crewTestSchemaAnlegen(sql, h.schema);
     await sql.unsafe(`
-      CREATE TABLE workspaces (id text PRIMARY KEY);
-      CREATE TABLE records (id text PRIMARY KEY);
-      CREATE TABLE employees (id text PRIMARY KEY, workspace_id text NOT NULL REFERENCES workspaces(id), name text NOT NULL,
-        active boolean NOT NULL DEFAULT true, can_drive_sprinter boolean NOT NULL DEFAULT false,
-        rate_work_cents integer NOT NULL DEFAULT 2000, rate_drive_cents integer NOT NULL DEFAULT 1500,
-        updated_at timestamp NOT NULL DEFAULT now());
-      CREATE TABLE deal_employees (id text PRIMARY KEY DEFAULT gen_random_uuid()::text, deal_record_id text NOT NULL REFERENCES records(id),
-        employee_id text NOT NULL REFERENCES employees(id), role text NOT NULL DEFAULT 'helper', created_at timestamp NOT NULL DEFAULT now());
-      CREATE TABLE inbox_message_attachments (id text PRIMARY KEY, deal_record_id text);
-      CREATE TABLE deal_internal_photos (id text PRIMARY KEY, deal_record_id text NOT NULL);
-      CREATE TABLE job_media (id text PRIMARY KEY, deal_record_id text);
       INSERT INTO workspaces VALUES ('w1'), ('w2');
-      INSERT INTO records VALUES ('d1');
       INSERT INTO employees (id, workspace_id, name) VALUES ('e1', 'w1', 'Mehmet Ali Yilmaz'), ('e2', 'w1', 'Ben Bauer'), ('e3', 'w1', 'Cem Can'), ('x1', 'w2', 'Fremd');
       UPDATE employees SET active = false WHERE id = 'e3';
     `);
-    const mig = readFileSync(new URL("../../db/migrations/0066_crew_portal.sql", import.meta.url), "utf8");
-    for (const s of mig.split("--> statement-breakpoint").map((x) => x.trim()).filter(Boolean)) await sql.unsafe(s);
     auth = await import("./auth");
     links = await import("./links");
-    antwort = await import("./antwort");
   });
 
   afterAll(async () => {
     await sql?.unsafe(`DROP SCHEMA ${h.schema} CASCADE`);
     await sql?.end();
-  });
-
-  beforeEach(() => {
-    h.job = { job: jobFake(), workerCount: 2 };
   });
 
   describe("Link-Lebenslauf", () => {
@@ -179,60 +136,4 @@ describe.skipIf(!url)("Crew-Dienste (DB)", { timeout: 20_000 }, () => {
     });
   });
 
-  describe("Antwort-Transaktion", () => {
-    const k = {
-      workspaceId: "w1",
-      linkId: "l1",
-      employee: { id: "e1", name: "Mehmet", locale: "de" as const, canDriveSprinter: false, rateWorkCents: 2000, rateDriveCents: 1500 },
-    };
-    const gespeichert = async () => (await sql`SELECT answer, source FROM crew_job_responses WHERE deal_record_id = 'd1' AND employee_id = 'e1'`)[0] ?? null;
-
-    it("unsichtbarer Job 404", async () => {
-      h.job = null;
-      expect(await antwort.antwortSetzen(k, "d1", "ja")).toEqual({ ok: false, code: "JOB_NICHT_SICHTBAR" });
-    });
-
-    it("ja → gespeichert als ja; null nimmt zurück", async () => {
-      expect((await antwort.antwortSetzen(k, "d1", "ja")).ok).toBe(true);
-      expect(await gespeichert()).toEqual({ answer: "ja", source: "portal" });
-      await antwort.antwortSetzen(k, "d1", null);
-      expect(await gespeichert()).toBeNull();
-    });
-
-    it("ja auf vollen Job wird warteliste; vielleicht und nein bleiben", async () => {
-      await sql`INSERT INTO deal_employees (deal_record_id, employee_id) VALUES ('d1', 'e2'), ('d1', 'e3')`;
-      await antwort.antwortSetzen(k, "d1", "ja");
-      expect((await gespeichert())!.answer).toBe("warteliste");
-      await antwort.antwortSetzen(k, "d1", "vielleicht");
-      expect((await gespeichert())!.answer).toBe("vielleicht");
-      await antwort.antwortSetzen(k, "d1", "nein");
-      expect((await gespeichert())!.answer).toBe("nein");
-      // Ohne worker_count nie voll.
-      h.job = { job: jobFake(), workerCount: null };
-      await antwort.antwortSetzen(k, "d1", "ja");
-      expect((await gespeichert())!.answer).toBe("ja");
-      await sql`DELETE FROM deal_employees WHERE deal_record_id = 'd1'`;
-    });
-
-    it("eingeteilt: 409 BEREITS_BESTAETIGT für jede Antwort, gespeicherte Antwort bleibt", async () => {
-      await antwort.antwortSetzen(k, "d1", "ja");
-      await sql`INSERT INTO deal_employees (deal_record_id, employee_id) VALUES ('d1', 'e1')`;
-      for (const a of ["ja", "nein", null] as const) {
-        expect(await antwort.antwortSetzen(k, "d1", a)).toEqual({ ok: false, code: "BEREITS_BESTAETIGT" });
-      }
-      expect((await gespeichert())!.answer).toBe("ja");
-      await sql`DELETE FROM deal_employees WHERE deal_record_id = 'd1'`;
-    });
-
-    it("nie ein Eintrag in deal_employees", async () => {
-      await antwort.antwortSetzen(k, "d1", "ja");
-      expect((await sql`SELECT count(*)::int AS n FROM deal_employees WHERE employee_id = 'e1'`)[0]!.n).toBe(0);
-    });
-
-    it("gleichzeitige Antworten derselben Person: eine Zeile, keine Ausnahme", async () => {
-      await antwort.antwortSetzen(k, "d1", null);
-      await Promise.all([antwort.antwortSetzen(k, "d1", "ja"), antwort.antwortSetzen(k, "d1", "vielleicht"), antwort.antwortSetzen(k, "d1", "nein")]);
-      expect((await sql`SELECT count(*)::int AS n FROM crew_job_responses WHERE employee_id = 'e1'`)[0]!.n).toBe(1);
-    });
-  });
 });
