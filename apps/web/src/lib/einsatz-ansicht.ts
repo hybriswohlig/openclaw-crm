@@ -51,6 +51,14 @@ export interface EinsatzRechnerDaten {
   empfehlung: { id: string; name: string; fahrten: number; km: number } | null;
 }
 
+/** Antwort aus dem Crew-Portal (Anfrage, keine Einteilung). */
+export interface EinsatzAnfrage {
+  employeeId: string;
+  name: string;
+  answer: "ja" | "vielleicht" | "nein" | "warteliste";
+  answeredAt: string;
+}
+
 export interface EinsatzAnsicht {
   dealId: string;
   titel: string | null;
@@ -84,6 +92,8 @@ export interface EinsatzAnsicht {
   stationVorgabe: string | null;
   klasseVorgabe: string | null;
   hinweise: string[];
+  /** Crew-Portal: Antworten von Personen, die noch nicht im Team sind (älteste zuerst). */
+  anfragen?: EinsatzAnfrage[];
 }
 
 export interface EinsatzBestaetigenBody {

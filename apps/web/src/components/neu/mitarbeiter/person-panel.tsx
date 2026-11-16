@@ -18,7 +18,10 @@ import {
   type StammdatenFehler,
 } from "@/lib/einsatz";
 import { mitAlt } from "@/lib/handy-links";
+import { CREW_LOCALES, type CrewLocale } from "@/lib/crew/contract";
+import { CREW_LOCALE_TEXT } from "@/lib/crew/telefon";
 import { AbwesenheitListe } from "./abwesenheit-liste";
+import { CrewLinkKarte } from "./crew-link-karte";
 import { abwesenheitenLaden, personAendern, personAnlegen } from "./mitarbeiter-api";
 
 const FEHLER_TEXT: Record<StammdatenFehler, string> = {
@@ -27,6 +30,8 @@ const FEHLER_TEXT: Record<StammdatenFehler, string> = {
   WOHNORT_LANG: "Ort ist zu lang (höchstens 80 Zeichen).",
   PLZ_UNGUELTIG: "PLZ: fünf Ziffern, z. B. 70176.",
   SATZ_UNGUELTIG: "Sätze zwischen 1 und 200 Euro je Stunde.",
+  TELEFON_UNGUELTIG: "Telefon: z. B. 0151 1234567 oder +49 151 1234567.",
+  SPRACHE_UNGUELTIG: "Diese Sprache gibt es nicht.",
 };
 
 interface Form {
@@ -37,6 +42,9 @@ interface Form {
   eigenerPkw: boolean;
   satzFahrt: string;
   satzArbeit: string;
+  telefon: string;
+  sprache: CrewLocale;
+  fotoEinwilligung: boolean;
 }
 
 const euroFeld = (cent: number) => (cent / 100).toLocaleString("de-DE", { maximumFractionDigits: 2 });
@@ -54,6 +62,9 @@ function formAus(p: EinsatzPerson | null): Form {
     eigenerPkw: p?.eigenerPkw ?? false,
     satzFahrt: euroFeld(p?.satzFahrtCent ?? SATZ_FAHRT_CENT_VORGABE),
     satzArbeit: euroFeld(p?.satzArbeitCent ?? SATZ_ARBEIT_CENT_VORGABE),
+    telefon: p?.telefon ?? "",
+    sprache: p?.sprache ?? "de",
+    fotoEinwilligung: !!p?.fotoEinwilligungAm,
   };
 }
 
@@ -66,6 +77,9 @@ function eingabeAus(f: Form): StammdatenEingabe {
     eigenerPkw: f.eigenerPkw,
     satzFahrtCent: centAus(f.satzFahrt),
     satzArbeitCent: centAus(f.satzArbeit),
+    telefon: f.telefon.trim() === "" ? null : f.telefon.trim(),
+    sprache: f.sprache,
+    fotoEinwilligung: f.fotoEinwilligung,
   };
 }
 
@@ -189,6 +203,32 @@ export function PersonPanel({
           </span>
         </div>
         <label className="ma-feld">
+          <span>Telefon</span>
+          <input type="tel" inputMode="tel" maxLength={40} autoComplete="off" placeholder="0151 1234567" {...feld("telefon")} />
+        </label>
+        <label className="ma-feld">
+          <span>Sprache</span>
+          <select value={form.sprache} onChange={(e) => setForm((f) => ({ ...f, sprache: e.target.value as CrewLocale }))}>
+            {CREW_LOCALES.map((l) => (
+              <option key={l} value={l}>
+                {CREW_LOCALE_TEXT[l]}
+              </option>
+            ))}
+          </select>
+        </label>
+        <p className="ma-hinweis ma-feld-breit">Nummer für den Crew-Link per WhatsApp. Die Sprache gilt im Portal und in den Nachrichten.</p>
+        <div className="ma-schalter ma-feld-breit">
+          <span className="ma-schalter-zeile">
+            <GlassSwitch
+              size="sm"
+              checked={form.fotoEinwilligung}
+              onCheckedChange={(v) => setForm((f) => ({ ...f, fotoEinwilligung: v }))}
+              aria-labelledby={`${id}-foto`}
+            />
+            <span id={`${id}-foto`}>Foto im Portal erlaubt (schriftlich)</span>
+          </span>
+        </div>
+        <label className="ma-feld">
           <span>Satz Arbeit, € je Stunde</span>
           <input type="text" inputMode="decimal" {...feld("satzArbeit")} />
         </label>
@@ -212,6 +252,7 @@ export function PersonPanel({
 
       {!neu ? (
         <>
+          <CrewLinkKarte person={person} />
           <Streifen personId={person.id} kapazitaet={kapazitaet} />
           {abwesenheiten === null ? (
             <p className="ma-leer">Abwesenheiten werden geladen …</p>

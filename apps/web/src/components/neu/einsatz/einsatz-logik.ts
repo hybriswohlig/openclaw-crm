@@ -13,7 +13,7 @@ import {
   type TeamRolle,
   type TeamWunsch,
 } from "@/lib/einsatz";
-import type { EinsatzAnsicht, EinsatzPersonLage } from "@/lib/einsatz-ansicht";
+import type { EinsatzAnfrage, EinsatzAnsicht, EinsatzPersonLage } from "@/lib/einsatz-ansicht";
 
 export interface AuswahlEintrag {
   employeeId: string;
@@ -194,4 +194,14 @@ export function rueckfrageFuer(p: EinsatzPersonLage, tagText: string, s: Auswahl
     return { art: "belegt", person: p, text: `${p.name} ist am ${tagText} schon bei ${titel} eingeteilt. Trotzdem einteilen?` };
   }
   return null;
+}
+
+/** Crew-Portal: Anfragen gruppiert. Ja und Warteliste vorn (Ja zuerst), dann Vielleicht, Nein für sich. Je Gruppe älteste zuerst. */
+export function anfragenGruppen(anfragen: readonly EinsatzAnfrage[]): { vorn: EinsatzAnfrage[]; vielleicht: EinsatzAnfrage[]; nein: EinsatzAnfrage[] } {
+  const zeit = (a: EinsatzAnfrage, b: EinsatzAnfrage) => a.answeredAt.localeCompare(b.answeredAt) || a.employeeId.localeCompare(b.employeeId);
+  return {
+    vorn: [...anfragen.filter((a) => a.answer === "ja").sort(zeit), ...anfragen.filter((a) => a.answer === "warteliste").sort(zeit)],
+    vielleicht: anfragen.filter((a) => a.answer === "vielleicht").sort(zeit),
+    nein: anfragen.filter((a) => a.answer === "nein").sort(zeit),
+  };
 }

@@ -2,7 +2,7 @@ import { type NextRequest } from "next/server";
 import { notFound, success } from "@/lib/api-utils";
 import { pruefeStammdaten } from "@/lib/einsatz";
 import { einsatzFehler, einsatzVorlauf } from "@/lib/einsatz-route";
-import { personAendern } from "@/services/einsatz-personen";
+import { istTelefonDoppelt, personAendern } from "@/services/einsatz-personen";
 import { liesJson, stammdatenAus } from "../eingabe";
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ employeeId: string }> }) {
@@ -15,7 +15,12 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ em
   const fehler = pruefeStammdaten(eingabe, false);
   if (fehler) return einsatzFehler("STAMMDATEN_UNGUELTIG", 400, { feld: fehler });
   const { employeeId } = await params;
-  const person = await personAendern(vor.ctx.workspaceId, employeeId, eingabe);
-  if (!person) return notFound();
-  return success(person);
+  try {
+    const person = await personAendern(vor.ctx.workspaceId, employeeId, eingabe);
+    if (!person) return notFound();
+    return success(person);
+  } catch (err) {
+    if (istTelefonDoppelt(err)) return einsatzFehler("TELEFON_DOPPELT", 409);
+    throw err;
+  }
 }

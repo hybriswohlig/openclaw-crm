@@ -77,6 +77,8 @@ export interface DealInternalPhotoMeta {
   fileSize: number;
   createdAt: Date;
   dealRecordId: string;
+  /** Crew-Portal: für die Crew freigegeben (nur in der Liste gesetzt). */
+  crewFreigegebenAt?: Date | null;
 }
 
 export interface DealInternalPhotoFile extends DealInternalPhotoMeta {
@@ -269,6 +271,7 @@ export async function listDealInternalPhotos(
       fileSize: dealInternalPhotos.fileSize,
       createdAt: dealInternalPhotos.createdAt,
       dealRecordId: dealInternalPhotos.dealRecordId,
+      crewFreigegebenAt: dealInternalPhotos.crewFreigegebenAt,
     })
     .from(dealInternalPhotos)
     .where(

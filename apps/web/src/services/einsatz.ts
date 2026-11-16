@@ -415,6 +415,14 @@ export async function ladeEinsatz(ws: string, deal: string, o: EinsatzLadeOption
     if (k && k.anfrage.buchung === null && k.hinweis) hinweise.push(k.hinweis);
   }
 
+  // Crew-Portal: Anfragen; ein Fehler dort darf den Dialog nie blockieren.
+  const anfragen = await import("./crew/anfragen")
+    .then((m) => m.crewAnfragenLesen(ws, deal))
+    .catch((err) => {
+      console.error("[einsatz] Crew-Anfragen", err);
+      return [];
+    });
+
   return {
     dealId: deal,
     titel: kopf.name,
@@ -440,6 +448,7 @@ export async function ladeEinsatz(ws: string, deal: string, o: EinsatzLadeOption
     stationVorgabe: textWert("station"),
     klasseVorgabe: textWert("fahrzeugklasse"),
     hinweise,
+    anfragen,
   };
 }
 

@@ -51,5 +51,17 @@ export function stammdatenAus(body: unknown): StammdatenEingabe | null {
     if (typeof o.aktiv !== "boolean") return null;
     e.aktiv = o.aktiv;
   }
+  if ("telefon" in o) {
+    if (o.telefon !== null && typeof o.telefon !== "string") return null;
+    e.telefon = o.telefon;
+  }
+  if ("sprache" in o) {
+    if (typeof o.sprache !== "string") return null;
+    e.sprache = o.sprache;
+  }
+  if ("fotoEinwilligung" in o) {
+    if (typeof o.fotoEinwilligung !== "boolean") return null;
+    e.fotoEinwilligung = o.fotoEinwilligung;
+  }
   return e;
 }

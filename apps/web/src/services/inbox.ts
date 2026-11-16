@@ -505,6 +505,7 @@ export async function getAttachmentsForDeal(
       conversationId: inboxMessageAttachments.conversationId,
       messageId: inboxMessageAttachments.messageId,
       externalMessageId: inboxMessages.externalMessageId,
+      crewFreigegebenAt: inboxMessageAttachments.crewFreigegebenAt,
     })
     .from(inboxMessageAttachments)
     .innerJoin(inboxMessages, eq(inboxMessages.id, inboxMessageAttachments.messageId))
@@ -533,6 +534,7 @@ export async function getAttachmentsForDeal(
       conversationId: "",
       messageId: "",
       customerVisible: false as const,
+      crewFreigegebenAt: row.crewFreigegebenAt ?? null,
     })),
   ];
   mapped.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());

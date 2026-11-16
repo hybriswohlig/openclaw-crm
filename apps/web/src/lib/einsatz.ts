@@ -5,6 +5,8 @@
  * Tage sind Berliner Kalendertage `YYYY-MM-DD` (wie `PlanEintrag.tag`).
  * Beträge in Cent, Sätze in Cent je Stunde, Kilometer ganzzahlig.
  */
+import type { CrewLocale } from "./crew/contract";
+import { istCrewLocale, telefonE164 } from "./crew/telefon";
 
 // ─── Tage ────────────────────────────────────────────────────────────────────
 
@@ -63,6 +65,12 @@ export interface EinsatzPerson {
   eigenerPkw: boolean;
   satzFahrtCent: number;
   satzArbeitCent: number;
+  /** Crew-Portal (0066): Telefon wie eingegeben, nur Inhaber; nie an MCP oder Crew. */
+  telefon?: string | null;
+  /** Sprache von Portal und Nachrichten (`CREW_LOCALES`). */
+  sprache?: CrewLocale;
+  /** ISO-Zeit der schriftlichen Foto-Einwilligung, null = nur Initialen. */
+  fotoEinwilligungAm?: string | null;
 }
 
 /** Eingabe für Anlegen und Ändern (`PATCH`: alle Felder optional). */
@@ -75,9 +83,21 @@ export interface StammdatenEingabe {
   satzFahrtCent?: number;
   satzArbeitCent?: number;
   aktiv?: boolean;
+  /** Crew-Portal: leer oder null löscht die Nummer; sonst muss sie zu E.164 werden. */
+  telefon?: string | null;
+  sprache?: string;
+  /** true setzt die Einwilligung (bleibt mit erstem Datum), false löscht sie. */
+  fotoEinwilligung?: boolean;
 }
 
-export type StammdatenFehler = "NAME_LEER" | "NAME_LANG" | "WOHNORT_LANG" | "PLZ_UNGUELTIG" | "SATZ_UNGUELTIG";
+export type StammdatenFehler =
+  | "NAME_LEER"
+  | "NAME_LANG"
+  | "WOHNORT_LANG"
+  | "PLZ_UNGUELTIG"
+  | "SATZ_UNGUELTIG"
+  | "TELEFON_UNGUELTIG"
+  | "SPRACHE_UNGUELTIG";
 
 /** Deutsche PLZ, fünf Ziffern (auch mit führender 0). */
 export const PLZ_MUSTER = /^\d{5}$/;
@@ -94,6 +114,10 @@ export function pruefeStammdaten(e: StammdatenEingabe, neu: boolean): Stammdaten
     if (s === undefined) continue;
     if (!Number.isInteger(s) || s < SATZ_CENT_MIN || s > SATZ_CENT_MAX) return "SATZ_UNGUELTIG";
   }
+  if (e.telefon !== undefined && e.telefon !== null && e.telefon.trim() !== "") {
+    if (e.telefon.trim().length > 40 || telefonE164(e.telefon) === null) return "TELEFON_UNGUELTIG";
+  }
+  if (e.sprache !== undefined && !istCrewLocale(e.sprache)) return "SPRACHE_UNGUELTIG";
   return null;
 }
 
@@ -330,7 +354,8 @@ export type EinsatzFehlerCode =
   | "ZEITRAUM_UNGUELTIG"
   | "ART_UNGUELTIG"
   | "BUCHUNG_UNGUELTIG"
-  | "STAMMDATEN_UNGUELTIG";
+  | "STAMMDATEN_UNGUELTIG"
+  | "TELEFON_DOPPELT";
 
 export const EINSATZ_FEHLER_TEXT: Record<EinsatzFehlerCode, string> = {
   DOPPELTE_PERSON: "Eine Person steht zweimal im Team.",
@@ -347,6 +372,7 @@ export const EINSATZ_FEHLER_TEXT: Record<EinsatzFehlerCode, string> = {
   ART_UNGUELTIG: "Unbekannte Art der Abwesenheit.",
   BUCHUNG_UNGUELTIG: "Die Angaben zur Buchung sind unvollständig oder ungültig.",
   STAMMDATEN_UNGUELTIG: "Die Angaben zur Person sind ungültig.",
+  TELEFON_DOPPELT: "Diese Nummer gehört schon zu einer anderen Person.",
 };
 
 /** Formale Prüfung vor jeder Datenbank-Arbeit. `personen` = alle des Workspace (auch inaktive). `bisher` = schon zugeteilte IDs. */
