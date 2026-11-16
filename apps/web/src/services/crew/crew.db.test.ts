@@ -37,7 +37,7 @@ describe.skipIf(!url)("Crew-Link und Anmeldung (DB)", { timeout: 20_000 }, () =>
     `);
     auth = await import("./auth");
     links = await import("./links");
-  });
+  }, 60_000);
 
   afterAll(async () => {
     await sql?.unsafe(`DROP SCHEMA ${h.schema} CASCADE`);

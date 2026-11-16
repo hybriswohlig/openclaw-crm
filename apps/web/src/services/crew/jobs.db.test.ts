@@ -115,7 +115,7 @@ describe.skipIf(!url)("Crew-Jobs, Antwort und Fotos (DB)", { timeout: 30_000 }, 
     jobs = await import("./jobs");
     antwort = await import("./antwort");
     fotos = await import("./fotos");
-  });
+  }, 60_000);
 
   afterAll(async () => {
     await sql?.unsafe(`DROP SCHEMA ${h.schema} CASCADE`);

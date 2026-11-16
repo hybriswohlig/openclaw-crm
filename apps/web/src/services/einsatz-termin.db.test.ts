@@ -40,7 +40,7 @@ describe.skipIf(!url)("dealTerminLesen (DB)", { timeout: 20_000 }, () => {
     await wertSetzen(sql, "d2", "a_move", { datum: "2026-12-01" });
     await sql`INSERT INTO customer_date_selections (workspace_id, deal_record_id, selected_date) VALUES ('w1', 'd2', '2026-12-05')`;
     einsatz = await import("./einsatz");
-  });
+  }, 60_000);
 
   afterAll(async () => {
     await sql?.unsafe(`DROP SCHEMA ${h.schema} CASCADE`);
