@@ -87,7 +87,7 @@ describe.skipIf(!url)("Crew-Jobs, Antwort und Fotos (DB)", { timeout: 30_000 }, 
         A[obj === "oa" && (s === "deal" || s === "operating_company") ? `a_${s}` : obj === "oc" ? `c_${s}` : s] = id;
       }
     }
-    await sql`INSERT INTO statuses VALUES ('st_booked', ${A.stage!}, 'booked'), ('st_lost', ${A.stage!}, 'lost'), ('st_quoted', ${A.stage!}, 'quoted'), ('st_done', ${A.stage!}, 'done_unpaid')`;
+    await sql`INSERT INTO statuses VALUES ('st_booked', ${A.stage!}, 'booked'), ('st_lost', ${A.stage!}, 'lost'), ('st_quoted', ${A.stage!}, 'quoted'), ('st_done', ${A.stage!}, 'done_unpaid'), ('st_kontakt', ${A.stage!}, 'open_engaged'), ('st_neu', ${A.stage!}, 'open_new')`;
     for (const [id, name] of [["k1", "Kottke-Umzüge"], ["c1", "Ceylan Operations"], ["x1", "Andere GmbH"]]) {
       await sql`INSERT INTO records (id, object_id) VALUES (${id}, 'oc')`;
       await wertSetzen(sql, id!, A.c_name!, { text: name });
@@ -105,6 +105,9 @@ describe.skipIf(!url)("Crew-Jobs, Antwort und Fotos (DB)", { timeout: 30_000 }, 
     await deal("dOhneZahl", { datum: "2026-11-25", wc: null });
     // Ohne Zahl am Auftrag gilt die Teamgröße der maßgeblichen Kalkulation (gesperrt vor neuer).
     await deal("dKalk", { datum: "2026-11-26", wc: null });
+    // Noch nicht gebucht: Gespräch ohne Zahl sichtbar (nicht fix), neue Anfrage nicht.
+    await deal("dKontakt", { datum: "2026-11-27", stufe: "st_kontakt", wc: null });
+    await deal("dNeu", { datum: "2026-11-27", stufe: "st_neu" });
     // Ausdrücklich 0 am Auftrag: bleibt verborgen, auch wenn die Kalkulation Leute hat.
     await deal("dNull", { datum: "2026-11-26", wc: 0 });
     await sql.unsafe(`INSERT INTO deal_calculation_versions (workspace_id, deal_record_id, status, version, rechner_result) VALUES
@@ -132,7 +135,9 @@ describe.skipIf(!url)("Crew-Jobs, Antwort und Fotos (DB)", { timeout: 30_000 }, 
   describe("Jobs-Lader", () => {
     it("Regeln A und B in SQL und Code: genau die richtigen Jobs, sortiert, vertragskonform", async () => {
       const liste = await jobs.ladeCrewJobs(ich, { jetzt });
-      expect(liste.map((j) => j.id)).toEqual(["dMeinGestern", "dA", "dLine1Ort", "dRuempel", "dStrasse", "dPlz", "dKalk", "dWahl"]);
+      expect(liste.map((j) => j.id)).toEqual(["dMeinGestern", "dA", "dLine1Ort", "dRuempel", "dStrasse", "dPlz", "dQuoted", "dKalk", "dKontakt", "dWahl"]);
+      const fix = Object.fromEntries(liste.map((j) => [j.id, j.fix]));
+      expect(fix).toMatchObject({ dA: true, dMeinGestern: true, dQuoted: false, dKontakt: false, dKalk: true });
       // Auftrag schlägt Kalkulation; ohne Auftragszahl die gesperrte Version.
       expect(liste.find((j) => j.id === "dA")!.need).toBe(2);
       expect(liste.find((j) => j.id === "dKalk")!.need).toBe(3);
@@ -170,7 +175,7 @@ describe.skipIf(!url)("Crew-Jobs, Antwort und Fotos (DB)", { timeout: 30_000 }, 
 
     it("Einzeljob (dealIds) baut nur diesen, prüft aber dieselben Regeln", async () => {
       expect((await jobs.ladeCrewJobs(ich, { jetzt, dealIds: ["dA"] })).map((j) => j.id)).toEqual(["dA"]);
-      for (const d of ["dAus", "dVorbei", "dQuoted", "dFremd", "dOhneZahl", "dWeg", "dVerloren"]) {
+      for (const d of ["dAus", "dVorbei", "dNeu", "dNull", "dFremd", "dOhneZahl", "dWeg", "dVerloren"]) {
         expect(await jobs.ladeCrewJobs(ich, { jetzt, dealIds: [d] })).toEqual([]);
         expect(await jobs.dealSichtbar(ich, d, { jetzt })).toBeNull();
       }
@@ -201,6 +206,16 @@ describe.skipIf(!url)("Crew-Jobs, Antwort und Fotos (DB)", { timeout: 30_000 }, 
       const r = await antwort.antwortSetzen(ich, "dPlz", "ja", { jetzt });
       expect(r.ok && r.job.my.status).toBe("warteliste");
       expect(r.ok && r.job.full).toBe(true);
+    });
+
+    it("noch nicht fix: ja bleibt ja (keine Warteliste), Job nie voll", async () => {
+      await sql`INSERT INTO deal_employees (deal_record_id, employee_id) VALUES ('dQuoted', 'e2'), ('dQuoted', 'e3')`;
+      const r = await antwort.antwortSetzen(ich, "dQuoted", "ja", { jetzt });
+      expect(r.ok && r.job.my.status).toBe("ja");
+      expect(r.ok && r.job.full).toBe(false);
+      expect(r.ok && r.job.fix).toBe(false);
+      await antwort.antwortSetzen(ich, "dQuoted", null, { jetzt });
+      await sql`DELETE FROM deal_employees WHERE deal_record_id = 'dQuoted'`;
     });
 
     it("Zurücknehmen auf einem nur durch die Antwort sichtbaren Job liefert den Job ohne Antwort", async () => {

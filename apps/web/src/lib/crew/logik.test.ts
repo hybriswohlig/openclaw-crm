@@ -13,6 +13,7 @@ import {
   meinStatus,
   round5,
   sichtbarkeit,
+  istFix,
   tagPlus,
   telefonE164,
   vornameAus,
@@ -183,7 +184,9 @@ describe("Sichtbarkeit A/B", () => {
 
   it("A nicht: andere Stufe, Vergangenheit, ohne Anzahl, ausgeschaltet, fremde Firma, gelöscht, ohne Termin", () => {
     for (const e of [
-      { stufeKategorie: "quoted" },
+      { stufeKategorie: "open_new" },
+      { stufeKategorie: "lost" },
+      { stufeKategorie: "done_unpaid" },
       { stufeKategorie: null },
       { datum: "2026-11-15" },
       { workerCount: null },
@@ -195,6 +198,21 @@ describe("Sichtbarkeit A/B", () => {
     ] as Array<Partial<SichtEingabe>>) {
       expect(sichtbarkeit({ ...offen, ...e }).a).toBe(false);
     }
+  });
+
+  it("A unsicher: Angebot oder Gespräch ab heute, auch ohne Anzahl; aber nicht ausgeschaltet, vergangen oder fremd", () => {
+    for (const k of ["quoted", "open_engaged"]) {
+      expect(sichtbarkeit({ ...offen, stufeKategorie: k }).a).toBe(true);
+      expect(sichtbarkeit({ ...offen, stufeKategorie: k, workerCount: null }).a).toBe(true);
+      expect(sichtbarkeit({ ...offen, stufeKategorie: k, ausschreiben: false }).a).toBe(false);
+      expect(sichtbarkeit({ ...offen, stufeKategorie: k, datum: "2026-11-15" }).a).toBe(false);
+      expect(sichtbarkeit({ ...offen, stufeKategorie: k, firma: null }).a).toBe(false);
+    }
+  });
+
+  it("istFix: gebucht oder später fest, sonst nicht", () => {
+    for (const k of ["booked", "done_unpaid", "paid"]) expect(istFix(k), k).toBe(true);
+    for (const k of ["quoted", "open_engaged", "open_new", "lost", "", null]) expect(istFix(k), String(k)).toBe(false);
   });
 
   it("B: mein Job ab gestern, auch ohne Anzahl, ausgeschaltet oder andere Stufe", () => {

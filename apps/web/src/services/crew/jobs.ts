@@ -2,8 +2,9 @@
  * Jobs für das Crew-Portal (Vertrag „Visibility“, „Data minimisation“, „Pay
  * estimate“). Liest nur. Zwei Abfragen, je eine Runde zur Datenbank:
  *
- * 1. Grund (`ladeGrund`): filtert schon in SQL auf Kandidaten (Stufe `booked`
- *    und Termin ab heute, oder eigene Deals mit Termin ab gestern) und holt
+ * 1. Grund (`ladeGrund`): filtert schon in SQL auf Kandidaten (Stufe `booked`,
+ *    `quoted` oder `open_engaged` und Termin ab heute, oder eigene Deals mit
+ *    Termin ab gestern) und holt
  *    je Kandidat nur, was die Sichtbarkeit braucht: Termin, Stufe, Auftrag
  *    (neuester lebender) mit Anzahl, Ausschreiben, Firma und Zeitfenster,
  *    meine Einteilung und meine Antwort.
@@ -25,6 +26,7 @@ import {
   farbeAus,
   firmaAus,
   initialenAus,
+  istFix,
   istVoll,
   jobArtAus,
   konflikteAmTag,
@@ -176,6 +178,8 @@ export interface CrewGrund {
   start: string | null;
   end: string | null;
   workerCount: number | null;
+  /** false: noch nicht gebucht (Angebot/Gespräch). */
+  fix: boolean;
   firma: CrewJob["company"] | null;
   sicht: { a: boolean; b: boolean };
   /** Meine Zeile in deal_employees, sonst null. */
@@ -250,7 +254,7 @@ export async function ladeGrund(k: CrewKontext, o: GrundOptionen = {}): Promise<
       kand AS (
         SELECT * FROM basis
         WHERE tag IS NOT NULL AND (
-          (kat = 'booked' AND tag >= ${heute}::date)
+          (kat IN ('booked', 'quoted', 'open_engaged') AND tag >= ${heute}::date)
           OR (meins AND tag >= ${gestern}::date AND COALESCE(kat, '') NOT IN ('lost', 'kein_lead'))
           OR id = ${erzwingen}
         )
@@ -330,6 +334,7 @@ export async function ladeGrund(k: CrewKontext, o: GrundOptionen = {}): Promise<
       start: startB && startB.date === datum ? startB.time : null,
       end: endB && passt && endB.date >= datum ? endB.time : null,
       workerCount,
+      fix: istFix(z.kat),
       firma,
       sicht,
       meinTeam,
@@ -496,9 +501,11 @@ function jobBauen(k: CrewKontext, g: CrewGrund, d: Detail): CrewJob {
     photos: d.fotos.map((id) => ({ id, w: null, h: null })),
     my: { status, answeredAt: g.meineAntwort?.answeredAt ?? null },
     isLead: g.meinTeam?.role === "lead",
-    full: istVoll(d.team.length, g.workerCount),
+    // Unsichere Jobs sind nie voll: dort fragen wir nur, wer Zeit hätte.
+    full: g.fix && istVoll(d.team.length, g.workerCount),
     conflictSameDay: false,
     address: status === "bestaetigt" ? adresseText(abholung) : null,
+    fix: g.fix,
   };
 }
 
