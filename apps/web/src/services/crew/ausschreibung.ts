@@ -52,7 +52,7 @@ function eingetragen(x: string | number | null): number | null {
 }
 
 /** Neuester nicht gelöschter Auftrag des Deals im Workspace (wie die Crew-Jobs). */
-function auftragVon(ws: string, deal: string) {
+export function auftragVon(ws: string, deal: string) {
   return sql`
     SELECT ra.id FROM record_values rd
     INNER JOIN attributes a ON a.id = rd.attribute_id AND a.slug = 'deal'

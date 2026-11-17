@@ -75,12 +75,12 @@ export function crewFotoTypErlaubt(mime: string | null | undefined): boolean {
   return (CREW_FOTO_TYPEN as readonly string[]).includes((mime ?? "").split(";")[0]!.trim().toLowerCase());
 }
 
-const liste = (ids: readonly string[]) => sql`${sql.param([...ids])}::text[]`;
+export const liste = (ids: readonly string[]) => sql`${sql.param([...ids])}::text[]`;
 
 // ─── Werte aus dem EAV als ein jsonb je Record ───────────────────────────────
 
 /** Ein Wert je Slug (erster nach sort_order), mit Optionstitel bei Auswahlfeldern. */
-interface Wert {
+export interface Wert {
   t?: string | null;
   n?: number | string | null;
   d?: string | null;
@@ -90,9 +90,9 @@ interface Wert {
   ts?: string | null;
   o?: string | null;
 }
-type Werte = Record<string, Wert | undefined>;
+export type Werte = Record<string, Wert | undefined>;
 
-function werteJson(ws: string, record: SQL, objekt: string, slugs: readonly string[]): SQL {
+export function werteJson(ws: string, record: SQL, objekt: string, slugs: readonly string[]): SQL {
   return sql`(
     SELECT jsonb_object_agg(x.slug, x.w) FROM (
       SELECT DISTINCT ON (a.slug) a.slug, jsonb_build_object(
@@ -109,14 +109,14 @@ function werteJson(ws: string, record: SQL, objekt: string, slugs: readonly stri
   )`;
 }
 
-const zahl = (w: Wert | undefined): number | null => {
+export const zahl = (w: Wert | undefined): number | null => {
   if (!w || w.n === null || w.n === undefined) return null;
   const n = Number(w.n);
   return Number.isFinite(n) ? n : null;
 };
-const janein = (w: Wert | undefined): boolean | null => (w && typeof w.b === "boolean" ? w.b : null);
+export const janein = (w: Wert | undefined): boolean | null => (w && typeof w.b === "boolean" ? w.b : null);
 const tagAus = (x: unknown): string | null => (typeof x === "string" && /^\d{4}-\d{2}-\d{2}/.test(x) ? x.slice(0, 10) : null);
-const werteAus = (x: unknown): Werte => {
+export const werteAus = (x: unknown): Werte => {
   const v = alsJson(x);
   return v && typeof v === "object" ? (v as Werte) : {};
 };
@@ -509,6 +509,7 @@ function jobBauen(k: CrewKontext, g: CrewGrund, d: Detail): CrewJob {
     conflictSameDay: false,
     address: status === "bestaetigt" ? adresseText(abholung) : null,
     fix: g.fix,
+    briefing: null,
   };
 }
 
@@ -559,6 +560,13 @@ export async function ladeCrewJobsIntern(k: CrewKontext, o: CrewJobsOptionen = {
     job.conflictSameDay = konflikt.get(g.dealId) ?? false;
     out.push({ job, workerCount: g.workerCount, sicht: g.sicht });
   }
+
+  // Briefing nur für mein Team und nur, wenn es freigegeben ist.
+  const imTeam = bauen.filter((g) => g.meinTeam !== null).map((g) => g.dealId);
+  if (imTeam.length > 0) {
+    const stand = await briefingStandFuer(ex, k.workspaceId, k.employee.id, imTeam);
+    for (const x of out) x.job.briefing = stand.get(x.job.id) ?? null;
+  }
   out.sort(
     (x, y) =>
       x.job.date.localeCompare(y.job.date) ||
@@ -566,4 +574,24 @@ export async function ladeCrewJobsIntern(k: CrewKontext, o: CrewJobsOptionen = {
       x.job.id.localeCompare(y.job.id),
   );
   return out;
+}
+
+/** „neu“ oder „gelesen“ je freigegebenem Briefing (gelesen zählt nur zur aktuellen Freigabe). */
+export async function briefingStandFuer(
+  ex: DbExecutor,
+  ws: string,
+  employeeId: string,
+  dealIds: string[],
+): Promise<Map<string, "neu" | "gelesen">> {
+  const rows = zeilen<{ id: string; gelesen: boolean }>(
+    await ex.execute(sql`
+      SELECT b.deal_record_id AS id, EXISTS (
+        SELECT 1 FROM crew_briefing_reads r
+        WHERE r.deal_record_id = b.deal_record_id AND r.employee_id = ${employeeId} AND r.release_at = b.released_at
+      ) AS gelesen
+      FROM crew_briefings b
+      WHERE b.workspace_id = ${ws} AND b.deal_record_id = ANY(${liste(dealIds)}) AND b.withdrawn_at IS NULL
+    `),
+  );
+  return new Map(rows.map((z) => [z.id, z.gelesen ? "gelesen" : "neu"]));
 }

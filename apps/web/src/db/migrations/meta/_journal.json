@@ -400,6 +400,13 @@
       "when": 1793923200000,
       "tag": "0066_crew_portal",
       "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1794009600000,
+      "tag": "0067_crew_briefing",
+      "breakpoints": true
     }
   ]
 }

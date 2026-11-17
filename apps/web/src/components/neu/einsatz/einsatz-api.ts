@@ -4,7 +4,7 @@
  */
 import { apiAufruf, jsonAufruf, type ApiAntwort } from "@/components/neu/akte/api";
 import type { DoppelKonflikt, EinsatzKarte, Zuteilung } from "@/lib/einsatz";
-import type { CrewAusschreibungAnsicht, EinsatzAnsicht, EinsatzBestaetigenBody } from "@/lib/einsatz-ansicht";
+import type { CrewAusschreibungAnsicht, CrewBriefingAnsicht, EinsatzAnsicht, EinsatzBestaetigenBody } from "@/lib/einsatz-ansicht";
 
 export function einsatzLaden(dealId: string, frisch = false): Promise<ApiAntwort<EinsatzAnsicht>> {
   return apiAufruf<EinsatzAnsicht>(`/api/v1/deals/${encodeURIComponent(dealId)}/einsatz${frisch ? "?frisch=1" : ""}`);
@@ -56,4 +56,9 @@ export function einsatzDialogOeffnen(dealId: string): void {
 /** Crew-Portal: gesuchte Leute (null = Kalkulation) und Ausschreiben; sofort gespeichert. */
 export function crewAusschreibungSetzen(dealId: string, body: { leute?: number | null; ausschreiben?: boolean }) {
   return apiAufruf<CrewAusschreibungAnsicht>(`/api/v1/deals/${encodeURIComponent(dealId)}/einsatz/crew`, jsonAufruf("PATCH", body));
+}
+
+/** Crew-Portal: Briefing (erneut) freigeben, auf Wunsch mit WhatsApp ans Team, oder zurückziehen. */
+export function crewBriefingAktion(dealId: string, body: { aktion: "freigeben"; whatsapp: boolean } | { aktion: "zurueckziehen" }) {
+  return apiAufruf<CrewBriefingAnsicht>(`/api/v1/deals/${encodeURIComponent(dealId)}/einsatz/briefing`, jsonAufruf("POST", body));
 }

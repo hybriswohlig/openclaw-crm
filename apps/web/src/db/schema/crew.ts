@@ -76,3 +76,79 @@ export const crewJobResponses = pgTable(
     check("crew_job_responses_source_check", sql`${t.source} IN ('portal', 'crm')`),
   ]
 );
+
+/**
+ * Briefing-Freigabe je Deal (Migration 0067). Zeile da und `withdrawnAt` leer =
+ * das eingeteilte Team sieht das Briefing. „Erneut freigeben“ setzt `releasedAt` neu.
+ */
+export const crewBriefings = pgTable(
+  "crew_briefings",
+  {
+    dealRecordId: text("deal_record_id")
+      .primaryKey()
+      .references(() => records.id, { onDelete: "cascade" }),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    releasedAt: timestamp("released_at", { withTimezone: true }).notNull().defaultNow(),
+    releasedBy: text("released_by"),
+    withdrawnAt: timestamp("withdrawn_at", { withTimezone: true }),
+  },
+  (t) => [index("crew_briefings_workspace_idx").on(t.workspaceId)]
+);
+
+/** „Gelesen“ je Person und Freigabe (`releaseAt` = `crew_briefings.released_at` beim Lesen). */
+export const crewBriefingReads = pgTable(
+  "crew_briefing_reads",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    dealRecordId: text("deal_record_id")
+      .notNull()
+      .references(() => records.id, { onDelete: "cascade" }),
+    employeeId: text("employee_id")
+      .notNull()
+      .references(() => employees.id, { onDelete: "cascade" }),
+    releaseAt: timestamp("release_at", { withTimezone: true }).notNull(),
+    readAt: timestamp("read_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("crew_briefing_reads_uq").on(t.dealRecordId, t.employeeId, t.releaseAt)]
+);
+
+export type CrewNachrichtStatus = "gesendet" | "fehler" | "kein_telefon" | "kein_link" | "kein_absender";
+
+/** Jeder WhatsApp-Versuch an die Crew, auch übersprungene. */
+export const crewNotifications = pgTable(
+  "crew_notifications",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    dealRecordId: text("deal_record_id")
+      .notNull()
+      .references(() => records.id, { onDelete: "cascade" }),
+    employeeId: text("employee_id")
+      .notNull()
+      .references(() => employees.id, { onDelete: "cascade" }),
+    kind: text("kind").$type<"briefing">().notNull(),
+    status: text("status").$type<CrewNachrichtStatus>().notNull(),
+    error: text("error"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    createdBy: text("created_by"),
+  },
+  (t) => [
+    index("crew_notifications_deal_idx").on(t.dealRecordId, t.employeeId, t.createdAt),
+    check("crew_notifications_kind_check", sql`${t.kind} IN ('briefing')`),
+    check(
+      "crew_notifications_status_check",
+      sql`${t.status} IN ('gesendet', 'fehler', 'kein_telefon', 'kein_link', 'kein_absender')`
+    ),
+  ]
+);

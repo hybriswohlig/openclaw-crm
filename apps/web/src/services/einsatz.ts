@@ -428,6 +428,12 @@ export async function ladeEinsatz(ws: string, deal: string, o: EinsatzLadeOption
       console.error("[einsatz] Crew-Ausschreibung", err);
       return null;
     });
+  const crewBriefing = await import("./crew/briefing-freigabe")
+    .then((m) => m.briefingStandLesen(ws, deal))
+    .catch((err) => {
+      console.error("[einsatz] Crew-Briefing", err);
+      return null;
+    });
 
   return {
     dealId: deal,
@@ -456,6 +462,7 @@ export async function ladeEinsatz(ws: string, deal: string, o: EinsatzLadeOption
     hinweise,
     anfragen,
     crewAusschreibung,
+    crewBriefing,
   };
 }
 
