@@ -2,8 +2,9 @@
  * Jobs für das Crew-Portal (Vertrag „Visibility“, „Data minimisation“, „Pay
  * estimate“). Liest nur. Zwei Abfragen, je eine Runde zur Datenbank:
  *
- * 1. Grund (`ladeGrund`): filtert schon in SQL auf Kandidaten (Stufe `booked`
- *    und Termin ab heute, oder eigene Deals mit Termin ab gestern) und holt
+ * 1. Grund (`ladeGrund`): filtert schon in SQL auf Kandidaten (Stufe `booked`,
+ *    `quoted` oder `open_engaged` und Termin ab heute, oder eigene Deals mit
+ *    Termin ab gestern) und holt
  *    je Kandidat nur, was die Sichtbarkeit braucht: Termin, Stufe, Auftrag
  *    (neuester lebender) mit Anzahl, Ausschreiben, Firma und Zeitfenster,
  *    meine Einteilung und meine Antwort.
@@ -25,11 +26,13 @@ import {
   farbeAus,
   firmaAus,
   initialenAus,
+  istFix,
   istVoll,
   jobArtAus,
   konflikteAmTag,
   lohnSchaetzung,
   meinStatus,
+  personenZahl,
   sichtbarkeit,
   tagPlus,
   vornameAus,
@@ -175,6 +178,8 @@ export interface CrewGrund {
   start: string | null;
   end: string | null;
   workerCount: number | null;
+  /** false: noch nicht gebucht (Angebot/Gespräch). */
+  fix: boolean;
   firma: CrewJob["company"] | null;
   sicht: { a: boolean; b: boolean };
   /** Meine Zeile in deal_employees, sonst null. */
@@ -220,6 +225,7 @@ export async function ladeGrund(k: CrewKontext, o: GrundOptionen = {}): Promise<
     mein_fahrt: number | null;
     antwort: GespeicherteAntwort | null;
     antwort_am: string | Date | null;
+    kalk_groesse: string | number | null;
   }>(
     await ex.execute(sql`
       WITH meine AS (
@@ -248,14 +254,14 @@ export async function ladeGrund(k: CrewKontext, o: GrundOptionen = {}): Promise<
       kand AS (
         SELECT * FROM basis
         WHERE tag IS NOT NULL AND (
-          (kat = 'booked' AND tag >= ${heute}::date)
+          (kat IN ('booked', 'quoted', 'open_engaged') AND tag >= ${heute}::date)
           OR (meins AND tag >= ${gestern}::date AND COALESCE(kat, '') NOT IN ('lost', 'kein_lead'))
           OR id = ${erzwingen}
         )
       )
       SELECT k.id, k.kat, k.tag::text AS tag, k.meins, awj.aw, fn.name AS firma_name,
         mt.role AS mein_role, mt.planned_work_minutes AS mein_arbeit, mt.planned_drive_minutes AS mein_fahrt,
-        ma.answer AS antwort, ma.answered_at AS antwort_am
+        ma.answer AS antwort, ma.answered_at AS antwort_am, kg.groesse AS kalk_groesse
       FROM kand k
       LEFT JOIN LATERAL (
         SELECT ra.id FROM record_values rd
@@ -280,6 +286,12 @@ export async function ladeGrund(k: CrewKontext, o: GrundOptionen = {}): Promise<
         WHERE de.deal_record_id = k.id AND de.employee_id = ${ich} LIMIT 1
       ) mt ON true
       LEFT JOIN LATERAL (
+        -- Teamgröße der maßgeblichen Kalkulation (gesperrt vor neuester), wie im Einsatz-Dialog.
+        SELECT cv.rechner_result -> 'team' ->> 'groesse' AS groesse FROM deal_calculation_versions cv
+        WHERE cv.workspace_id = ${ws} AND cv.deal_record_id = k.id
+        ORDER BY (cv.status = 'gesperrt') DESC, cv.version DESC LIMIT 1
+      ) kg ON true
+      LEFT JOIN LATERAL (
         SELECT cr.answer, cr.answered_at FROM crew_job_responses cr
         WHERE cr.deal_record_id = k.id AND cr.employee_id = ${ich} AND cr.workspace_id = ${ws} LIMIT 1
       ) ma ON true
@@ -291,8 +303,9 @@ export async function ladeGrund(k: CrewKontext, o: GrundOptionen = {}): Promise<
     const datum = tagAus(z.tag);
     if (!datum) continue;
     const auftrag = werteAus(z.aw);
-    const wc = zahl(auftrag.worker_count);
-    const workerCount = wc !== null && wc >= 1 ? Math.round(wc) : null;
+    // Leute: am Auftrag eingetragen (auch 0 = nicht zeigen), nur ohne Eintrag die Teamgröße der Kalkulation.
+    const amAuftrag = zahl(auftrag.worker_count);
+    const workerCount = amAuftrag !== null ? personenZahl(amAuftrag) : personenZahl(z.kalk_groesse);
     const firma = firmaAus(z.firma_name);
     const meinTeam = z.mein_role
       ? { role: z.mein_role, plannedWorkMinutes: z.mein_arbeit ?? null, plannedDriveMinutes: z.mein_fahrt ?? null }
@@ -321,6 +334,7 @@ export async function ladeGrund(k: CrewKontext, o: GrundOptionen = {}): Promise<
       start: startB && startB.date === datum ? startB.time : null,
       end: endB && passt && endB.date >= datum ? endB.time : null,
       workerCount,
+      fix: istFix(z.kat),
       firma,
       sicht,
       meinTeam,
@@ -426,7 +440,10 @@ function jobBauen(k: CrewKontext, g: CrewGrund, d: Detail): CrewJob {
       color: farbeAus(t.id),
     };
   });
-  const status = meinStatus({ zugeteilt: g.meinTeam !== null, antwort: g.meineAntwort?.answer ?? null });
+  // Nicht fix gibt es keine Warteliste: eine alte (Job wurde zurückgestuft) gilt als „hätte Zeit“.
+  const gespeichert = g.meineAntwort?.answer ?? null;
+  const antwort = !g.fix && gespeichert === "warteliste" ? "ja" : gespeichert;
+  const status = meinStatus({ zugeteilt: g.meinTeam !== null, antwort });
   const need = g.workerCount ?? Math.max(1, d.team.length);
   const art = jobArtAus({ serviceType: d.serviceType, leadType: d.leadType });
   const abholung = ortAus(dw.move_from_address);
@@ -487,9 +504,11 @@ function jobBauen(k: CrewKontext, g: CrewGrund, d: Detail): CrewJob {
     photos: d.fotos.map((id) => ({ id, w: null, h: null })),
     my: { status, answeredAt: g.meineAntwort?.answeredAt ?? null },
     isLead: g.meinTeam?.role === "lead",
-    full: istVoll(d.team.length, g.workerCount),
+    // Unsichere Jobs sind nie voll: dort fragen wir nur, wer Zeit hätte.
+    full: g.fix && istVoll(d.team.length, g.workerCount),
     conflictSameDay: false,
     address: status === "bestaetigt" ? adresseText(abholung) : null,
+    fix: g.fix,
   };
 }
 

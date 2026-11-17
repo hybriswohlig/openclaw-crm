@@ -43,6 +43,16 @@ export function lohnSchaetzung(input: {
   };
 }
 
+// ─── Leute ───────────────────────────────────────────────────────────────────
+
+/** Gesuchte Leute aus Auftrag oder Kalkulation: ganze Zahl 1 bis 50, sonst null. */
+export function personenZahl(x: unknown): number | null {
+  const n = typeof x === "number" ? x : typeof x === "string" && x.trim() !== "" ? Number(x) : Number.NaN;
+  if (!Number.isFinite(n)) return null;
+  const r = Math.round(n);
+  return r >= 1 && r <= 50 ? r : null;
+}
+
 // ─── Firma und Art ───────────────────────────────────────────────────────────
 
 /** Name der Betriebsfirma → Marke im Portal. Alles andere wird nicht gezeigt. */
@@ -149,6 +159,20 @@ export interface SichtEingabe {
 const WEG_FUER_ALLE: ReadonlySet<string> = new Set(["lost", "kein_lead"]);
 
 /**
+ * Noch nicht gebucht, aber schon zeigen (Inhaber 17.11.): Angebot raus oder im
+ * Gespräch. So sehen wir früh, wer Zeit hätte. Neue Anfragen bleiben draußen.
+ */
+export const UNSICHERE_STUFEN: ReadonlySet<string> = new Set(["quoted", "open_engaged"]);
+
+/** Gebucht oder schon gelaufen. */
+const FESTE_STUFEN: ReadonlySet<string> = new Set(["booked", "done_unpaid", "paid"]);
+
+/** Fest = gebucht oder später; alles andere (auch zurückgestufte eigene Jobs) gilt als „noch nicht fix“. */
+export function istFix(stufeKategorie: string | null): boolean {
+  return FESTE_STUFEN.has(stufeKategorie ?? "");
+}
+
+/**
  * A (offener Job): gebucht, Termin ab heute, Anzahl ≥ 1, ausgeschrieben,
  * Kottke oder Rümpeltürken. B (mein Job): eingeteilt oder geantwortet, Termin
  * ab gestern. Beides nie für gelöschte Deals; B nicht für verlorene Deals
@@ -156,12 +180,10 @@ const WEG_FUER_ALLE: ReadonlySet<string> = new Set(["lost", "kein_lead"]);
  */
 export function sichtbarkeit(e: SichtEingabe): { a: boolean; b: boolean } {
   if (e.geloescht || e.datum === null || e.firma === null) return { a: false, b: false };
-  const a =
-    e.stufeKategorie === "booked" &&
-    e.datum >= e.heute &&
-    e.workerCount !== null &&
-    e.workerCount >= 1 &&
-    e.ausschreiben !== false;
+  // Fest gebucht braucht die Zahl der Leute; unsichere Jobs zeigen wir ohne (kein Platzzähler).
+  const gebucht = e.stufeKategorie === "booked" && e.workerCount !== null && e.workerCount >= 1;
+  const unsicher = UNSICHERE_STUFEN.has(e.stufeKategorie ?? "");
+  const a = (gebucht || unsicher) && e.datum >= e.heute && e.ausschreiben !== false;
   const b = e.meins && e.datum >= tagPlus(e.heute, -1) && !WEG_FUER_ALLE.has(e.stufeKategorie ?? "");
   return { a, b };
 }

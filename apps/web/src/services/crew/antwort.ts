@@ -46,7 +46,8 @@ export async function antwortSetzen(
       const e = antwortEntscheiden({
         antwort,
         zugeteilt: team.some((t) => t.employeeId === ich),
-        voll: istVoll(team.length, grund.workerCount),
+        // Unsicher (noch nicht gebucht): keine Warteliste, „ja“ heißt „hätte Zeit“ und wird bei Buchung Anfrage.
+        voll: grund.fix && istVoll(team.length, grund.workerCount),
       });
       if (e.art === "fehler") throw new Abbruch(e.code);
       if (e.art === "loeschen") {

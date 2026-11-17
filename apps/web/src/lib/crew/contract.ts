@@ -97,6 +97,11 @@ export const CrewJob = z.object({
   conflictSameDay: z.boolean(),
   /** Only when my.status === 'bestaetigt'. */
   address: z.string().nullable(),
+  /**
+   * false: deal not booked yet (quoted / in contact). Shown so we can see who would have time;
+   * no seat counter, never full, "ja" means "would have time" and becomes a request once booked.
+   */
+  fix: z.boolean().default(true),
 });
 export type CrewJob = z.infer<typeof CrewJob>;
 
