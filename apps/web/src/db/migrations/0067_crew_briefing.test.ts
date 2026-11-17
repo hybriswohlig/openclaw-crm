@@ -61,7 +61,7 @@ describe.skipIf(!url)("Migration 0067 Crew-Briefing (DB)", () => {
 
   it("Prüfungen greifen: unbekannter Status und doppeltes Gelesen", async () => {
     await expect(
-      db.unsafe(`INSERT INTO crew_notifications (id, workspace_id, deal_record_id, employee_id, kind, status) VALUES ('n1', 'w1', 'd1', 'e1', 'briefing', 'egal')`),
+      db.unsafe(`INSERT INTO crew_notifications (id, workspace_id, deal_record_id, employee_id, kind, release_at, status) VALUES ('n1', 'w1', 'd1', 'e1', 'briefing', now(), 'egal')`),
     ).rejects.toThrow(/crew_notifications_status_check/);
     await db.unsafe(`INSERT INTO crew_briefing_reads (id, workspace_id, deal_record_id, employee_id, release_at) VALUES ('r1', 'w1', 'd1', 'e1', '2026-01-01')`);
     await expect(

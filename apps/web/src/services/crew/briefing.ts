@@ -140,9 +140,9 @@ export async function briefingLesen(k: CrewKontext, dealId: string): Promise<Bri
   const [z] = zeilen<Roh>(
     await db.execute(sql`
       SELECT
-        (SELECT to_char(b.released_at, 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') FROM crew_briefings b
+        (SELECT to_char(b.released_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') FROM crew_briefings b
          WHERE b.deal_record_id = ${dealId} AND b.workspace_id = ${ws} AND b.withdrawn_at IS NULL) AS released_at,
-        (SELECT to_char(r.read_at, 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') FROM crew_briefing_reads r
+        (SELECT to_char(r.read_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') FROM crew_briefing_reads r
          INNER JOIN crew_briefings b ON b.deal_record_id = r.deal_record_id AND b.released_at = r.release_at
          WHERE r.deal_record_id = ${dealId} AND r.employee_id = ${ich}) AS read_at,
         EXISTS (SELECT 1 FROM deal_employees de WHERE de.deal_record_id = ${dealId} AND de.employee_id = ${ich}) AS im_team,
@@ -199,11 +199,12 @@ export async function briefingLesen(k: CrewKontext, dealId: string): Promise<Bri
   };
 }
 
-/** „Gelesen ✓“ zur aktuellen Freigabe. Mehrfach tippen ändert nichts. */
+/** „Gelesen ✓“ zur aktuellen Freigabe, nur wenn `gesehen` genau sie ist. Mehrfach tippen ändert nichts. */
 export async function briefingGelesen(
   k: CrewKontext,
   dealId: string,
-): Promise<{ ok: true; readAt: string } | { ok: false; code: "JOB_NICHT_SICHTBAR" | "BRIEFING_NICHT_FREI" }> {
+  gesehen: string,
+): Promise<{ ok: true; readAt: string } | { ok: false; code: "JOB_NICHT_SICHTBAR" | "BRIEFING_NICHT_FREI" | "BRIEFING_VERALTET" }> {
   const ws = k.workspaceId;
   const ich = k.employee.id;
   const [b] = await db
@@ -216,6 +217,8 @@ export async function briefingGelesen(
   );
   if (!imTeam?.ja) return { ok: false, code: "JOB_NICHT_SICHTBAR" };
   if (!b || b.withdrawnAt) return { ok: false, code: "BRIEFING_NICHT_FREI" };
+  // Gelesen gilt nur für die Fassung, die die Person vor sich hatte.
+  if (Date.parse(gesehen) !== b.releasedAt.getTime()) return { ok: false, code: "BRIEFING_VERALTET" };
   await db
     .insert(crewBriefingReads)
     .values({ workspaceId: ws, dealRecordId: dealId, employeeId: ich, releaseAt: b.releasedAt })

@@ -138,13 +138,15 @@ export const crewNotifications = pgTable(
       .notNull()
       .references(() => employees.id, { onDelete: "cascade" }),
     kind: text("kind").$type<"briefing">().notNull(),
+    /** Freigabe (`crew_briefings.released_at`), zu der dieser Versand gehört. */
+    releaseAt: timestamp("release_at", { withTimezone: true }).notNull(),
     status: text("status").$type<CrewNachrichtStatus>().notNull(),
     error: text("error"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     createdBy: text("created_by"),
   },
   (t) => [
-    index("crew_notifications_deal_idx").on(t.dealRecordId, t.employeeId, t.createdAt),
+    index("crew_notifications_deal_idx").on(t.dealRecordId, t.employeeId, t.releaseAt),
     check("crew_notifications_kind_check", sql`${t.kind} IN ('briefing')`),
     check(
       "crew_notifications_status_check",

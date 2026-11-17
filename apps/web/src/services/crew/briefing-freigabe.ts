@@ -23,7 +23,7 @@ export interface BriefingPerson {
   rolle: "lead" | "helper";
   /** Gelesen zur aktuellen Freigabe. */
   gelesenAm: string | null;
-  /** Letzter Versandversuch seit der aktuellen Freigabe. */
+  /** Letzter Versandversuch zur aktuellen Freigabe. */
   versand: { status: CrewNachrichtStatus; am: string } | null;
   hatTelefon: boolean;
 }
@@ -44,16 +44,16 @@ export async function briefingStandLesen(ws: string, deal: string): Promise<Brie
   const rows = zeilen<{ id: string; name: string; role: string; telefon: string | null; gelesen: string | null; status: string | null; am: string | null }>(
     await db.execute(sql`
       SELECT de.employee_id AS id, e.name, de.role, e.phone_canonical AS telefon,
-        (SELECT to_char(r.read_at, 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') FROM crew_briefing_reads r
+        (SELECT to_char(r.read_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') FROM crew_briefing_reads r
          WHERE r.deal_record_id = de.deal_record_id AND r.employee_id = de.employee_id
            AND r.release_at = ${aktiv ? aktiv.toISOString() : null}::timestamptz) AS gelesen,
-        n.status, to_char(n.created_at, 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS am
+        n.status, to_char(n.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS am
       FROM deal_employees de
       INNER JOIN employees e ON e.id = de.employee_id AND e.workspace_id = ${ws}
       LEFT JOIN LATERAL (
         SELECT cn.status, cn.created_at FROM crew_notifications cn
         WHERE cn.deal_record_id = de.deal_record_id AND cn.employee_id = de.employee_id AND cn.kind = 'briefing'
-          AND cn.created_at >= ${aktiv ? aktiv.toISOString() : null}::timestamptz
+          AND cn.release_at = ${aktiv ? aktiv.toISOString() : null}::timestamptz
         ORDER BY cn.created_at DESC, cn.id DESC LIMIT 1
       ) n ON true
       WHERE de.deal_record_id = ${deal}
@@ -105,19 +105,34 @@ export async function briefingFreigeben(
     .onConflictDoUpdate({ target: crewBriefings.dealRecordId, set: { releasedAt: jetzt, releasedBy: autor, withdrawnAt: null } });
 
   if (o.whatsapp) {
-    const tag = await dealTerminLesen(ws, deal);
-    const konto = await deps.absender(ws);
+    // Die Freigabe steht schon: ab hier darf nichts mehr die Antwort kippen.
+    const tag = await dealTerminLesen(ws, deal).catch(() => null);
+    const konto = await deps.absender(ws).catch((err) => {
+      console.error("[crew-briefing] Absender nicht lesbar:", err instanceof Error ? err.message : String(err));
+      return null;
+    });
     for (const p of team) {
-      const status = await anPersonSenden({ ws, deal, p, tag, konto, autor, deps });
-      await db.insert(crewNotifications).values({
-        workspaceId: ws,
-        dealRecordId: deal,
-        employeeId: p.id,
-        kind: "briefing",
-        status: status.status,
-        error: status.fehler ?? null,
-        createdBy: autor,
-      });
+      let status: { status: CrewNachrichtStatus; fehler?: string };
+      try {
+        status = await anPersonSenden({ ws, deal, p, tag, konto, autor, deps });
+      } catch (err) {
+        const fehler = err instanceof Error ? err.message : String(err);
+        console.error("[crew-briefing] Vorbereitung fehlgeschlagen:", fehler);
+        status = { status: "fehler", fehler: fehler.slice(0, 500) };
+      }
+      await db
+        .insert(crewNotifications)
+        .values({
+          workspaceId: ws,
+          dealRecordId: deal,
+          employeeId: p.id,
+          kind: "briefing",
+          releaseAt: jetzt,
+          status: status.status,
+          error: status.fehler ?? null,
+          createdBy: autor,
+        })
+        .catch((err) => console.error("[crew-briefing] Versand nicht vermerkt:", err instanceof Error ? err.message : String(err)));
     }
   }
   return { ok: true, stand: await briefingStandLesen(ws, deal) };

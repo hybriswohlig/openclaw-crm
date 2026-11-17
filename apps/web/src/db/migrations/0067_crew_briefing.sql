@@ -39,13 +39,15 @@ CREATE TABLE IF NOT EXISTS "crew_notifications" (
   "deal_record_id" text NOT NULL REFERENCES "records"("id") ON DELETE CASCADE,
   "employee_id" text NOT NULL REFERENCES "employees"("id") ON DELETE CASCADE,
   "kind" text NOT NULL,
+  -- Freigabe (crew_briefings.released_at), zu der dieser Versand gehört.
+  "release_at" timestamptz NOT NULL,
   "status" text NOT NULL,
   "error" text,
   "created_at" timestamptz NOT NULL DEFAULT now(),
   "created_by" text
 );
 --> statement-breakpoint
-CREATE INDEX IF NOT EXISTS "crew_notifications_deal_idx" ON "crew_notifications" ("deal_record_id", "employee_id", "created_at");
+CREATE INDEX IF NOT EXISTS "crew_notifications_deal_idx" ON "crew_notifications" ("deal_record_id", "employee_id", "release_at");
 --> statement-breakpoint
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'crew_notifications_kind_check' AND conrelid = '"crew_notifications"'::regclass) THEN

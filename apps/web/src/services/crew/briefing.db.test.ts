@@ -133,7 +133,7 @@ describe.skipIf(!url)("Briefing (DB)", { timeout: 30_000 }, () => {
     expect(await status(leiter, "d1")).toBeNull();
     expect(await br.briefingLesen(leiter, "d1")).toEqual({ ok: false, code: "BRIEFING_NICHT_FREI" });
     expect(await br.briefingLesen(fremd, "d1")).toEqual({ ok: false, code: "JOB_NICHT_SICHTBAR" });
-    expect(await br.briefingGelesen(leiter, "d1")).toEqual({ ok: false, code: "BRIEFING_NICHT_FREI" });
+    expect(await br.briefingGelesen(leiter, "d1", "2026-01-01T00:00:00.000Z")).toEqual({ ok: false, code: "BRIEFING_NICHT_FREI" });
     const s = await fg.briefingStandLesen("w1", "d1");
     expect(s.freigegebenAm).toBeNull();
     expect(s.team.map((p) => [p.employeeId, p.rolle, p.hatTelefon, p.versand])).toEqual([
@@ -199,8 +199,11 @@ describe.skipIf(!url)("Briefing (DB)", { timeout: 30_000 }, () => {
   });
 
   it("Gelesen gilt bis zur nächsten Freigabe; mehrfach tippen ändert nichts", async () => {
-    const g1 = await br.briefingGelesen(helfer, "d1");
-    const g2 = await br.briefingGelesen(helfer, "d1");
+    const gesehen = await br.briefingLesen(helfer, "d1");
+    if (!gesehen.ok) throw new Error("Briefing fehlt");
+    const fassung = gesehen.briefing.releasedAt;
+    const g1 = await br.briefingGelesen(helfer, "d1", fassung);
+    const g2 = await br.briefingGelesen(helfer, "d1", fassung);
     expect(g1.ok && g2.ok && g1.readAt === g2.readAt).toBe(true);
     expect(await status(helfer, "d1")).toBe("gelesen");
     expect(await status(leiter, "d1")).toBe("neu");
@@ -217,6 +220,9 @@ describe.skipIf(!url)("Briefing (DB)", { timeout: 30_000 }, () => {
       [false, null],
     ]);
     expect(await status(helfer, "d1")).toBe("neu");
+    // Die alte Seite darf die neue Fassung nicht bestätigen.
+    expect(await br.briefingGelesen(helfer, "d1", fassung)).toEqual({ ok: false, code: "BRIEFING_VERALTET" });
+    expect(await status(helfer, "d1")).toBe("neu");
   });
 
   it("Zurückziehen: niemand sieht es mehr; ohne verbundenes WhatsApp wird nichts gesendet, aber festgehalten", async () => {
@@ -229,6 +235,15 @@ describe.skipIf(!url)("Briefing (DB)", { timeout: 30_000 }, () => {
     const r = await fg.briefingFreigeben("w1", "d1", { whatsapp: true }, "u1", deps());
     expect(senden).not.toHaveBeenCalled();
     expect(r.ok && r.stand.team.map((p) => p.versand?.status)).toEqual(["kein_absender", "kein_absender", "kein_telefon"]);
+  });
+
+  it("Absender nicht lesbar: Freigabe steht trotzdem, Grund je Person vermerkt", async () => {
+    absender.mockRejectedValue(new Error("DB weg"));
+    await new Promise((r) => setTimeout(r, 5));
+    const r = await fg.briefingFreigeben("w1", "d1", { whatsapp: true }, "u1", deps());
+    expect(r.ok && r.stand.freigegebenAm).toBeTruthy();
+    expect(r.ok && r.stand.team.map((p) => p.versand?.status)).toEqual(["kein_absender", "kein_absender", "kein_telefon"]);
+    expect(senden).not.toHaveBeenCalled();
   });
 
   it("Versandfehler einer Person stoppt die anderen nicht", async () => {

@@ -173,11 +173,15 @@ export type CrewBriefing = z.infer<typeof CrewBriefing>;
 export const CrewBriefingResponse = z.object({ briefing: CrewBriefing });
 export type CrewBriefingResponse = z.infer<typeof CrewBriefingResponse>;
 
+/** "Gelesen" names the release the person saw, so a stale page never acknowledges a newer one. */
+export const CrewBriefingReadBody = z.object({ releasedAt: z.string() });
+export type CrewBriefingReadBody = z.infer<typeof CrewBriefingReadBody>;
+
 export const CrewAnswerBody = z.object({ answer: z.enum(["ja", "vielleicht", "nein"]).nullable() });
 export type CrewAnswerBody = z.infer<typeof CrewAnswerBody>;
 
 export const CrewError = z.object({
-  error: z.enum(["UNAUTHORIZED", "LINK_UNGUELTIG", "JOB_NICHT_SICHTBAR", "BEREITS_BESTAETIGT", "UNGUELTIG", "BRIEFING_NICHT_FREI"]),
+  error: z.enum(["UNAUTHORIZED", "LINK_UNGUELTIG", "JOB_NICHT_SICHTBAR", "BEREITS_BESTAETIGT", "UNGUELTIG", "BRIEFING_NICHT_FREI", "BRIEFING_VERALTET"]),
   message: z.string().optional(),
 });
 export type CrewError = z.infer<typeof CrewError>;
