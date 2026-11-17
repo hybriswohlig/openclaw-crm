@@ -214,6 +214,10 @@ describe.skipIf(!url)("Crew-Jobs, Antwort und Fotos (DB)", { timeout: 30_000 }, 
       expect(r.ok && r.job.my.status).toBe("ja");
       expect(r.ok && r.job.full).toBe(false);
       expect(r.ok && r.job.fix).toBe(false);
+      // Alte Warteliste aus der Zeit als gebuchter Job zeigt sich als „ja“.
+      await sql`UPDATE crew_job_responses SET answer = 'warteliste' WHERE deal_record_id = 'dQuoted' AND employee_id = 'e1'`;
+      const [j] = await jobs.ladeCrewJobs(ich, { jetzt, dealIds: ["dQuoted"] });
+      expect(j!.my.status).toBe("ja");
       await antwort.antwortSetzen(ich, "dQuoted", null, { jetzt });
       await sql`DELETE FROM deal_employees WHERE deal_record_id = 'dQuoted'`;
     });

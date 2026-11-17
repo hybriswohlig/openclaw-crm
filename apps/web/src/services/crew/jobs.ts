@@ -440,7 +440,10 @@ function jobBauen(k: CrewKontext, g: CrewGrund, d: Detail): CrewJob {
       color: farbeAus(t.id),
     };
   });
-  const status = meinStatus({ zugeteilt: g.meinTeam !== null, antwort: g.meineAntwort?.answer ?? null });
+  // Nicht fix gibt es keine Warteliste: eine alte (Job wurde zurückgestuft) gilt als „hätte Zeit“.
+  const gespeichert = g.meineAntwort?.answer ?? null;
+  const antwort = !g.fix && gespeichert === "warteliste" ? "ja" : gespeichert;
+  const status = meinStatus({ zugeteilt: g.meinTeam !== null, antwort });
   const need = g.workerCount ?? Math.max(1, d.team.length);
   const art = jobArtAus({ serviceType: d.serviceType, leadType: d.leadType });
   const abholung = ortAus(dw.move_from_address);
