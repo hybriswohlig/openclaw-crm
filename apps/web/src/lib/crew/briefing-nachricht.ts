@@ -9,7 +9,7 @@ const INTL: Record<CrewLocale, string> = { de: "de-DE", en: "en-GB", tr: "tr-TR"
 
 const TEXTE: Record<CrewLocale, (name: string, tag: string, url: string) => string> = {
   de: (n, t, u) => `Hallo ${n}! Das Briefing für ${t} ist da. Bitte kurz lesen und „Gelesen“ tippen:\n${u}`,
-  en: (n, t, u) => `Hi ${n}! The briefing for ${t} is ready. Please read it and tap "Read":\n${u}`,
+  en: (n, t, u) => `Hi ${n}! The briefing for ${t} is ready. Please read it and tap "I've read it":\n${u}`,
   tr: (n, t, u) => `Merhaba ${n}! ${t} için brifing hazır. Lütfen oku ve “Okudum”a dokun:\n${u}`,
   ar: (n, t, u) => `مرحبًا ${n}! التعليمات ليوم ${t} جاهزة. من فضلك اقرأها واضغط «قرأت»:\n${u}`,
   pl: (n, t, u) => `Cześć ${n}! Briefing na ${t} jest gotowy. Przeczytaj go i kliknij „Przeczytane”:\n${u}`,
