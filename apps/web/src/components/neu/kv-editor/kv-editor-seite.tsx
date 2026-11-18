@@ -4,6 +4,7 @@ import "@/styles/neu-kv-editor.css";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { anhangUrl } from "@/components/neu/akte/fotos-ansicht";
 import { usePortalZiel } from "@/components/neu/portal-ziel";
 import {
   KV_EDITOR_POLL_MS,
@@ -17,12 +18,11 @@ import {
 } from "@/lib/kv-editor";
 import { KvGepusht, KvHinweis, KvKalkulationNeu, KvKeinKv, KvKonflikte } from "./kv-baender";
 import { KvChat } from "./kv-chat";
-import { antwortAlsEintrag, uebernehmenEingabe, type ChatEintrag } from "./kv-chat-logik";
+import { antwortAlsEintrag, eigenerEintrag, uebernehmenEingabe, type ChatEintrag } from "./kv-chat-logik";
 import { PushDialog, ZusammenfuehrenDialog } from "./kv-dialoge";
 import { fehlerText, offeneKonflikte, pushbar } from "./kv-editor-logik";
-import { fixtureQuelle, KV_SZENARIEN, type KvSzenario } from "./kv-editor-fixture";
 import { apiQuelle, fehlerDaten, type ApiAntwort, type KvEditorQuelle } from "./kv-editor-quelle";
-import { KvFormular, type FormularFehler, type NurLesenZeile } from "./kv-formular";
+import { KvFormular, type FormularFehler } from "./kv-formular";
 import {
   abgelehntAusDaten,
   anzahlAenderungen,
@@ -52,30 +52,13 @@ function useSchmal(): boolean {
   return schmal;
 }
 
-function szenarioAusUrl(): KvSzenario {
-  if (typeof window === "undefined") return "standard";
-  const s = new URLSearchParams(window.location.search).get("szenario");
-  return (KV_SZENARIEN as readonly string[]).includes(s ?? "") ? (s as KvSzenario) : "standard";
-}
-
 /**
- * Einstieg der Seite `/app/leads/[id]/kv`. Aufgabe 6a: `testdaten` zeigt die Testdaten
- * (`?szenario=…`, siehe `KV_SZENARIEN`); 6b nimmt `testdaten` weg, dann spricht der Editor
- * mit den Routen aus Aufgabe 5 (`apiQuelle`).
+ * Einstieg der Seite `/app/leads/[id]/kv`: der Editor an den Routen aus Aufgabe 5 (`apiQuelle`).
+ * Testdaten gibt es nur in der Vorschau (`e2e/kv-editor-preview`, `fixtureQuelle`).
  */
-export function KvEditorSeite({ dealId, testdaten = false }: { dealId: string; testdaten?: boolean }) {
-  const quelle = useMemo(() => (testdaten ? fixtureQuelle(szenarioAusUrl()) : apiQuelle(dealId)), [dealId, testdaten]);
-  const nurLesen = useMemo(() => ("nurLesen" in quelle ? (quelle as ReturnType<typeof fixtureQuelle>).nurLesen() : []), [quelle]);
-  return (
-    <>
-      {testdaten ? (
-        <p className="kve-band" data-ton="blau" role="note">
-          <span>Testdaten (Aufgabe 6a). Nichts hier ist echt, nichts wird gespeichert.</span>
-        </p>
-      ) : null}
-      <KvEditor dealId={dealId} quelle={quelle} nurLesen={nurLesen} bildUrl={testdaten ? undefined : (id) => `/api/v1/deals/${encodeURIComponent(dealId)}/attachments/${encodeURIComponent(id)}`} />
-    </>
-  );
+export function KvEditorSeite({ dealId }: { dealId: string }) {
+  const quelle = useMemo(() => apiQuelle(dealId), [dealId]);
+  return <KvEditor dealId={dealId} quelle={quelle} bildUrl={anhangUrl} />;
 }
 
 /**
@@ -86,15 +69,12 @@ export function KvEditorSeite({ dealId, testdaten = false }: { dealId: string; t
 export function KvEditor({
   dealId,
   quelle,
-  nurLesen = [],
   bildUrl,
   pollMs = KV_EDITOR_POLL_MS,
   start,
 }: {
   dealId: string;
   quelle: KvEditorQuelle;
-  /** Umzugsgut ohne Lead-ID (nur lesend). Steht noch nicht im Vertrag (Bericht 6a). */
-  nurLesen?: NurLesenZeile[];
   bildUrl?: (anhangId: string) => string | null;
   pollMs?: number;
   /** Nur Vorschau und Tests: Panels beim ersten Bild. */
@@ -306,7 +286,7 @@ export function KvEditor({
       return;
     }
     // Annahme inzwischen aktiv oder anderer Stand gepusht: Ansicht neu laden, Dialog zeigt den neuen Fall.
-    if (r.code === "ANNAHME_AKTIV" || r.code === "AKTUELL_GEAENDERT" || r.code === "STAND_NICHT_FERTIG") await laden();
+    if (r.code === "ANNAHME_AKTIV" || r.code === "AKTUELL_GEAENDERT" || r.code === "STAND_NICHT_FERTIG" || r.code === "NUR_ADMIN") await laden();
     setPushFehler(text);
   }
 
@@ -349,7 +329,7 @@ export function KvEditor({
 
   async function chatSenden(text: string): Promise<boolean> {
     const am = new Date().toISOString();
-    const eigener: ChatEintrag = { rolle: "nutzer", text, am, von: null, standId: arbeit.id };
+    const eigener = eigenerEintrag(text, arbeit.id, am);
     setChat((c) => [...(c ?? []), eigener]);
     setChatFehler(null);
     setLaeuft("chat");
@@ -487,7 +467,6 @@ export function KvEditor({
               stand={arbeitDetail}
               firma={a.firma}
               preis={a.preis}
-              nurLesen={nurLesen}
               bildUrl={bildUrl}
               fehler={formFehler}
               speichert={laeuft === "speichern"}

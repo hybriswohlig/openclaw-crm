@@ -15,11 +15,8 @@ import {
 } from "./kv-formular-logik";
 import { SymbolSchliessen } from "./kv-symbole";
 
-/** Nur lesend angezeigtes Umzugsgut ohne Lead-ID (Altbestand, MCP; Spec 6.1). */
-export interface NurLesenZeile {
-  name: string;
-  raum: string | null;
-}
+/** Nur lesend angezeigtes Umzugsgut ohne Lead-ID (Altbestand, MCP; Spec 6.1), aus `KvStandDetail.nurLesen`. */
+export type NurLesenZeile = NonNullable<KvStandDetail["nurLesen"]>[number];
 
 /** Fehler vom Server zum letzten Speichern (400 `UNGUELTIG` oder ein Code mit Text). */
 export interface FormularFehler {
@@ -37,7 +34,6 @@ export function KvFormular({
   stand,
   firma,
   preis,
-  nurLesen = [],
   bildUrl = () => null,
   fehler,
   speichert,
@@ -47,8 +43,7 @@ export function KvFormular({
   stand: KvStandDetail;
   firma: string | null;
   preis: { text: string; kalkulationUrl: string };
-  nurLesen?: NurLesenZeile[];
-  /** Vorschaubild eines Anhangs (`/api/v1/deals/<id>/attachments/<anhangId>`); null: grauer Platzhalter. */
+  /** Vorschaubild eines Anhangs (`anhangUrl` der Akte); null: grauer Platzhalter. */
   bildUrl?: (anhangId: string) => string | null;
   fehler: FormularFehler | null;
   speichert: boolean;
@@ -56,6 +51,7 @@ export function KvFormular({
   onSchliessen: () => void;
 }) {
   const [eingaben, setEingaben] = useState<Record<string, KvWert>>({});
+  const nurLesen = stand.nurLesen ?? [];
   const wurzel = useRef<HTMLElement>(null);
   // Nach einer Ablehnung des Servers zum ersten markierten Feld springen.
   useEffect(() => {

@@ -321,8 +321,10 @@ function zustandFuer(szenario: KvSzenario): Zustand {
   const chat: KvChatBeitrag[] =
     staende.length > 0 && szenario !== "ceylan"
       ? [
-          { rolle: "nutzer", text: "Schreib rein, dass der Kunde den Keller selbst leer räumt, und dass der Schrank eine Spiegeltür hat.", am: "2026-11-18T13:10:00Z", von: DARIO.id, standId: "st_2" },
+          { nachrichtId: "ev_1", uebernommen: false, rolle: "nutzer", text: "Schreib rein, dass der Kunde den Keller selbst leer räumt, und dass der Schrank eine Spiegeltür hat.", am: "2026-11-18T13:10:00Z", von: DARIO.id, standId: "st_2" },
           {
+            nachrichtId: "ev_2",
+            uebernommen: true,
             rolle: "ki",
             text: "Ich habe den Hinweis zum Keller unter „Ergänzende Vereinbarungen“ und die Spiegeltür beim Kleiderschrank eingetragen.",
             am: "2026-11-18T13:10:20Z",
@@ -396,10 +398,7 @@ export interface FixtureOptionen {
   jetzt?: () => Date;
 }
 
-export interface FixtureQuelle extends KvEditorQuelle {
-  /** Nur lesend angezeigtes Umzugsgut ohne Lead-ID (nicht im Vertrag, siehe Bericht 6a). */
-  nurLesen(): { name: string; raum: string | null }[];
-}
+export type FixtureQuelle = KvEditorQuelle;
 
 const warte = (ms: number) => (ms > 0 ? new Promise<void>((r) => setTimeout(r, ms)) : Promise.resolve());
 
@@ -452,12 +451,11 @@ export function fixtureQuelle(szenario: KvSzenario = "standard", o: FixtureOptio
       basis: z.basis,
       werte: werteAusListe(z.basis, s.aenderungen),
       unterschied: unterschied(z.basis, vorg?.aenderungen ?? [], s.aenderungen),
+      ...(z.nurLesen.length > 0 ? { nurLesen: z.nurLesen } : {}),
     };
   }
 
   return {
-    nurLesen: () => kopie(z.nurLesen),
-
     async ansicht() {
       z.staende.forEach(aktualisieren);
       return ok(kopie({ ...z.ansicht, staende: z.staende }));
@@ -501,11 +499,14 @@ export function fixtureQuelle(szenario: KvSzenario = "standard", o: FixtureOptio
         else if (typeof s.wert === "string" && preisVerdachtGrob(s.wert)) abgelehnt.push({ schluessel: s.schluessel, grund: "PREIS" });
       }
       if (abgelehnt.length > 0) return fehler("UNGUELTIG", { abgelehnt });
+      if (e.kiNachrichtId && z.chat.some((x) => x.nachrichtId === e.kiNachrichtId && x.uebernommen)) {
+        return fehler("UNGUELTIG", { abgelehnt: [{ schluessel: null, grund: "NICHT_VORGESCHLAGEN" }] });
+      }
       const quelle = e.kiNachrichtId ? "ki" : "hand";
       const s = anlegen(vorg, fortschreiben(z.basis, vorg.aenderungen, e, quelle, jetzt().toISOString()), quelle);
       if (e.kiNachrichtId) {
-        const c = z.chat.find((x) => (x as { nachrichtId?: string }).nachrichtId === e.kiNachrichtId);
-        if (c) (c as { uebernommen?: boolean }).uebernommen = true;
+        const c = z.chat.find((x) => x.nachrichtId === e.kiNachrichtId);
+        if (c) c.uebernommen = true;
       }
       if (z.szenario === "preis") z.druckErgebnis.set(s.id, "preis");
       return ok(kopie(s));
@@ -575,8 +576,8 @@ export function fixtureQuelle(szenario: KvSzenario = "standard", o: FixtureOptio
       await warte(kiMs);
       if (z.szenario === "ki-laeuft") return fehler("LAEUFT");
       const am = jetzt().toISOString();
-      z.chat.push({ rolle: "nutzer", text: e.text, am, von: DARIO.id, standId: e.standId });
-      const nachrichtId = `ev_${z.chat.length}_${Date.now().toString(36)}`;
+      z.chat.push({ nachrichtId: `ev_${z.chat.length + 1}_${Date.now().toString(36)}`, uebernommen: false, rolle: "nutzer", text: e.text, am, von: DARIO.id, standId: e.standId });
+      const nachrichtId = `ev_${z.chat.length + 1}_${Date.now().toString(36)}`;
       let antwort: KiAntwort;
       const s = z.staende.find((x) => x.id === e.standId);
       const werte = werteAusListe(z.basis, s?.aenderungen ?? []);
@@ -606,7 +607,7 @@ export function fixtureQuelle(szenario: KvSzenario = "standard", o: FixtureOptio
           nachrichtId,
         };
       }
-      z.chat.push({ rolle: "ki", text: antwort.antwort, am: jetzt().toISOString(), von: DARIO.id, standId: e.standId, vorschlaege: antwort.vorschlaege, abgelehnt: antwort.abgelehnt, ...{ nachrichtId } } as KvChatBeitrag);
+      z.chat.push({ nachrichtId, uebernommen: false, rolle: "ki", text: antwort.antwort, am: jetzt().toISOString(), von: DARIO.id, standId: e.standId, vorschlaege: antwort.vorschlaege, abgelehnt: antwort.abgelehnt });
       return ok(kopie(antwort));
     },
 

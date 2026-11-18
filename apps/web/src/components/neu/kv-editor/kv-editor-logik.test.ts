@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { KV_EDITOR_TEXT, KV_PDF_NICHT_PRUEFBAR_TEXT, KV_PREIS_ABWEICHUNG_TEXT, type KvStandKopf } from "@/lib/kv-editor";
-import { ablehnungText, ablehnungZeilen, antwortAlsEintrag, sendbar, startAuswahl, uebernehmbar, uebernehmenEingabe, type ChatEintrag } from "./kv-chat-logik";
+import { ablehnungText, ablehnungZeilen, antwortAlsEintrag, eigenerEintrag, sendbar, startAuswahl, uebernehmbar, uebernehmenEingabe, type ChatEintrag } from "./kv-chat-logik";
 import { DARIO, FIXTURE_JETZT, NURI } from "./kv-editor-fixture";
 import { feldTitel, fehlerText, konfliktText, pdfAnsicht, pushbar, pushModus, schluesselTitel, standAbzeichen, verlaufZeilen, zeitText } from "./kv-editor-logik";
 
@@ -202,13 +202,18 @@ describe("Chat-Logik", () => {
     expect(uebernehmenEingabe(e, new Set())).toBeNull();
   });
 
-  it("Verlauf ohne nachrichtId und übernommene Karten sind nur lesend", () => {
+  it("ältere KI-Beiträge aus dem Verlauf sind übernehmbar, übernommene und solche ohne ID nicht", () => {
     const e = antwortAlsEintrag(antwort, "st_3", "2026-11-18T13:00:00Z");
+    expect(e.uebernommen).toBe(false);
     expect(uebernehmbar(e)).toBe(true);
     expect(uebernehmbar({ ...e, uebernommen: true })).toBe(false);
-    const { nachrichtId: _weg, ...ohne } = e;
-    expect(uebernehmbar(ohne as ChatEintrag)).toBe(false);
-    expect(uebernehmenEingabe(ohne as ChatEintrag, startAuswahl(antwort.vorschlaege))).toBeNull();
+    const alt: ChatEintrag = { rolle: "ki", text: "Alt", am: "2026-11-18T12:00:00Z", von: "u_dario", standId: "st_2", nachrichtId: "ev_alt", uebernommen: false, vorschlaege: antwort.vorschlaege };
+    expect(uebernehmbar(alt)).toBe(true);
+    expect(uebernehmenEingabe(alt, startAuswahl(antwort.vorschlaege))?.vorgaengerId).toBe("st_2");
+    const ohne: ChatEintrag = { ...e, nachrichtId: "" };
+    expect(uebernehmbar(ohne)).toBe(false);
+    expect(uebernehmenEingabe(ohne, startAuswahl(antwort.vorschlaege))).toBeNull();
+    expect(uebernehmbar(eigenerEintrag("Hallo", "st_3", "2026-11-18T13:00:00Z"))).toBe(false);
   });
 
   it("Ablehnungen je Grund gezählt, LEER mit eigenem Text", () => {

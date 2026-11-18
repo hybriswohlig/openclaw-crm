@@ -139,8 +139,8 @@ export function KvKonflikte({
 }
 
 /**
- * Meldung nach dem Push (Spec 7.5, 10). 6b: `KvDanachKnoepfe` bekommt nach Aufgabe 7
- * zusätzlich `art: "angepasst"` und `neuAnnehmen` (= `annahmeAufgehoben`).
+ * Meldung nach dem Push (Spec 7.5, 10). „Im Chat senden“ bereitet die Nachricht „KV angepasst“
+ * vor (`art: "angepasst"`), bei aufgehobener Annahme mit der Bitte, neu anzunehmen.
  */
 export function KvGepusht({
   dealId,
@@ -159,7 +159,7 @@ export function KvGepusht({
         <b>Stand {nummer} ist jetzt der aktuelle KV.</b> Portal, Statuslink und Akte zeigen ihn.
         {annahmeAufgehoben ? " Die Annahme ist aufgehoben; der Kunde nimmt den neuen KV neu an." : ""} Nachricht an den Kunden geht erst, wenn du sie im Chat sendest.
       </span>
-      <KvDanachKnoepfe dealId={dealId} klasse="kve-klein-knopf" gruppeKlasse="kve-danach" />
+      <KvDanachKnoepfe dealId={dealId} klasse="kve-klein-knopf" gruppeKlasse="kve-danach" art="angepasst" neuAnnehmen={annahmeAufgehoben} />
       <button type="button" className="kve-link" onClick={onSchliessen}>
         Ausblenden
       </button>

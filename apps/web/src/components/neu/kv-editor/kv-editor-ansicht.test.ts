@@ -3,7 +3,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { KV_EDITOR_TEXT, KV_HINWEIS_FELDER_GEPRUEFT, KV_HINWEIS_REKONSTRUIERT, KV_NUR_ADMIN_TEXT, type KvEditorAnsicht, type KvStandDetail } from "@/lib/kv-editor";
-import { KvHinweis, KvKonflikte } from "./kv-baender";
+import { KvGepusht, KvHinweis, KvKonflikte } from "./kv-baender";
 import { KvChat } from "./kv-chat";
 import { antwortAlsEintrag } from "./kv-chat-logik";
 import { PushInhalt, ZusammenfuehrenInhalt } from "./kv-dialoge";
@@ -152,7 +152,7 @@ describe("Formular Bearbeiten", () => {
     const u = await daten("ungeprueft");
     expect(text(formular(u.detail!, u.ansicht))).toContain(KV_HINWEIS_FELDER_GEPRUEFT);
     const a = await daten("altbestand");
-    const t = text(formular(a.detail!, a.ansicht, { nurLesen: a.q.nurLesen() }));
+    const t = text(formular(a.detail!, a.ansicht));
     expect(t).toContain("Umzugsgut Kleiderschrank 3-türig · Schlafzimmer Waschmaschine · Bad Umzugsgut in der Kalkulation ändern.");
   });
 
@@ -190,7 +190,7 @@ describe("Chat", () => {
     expect(t).toContain(KV_EDITOR_TEXT.LAEUFT);
   });
 
-  it("Preisbitte: keine Karte, Ablehnung PREIS; Verlauf ohne ID nur lesend", async () => {
+  it("Preisbitte: keine Karte, Ablehnung PREIS; ältere Vorschläge aus dem Verlauf übernehmbar, übernommene nicht", async () => {
     const { q, detail } = await daten();
     const r = await q.chat({ standId: "st_3", text: "Gib 10 % Rabatt" });
     if (!r.ok) throw new Error(r.message);
@@ -199,7 +199,8 @@ describe("Chat", () => {
       createElement(KvChat, {
         eintraege: [
           { ...antwortAlsEintrag(r.data, "st_3", "2026-11-18T13:20:00Z") },
-          { rolle: "ki", text: "Alt", am: "2026-11-18T12:00:00Z", von: null, standId: "st_2", vorschlaege: [{ ...detail!.unterschied[0], wert: "x" }].filter(Boolean) },
+          { rolle: "ki", text: "Alt", am: "2026-11-18T12:00:00Z", von: null, standId: "st_2", nachrichtId: "ev_alt", uebernommen: false, vorschlaege: [{ ...detail!.unterschied[0], wert: "x" }] },
+          { rolle: "ki", text: "Älter", am: "2026-11-18T11:00:00Z", von: null, standId: "st_1", nachrichtId: "ev_aelter", uebernommen: true, vorschlaege: [{ ...detail!.unterschied[0], wert: "y" }] },
         ],
         felder: detail!.basis.felder,
         firma: "kottke",
@@ -213,8 +214,21 @@ describe("Chat", () => {
       })
     );
     expect(text(h)).toContain(KV_EDITOR_TEXT.PREIS);
-    expect(text(h)).toContain("Vorschlag (nur Ansicht)");
-    expect(h).not.toContain("Übernehmen (");
+    expect(text(h)).toContain("Übernehmen (1)");
+    expect(text(h)).toContain("Übernommen");
+    expect(text(h)).not.toContain("Vorschlag (nur Ansicht)");
+  });
+});
+
+describe("Nach dem Push", () => {
+  it("Im Chat senden bereitet „KV angepasst“ vor, mit Bitte um neue Annahme nur nach Aufhebung", () => {
+    const mit = html(createElement(KvGepusht, { dealId: "deal_1", nummer: 4, annahmeAufgehoben: true, onSchliessen: vi.fn() }));
+    expect(text(mit)).toContain("Stand 4 ist jetzt der aktuelle KV.");
+    expect(text(mit)).toContain("Die Annahme ist aufgehoben");
+    expect(mit).toContain('href="/app/inbox?e=deal%3Adeal_1&amp;kv=angepasst&amp;annahme=1"');
+    const ohne = html(createElement(KvGepusht, { dealId: "deal_1", nummer: 4, annahmeAufgehoben: false, onSchliessen: vi.fn() }));
+    expect(ohne).toContain('href="/app/inbox?e=deal%3Adeal_1&amp;kv=angepasst"');
+    expect(text(ohne)).not.toContain("Annahme ist aufgehoben");
   });
 });
 

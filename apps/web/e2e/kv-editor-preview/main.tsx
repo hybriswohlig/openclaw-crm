@@ -29,7 +29,7 @@ createRoot(document.getElementById("root")!).render(
         <div className="neu-geruest">
           <aside className="neu-seitenleiste" style={{ background: "var(--fill-2)" }} aria-label="Seitenleiste (Platzhalter)" />
           <main className="neu-inhalt">
-            <KvEditor dealId="deal_beispiel" quelle={quelle} nurLesen={quelle.nurLesen()} pollMs={1500} start={{ verlauf: p.has("verlauf"), rechts }} />
+            <KvEditor dealId="deal_beispiel" quelle={quelle} pollMs={1500} start={{ verlauf: p.has("verlauf"), rechts }} />
           </main>
         </div>
       </div>

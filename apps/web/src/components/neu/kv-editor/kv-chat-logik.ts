@@ -12,13 +12,11 @@ import {
 } from "@/lib/kv-editor";
 
 /**
- * Ein Beitrag im Chatfenster. `nachrichtId` haben nur KI-Antworten aus dieser Sitzung
- * (`KiAntwort`); der Verlauf (`KvChatBeitrag`) trägt sie im Vertrag nicht, dort sind
- * Vorschläge nur lesend (Abweichung an den Koordinator gemeldet).
+ * Ein Beitrag im Chatfenster: aus dem Verlauf (`KvChatBeitrag` mit `nachrichtId` und
+ * `uebernommen`) oder aus dieser Sitzung. Auch ältere KI-Vorschläge sind übernehmbar,
+ * solange `uebernommen` false ist.
  */
 export type ChatEintrag = KvChatBeitrag & {
-  nachrichtId?: string;
-  uebernommen?: boolean;
   /** Welche Vorschläge beim Übernehmen angehakt waren (nur in dieser Sitzung bekannt). */
   uebernommeneSchluessel?: string[];
 };
@@ -58,7 +56,12 @@ export function ablehnungZeilen(abgelehnt: KiAntwort["abgelehnt"]): string[] {
 
 /** KI-Antwort aus dieser Sitzung als Chat-Eintrag. */
 export function antwortAlsEintrag(a: KiAntwort, standId: string, am: string): ChatEintrag {
-  return { rolle: "ki", text: a.antwort, am, von: null, standId, vorschlaege: a.vorschlaege, abgelehnt: a.abgelehnt, nachrichtId: a.nachrichtId };
+  return { rolle: "ki", text: a.antwort, am, von: null, standId, vorschlaege: a.vorschlaege, abgelehnt: a.abgelehnt, nachrichtId: a.nachrichtId, uebernommen: false };
+}
+
+/** Eigener Beitrag, bis die Antwort da ist; die ID vergibt erst der Server, darum eine lokale. */
+export function eigenerEintrag(text: string, standId: string, am: string): ChatEintrag {
+  return { rolle: "nutzer", text, am, von: null, standId, nachrichtId: `lokal_${am}`, uebernommen: false };
 }
 
 /** Der Text der Eingabe ist sendbar (nicht leer, höchstens 2000 Zeichen). */
