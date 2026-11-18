@@ -263,14 +263,34 @@ const ZAHL = /\d+(?:[.,]\d+)*/gu;
 const DATUM = /^\d{1,2}\.\d{1,2}\.(\d{2}|\d{4})$/u;
 const EINHEIT = /^\s?(m²|m³|cbm|qm|cm|mm|km|kg|Stück|Stk|Uhr|m|t|l)(?![\p{L}\d])/iu;
 
+/**
+ * Zahlen, die keine Preise sind (Entscheidung Koordinator, Aufgabe 3): Telefonnummern mit `+`, mit
+ * Vorwahl und Leerzeichen, Schrägstrich oder Bindestrich, oder ab sechs Ziffern am Stück; Postleitzahlen
+ * (genau fünf Ziffern); Wohnungs-, Etagen- und Hausnummern nach „Wohnung“, „Whg“, „Nr.“. Sie werden vor
+ * der Zahlenregel ausgeblendet. Preiswörter, Euro und Beträge prüft `preisVerdacht` vorher, ein Betrag
+ * ohne Einheit neben einem Preiswort bleibt also abgelehnt.
+ */
+const KEIN_PREIS = [
+  /\+\s?\d{1,3}(?:[\s/-]*\(?\d+\)?)+/gu,
+  /(?<![\d.,])0\d{1,5}(?:\s*[\s/-]\s*\d{2,})+(?![\d,]|\.\d)/gu,
+  /(?<![\d.,])\d{6,}(?![\d,]|\.\d)/gu,
+  /(?<![\d.,])\d{5}(?![\d,]|\.\d)/gu,
+  /(?<!\p{L})(?:wohnung|whg\.?|nr\.)\s*\d+/giu,
+];
+
+function ohneKeinePreise(text: string): string {
+  return KEIN_PREIS.reduce((t, re) => t.replace(re, (m) => " ".repeat(m.length)), text);
+}
+
 /** Wahr bei Betrag, Prozent, Preis- und Zahlungswörtern, Euro, oder einer dreistelligen Zahl ohne Einheit und ohne Datum. */
-export function preisVerdacht(eingabe: string): boolean {
-  if (BETRAG.test(eingabe) || eingabe.includes("%")) return true;
-  for (const m of eingabe.matchAll(WORTANFANG)) {
-    if (m[1].toLowerCase() === "kosten" && KOSTENVORANSCHLAG.test(eingabe.slice(m.index))) continue;
+export function preisVerdacht(roh: string): boolean {
+  if (BETRAG.test(roh) || roh.includes("%")) return true;
+  for (const m of roh.matchAll(WORTANFANG)) {
+    if (m[1].toLowerCase() === "kosten" && KOSTENVORANSCHLAG.test(roh.slice(m.index))) continue;
     return true;
   }
-  if (PREIS_IM_WORT.test(eingabe) || RATE.test(eingabe) || EURO.test(eingabe)) return true;
+  if (PREIS_IM_WORT.test(roh) || RATE.test(roh) || EURO.test(roh)) return true;
+  const eingabe = ohneKeinePreise(roh);
   for (const m of eingabe.matchAll(ZAHL)) {
     const zahl = m[0];
     if (zahl.replace(/\D/g, "").length < 3 || DATUM.test(zahl)) continue;

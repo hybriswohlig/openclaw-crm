@@ -455,6 +455,39 @@ describe("preisVerdacht", () => {
     expect(preisVerdacht(text)).toBe(false);
   });
 
+  // Entscheidung Koordinator (Aufgabe 3): Postleitzahl, Telefon, Wohnung und Hausnummer sind keine Preise.
+  it.each([
+    "Einzug 70173 Stuttgart",
+    "PLZ 71229",
+    "Bitte vorher anrufen: +49 711 1234567",
+    "Tel. +49 (0)711 123456",
+    "Hausmeister 0711 / 123456",
+    "Hausmeister 0711 123456",
+    "Hausmeister 0711-123456",
+    "Handy 01711234567",
+    "Rückruf unter 123456",
+    "Wohnung 104",
+    "Whg. 312, 3. Stock",
+    "Whg 312",
+    "Nr. 117 im Hinterhof",
+    "Wohnung 12, Klingel Nr. 104",
+  ])("lässt %s durch", (text) => {
+    expect(preisVerdacht(text)).toBe(false);
+  });
+
+  it.each([
+    "Preis 71229",
+    "Festpreis 123456",
+    "Anzahlung 0711 123456",
+    "Wohnung 104 für 250",
+    "Nr. 12 kostet 300",
+    "1620 statt 1800",
+    "123456 €",
+    "Kosten 1.620",
+  ])("lehnt %s weiter ab", (text) => {
+    expect(preisVerdacht(text)).toBe(true);
+  });
+
   it.each([
     "prozent",
     "rabatt",
