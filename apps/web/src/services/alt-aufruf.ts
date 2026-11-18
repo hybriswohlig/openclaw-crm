@@ -20,12 +20,9 @@ export const PFAD_MAX = 200;
  */
 export const ALTE_PRAEFIXE = [
   "admin",
-  "anrufe",
-  "contract-calendar",
   "email",
   "employees",
   "financial",
-  "home",
   "inbox",
   "integrations",
   "leads",

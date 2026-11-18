@@ -40,9 +40,9 @@ const OBJECT_ICONS: Record<string, React.ComponentType<{ className?: string }>> 
 // Spiegelt die Sidebar-Navigation (sidebar.tsx): gleiche Labels, Routen und
 // Icons, damit Tippen-zum-Finden mit der Sidebar übereinstimmt.
 const PAGE_ITEMS = [
-  { id: "home", label: "Heute", icon: Home, url: "/home" },
+  { id: "home", label: "Heute", icon: Home, url: "/app/heute" },
   { id: "tasks", label: "Aufgaben", icon: CheckSquare, url: "/tasks" },
-  { id: "calendar", label: "Kalender", icon: CalendarDays, url: "/contract-calendar" },
+  { id: "calendar", label: "Kalender", icon: CalendarDays, url: "/app/plan" },
   { id: "notifications", label: "Benachrichtigungen", icon: Bell, url: "/notifications" },
   { id: "people", label: "Kunden", icon: Users, url: "/objects/people" },
   { id: "deals", label: "Leads", icon: Handshake, url: "/objects/deals" },

@@ -8,10 +8,10 @@ export interface MobileNavItem {
 }
 
 export const mobilePrimaryTabs: readonly MobileNavItem[] = [
-  { href: "/home", label: "Heute" },
+  { href: "/app/heute", label: "Heute" },
   { href: "/operations", label: "Aufträge" },
   { href: "/inbox", label: "Inbox", showBadge: true },
-  { href: "/contract-calendar", label: "Kalender" },
+  { href: "/app/plan", label: "Kalender" },
 ];
 
 export const mobileMehrItems: readonly MobileNavItem[] = [
@@ -26,7 +26,7 @@ export const mobileMehrItems: readonly MobileNavItem[] = [
   { href: "/financial", label: "Finanzen" },
   { href: "/integrations", label: "Integrationen" },
   { href: "/settings", label: "Einstellungen" },
-  { href: "/anrufe", label: "Anrufe" },
+  { href: "/app/anrufe", label: "Anrufe" },
 ];
 
 /** Same rule as the primary tabs: exact path or a nested record. */

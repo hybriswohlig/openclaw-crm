@@ -274,16 +274,27 @@ export interface Zuordnung {
   neu: string | null;
   /** Bei `neu === null`: warum; sonst der Plan, der das Ziel liefert. */
   grund: string;
+  /**
+   * Datum (YYYY-MM-DD), an dem die alte Seite gelöscht wurde. Gelöschte Pfade leitet die
+   * Middleware immer um (`geloeschtZiel`), unabhängig von `ALTE_PFADE_UMLEITEN`, `crm_ui`
+   * und `?alt=1`; sonst gäbe es für Lesezeichen und alte Links nur noch 404.
+   */
+  geloescht?: string;
+  /** Nur bei gelöschten Seiten: Abfrage ins Ziel übernehmen (ohne `alt`), z. B. Lagekarte `?lead=`. */
+  abfrageBehalten?: boolean;
 }
 
+/** Löschauftrag 18.11. (Inhaber-Okay „ja, kannst schon löschen“). */
+export const GELOESCHT_AM = "2026-11-18";
+
 export const ZUORDNUNG: readonly Zuordnung[] = [
-  { alt: "/home", neu: "/app/heute/karte", grund: "Plan 10 (Lagekarte unter Heute)" },
+  { alt: "/home", neu: "/app/heute/karte", grund: "Plan 10 (Lagekarte unter Heute)", geloescht: GELOESCHT_AM, abfrageBehalten: true },
   { alt: "/inbox", neu: "/app/inbox", grund: "nur ohne Abfrage; `conv` regelt Plan 10, `compose` bleibt alt" },
   { alt: "/objects/deals", neu: "/app/leads", grund: "Plan 7" },
   { alt: "/objects/people", neu: "/app/kunden", grund: "Plan 11" },
   { alt: "/objects/people/:id", neu: "/app/kunden/:id", grund: "Plan 11" },
-  { alt: "/anrufe", neu: "/app/anrufe", grund: "Plan 10 (Zuordnen)" },
-  { alt: "/contract-calendar", neu: "/app/plan", grund: "Plan 8, Kalender-Abo Plan 13" },
+  { alt: "/anrufe", neu: "/app/anrufe", grund: "Plan 10 (Zuordnen)", geloescht: GELOESCHT_AM },
+  { alt: "/contract-calendar", neu: "/app/plan", grund: "Plan 8, Kalender-Abo Plan 13", geloescht: GELOESCHT_AM },
   { alt: "/operations", neu: "/app/plan", grund: "Plan 12 (Team bestätigen)" },
   { alt: "/employees", neu: "/app/mitarbeiter", grund: "Plan 12" },
   { alt: "/financial", neu: "/app/kasse", grund: "Plan 9; Gesellschaften bleiben alt (Link mit ?alt=1)" },
@@ -328,6 +339,29 @@ export function umleitZiel(pfad: string, suche: URLSearchParams): string | null 
     if (treffer === false) continue;
     if (!z.neu) return null;
     return treffer === null ? z.neu : z.neu.replace(":id", encodeURIComponent(treffer));
+  }
+  return null;
+}
+
+/** Alte Pfade, deren Seite gelöscht ist (Einträge mit `geloescht`). */
+export const GELOESCHTE_PFADE: readonly string[] = ZUORDNUNG.filter((z) => z.geloescht && z.neu).map((z) => z.alt);
+
+/**
+ * Ziel für einen gelöschten alten Pfad, sonst `null`. Gilt immer: ohne Blick auf
+ * `ALTE_PFADE_UMLEITEN`, `crm_ui` und `?alt=1` (die Seite gibt es nicht mehr).
+ * Die Abfrage fällt weg, außer der Eintrag sagt `abfrageBehalten`; `alt` fällt immer weg.
+ */
+export function geloeschtZiel(pfad: string, suche: URLSearchParams): string | null {
+  for (const z of ZUORDNUNG) {
+    if (!z.geloescht || !z.neu) continue;
+    const treffer = passt(z.alt, pfad);
+    if (treffer === false) continue;
+    const ziel = treffer === null ? z.neu : z.neu.replace(":id", encodeURIComponent(treffer));
+    if (!z.abfrageBehalten) return ziel;
+    const rest = new URLSearchParams(suche);
+    rest.delete(ALT_PARAM);
+    const abfrage = rest.toString();
+    return abfrage ? `${ziel}?${abfrage}` : ziel;
   }
   return null;
 }

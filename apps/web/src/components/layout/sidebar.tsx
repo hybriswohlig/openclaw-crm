@@ -42,9 +42,9 @@ import {
 import { useTheme } from "next-themes";
 
 const mainNav = [
-  { href: "/home", label: "Heute", icon: Home },
+  { href: "/app/heute", label: "Heute", icon: Home },
   { href: "/tasks", label: "Aufgaben", icon: CheckSquare },
-  { href: "/contract-calendar", label: "Kalender", icon: CalendarDays },
+  { href: "/app/plan", label: "Kalender", icon: CalendarDays },
   { href: "/notifications", label: "Benachrichtigungen", icon: Bell },
 ];
 
@@ -71,7 +71,6 @@ const titleNav: { href: string; label: string }[] = [
   { href: "/operations", label: "Aufträge" },
   { href: "/financial", label: "Finanzen" },
   { href: "/inbox", label: "Inbox" },
-  { href: "/anrufe", label: "Anrufe" },
   { href: "/email", label: "E-Mail" },
   { href: "/settings", label: "Einstellungen" },
 ];
@@ -348,10 +347,10 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
         />
 
         <NavItem
-          href="/anrufe"
+          href="/app/anrufe"
           label="Anrufe"
           icon={Phone}
-          active={pathname.startsWith("/anrufe")}
+          active={false}
           onClick={onNavigate}
         />
 

@@ -4,11 +4,9 @@ import { usePathname } from "next/navigation";
 import { Menu, Search } from "lucide-react";
 
 const TITLE_MAP: Array<[RegExp, string]> = [
-  [/^\/home/, "Heute"],
   [/^\/operations/, "Aufträge"],
   [/^\/inbox/, "Inbox"],
   [/^\/tasks/, "Aufgaben"],
-  [/^\/contract-calendar/, "Kalender"],
   [/^\/notes/, "Notizen"],
   [/^\/notifications/, "Mitteilungen"],
   [/^\/objects\/people/, "Kunden"],

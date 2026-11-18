@@ -35,7 +35,7 @@ const GLAS_ATTRIBUTE = [
 export default function NeuLayout({ children }: { children: React.ReactNode }) {
   const { theme } = useDarstellung();
 
-  // Beim Verlassen von /app (z. B. Umschalter zu /home) die Glas-Attribute wieder entfernen,
+  // Beim Verlassen von /app (z. B. Umschalter zur alten Inbox) die Glas-Attribute wieder entfernen,
   // sonst greifen etwa die Reduce-Motion-Regeln von liquid.css auch auf alten Seiten.
   useEffect(() => {
     return () => {

@@ -39,6 +39,7 @@ import {
 import {
   ALT_AUFRUF_EVENT,
   QUOTATION_ZAEHL_EVENT,
+  ZUORDNUNG,
   loeschenErlaubt,
   type AltAufruf,
   type LoeschStand,
@@ -186,6 +187,9 @@ async function main() {
     console.log("Lösch-Checkliste alter Seiten");
     console.log(`Umleitung an seit: ${tag(arg.umleitungSeit)}`);
     console.log(`Inhaber-Okay: ${arg.inhaberOkay ? tag(arg.inhaberOkay) : "fehlt"}`);
+    console.log("");
+    console.log("Schon gelöscht (leiten immer um):");
+    for (const z of ZUORDNUNG.filter((e) => e.geloescht)) console.log(`  ${z.alt} → ${z.neu}  (gelöscht ${z.geloescht})`);
     console.log("");
     console.log("Aufrufe umgeleiteter alter Pfade in 14 Tagen (mit alt=1 oder Oberfläche neu):");
     if (gruppen.length === 0) console.log("  keine");

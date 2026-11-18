@@ -6,6 +6,8 @@ import {
   DARSTELLUNG_COOKIE,
   FILL_DECKEND,
   KUERZEL_FARBEN,
+  GELOESCHTE_PFADE,
+  GELOESCHT_AM,
   NIE_UMLEITEN,
   TEXT_TOKENS,
   TOKENS,
@@ -14,6 +16,7 @@ import {
   cookieZeile,
   darstellungLesen,
   farbeLesen,
+  geloeschtZiel,
   harteFarben,
   istNeuPfad,
   kontrast,
@@ -279,6 +282,50 @@ describe("5. Umleitung", () => {
       const datei = fileURLToPath(new URL(`../app/(neu)/app/${rel}/page.tsx`, import.meta.url));
       expect(existsSync(datei), `${ziel} -> ${datei}`).toBe(true);
     }
+  });
+});
+
+describe("5b. Gelöschte alte Seiten (Löschauftrag 18.11.)", () => {
+  const leer = new URLSearchParams();
+
+  it("markiert genau die gelöschten Seiten mit Datum und Ziel", () => {
+    expect([...GELOESCHTE_PFADE].sort()).toEqual(["/anrufe", "/contract-calendar", "/home"]);
+    for (const z of ZUORDNUNG.filter((e) => e.geloescht)) {
+      expect(z.geloescht, z.alt).toBe(GELOESCHT_AM);
+      expect(z.neu, z.alt).not.toBeNull();
+    }
+    // Offene Ziele bleiben offen und ungelöscht.
+    expect(ZUORDNUNG.filter((z) => z.neu === null && z.geloescht)).toEqual([]);
+  });
+
+  it("die Seiten gibt es nicht mehr unter app/(dashboard)", () => {
+    for (const pfad of GELOESCHTE_PFADE) {
+      const datei = fileURLToPath(new URL(`../app/(dashboard)${pfad}/page.tsx`, import.meta.url));
+      expect(existsSync(datei), datei).toBe(false);
+    }
+  });
+
+  it("leitet gelöschte Pfade immer um, auch mit alt=1", () => {
+    expect(geloeschtZiel("/home", leer)).toBe("/app/heute/karte");
+    expect(geloeschtZiel("/anrufe", leer)).toBe("/app/anrufe");
+    expect(geloeschtZiel("/contract-calendar", leer)).toBe("/app/plan");
+    expect(geloeschtZiel("/anrufe", new URLSearchParams("alt=1"))).toBe("/app/anrufe");
+  });
+
+  it("behält die Abfrage nur bei /home und wirft alt immer weg", () => {
+    expect(geloeschtZiel("/home", new URLSearchParams("lead=l1&firma=f1"))).toBe("/app/heute/karte?lead=l1&firma=f1");
+    expect(geloeschtZiel("/home", new URLSearchParams("alt=1"))).toBe("/app/heute/karte");
+    expect(geloeschtZiel("/contract-calendar", new URLSearchParams("tag=1"))).toBe("/app/plan");
+  });
+
+  it("lässt bleibende alte Seiten, Unterpfade und NIE_UMLEITEN in Ruhe", () => {
+    for (const z of ZUORDNUNG.filter((e) => !e.geloescht)) {
+      expect(geloeschtZiel(z.alt.replace(":id", "abc"), leer), z.alt).toBeNull();
+    }
+    for (const p of NIE_UMLEITEN) expect(geloeschtZiel(p, leer), p).toBeNull();
+    expect(geloeschtZiel("/home/x", leer)).toBeNull();
+    expect(geloeschtZiel("/homepage", leer)).toBeNull();
+    expect(geloeschtZiel("/anrufe2", leer)).toBeNull();
   });
 });
 

@@ -33,10 +33,10 @@ import {
 import { mehrKachelSpalte } from "./mehr-raster";
 
 const ICONS: Record<string, LucideIcon> = {
-  "/home": Home,
+  "/app/heute": Home,
   "/operations": Truck,
   "/inbox": InboxIcon,
-  "/contract-calendar": CalendarDays,
+  "/app/plan": CalendarDays,
   "/email": Mail,
   "/tasks": CheckSquare,
   "/objects/deals": Handshake,
@@ -48,7 +48,7 @@ const ICONS: Record<string, LucideIcon> = {
   "/financial": Banknote,
   "/integrations": Plug,
   "/settings": Settings,
-  "/anrufe": Phone,
+  "/app/anrufe": Phone,
 };
 
 const primary = mobilePrimaryTabs.map((item) => ({ ...item, icon: ICONS[item.href] }));

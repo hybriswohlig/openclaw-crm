@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { GELOESCHTE_PFADE } from "@/lib/dunkel-abschaltung";
 
 // Wächter für die Navigation (Sidebar, mobile Tab-Leiste und Kopfzeile,
 // Befehlspalette, Topbar): Jeder Link und jeder API-Aufruf in diesem Ordner
@@ -109,7 +110,7 @@ describe("Navigation zeigt nur auf vorhandene Seiten und Routen", () => {
       expect(SEITEN_FUNDE.some((f) => f.datei === datei), datei).toBe(true);
     }
     expect(SEITEN_FUNDE.map((f) => f.ziel)).toEqual(
-      expect.arrayContaining(["/home", "/inbox", "/settings", "/objects/deals", `/lists/${DYNAMISCH}`])
+      expect.arrayContaining(["/app/heute", "/inbox", "/settings", "/objects/deals", `/lists/${DYNAMISCH}`])
     );
     expect(API_FUNDE.map((f) => f.ziel)).toEqual(
       expect.arrayContaining(["/api/v1/notifications", "/api/v1/search", "/api/v1/inbox/unread-count"])
@@ -145,6 +146,14 @@ describe("Navigation zeigt nur auf vorhandene Seiten und Routen", () => {
       /^\/(?:api\/v1\/)?chat(?:[/?#]|$)/.test(f.ziel)
     );
     expect(zumChat).toEqual([]);
+  });
+
+  it("keine gelöschte alte Seite ist noch da oder verlinkt (Löschauftrag 18.11.)", () => {
+    expect(GELOESCHTE_PFADE.length).toBeGreaterThan(0);
+    for (const pfad of GELOESCHTE_PFADE) {
+      expect(existiert(SEITEN, pfad), pfad).toBe(false);
+      expect(SEITEN_FUNDE.filter((f) => f.ziel.split(/[?#]/)[0] === pfad), pfad).toEqual([]);
+    }
   });
 
   it("kein Eintrag führt mehr zum entfernten Datenbank-Admin, die KI-Aufgaben bleiben", () => {

@@ -83,7 +83,7 @@ describe("Import-Wächter der neuen Oberfläche", () => {
 describe("ALTE_ORDNER", () => {
   it("nimmt app/(dashboard) und alte Komponenten, nicht die Ausnahmen", () => {
     expect(ALTE_ORDNER[0]).toBe("@/app/(dashboard)/");
-    for (const name of ["inbox", "quotation", "layout", "home", "lagekarte", "financial", "auftrag", "media", "deal-insights", "background-jobs", "customer-link"]) {
+    for (const name of ["inbox", "quotation", "layout", "lagekarte", "financial", "auftrag", "media", "deal-insights", "background-jobs", "customer-link"]) {
       expect(ALTE_ORDNER).toContain(`@/components/${name}`);
     }
     for (const aus of ["neu", "glassyui", "ui", "analytics", "pwa", "theme-provider"]) {

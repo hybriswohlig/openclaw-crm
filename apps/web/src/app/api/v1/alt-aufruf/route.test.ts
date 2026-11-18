@@ -33,26 +33,26 @@ beforeEach(() => {
 
 describe("POST /api/v1/alt-aufruf", () => {
   it("merkt den Aufruf mit Sitzung und antwortet 204 ohne Inhalt", async () => {
-    const res = await POST(post({ pfad: "/home", mitAlt: false }, "crm_ui=neu"));
+    const res = await POST(post({ pfad: "/tasks", mitAlt: false }, "crm_ui=neu"));
     expect(res.status).toBe(204);
     expect(await res.text()).toBe("");
-    expect(mocks.altAufrufMerken).toHaveBeenCalledWith("ws_1", "usr_1", { pfad: "/home", mitAlt: false, ui: "neu" });
+    expect(mocks.altAufrufMerken).toHaveBeenCalledWith("ws_1", "usr_1", { pfad: "/tasks", mitAlt: false, ui: "neu" });
   });
 
   it("antwortet 204 auch beim zweiten Aufruf derselben Minute", async () => {
     mocks.altAufrufMerken.mockResolvedValue("doppelt");
-    expect((await POST(post({ pfad: "/home", mitAlt: false }))).status).toBe(204);
+    expect((await POST(post({ pfad: "/tasks", mitAlt: false }))).status).toBe(204);
   });
 
   it("antwortet 401 ohne Sitzung", async () => {
     mocks.getAuthContext.mockResolvedValue(null);
-    expect((await POST(post({ pfad: "/home" }))).status).toBe(401);
+    expect((await POST(post({ pfad: "/tasks" }))).status).toBe(401);
     expect(mocks.altAufrufMerken).not.toHaveBeenCalled();
   });
 
   it("antwortet 403 für API-Schlüssel", async () => {
     mocks.getAuthContext.mockResolvedValue({ ...SITZUNG, authMethod: "api_key", apiKeyAccess: "full", apiKeyId: "k1" });
-    expect((await POST(post({ pfad: "/home" }))).status).toBe(403);
+    expect((await POST(post({ pfad: "/tasks" }))).status).toBe(403);
     expect(mocks.altAufrufMerken).not.toHaveBeenCalled();
   });
 
@@ -62,8 +62,8 @@ describe("POST /api/v1/alt-aufruf", () => {
   });
 
   it("setzt ui null ohne oder mit unbekanntem Cookie und mitAlt nur bei true", async () => {
-    await POST(post({ pfad: "/home", mitAlt: "ja" }, "crm_ui=neuer"));
-    expect(mocks.altAufrufMerken).toHaveBeenCalledWith("ws_1", "usr_1", { pfad: "/home", mitAlt: false, ui: null });
+    await POST(post({ pfad: "/tasks", mitAlt: "ja" }, "crm_ui=neuer"));
+    expect(mocks.altAufrufMerken).toHaveBeenCalledWith("ws_1", "usr_1", { pfad: "/tasks", mitAlt: false, ui: null });
   });
 
   it("begrenzt den Pfad auf 200 Zeichen", async () => {

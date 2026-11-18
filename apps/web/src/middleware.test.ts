@@ -159,8 +159,8 @@ describe("middleware: alte Pfade (Plan 14)", () => {
   it("leitet bei Cookie neu, Env an und Seitenaufruf auf die neue Oberfläche", () => {
     vi.stubEnv("ALTE_PFADE_UMLEITEN", "an");
     const faelle: [string, string][] = [
-      ["/home", "/app/heute/karte"],
       ["/financial", "/app/kasse"],
+      ["/statistics", "/app/uebersicht"],
       ["/objects/people/p1", "/app/kunden/p1"],
       ["/settings", "/app/einstellungen"],
     ];
@@ -175,18 +175,18 @@ describe("middleware: alte Pfade (Plan 14)", () => {
     for (const wert of [undefined, "aus", "AN"] as const) {
       vi.unstubAllEnvs();
       if (wert) vi.stubEnv("ALTE_PFADE_UMLEITEN", wert);
-      bleibt(middleware(seite("/home", { cookie: neu, modus: "navigate" })));
+      bleibt(middleware(seite("/financial", { cookie: neu, modus: "navigate" })));
     }
   });
 
   it("bleibt aus ohne Cookie neu, bei POST, cors und den ausgenommenen Pfaden", () => {
     vi.stubEnv("ALTE_PFADE_UMLEITEN", "an");
     const still = [
-      seite("/home", { cookie: `${SITZUNG}; crm_ui=alt`, modus: "navigate" }),
-      seite("/home", { cookie: SITZUNG, modus: "navigate" }),
-      seite("/home", { cookie: neu, modus: "navigate", method: "POST" }),
-      seite("/home", { cookie: neu, modus: "cors" }),
-      seite("/home?alt=1", { cookie: neu, modus: "navigate" }),
+      seite("/financial", { cookie: `${SITZUNG}; crm_ui=alt`, modus: "navigate" }),
+      seite("/financial", { cookie: SITZUNG, modus: "navigate" }),
+      seite("/financial", { cookie: neu, modus: "navigate", method: "POST" }),
+      seite("/financial", { cookie: neu, modus: "cors" }),
+      seite("/financial?alt=1", { cookie: neu, modus: "navigate" }),
       seite("/settings/whatsapp", { cookie: neu, modus: "navigate" }),
       seite("/objects/deals?create=1", { cookie: neu, modus: "navigate" }),
       seite("/inbox?compose=1", { cookie: neu, modus: "navigate" }),
@@ -197,16 +197,16 @@ describe("middleware: alte Pfade (Plan 14)", () => {
     for (const req of still) bleibt(middleware(req));
   });
 
-  it("ohne Sitzung geht /home weiter auf /login", () => {
+  it("ohne Sitzung geht /financial weiter auf /login", () => {
     vi.stubEnv("ALTE_PFADE_UMLEITEN", "an");
-    const res = middleware(seite("/home", { cookie: null, modus: "navigate" }));
+    const res = middleware(seite("/financial", { cookie: null, modus: "navigate" }));
     expect(res.headers.get("location")).toContain("/login");
     expect(res.headers.get("location")).not.toContain("/app/");
   });
 
   it("lässt status.*-Hosts auf der Website", () => {
     vi.stubEnv("ALTE_PFADE_UMLEITEN", "an");
-    const res = middleware(seite("/home", { cookie: neu, host: "status.kottke-umzuege.de", modus: "navigate" }));
+    const res = middleware(seite("/financial", { cookie: neu, host: "status.kottke-umzuege.de", modus: "navigate" }));
     expect(res.status).toBe(307);
     expect(res.headers.get("location")).toBe("https://kottke-umzuege.de/");
     expect(res.headers.get("location")).not.toContain("/app");
@@ -230,9 +230,82 @@ describe("middleware: alte Pfade (Plan 14)", () => {
   it("ALT_UMLEITUNG=aus schaltet nur Plan 10 ab", () => {
     vi.stubEnv("ALTE_PFADE_UMLEITEN", "an");
     vi.stubEnv("ALT_UMLEITUNG", "aus");
-    const home = middleware(seite("/home", { cookie: neu, modus: "navigate" }));
-    expect(home.status).toBe(307);
-    expect(weiter(home)).toBe("/app/heute/karte");
+    const kasse = middleware(seite("/financial", { cookie: neu, modus: "navigate" }));
+    expect(kasse.status).toBe(307);
+    expect(weiter(kasse)).toBe("/app/kasse");
     bleibt(middleware(seite("/objects/deals/d1", { cookie: neu, modus: "navigate" })));
+  });
+});
+
+describe("middleware: gelöschte alte Seiten (Löschauftrag 18.11.)", () => {
+  function seite(pfad: string, opts: { cookie?: string | null; modus?: string; method?: string } = {}) {
+    const headers = new Headers({ host: "darioushkottke.online" });
+    if (opts.cookie) headers.set("cookie", opts.cookie);
+    if (opts.modus) headers.set("sec-fetch-mode", opts.modus);
+    return new NextRequest(`https://darioushkottke.online${pfad}`, { headers, method: opts.method ?? "GET" });
+  }
+
+  const FAELLE: [string, string][] = [
+    ["/home", "/app/heute/karte"],
+    ["/anrufe", "/app/anrufe"],
+    ["/contract-calendar", "/app/plan"],
+  ];
+
+  it("leitet immer um: ohne Env, mit Cookie alt, ohne Cookie, mit alt=1, bei cors und POST", () => {
+    const varianten: { cookie: string; modus?: string; method?: string; abfrage?: string }[] = [
+      { cookie: SITZUNG, modus: "navigate" },
+      { cookie: `${SITZUNG}; crm_ui=alt`, modus: "navigate" },
+      { cookie: `${SITZUNG}; crm_ui=neu`, modus: "navigate" },
+      { cookie: `${SITZUNG}; crm_ui=neu`, modus: "navigate", abfrage: "?alt=1" },
+      { cookie: `${SITZUNG}; crm_ui=alt`, modus: "cors" },
+      { cookie: SITZUNG, method: "POST" },
+    ];
+    for (const [pfad, ziel] of FAELLE) {
+      for (const v of varianten) {
+        const res = middleware(seite(`${pfad}${v.abfrage ?? ""}`, v));
+        expect(res.status, `${pfad} ${JSON.stringify(v)}`).toBe(307);
+        expect(weiter(res), `${pfad} ${JSON.stringify(v)}`).toBe(ziel);
+      }
+    }
+  });
+
+  it("leitet auch mit ALTE_PFADE_UMLEITEN=aus und ALT_UMLEITUNG=aus um", () => {
+    vi.stubEnv("ALTE_PFADE_UMLEITEN", "aus");
+    vi.stubEnv("ALT_UMLEITUNG", "aus");
+    const res = middleware(seite("/anrufe", { cookie: `${SITZUNG}; crm_ui=alt`, modus: "navigate" }));
+    expect(res.status).toBe(307);
+    expect(weiter(res)).toBe("/app/anrufe");
+  });
+
+  it("behält bei /home die Abfrage der Lagekarte, nur alt fällt weg", () => {
+    const res = middleware(seite("/home?lead=l1&firma=f1&alt=1", { cookie: SITZUNG, modus: "navigate" }));
+    expect(res.status).toBe(307);
+    expect(weiter(res)).toBe("/app/heute/karte?lead=l1&firma=f1");
+    const kalender = middleware(seite("/contract-calendar?x=1", { cookie: SITZUNG, modus: "navigate" }));
+    expect(weiter(kalender)).toBe("/app/plan");
+  });
+
+  it("ohne Sitzung erst zum Login, mit dem alten Pfad als Rückweg", () => {
+    const res = middleware(seite("/home", { cookie: null, modus: "navigate" }));
+    expect(res.headers.get("location")).toContain("/login");
+    expect(new URL(res.headers.get("location") ?? "").searchParams.get("redirect")).toBe("/home");
+  });
+
+  it("lässt bleibende alte Seiten ohne Env unverändert", () => {
+    for (const pfad of ["/financial", "/inbox", "/tasks", "/settings", "/operations", "/objects/deals"]) {
+      const res = middleware(seite(pfad, { cookie: `${SITZUNG}; crm_ui=neu`, modus: "navigate" }));
+      expect(res.headers.get("location"), pfad).toBeNull();
+      expect(res.headers.get("x-middleware-next"), pfad).toBe("1");
+    }
+  });
+
+  it("fasst NIE_UMLEITEN nicht an", () => {
+    for (const pfad of ["/pending-approval", "/start", "/weiter", "/app/heute", "/app/heute/karte", "/legal/agb"]) {
+      const res = middleware(seite(`${pfad}?alt=1`, { cookie: `${SITZUNG}; crm_ui=neu`, modus: "navigate" }));
+      expect(res.headers.get("location"), pfad).toBeNull();
+    }
+    // /api/ wird nie umgeleitet, auch nicht unter einem gelöschten Namen.
+    const api = middleware(seite("/api/v1/home", { cookie: SITZUNG }));
+    expect(api.headers.get("location")).toBeNull();
   });
 });

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { umleitZiel } from "@/lib/dunkel-abschaltung";
+import { geloeschtZiel, umleitZiel } from "@/lib/dunkel-abschaltung";
 import { UI_COOKIE, altUmleitung, uiCookieWert } from "@/lib/handy-links";
 
 // Public paths that never require a session cookie. Cron and webhook endpoints
@@ -193,6 +193,14 @@ export function middleware(req: NextRequest) {
     const loginUrl = new URL("/login", req.url);
     loginUrl.searchParams.set("redirect", pathname + req.nextUrl.search);
     return NextResponse.redirect(loginUrl);
+  }
+
+  // Gelöschte alte Seiten (ZUORDNUNG mit `geloescht`): immer zum neuen Pfad, für jeden
+  // Nutzer, auch mit ?alt=1 und ohne ALTE_PFADE_UMLEITEN. Die Seite gibt es nicht mehr,
+  // sonst sähen Lesezeichen und alte Links nur ein 404. 307 wie überall (kein Browser-Cache).
+  if (!pathname.startsWith("/api/")) {
+    const ziel = geloeschtZiel(pathname, req.nextUrl.searchParams);
+    if (ziel) return NextResponse.redirect(new URL(ziel, req.url), 307);
   }
 
   // Zwei alte Handy-Ziele zur Weiche, nur bei Spiegel-Cookie neu. /api/ passt

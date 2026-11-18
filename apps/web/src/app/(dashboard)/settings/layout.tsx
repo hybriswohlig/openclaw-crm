@@ -59,12 +59,12 @@ export default function SettingsLayout({
           setAllowed(true);
         } else {
           setAllowed(false);
-          router.replace("/home");
+          router.replace("/app/heute");
         }
       })
       .catch(() => {
         setAllowed(false);
-        router.replace("/home");
+        router.replace("/app/heute");
       });
   }, [router]);
 

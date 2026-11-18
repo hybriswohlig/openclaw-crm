@@ -2,7 +2,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { umleitZiel } from "@/lib/dunkel-abschaltung";
+import { GELOESCHTE_PFADE, umleitZiel } from "@/lib/dunkel-abschaltung";
 import { altUmleitung } from "@/lib/handy-links";
 
 /**
@@ -69,6 +69,35 @@ describe("Links der neuen Oberfläche in alte Seiten", () => {
         if (umleitung) treffer.push(`${rel}:${fund.zeile} ${JSON.stringify(fund.text)} -> ${umleitung}`);
       }
     }
+    expect(treffer, treffer.join("\n")).toEqual([]);
+  });
+
+  it("zeigt nirgends mehr auf eine gelöschte alte Seite, auch nicht mit alt=1", () => {
+    // Ganz src (alte Oberfläche, Dienste, Push, Crons, MCP-Texte), dazu sw.js und der stdio-MCP.
+    const WEB = join(SRC, "..");
+    const alle: string[] = [];
+    const walk = (dir: string) => {
+      for (const name of readdirSync(dir)) {
+        if (name === "node_modules" || name === "__fixtures__" || name === "fixtures") continue;
+        const abs = join(dir, name);
+        if (statSync(abs).isDirectory()) walk(abs);
+        else if (/\.(tsx?|js)$/.test(name) && !name.includes(".test.") && !name.includes(".fixture.")) alle.push(abs);
+      }
+    };
+    walk(SRC);
+    walk(join(WEB, "../mcp/src"));
+    alle.push(join(WEB, "public/sw.js"));
+    const geloescht = new Set(GELOESCHTE_PFADE);
+    const treffer: string[] = [];
+    for (const abs of alle) {
+      const rel = abs.slice(WEB.length + 1);
+      if (rel === "src/lib/dunkel-abschaltung.ts") continue;
+      for (const fund of literale(readFileSync(abs, "utf8"))) {
+        const pfad = fund.text.split(/[?#]/, 1)[0];
+        if (geloescht.has(pfad)) treffer.push(`${rel}:${fund.zeile} ${JSON.stringify(fund.text)}`);
+      }
+    }
+    expect(GELOESCHTE_PFADE.length).toBeGreaterThan(0);
     expect(treffer, treffer.join("\n")).toEqual([]);
   });
 });

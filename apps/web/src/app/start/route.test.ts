@@ -28,7 +28,8 @@ const NUTZER = {
 function pfad(res: Response): string {
   const loc = res.headers.get("location");
   if (!loc) return "";
-  return new URL(loc).pathname;
+  const url = new URL(loc);
+  return url.pathname + url.search;
 }
 
 function cookie(res: Response): string | null {
@@ -51,13 +52,13 @@ describe("GET /start", () => {
     expect(mocks.getUserSettings).not.toHaveBeenCalled();
   });
 
-  it("leitet bei alter Oberfläche auf /home", async () => {
+  it("leitet bei alter Oberfläche auf die alte Inbox (/home ist gelöscht)", async () => {
     mocks.getAuthContext.mockResolvedValue(NUTZER);
     mocks.getUserSettings.mockResolvedValue({ uiVersion: "alt", ansichten: {} });
 
     const res = await GET(new NextRequest("https://crm.test/start"));
 
-    expect(pfad(res)).toBe("/home");
+    expect(pfad(res)).toBe("/inbox?alt=1");
     expect(cookie(res)).toBe("alt");
     expect(mocks.getUserSettings).toHaveBeenCalledWith("usr_jonas");
   });
@@ -72,13 +73,13 @@ describe("GET /start", () => {
     expect(cookie(res)).toBe("neu");
   });
 
-  it("leitet bei einem Fehler beim Lesen auf /home", async () => {
+  it("leitet bei einem Fehler beim Lesen auf die alte Inbox", async () => {
     mocks.getAuthContext.mockResolvedValue(NUTZER);
     mocks.getUserSettings.mockRejectedValue(new Error("db weg"));
 
     const res = await GET(new NextRequest("https://crm.test/start"));
 
-    expect(pfad(res)).toBe("/home");
+    expect(pfad(res)).toBe("/inbox?alt=1");
     expect(cookie(res)).toBeNull();
   });
 });

@@ -32,7 +32,7 @@ export default function ListPage() {
     setDeleting(true);
     const res = await fetch(`/api/v1/lists/${listId}`, { method: "DELETE" });
     if (res.ok) {
-      router.push("/home");
+      router.push("/app/heute");
     }
     setDeleting(false);
   }

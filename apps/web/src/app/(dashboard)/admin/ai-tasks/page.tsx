@@ -65,7 +65,7 @@ export default function AdminAITasksPage() {
   }, [load]);
 
   useEffect(() => {
-    if (gate === "denied") router.replace("/home");
+    if (gate === "denied") router.replace("/app/heute");
   }, [gate, router]);
 
   function setField<K extends keyof Draft>(slug: string, key: K, value: Draft[K]) {
@@ -107,7 +107,7 @@ export default function AdminAITasksPage() {
     <div className="mx-auto max-w-4xl space-y-6 pb-12">
       <div className="flex items-center gap-4">
         <Button variant="ghost" size="sm" asChild>
-          <Link href="/home" className="gap-1">
+          <Link href="/app/heute" className="gap-1">
             <ArrowLeft className="h-4 w-4" />
             Back
           </Link>
