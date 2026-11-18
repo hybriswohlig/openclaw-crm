@@ -314,22 +314,22 @@ describe.skipIf(!url)("F2: Rennen um Versionen, Tage und Kundenwahl (DB)", { tim
   });
 
   it("I3: Untergrenze je Tag; Paketanpassung und „Tage anbieten“ lehnen ab, ohne etwas anzuhängen; ein eigener Tagespreis löst es", async () => {
-    // Komfort am Samstag: Selbstkosten 1.100 €, Preis bei 30 % Marge 1.580 €.
-    rechnerStand.komfortSelbstkostenSa = 1100;
+    // Komfort am Samstag: Selbstkosten 1.450 €. Untergrenze seit 18.11. sind die Selbstkosten (vorher 30 % Marge).
+    rechnerStand.komfortSelbstkostenSa = 1450;
     await kv.entwurfHolenOderAnlegen(ws, deal, MENSCH, opts());
     await kv.tageSetzen(ws, deal, 1, MENSCH, tageEingabe(FR), opts());
     const anzahl = (await version(1)).overrides.length;
-    // 1.290 am Basistag (Grenze 1.280) geht, am Samstag 1.390 nicht.
+    // 1.290 am Basistag (Selbstkosten 894) geht, am Samstag 1.390 (unter 1.450 Selbstkosten) nicht.
     await expect(
       kv.uebersteuern(ws, deal, 1, { art: "paketpreis", key: "komfort", wert: { betrag: 1290 }, grund: "Rabatt" }, MENSCH, opts())
-    ).rejects.toThrow("Der Paketpreis für komfort liegt am 21.11.2026 unter der Mindestmarge von 30 % (mindestens 1.580 €).");
+    ).rejects.toThrow("Der Paketpreis für komfort liegt am 21.11.2026 unter den Selbstkosten (mindestens 1.450 €).");
     expect((await version(1)).overrides.length).toBe(anzahl);
 
     // Ohne Samstag geht die Anpassung; den Samstag danach anbieten lehnt „Tage anbieten“ ab.
     await kv.tageSetzen(ws, deal, 1, MENSCH, tageEingabe(FR, [FR]), opts());
     await kv.uebersteuern(ws, deal, 1, { art: "paketpreis", key: "komfort", wert: { betrag: 1290 }, grund: "Rabatt" }, MENSCH, opts());
     const mitAnpassung = (await version(1)).overrides.length;
-    await expect(kv.tageSetzen(ws, deal, 1, MENSCH, tageEingabe(FR), opts())).rejects.toThrow("unter der Mindestmarge");
+    await expect(kv.tageSetzen(ws, deal, 1, MENSCH, tageEingabe(FR), opts())).rejects.toThrow("unter den Selbstkosten");
     expect((await version(1)).overrides.length).toBe(mitAnpassung);
     expect((await version(1)).dayPrices.map((d) => d.datum)).toEqual([FR]);
 

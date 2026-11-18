@@ -24,7 +24,7 @@ import type { VersionsZeile } from "@/services/kalkulation-versionen";
 import type { RechnerErgebnis } from "@/services/rechner/client";
 import type { RechnerAnfrage } from "@/services/rechner/eingabe";
 import { kvBausteine, strasseAus, aufzaehlen, type HebelArt } from "@/services/rechner/kv-posten";
-import { MARGE_MAX_PROZENT, MARGE_MIN_PROZENT, preisBeiMarge } from "@/services/rechner/marge";
+import { MARGE_HART_MIN_PROZENT, MARGE_MAX_PROZENT, MARGE_MIN_PROZENT, margeWarnung, preisBeiMarge } from "@/services/rechner/marge";
 import { angebotsUebernahme } from "@/services/rechner/uebernahme";
 import { postenJeWahl } from "@/services/rechner/wahl-posten";
 import { datumKurz, euroText, tagKurz, uhrzeitKurz, volumenText } from "./anzeige";
@@ -144,6 +144,8 @@ export interface MargeAnsicht {
   max: 60;
   rundungEur: number;
   selbstkostenEur: number;
+  /** Warnung, wenn die gewählte Marge außerhalb 30 bis 60 % liegt (erlaubt seit 18.11.). */
+  warnung?: string | null;
 }
 
 export interface PreisAnsicht {
@@ -277,8 +279,10 @@ export interface PaketAnsicht {
   /** Rechnerpreis vor einer Anpassung; gleich `preisCent` ohne Anpassung. */
   rechnerPreisCent?: number | null;
   uebersteuert?: { betragCent: number; grund: string } | null;
-  /** Untergrenze für eine Anpassung: Preis bei 30 % Marge. */
+  /** Harte Untergrenze für eine Anpassung: die Selbstkosten (0 % Marge, seit 18.11.). */
   untergrenzeCent?: number | null;
+  /** Preis bei 30 % Marge: darunter ist eine Anpassung erlaubt, aber mit Warnung. */
+  normalUntergrenzeCent?: number | null;
   hebel?: HebelArt[];
   kern?: KernBefund | null;
   /** Plan 5b: das empfohlene Paket des Deals (Standardwahl; Termin-Dialog zeigt dessen Preis je Tag). */
@@ -1093,6 +1097,7 @@ function margeAnsicht(v: VersionsZeile, namen: Record<string, string>): MargeAns
     max: MARGE_MAX_PROZENT,
     rundungEur: p?.rundungEur ?? 10,
     selbstkostenEur: p?.selbstkosten ?? e?.schaetzung?.selbstkostenBis ?? e?.kosten?.selbstkosten ?? 0,
+    warnung: margeWarnung(gewaehlt),
   };
 }
 
@@ -1426,7 +1431,8 @@ function plan5Ansicht(
       hinweis: typeof p.festpreis === "number" ? p.hinweis ?? null : p.hinweis ?? "Nicht kalkulierbar.",
       rechnerPreisCent: centOderNull(p.rechnerFestpreis !== undefined ? p.rechnerFestpreis : p.festpreis),
       uebersteuert: p.uebersteuert ? { betragCent: cent(p.uebersteuert.betrag), grund: p.uebersteuert.grund } : null,
-      untergrenzeCent: p.selbstkosten > 0 ? cent(preisBeiMarge(p.selbstkosten, MARGE_MIN_PROZENT, rundungP)) : null,
+      untergrenzeCent: p.selbstkosten > 0 ? cent(preisBeiMarge(p.selbstkosten, MARGE_HART_MIN_PROZENT, rundungP)) : null,
+      normalUntergrenzeCent: p.selbstkosten > 0 ? cent(preisBeiMarge(p.selbstkosten, MARGE_MIN_PROZENT, rundungP)) : null,
       hebel: rest.paketHebel?.[p.slug] ?? [],
       kern: p.kvItems && p.kvItems.length > 0 ? kernBefund(p.kvItems) : null,
       empfohlen: p.slug === empf,

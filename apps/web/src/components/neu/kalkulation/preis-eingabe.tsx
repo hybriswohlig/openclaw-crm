@@ -64,18 +64,23 @@ export function PreisEingabe({
           aria-describedby={`${id}-info`}
         />
         <GlassButton type="submit" size="sm" disabled={gesperrt || laeuft || !ergebnis?.ok || gleich}>
-          {laeuft ? "Speichert …" : "Übernehmen"}
+          {laeuft ? "Speichert …" : ergebnis?.ok && ergebnis.warnung ? "Trotzdem übernehmen" : "Übernehmen"}
         </GlassButton>
       </div>
       <p id={`${id}-info`} className="kalk-preis-eingabe-info" data-fehler={ergebnis && !ergebnis.ok ? "" : undefined} aria-live="polite">
         {ergebnis === null
           ? grenzen
-            ? `Möglich von ${euro(grenzen.minCent)} (30 %) bis ${euro(grenzen.maxCent)} (60 %).`
+            ? `Üblich von ${euro(grenzen.minCent)} (30 %) bis ${euro(grenzen.maxCent)} (60 %), mit Warnung ab ${euro(grenzen.hartMinCent)} (Selbstkosten).`
             : "Erst rechnen lassen, dann geht der Preis."
           : ergebnis.ok
             ? `${gleich ? "Das ist schon der Preis. " : ""}${ergebnis.abweichend ? `Genau so geht es nicht, nächster Preis ${euro(ergebnis.preisCent)}. ` : ergebnis.aufgerundet ? `Aufgerundet auf ${euro(ergebnis.preisCent)}. ` : ""}Ergibt ${PROZENT.format(ergebnis.prozent)} % Marge, Gewinn ${euro(ergebnis.gewinnCent)}.`
             : ergebnis.meldung}
       </p>
+      {ergebnis?.ok && ergebnis.warnung ? (
+        <p className="kalk-marge-warnung" role="status">
+          {ergebnis.warnung} Übernehmen geht trotzdem.
+        </p>
+      ) : null}
     </form>
   );
 }

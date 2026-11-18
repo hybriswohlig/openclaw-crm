@@ -20,9 +20,10 @@ function rand(position: number): "links" | "rechts" | undefined {
 }
 
 /**
- * Marge-Regler (Spec 3.6): Schiene 30 bis 60, Vorschlagsmarke „Vorschlag N %“
- * in Jade darüber, der gewählte Wert unter dem Knopf, Enden „30 % Untergrenze“
- * und „60 %“. Gesperrt bei gesperrter Version und während eines Laufs.
+ * Marge-Regler (Spec 3.6): Schiene über den Normalbereich 30 bis 60, Vorschlagsmarke
+ * „Vorschlag N %“ in Jade darüber, der gewählte Wert unter dem Knopf, Enden „30 %“
+ * und „60 %“. Andere Margen (0 bis 90 %, mit Warnung) gehen über „Preis direkt
+ * eingeben“ oder die Anpassung. Gesperrt bei gesperrter Version und während eines Laufs.
  */
 export function MargeRegler({
   marge,
@@ -64,7 +65,7 @@ export function MargeRegler({
         </span>
       </div>
       <div className="kalk-regler-enden" aria-hidden="true">
-        <span>{marge.min} % Untergrenze</span>
+        <span>{marge.min} % normal</span>
         <span>{marge.max} %</span>
       </div>
     </>

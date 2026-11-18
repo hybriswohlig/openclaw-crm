@@ -295,7 +295,16 @@ describe("ansichtAus: Marge und Preis", () => {
       max: 60,
       rundungEur: 10,
       selbstkostenEur: 1533.35,
+      warnung: null,
     });
+  });
+
+  it("Marge außerhalb 30 bis 60 (erlaubt seit 18.11.): Warnung in der Ansicht", () => {
+    const v = weberVersion();
+    const marge = { id: "m22", art: "marge", key: "marge", rechnerwert: 37, wert: 22, grund: "Kundin hat 630 € zugestimmt", autor: { userId: "u_dario", quelle: "mensch" }, zeit: "2026-11-18T10:00:00.000Z", fotoRef: null };
+    const a = ansichtAus({ ...v, overrides: [...(v.overrides ?? []), marge] } as typeof v, rest());
+    expect(a.marge.gewaehltProzent).toBe(22);
+    expect(a.marge.warnung).toBe("Marge 22 %: unter dem Normalbereich von 30 %.");
   });
 
   it("Preisformel 1.533 € ÷ (1 − 0,38), roh 2.473 €, gerundet 2.480 €, Gewinn und Listenpreis", () => {

@@ -341,6 +341,12 @@ export function MargeSpalte({ ansicht, kontext }: { ansicht: KalkulationsAnsicht
             </ul>
           </div>
 
+          {marge.warnung && entwurf === null ? (
+            <p className="kalk-marge-warnung" role="status">
+              {marge.warnung} Erlaubt, bitte bewusst entscheiden.
+            </p>
+          ) : null}
+
           <div className="kalk-preis">
             <div className="kalk-summe">
               <span>{formel ? formel.formel : preis.formel}</span>

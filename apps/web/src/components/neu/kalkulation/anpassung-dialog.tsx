@@ -15,6 +15,7 @@ import type { UebersteuerungsArt } from "@/lib/kalkulation-versionen";
 import type { AnpassungStart } from "./anpassung-start";
 import { textAus } from "./eingabe-felder";
 import type { KalkKontext, UebersteuerungEingabe } from "./kalk-seite";
+import { margeErlaubt, margeWarnung } from "@/services/rechner/marge";
 
 export type { AnpassungStart } from "./anpassung-start";
 
@@ -189,7 +190,8 @@ export function AnpassungDialog({
       }
       case "marge": {
         const n = zahlAus(margeText);
-        if (n === null || n < 30 || n > 60) return { ok: false, meldung: "Marge zwischen 30 und 60 %." };
+        // Seit 18.11.: 0 bis 90 % erlaubt, außerhalb 30 bis 60 mit Warnung (unter dem Feld).
+        if (n === null || !margeErlaubt(n)) return { ok: false, meldung: "Marge zwischen 0 und 90 %." };
         return { ok: true, wert: n };
       }
     }
@@ -290,9 +292,14 @@ export function AnpassungDialog({
 
           {wahl === "marge" ? (
             <label className="akte-dialog-feld" htmlFor={`${id}-marge`}>
-              Marge in Prozent (30 bis 60)
+              Marge in Prozent (normal 30 bis 60, möglich 0 bis 90)
               <input id={`${id}-marge`} className="lg-input" type="text" inputMode="numeric" value={margeText} onChange={(e) => setMargeText(e.target.value)} placeholder="38" autoComplete="off" />
             </label>
+          ) : null}
+          {wahl === "marge" && margeWarnung(zahlAus(margeText)) && margeErlaubt(zahlAus(margeText) ?? Number.NaN) ? (
+            <p className="kalk-marge-warnung" role="status">
+              {margeWarnung(zahlAus(margeText))} Speichern geht trotzdem.
+            </p>
           ) : null}
 
           {wahl === "eingabe" ? (

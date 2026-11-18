@@ -9,7 +9,7 @@
  * Jeder Entwurf geht zur Freigabe.
  */
 import type { KostenPosten, RechnerErgebnis } from "@/services/rechner/client";
-import { MARGE_MAX_PROZENT, MARGE_MIN_PROZENT, preisBeiMarge } from "@/services/rechner/marge";
+import { margeErlaubt, preisBeiMarge } from "@/services/rechner/marge";
 
 export const PREIS_ZUSATZ = "unverbindliche Orientierung, Festpreis nach Besichtigung oder Fotos";
 
@@ -21,10 +21,13 @@ function betragText(von: number, bis: number): string {
   return von === bis ? `ca. ${euro(bis)} €` : `ca. ${euro(von)} bis ${euro(bis)} €`;
 }
 
-/** Im Angebot übernommene Marge (Regler oder Agent), nur 30 bis 60 %, sonst null. */
+/**
+ * Im Angebot übernommene Marge (Regler, Preis direkt oder Agent), 0 bis 90 % (seit 18.11.
+ * auch außerhalb des Normalbereichs 30 bis 60, wenn der Mensch das so gewählt hat), sonst null.
+ */
 export function gewaehlteMarge(annahmen: unknown): number | null {
   const m = (annahmen as { margeGewaehltProzent?: unknown } | null | undefined)?.margeGewaehltProzent;
-  return typeof m === "number" && Number.isFinite(m) && m >= MARGE_MIN_PROZENT && m <= MARGE_MAX_PROZENT ? m : null;
+  return typeof m === "number" && margeErlaubt(m) ? m : null;
 }
 
 /** Spanne mit der übernommenen Marge auf den aktuellen Selbstkosten; null, wenn die Kalkulation dafür zu alt ist. */

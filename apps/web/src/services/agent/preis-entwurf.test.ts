@@ -74,12 +74,16 @@ describe("gewaehlteMarge", () => {
   it("liest margeGewaehltProzent aus den Kalkulationsannahmen des Angebots", () => {
     expect(gewaehlteMarge({ margeGewaehltProzent: 33 })).toBe(33);
   });
-  it("fehlend, keine Zahl oder außerhalb 30 bis 60: null", () => {
+  it("fehlend, keine Zahl oder außerhalb 0 bis 90: null", () => {
     expect(gewaehlteMarge(null)).toBeNull();
     expect(gewaehlteMarge({})).toBeNull();
     expect(gewaehlteMarge({ margeGewaehltProzent: "33" })).toBeNull();
-    expect(gewaehlteMarge({ margeGewaehltProzent: 25 })).toBeNull();
-    expect(gewaehlteMarge({ margeGewaehltProzent: 61 })).toBeNull();
+    expect(gewaehlteMarge({ margeGewaehltProzent: -1 })).toBeNull();
+    expect(gewaehlteMarge({ margeGewaehltProzent: 95 })).toBeNull();
+  });
+  it("außerhalb 30 bis 60, aber erlaubt (18.11.): die gewählte Marge gilt", () => {
+    expect(gewaehlteMarge({ margeGewaehltProzent: 22 })).toBe(22);
+    expect(gewaehlteMarge({ margeGewaehltProzent: 75 })).toBe(75);
   });
 });
 

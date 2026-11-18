@@ -3,7 +3,7 @@ import { annahmeSperrAntwort } from "@/services/kva-annahme";
 import { getAuthContext, unauthorized, badRequest, success } from "@/lib/api-utils";
 import { UebersteuerungFehler } from "@/lib/kalkulation-versionen";
 import { hatPaketoptionen } from "@/services/rechner/pakete";
-import { MARGE_MAX_PROZENT, MARGE_MIN_PROZENT } from "@/services/rechner/marge";
+import { MARGE_HART_TEXT, margeErlaubt } from "@/services/rechner/marge";
 import {
   entwurfHolenOderAnlegen,
   kartenAbweichung,
@@ -20,7 +20,7 @@ const MARGE_ZURUECK = "Kalkulationskarte ohne Margenwahl: Vorschlag des Rechners
 /**
  * POST → übernimmt die Kalkulation ins Angebot, seit Plan 2 über eine
  * Kalkulationsversion: Entwurf holen (oder anlegen), optional die Marge aus dem
- * Regler als Übersteuerung ({ margeProzent }, 30 bis 60; der Rechner rechnet
+ * Regler als Übersteuerung ({ margeProzent }, hart 0 bis 90, außerhalb 30 bis 60 mit Warnung; der Rechner rechnet
  * den Preis), dann sperren. Ohne Margenwahl gilt wie auf der Karte angezeigt der
  * Vorschlag des Rechners: eine geerbte Marge-Übersteuerung wird dafür aufgehoben. Das Sperren schreibt Festpreis, Posten, Leistungen
  * und Gültigkeit in die Quotation des Deals (eine Transaktion) und macht danach
@@ -54,8 +54,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ rec
   if (abweichung) {
     return badRequest(kartenAbweichungText(abweichung.version));
   }
-  if (margeProzent !== null && (!Number.isFinite(margeProzent) || margeProzent < MARGE_MIN_PROZENT || margeProzent > MARGE_MAX_PROZENT)) {
-    return badRequest(`Marge muss zwischen ${MARGE_MIN_PROZENT} und ${MARGE_MAX_PROZENT} % liegen.`);
+  if (margeProzent !== null && !margeErlaubt(margeProzent)) {
+    return badRequest(MARGE_HART_TEXT);
   }
 
   try {

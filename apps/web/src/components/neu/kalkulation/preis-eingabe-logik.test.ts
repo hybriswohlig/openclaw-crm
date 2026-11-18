@@ -30,16 +30,37 @@ describe("margeAusPreis", () => {
     expect(preisBeiMarge(1533, Math.round((r.prozent + 0.01) * 100) / 100, 10)).toBeGreaterThan(2450);
   });
 
-  it("lehnt Preise außerhalb 30 bis 60 % mit der Grenze ab", () => {
+  it("erlaubt Preise außerhalb 30 bis 60 % mit Warnung (18.11.)", () => {
     const g = preisGrenzen(m);
     expect(g.minCent).toBe(preisBeiMarge(1533, 30, 10) * 100);
     expect(g.maxCent).toBe(preisBeiMarge(1533, 60, 10) * 100);
-    const zuTief = margeAusPreis(m, "1.800");
-    expect(zuTief.ok).toBe(false);
-    if (!zuTief.ok) expect(zuTief.meldung).toMatch(/Mindestens 2\.190/);
-    const zuHoch = margeAusPreis(m, "5000");
+    const tief = margeAusPreis(m, "1.800");
+    if (!tief.ok) throw new Error(tief.meldung);
+    expect(tief.preisCent).toBe(180000);
+    expect(tief.prozent).toBeLessThan(30);
+    expect(tief.warnung).toMatch(/unter dem Normalbereich von 30 %/);
+    const hoch = margeAusPreis(m, "5000");
+    if (!hoch.ok) throw new Error(hoch.meldung);
+    expect(hoch.preisCent).toBe(500000);
+    expect(hoch.prozent).toBeGreaterThan(60);
+    expect(hoch.prozent).toBeLessThanOrEqual(90);
+    expect(hoch.warnung).toMatch(/über dem Normalbereich von 60 %/);
+    const normal = margeAusPreis(m, "2450");
+    expect(normal.ok && normal.warnung).toBeNull();
+  });
+
+  it("lehnt Preise unter den Selbstkosten und über 90 % Marge mit der Grenze ab", () => {
+    const g = preisGrenzen(m);
+    expect(g.hartMinCent).toBe(preisBeiMarge(1533, 0, 10) * 100);
+    expect(g.hartMaxCent).toBe(preisBeiMarge(1533, 90, 10) * 100);
+    const unterKosten = margeAusPreis(m, "1.500");
+    expect(unterKosten.ok).toBe(false);
+    if (!unterKosten.ok) expect(unterKosten.meldung).toMatch(/Unter den Selbstkosten\. Mindestens 1\.540/);
+    const zuHoch = margeAusPreis(m, "16000");
     expect(zuHoch.ok).toBe(false);
-    if (!zuHoch.ok) expect(zuHoch.meldung).toMatch(/Höchstens 3\.840/);
+    if (!zuHoch.ok) expect(zuHoch.meldung).toMatch(/Höchstens 15\.330/);
+    const genauKosten = margeAusPreis(m, "1540");
+    expect(genauKosten.ok && genauKosten.preisCent).toBe(154000);
   });
 
   it("nimmt genau die Grenzpreise an", () => {
@@ -50,6 +71,8 @@ describe("margeAusPreis", () => {
     expect(oben.ok && oben.preisCent).toBe(g.maxCent);
     expect(unten.ok && unten.prozent).toBeGreaterThanOrEqual(30);
     expect(oben.ok && oben.prozent).toBeLessThanOrEqual(60);
+    expect(unten.ok && unten.warnung).toBeNull();
+    expect(oben.ok && oben.warnung).toBeNull();
   });
 
   it("meldet leere Eingabe und fehlende Selbstkosten", () => {

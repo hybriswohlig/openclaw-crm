@@ -81,10 +81,16 @@ describe("angebotsUebernahme mit Marge", () => {
     expect(r.ok && r.eingabe.fixedPrice).toBe("1170");
   });
 
-  it("Marge unter 30 oder über 60 wird abgelehnt", () => {
-    for (const m of [25, 29.9, 61, Number.NaN]) {
-      expect(angebotsUebernahme({ result: mitMarge, request: anfrage }, null, { margeProzent: m })).toEqual({ ok: false, fehler: "Marge muss zwischen 30 und 60 % liegen." });
+  it("Marge unter 0 oder über 90 wird abgelehnt, 25 und 75 gehen (18.11.)", () => {
+    for (const m of [-1, 90.5, Number.NaN]) {
+      expect(angebotsUebernahme({ result: mitMarge, request: anfrage }, null, { margeProzent: m })).toEqual({
+        ok: false,
+        fehler: "Marge muss zwischen 0 und 90 % liegen (unter 0 % wäre unter Selbstkosten).",
+      });
     }
+    const tief = angebotsUebernahme({ result: mitMarge, request: anfrage }, null, { margeProzent: 25 });
+    expect(tief.ok && tief.eingabe.fixedPrice).toBe("940");
+    expect(angebotsUebernahme({ result: mitMarge, request: anfrage }, null, { margeProzent: 75 }).ok).toBe(true);
   });
 
   it("alte Kalkulation ohne Selbstkosten/Rundung im Preis: Marge nicht übernehmbar", () => {
@@ -140,11 +146,13 @@ describe("angebotsUebernahme mit Marge", () => {
     expect(r.ok && r.eingabe.calculationAssumptions).toMatchObject({ selbstkosten: 650, margeGewaehltProzent: 45 });
   });
 
-  it("R13: gespeicherter Preis unter der 30-%-Grenze wird auch ohne Marge abgelehnt", () => {
-    const zuNiedrig = { ...mitMarge, preis: { ...mitMarge.preis, festpreis: 990 } };
-    expect(angebotsUebernahme({ result: zuNiedrig, request: anfrage }, null, { jetzt }))
-      .toEqual({ ok: false, fehler: "Preis liegt unter der Mindestmarge von 30 %, bitte neu rechnen." });
-    const genau = { ...mitMarge, preis: { ...mitMarge.preis, festpreis: 1000 } };
+  it("R13: gespeicherter Preis unter den Selbstkosten wird auch ohne Marge abgelehnt, unter 30 % geht (18.11.)", () => {
+    const unterKosten = { ...mitMarge, preis: { ...mitMarge.preis, festpreis: 690 } };
+    expect(angebotsUebernahme({ result: unterKosten, request: anfrage }, null, { jetzt }))
+      .toEqual({ ok: false, fehler: "Preis liegt unter den Selbstkosten, bitte neu rechnen." });
+    const unter30 = { ...mitMarge, preis: { ...mitMarge.preis, festpreis: 990 } };
+    expect(angebotsUebernahme({ result: unter30, request: anfrage }, null, { jetzt }).ok).toBe(true);
+    const genau = { ...mitMarge, preis: { ...mitMarge.preis, festpreis: 700 } };
     expect(angebotsUebernahme({ result: genau, request: anfrage }, null, { jetzt }).ok).toBe(true);
   });
 });
@@ -178,19 +186,20 @@ describe("angebotsUebernahme für den KV", () => {
   });
 
   it("Review Astra: ohne ... prüft die Marge an den verbleibenden Kosten, nicht am gesenkten Preis", () => {
-    // 1.100 € Selbstkosten, davon 2 × 120 € Halteverbot: ohne Zonen bleiben 860 €, Mindestpreis 1.230 €.
+    // 1.100 € Selbstkosten, davon 2 × 120 € Halteverbot: ohne Zonen bleiben 860 € (Untergrenze seit 18.11.: Selbstkosten).
     const knapp: RechnerErgebnis = {
       ...mitHebeln,
-      preis: { ...mitHebeln.preis!, festpreis: 1580 },
+      preis: { ...mitHebeln.preis!, festpreis: 1300 },
       kosten: { selbstkosten: 1100, posten: [{ bezeichnung: "Halteverbotszone", menge: 2, einheit: "Stück", satz: 120, betrag: 240 }] },
     };
-    expect(angebotsUebernahme({ result: knapp, request: req }, null, { optionen: { ohneHalteverbot: true }, jetzt }).ok).toBe(true); // 1.280 €
-    // Ohne Kostenposten fällt nichts weg: 1.280 € < 1.580 € Mindestpreis.
+    expect(angebotsUebernahme({ result: knapp, request: req }, null, { optionen: { ohneHalteverbot: true }, jetzt }).ok).toBe(true); // 1.000 € ≥ 860 €
+    // Ohne Kostenposten fällt nichts weg: 1.000 € < 1.100 € Selbstkosten.
     expect(angebotsUebernahme({ result: { ...knapp, kosten: { selbstkosten: 1100 } }, request: req }, null, { optionen: { ohneHalteverbot: true }, jetzt }).ok).toBe(false);
   });
 
-  it("Endpreis unter der Mindestmarge wird abgelehnt", () => {
-    expect(angebotsUebernahme({ result: mitHebeln, request: req }, null, { endpreis: 1200, jetzt })).toEqual({ ok: false, fehler: "Preis liegt unter der Mindestmarge von 30 %." });
+  it("Endpreis unter den Selbstkosten wird abgelehnt, unter 30 % Marge geht (18.11.)", () => {
+    expect(angebotsUebernahme({ result: mitHebeln, request: req }, null, { endpreis: 1000, jetzt })).toEqual({ ok: false, fehler: "Preis liegt unter den Selbstkosten." });
+    expect(angebotsUebernahme({ result: mitHebeln, request: req }, null, { endpreis: 1200, jetzt }).ok).toBe(true);
   });
 });
 

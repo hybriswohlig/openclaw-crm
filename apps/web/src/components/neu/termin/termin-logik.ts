@@ -6,7 +6,7 @@
  *
  * Das CRM rechnet hier keine Preise: Preise kommen aus dem Raster
  * (`TagesRaster`) bzw. aus der Version; eine Anpassung ist ein Betrag, den
- * der Mensch einträgt und der Dienst prüft (nie unter 30 % Marge).
+ * der Mensch einträgt und der Dienst prüft (nie unter den Selbstkosten, seit 18.11.).
  * Tage immer als YYYY-MM-DD (Berliner Kalendertag). Keine Gedankenstriche.
  */
 import type { TageAnbieten, TagesRasterZelle, TagesSlot } from "@/lib/angebot-wahl";
@@ -266,7 +266,7 @@ export function zellenText(
  * Alles, was vor „Tage anbieten“ fehlt; leer = absendbar. Prüft: mindestens
  * ein und höchstens 10 Tage, keiner vergangen, genau eine Empfehlung, je Tag
  * ein Zeitfenster, Notiz ≤ 200 Zeichen, eine Anpassung mit gültigem Betrag
- * und Grund. Die Untergrenze (30 % Marge) prüft der Dienst.
+ * und Grund. Die Untergrenze (Selbstkosten, seit 18.11.) prüft der Dienst.
  */
 export function auswahlPruefen(auswahl: readonly AuswahlTag[], heute: string): string[] {
   const fehler: string[] = [];

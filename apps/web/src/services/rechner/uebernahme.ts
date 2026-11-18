@@ -11,7 +11,7 @@ import type { CalculationAssumptions, QuotationDocumentDetails } from "@/db/sche
 import type { RechnerErgebnis } from "./client";
 import type { RechnerAnfrage } from "./eingabe";
 import { kvBausteine, kvGueltigBis, type KvOptionen } from "./kv-posten";
-import { MARGE_MAX_PROZENT, MARGE_MIN_PROZENT, preisBeiMarge } from "./marge";
+import { MARGE_HART_MIN_PROZENT, MARGE_HART_TEXT, margeErlaubt, preisBeiMarge } from "./marge";
 import { heuteBerlin } from "./quelle";
 
 const AUFZUG_TEXT: Record<string, string> = { keiner: "ohne Aufzug", klein: "kleiner Aufzug", gross: "großer Aufzug" };
@@ -59,8 +59,8 @@ export function angebotsUebernahme(
   if (!kalkulation || !ergebnis) return { ok: false, fehler: "Noch keine Kalkulation vorhanden." };
 
   const m = opts.margeProzent ?? null;
-  if (m !== null && (!Number.isFinite(m) || m < MARGE_MIN_PROZENT || m > MARGE_MAX_PROZENT)) {
-    return { ok: false, fehler: `Marge muss zwischen ${MARGE_MIN_PROZENT} und ${MARGE_MAX_PROZENT} % liegen.` };
+  if (m !== null && !margeErlaubt(m)) {
+    return { ok: false, fehler: MARGE_HART_TEXT };
   }
   const p = ergebnis.preis;
   const spanne = ergebnis.schaetzung ?? null;
@@ -83,8 +83,8 @@ export function angebotsUebernahme(
     selbstkosten = spanne ? spanne.selbstkostenBis! : p.selbstkosten!;
     preis = preisBeiMarge(selbstkosten, m, p.rundungEur);
     if (spanne && spanne.selbstkostenVon != null) spanneVon = preisBeiMarge(spanne.selbstkostenVon, m, p.rundungEur);
-  } else if (selbstkosten != null && selbstkosten > 0 && p?.rundungEur != null && preis < preisBeiMarge(selbstkosten, MARGE_MIN_PROZENT, p.rundungEur)) {
-    return { ok: false, fehler: `Preis liegt unter der Mindestmarge von ${MARGE_MIN_PROZENT} %, bitte neu rechnen.` };
+  } else if (selbstkosten != null && selbstkosten > 0 && p?.rundungEur != null && preis < preisBeiMarge(selbstkosten, MARGE_HART_MIN_PROZENT, p.rundungEur)) {
+    return { ok: false, fehler: "Preis liegt unter den Selbstkosten, bitte neu rechnen." };
   }
   const margeGewaehlt = m ?? (spanne ? spanne.margeProzent ?? null : null) ?? p?.margeWirksamProzent ?? null;
 
@@ -97,15 +97,16 @@ export function angebotsUebernahme(
     optionen: opts.optionen,
     festpreisIstEndpreis: endpreis !== null,
   });
-  // Nie unter der Mindestmarge, auch nicht mit Vorgabe oder "ohne …": gemessen an den
+  // Nie unter Selbstkosten, auch nicht mit Vorgabe oder "ohne …": gemessen an den
   // Selbstkosten ohne die weggelassenen Leistungen (nicht am gesenkten Verkaufspreis).
+  // Unter 30 % Marge ist erlaubt (18.11.), die Ansicht warnt.
   if (
     selbstkosten != null &&
     selbstkosten > 0 &&
     p?.rundungEur != null &&
-    kv.summe < preisBeiMarge(Math.max(0, selbstkosten - kv.entfalleneKosten), MARGE_MIN_PROZENT, p.rundungEur)
+    kv.summe < preisBeiMarge(Math.max(0, selbstkosten - kv.entfalleneKosten), MARGE_HART_MIN_PROZENT, p.rundungEur)
   ) {
-    return { ok: false, fehler: `Preis liegt unter der Mindestmarge von ${MARGE_MIN_PROZENT} %.` };
+    return { ok: false, fehler: "Preis liegt unter den Selbstkosten." };
   }
   if (!(kv.summe > 0)) return { ok: false, fehler: "Ungültiger Preis." };
   preis = kv.summe;

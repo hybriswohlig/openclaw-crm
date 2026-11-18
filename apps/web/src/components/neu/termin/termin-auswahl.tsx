@@ -186,7 +186,7 @@ function WahlZeile({
               />
             </label>
           </div>
-          <p className="termin-hilfe">Nie unter dem Preis bei 30 % Marge; das prüft das CRM beim Speichern.</p>
+          <p className="termin-hilfe">Nie unter den Selbstkosten; unter 30 % Marge geht es mit Warnung. Das prüft das CRM beim Speichern.</p>
           <button
             type="button"
             className="termin-kleinknopf"

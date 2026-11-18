@@ -164,11 +164,11 @@ describe("POST /calculation/apply", () => {
     expect(mocks.sperren).toHaveBeenCalledWith("ws_1", "deal_1", 1, { userId: "usr_1", quelle: "agent" }, { bestaetigtSpanne: false, nurMarge: true });
   });
 
-  it("Marge außerhalb 30 bis 60 oder kein Zahlwert: 400 mit dem heutigen Text, kein Entwurf", async () => {
-    for (const margeProzent of [25, 61, "45"]) {
+  it("Marge außerhalb 0 bis 90 oder kein Zahlwert: 400, kein Entwurf (30 bis 60 ist seit 18.11. nur der Normalbereich)", async () => {
+    for (const margeProzent of [-1, 91, "45"]) {
       const res = await APPLY(req({ margeProzent }), { params });
       expect(res.status).toBe(400);
-      expect(await fehlerText(res)).toBe("Marge muss zwischen 30 und 60 % liegen.");
+      expect(await fehlerText(res)).toBe("Marge muss zwischen 0 und 90 % liegen (unter 0 % wäre unter Selbstkosten).");
     }
     expect(mocks.entwurfHolenOderAnlegen).not.toHaveBeenCalled();
   });

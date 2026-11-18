@@ -39,7 +39,7 @@ export function preisSchluessel(art: PreisArt, slug: string): string {
 
 /**
  * Preis-Dialog (Plan 5b, Task U1; Muster Anpassungs-Dialog aus Plan 4):
- * Paketpreis mit Untergrenze bei 30 % Marge (vorab geprüft, endgültig im
+ * Paketpreis mit Untergrenze bei den Selbstkosten, unter 30 % Marge mit Warnung (vorab geprüft, endgültig im
  * Dienst), Preismodus Festpreis oder Stunden-KV, KV-Darstellung „ein Posten“
  * oder „Posten einzeln“. Immer mit Pflichtgrund; an einer gesperrten Version
  * landet die Änderung im Entwurf. Bestehende Anpassung: „Zurücknehmen“.
@@ -153,7 +153,11 @@ export function PreisDialog({
                     <dd>{paket.rechnerPreisCent != null ? euro(paket.rechnerPreisCent) : "kein Preis"}</dd>
                   </div>
                   <div>
-                    <dt>Untergrenze bei 30 % Marge</dt>
+                    <dt>Normal ab (30 % Marge)</dt>
+                    <dd>{paket.normalUntergrenzeCent != null ? euro(paket.normalUntergrenzeCent) : "prüft der Server"}</dd>
+                  </div>
+                  <div>
+                    <dt>Untergrenze (Selbstkosten)</dt>
                     <dd>{paket.untergrenzeCent != null ? euro(paket.untergrenzeCent) : "prüft der Server"}</dd>
                   </div>
                 </dl>
@@ -173,6 +177,11 @@ export function PreisDialog({
                 />
               </label>
               {pruefung && !pruefung.ok ? <p className="kalk-preisdialog-warn">{pruefung.meldung}</p> : null}
+              {pruefung && pruefung.ok && pruefung.warnung ? (
+                <p className="kalk-marge-warnung" role="status">
+                  {pruefung.warnung}
+                </p>
+              ) : null}
             </>
           ) : null}
 

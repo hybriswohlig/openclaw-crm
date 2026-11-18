@@ -22,7 +22,7 @@ import { paketOhneHebelSperrt, PLAN5_FEHLER_TEXT, standardWahl, wahlPreis } from
 import type { LeadDaten, RechnerAnfrage } from "@/services/rechner/eingabe";
 import type { KostenPosten, RechnerErgebnis } from "@/services/rechner/client";
 import { kvBausteine, type HebelArt, type KvPosten } from "@/services/rechner/kv-posten";
-import { MARGE_MAX_PROZENT, MARGE_MIN_PROZENT } from "@/services/rechner/marge";
+import { MARGE_HART_MAX_PROZENT, MARGE_HART_MIN_PROZENT, margeErlaubt } from "@/services/rechner/marge";
 import { zugangAusTitel } from "@/services/rechner/zugang";
 
 export type Herkunft = "FOTO" | "CHAT" | "KUNDE" | "GOOGLE" | "REGEL" | "STANDARD" | "MANUELL";
@@ -386,8 +386,9 @@ export function pruefeUebersteuerung(e: { art: string; key: string; wert: unknow
     case "marge": {
       if (e.wert === null) return { art, key: "marge", wert: null, grund };
       const n = zahl(e.wert);
-      if (n === null || n < MARGE_MIN_PROZENT || n > MARGE_MAX_PROZENT) {
-        throw new UebersteuerungFehler(`Marge zwischen ${MARGE_MIN_PROZENT} und ${MARGE_MAX_PROZENT} %`);
+      // Außerhalb 30 bis 60 % erlaubt, mit Warnung in der Ansicht (18.11.); hart nur 0 bis 90.
+      if (n === null || !margeErlaubt(n)) {
+        throw new UebersteuerungFehler(`Marge zwischen ${MARGE_HART_MIN_PROZENT} und ${MARGE_HART_MAX_PROZENT} %`);
       }
       return { art, key: "marge", wert: n, grund };
     }
@@ -959,7 +960,7 @@ export function tagespreiseAus(
 }
 
 /**
- * Paket an einem Tag unter dem Preis bei 30 % Marge, nur durch eine
+ * Paket an einem Tag unter der Untergrenze (seit 18.11. die Selbstkosten), nur durch eine
  * Paketpreis-Anpassung als Differenz (F2, I3: die Untergrenze gilt je Tag; eigene
  * Tagesanpassungen prüft schon `pruefeUntergrenze`). `grenzeFuer` liefert die
  * Untergrenze aus Selbstkosten und Rundung des Pakets an diesem Tag.

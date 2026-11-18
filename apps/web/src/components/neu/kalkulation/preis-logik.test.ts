@@ -33,16 +33,30 @@ describe("zahlAus", () => {
   });
 });
 
-describe("paketpreisPruefen (Untergrenze 30 % Marge, vorab im Dialog)", () => {
-  it("über der Untergrenze: Wert in Euro wie im Vertrag `{ betrag }`", () => {
-    expect(paketpreisPruefen("2.390", komfort)).toEqual({ ok: true, wert: { betrag: 2390 } });
-    expect(paketpreisPruefen("2190", komfort)).toEqual({ ok: true, wert: { betrag: 2190 } });
+describe("paketpreisPruefen (hart Selbstkosten, unter 30 % Marge mit Warnung, 18.11.)", () => {
+  // Selbstkosten 1.533 € (0 %), Preis bei 30 % Marge 2.190 €.
+  const paket = { untergrenzeCent: 153300, normalUntergrenzeCent: 219000 };
+
+  it("über dem Normalbereich: Wert in Euro wie im Vertrag `{ betrag }`, keine Warnung", () => {
+    expect(paketpreisPruefen("2.390", paket)).toEqual({ ok: true, wert: { betrag: 2390 }, warnung: null });
+    expect(paketpreisPruefen("2190", paket)).toEqual({ ok: true, wert: { betrag: 2190 }, warnung: null });
   });
 
-  it("unter der Untergrenze: Meldung mit dem Mindestpreis, nichts gesendet", () => {
-    const r = paketpreisPruefen("2.189,99", komfort);
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.meldung).toBe("Mindestens 2.190 €: darunter läge die Marge unter 30 %.");
+  it("unter 30 % Marge, aber über den Selbstkosten: erlaubt mit Warnung", () => {
+    const r = paketpreisPruefen("1.800", paket);
+    expect(r).toEqual({
+      ok: true,
+      wert: { betrag: 1800 },
+      warnung: "Unter 2.190 € liegt die Marge unter dem Normalbereich von 30 %. Speichern geht trotzdem.",
+    });
+  });
+
+  it("unter den Selbstkosten: Meldung mit dem Mindestpreis, nichts gesendet", () => {
+    const r = paketpreisPruefen("1.533,00", paket);
+    expect(r.ok).toBe(true);
+    const unter = paketpreisPruefen("1.532,99", paket);
+    expect(unter.ok).toBe(false);
+    if (!unter.ok) expect(unter.meldung).toBe("Mindestens 1.533 €: darunter läge der Preis unter den Selbstkosten.");
   });
 
   it("leer, null, negativ oder mehr als zwei Nachkommastellen lehnt ab", () => {
@@ -54,7 +68,7 @@ describe("paketpreisPruefen (Untergrenze 30 % Marge, vorab im Dialog)", () => {
   });
 
   it("Paket ohne Rechnerpreis (Einzeltransport, F7): ohne Untergrenze, der Server prüft", () => {
-    expect(paketpreisPruefen("450", einzel)).toEqual({ ok: true, wert: { betrag: 450 } });
+    expect(paketpreisPruefen("450", einzel)).toEqual({ ok: true, wert: { betrag: 450 }, warnung: null });
   });
 });
 

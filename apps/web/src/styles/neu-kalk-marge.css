@@ -476,3 +476,15 @@
   font-size: 11.5px;
   color: var(--ink-3);
 }
+
+/* Marge außerhalb 30 bis 60 % (erlaubt seit 18.11.): gelber Hinweis, keine Sperre. */
+[data-neu] .kalk-marge-warnung {
+  margin: 8px 0 12px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  font-size: 12.5px;
+  line-height: 1.4;
+  background: color-mix(in srgb, var(--gold) 14%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gold) 35%, transparent);
+  color: var(--gold-ink);
+}

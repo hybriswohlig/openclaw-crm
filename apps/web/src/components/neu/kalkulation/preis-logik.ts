@@ -48,13 +48,14 @@ export function betragText(betragEur: number | undefined): string {
 
 /**
  * Paketpreis-Anpassung vorab prüfen (Entscheidung 5b-4): Euro größer 0, auf
- * den Cent, nie unter dem Preis bei 30 % Marge (`untergrenzeCent`). Ohne
+ * den Cent, nie unter den Selbstkosten (`untergrenzeCent`, seit 18.11.). Unter dem
+ * Preis bei 30 % Marge (`normalUntergrenzeCent`) geht es mit Warnung. Ohne
  * Untergrenze (Paket ohne Rechnerpreis, F7) prüft nur der Server.
  */
 export function paketpreisPruefen(
   text: string,
-  paket: Pick<PaketAnsicht, "untergrenzeCent"> | null
-): { ok: true; wert: { betrag: number } } | { ok: false; meldung: string } {
+  paket: Pick<PaketAnsicht, "untergrenzeCent" | "normalUntergrenzeCent"> | null
+): { ok: true; wert: { betrag: number }; warnung: string | null } | { ok: false; meldung: string } {
   if (!paket) return { ok: false, meldung: "Bitte ein Paket wählen." };
   const n = zahlAus(text);
   if (n === null || n <= 0) return { ok: false, meldung: "Bitte einen Preis in Euro eingeben (größer 0)." };
@@ -62,9 +63,12 @@ export function paketpreisPruefen(
   if (Math.abs(n * 100 - cent) > 1e-6) return { ok: false, meldung: "Bitte höchstens zwei Nachkommastellen." };
   const grenze = paket.untergrenzeCent ?? null;
   if (grenze !== null && cent < grenze) {
-    return { ok: false, meldung: `Mindestens ${euroText(grenze)}: darunter läge die Marge unter 30 %.` };
+    return { ok: false, meldung: `Mindestens ${euroText(grenze)}: darunter läge der Preis unter den Selbstkosten.` };
   }
-  return { ok: true, wert: { betrag: cent / 100 } };
+  const normal = paket.normalUntergrenzeCent ?? null;
+  const warnung =
+    normal !== null && cent < normal ? `Unter ${euroText(normal)} liegt die Marge unter dem Normalbereich von 30 %. Speichern geht trotzdem.` : null;
+  return { ok: true, wert: { betrag: cent / 100 }, warnung };
 }
 
 export function hebelName(h: HebelArt): string {

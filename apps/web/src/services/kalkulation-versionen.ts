@@ -69,7 +69,7 @@ import { ADRESSE_CHAT_TEXT, ADRESSE_FEHLT_TEXT } from "@/lib/kalkulation-p15";
 import { eingabeHash, mitEinsatzFeldern, mitPlan5Feldern, rechnerAnfrageAus, type LeadDaten, type RechnerAnfrage } from "@/services/rechner/eingabe";
 import { ergebnisVeraltet, type KalkulationsZeile } from "@/services/rechner/kalkulation";
 import { kvGueltigBis, type HebelArt, type KvPosten } from "@/services/rechner/kv-posten";
-import { MARGE_MIN_PROZENT, preisBeiMarge } from "@/services/rechner/marge";
+import { MARGE_HART_MIN_PROZENT, preisBeiMarge } from "@/services/rechner/marge";
 import { heuteBerlin } from "@/services/rechner/quelle";
 import { angebotsUebernahme } from "@/services/rechner/uebernahme";
 import { postenJeWahl, stundenPosten } from "@/services/rechner/wahl-posten";
@@ -575,17 +575,18 @@ const datumText = (t: string) => t.split("-").reverse().join(".");
 
 /**
  * Untergrenze je Tag (F2, I3): Eine Paketpreis-Anpassung wirkt an jedem Tag als
- * Differenz und darf an keinem Tag unter den Preis bei 30 % Marge fallen. Wirft
- * mit Paket, Tag und Untergrenze; eine eigene Anpassung je Tag löst das.
+ * Differenz und darf an keinem Tag unter die Selbstkosten fallen (seit 18.11.; unter
+ * 30 % Marge warnt die Ansicht nur). Wirft mit Paket, Tag und Untergrenze; eine eigene
+ * Anpassung je Tag löst das.
  */
 function pruefeUntergrenzeJeTag(tage: readonly Tagespreis[], liste: Uebersteuerung[], e: RechnerErgebnis | null, fehler: (text: string) => Error): void {
   const rundungHaupt = e?.preis?.rundungEur ?? 1;
   const treffer = paketpreisUnterGrenzeAmTag(tage, liste, (p) =>
-    p.selbstkosten > 0 ? preisBeiMarge(p.selbstkosten, MARGE_MIN_PROZENT, p.rundungEur ?? rundungHaupt) : null
+    p.selbstkosten > 0 ? preisBeiMarge(p.selbstkosten, MARGE_HART_MIN_PROZENT, p.rundungEur ?? rundungHaupt) : null
   );
   if (!treffer) return;
   throw fehler(
-    `Der Paketpreis für ${treffer.slug} liegt am ${datumText(treffer.datum)} unter der Mindestmarge von ${MARGE_MIN_PROZENT} % (mindestens ${euro(treffer.grenze)}). Bitte für diesen Tag einen eigenen Preis setzen.`
+    `Der Paketpreis für ${treffer.slug} liegt am ${datumText(treffer.datum)} unter den Selbstkosten (mindestens ${euro(treffer.grenze)}). Bitte für diesen Tag einen eigenen Preis setzen.`
   );
 }
 
@@ -910,7 +911,7 @@ const OHNE_RECHNER: ReadonlySet<string> = new Set(["paketpreis", "tagespreis", "
 /**
  * Plan 16 (Entscheidung Inhaber, Review M3): die Marge der alten Version gilt im Änderungsentwurf
  * weiter, als Übersteuerung „Marge wie vN“ (änderbar). Nur, wenn der Entwurf keine eigene Marge
- * hat; Werte außerhalb von 30 bis 60 % bleiben beim Vorschlag des Rechners. Keine Meldung.
+ * hat; Werte außerhalb von 0 bis 90 % bleiben beim Vorschlag des Rechners. Keine Meldung.
  * Liefert den Entwurf nach der Neuberechnung bzw. unverändert.
  */
 export async function margeWieBasis(
@@ -1040,8 +1041,9 @@ function pruefePlan5Art(art: string, schalter: Plan5Schalter, autor: Autor): voi
 const euro = (eur: number) => `${new Intl.NumberFormat("de-DE", { maximumFractionDigits: 2 }).format(eur)} €`;
 
 /**
- * Paket- oder Tagespreis-Anpassung: nie unter dem Preis bei 30 % Marge
- * (`preisBeiMarge(selbstkosten, 30, rundungEur)`, Entscheidung 4). Das Paket bzw.
+ * Paket- oder Tagespreis-Anpassung: nie unter den Selbstkosten
+ * (`preisBeiMarge(selbstkosten, 0, rundungEur)`). Bis 18.11. galt 30 % Marge (Entscheidung 4);
+ * seitdem ist darunter erlaubt, die Ansicht warnt. Das Paket bzw.
  * der Tag muss in der Rechner-Antwort stehen (sonst gibt es keine Selbstkosten).
  */
 function pruefeUntergrenze(art: "paketpreis" | "tagespreis", key: string, wert: Uebersteuerung["wert"], e: RechnerErgebnis | null): void {
@@ -1062,9 +1064,9 @@ function pruefeUntergrenze(art: "paketpreis" | "tagespreis", key: string, wert: 
     basis = p ? { selbstkosten: p.selbstkosten, rundungEur: p.rundungEur ?? rundungHaupt } : { selbstkosten: t.selbstkosten, rundungEur: rundungHaupt };
   }
   if (!(basis.selbstkosten > 0)) return;
-  const grenze = preisBeiMarge(basis.selbstkosten, MARGE_MIN_PROZENT, basis.rundungEur);
+  const grenze = preisBeiMarge(basis.selbstkosten, MARGE_HART_MIN_PROZENT, basis.rundungEur);
   if (betrag < grenze) {
-    throw new UebersteuerungFehler(`Preis liegt unter der Mindestmarge von ${MARGE_MIN_PROZENT} % (mindestens ${euro(grenze)}).`);
+    throw new UebersteuerungFehler(`Preis liegt unter den Selbstkosten (mindestens ${euro(grenze)}).`);
   }
 }
 
@@ -1656,7 +1658,7 @@ export function pruefeTageAnbieten(e: unknown, heute: string): TageAnbieten {
  * (die Liste ist der ganze gewünschte Stand: fehlende werden aufgehoben). An einer
  * gesperrten Version landet alles im nächsten Entwurf (F17: neue Tage = neue
  * Version). Gerechnet wird einmal mit den neuen Tagen; scheitert der Rechner, bleibt
- * alles wie es war. Anpassungen nie unter dem Preis bei 30 % Marge.
+ * alles wie es war. Anpassungen nie unter den Selbstkosten (unter 30 % Marge mit Warnung).
  */
 export async function tageSetzen(
   ws: string,

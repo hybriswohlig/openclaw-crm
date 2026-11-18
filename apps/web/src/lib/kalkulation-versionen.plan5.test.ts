@@ -233,7 +233,7 @@ describe("ansichtAus mit Firmen-Schalter (Plan 5b)", () => {
     expect(a.schalter).toEqual({ angebotAusKalkulation: true, tagespreise: true });
     expect(a.pakete[1]).toMatchObject({
       slug: "komfort", name: "Komfort", preisCent: 229000, rechnerPreisCent: 248000,
-      uebersteuert: { betragCent: 229000, grund: "Stammkunde" }, untergrenzeCent: 215000, hebel: ["halteverbot", "montage"], kern: { art: "ein_posten" },
+      uebersteuert: { betragCent: 229000, grund: "Stammkunde" }, untergrenzeCent: 150000, normalUntergrenzeCent: 215000, hebel: ["halteverbot", "montage"], kern: { art: "ein_posten" },
     });
     // Hash über alle Kundenpreise, Standardwahl = empfohlenes Paket (Komfort).
     expect(a.preisHash).toBe(

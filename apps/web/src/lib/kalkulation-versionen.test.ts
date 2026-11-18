@@ -67,11 +67,11 @@ describe("pruefeUebersteuerung", () => {
     expect(() => pruefeUebersteuerung({ art: "marge", key: "marge", wert: 45, grund: "   " })).toThrow(UebersteuerungFehler);
   });
 
-  it("lehnt eine Marge außerhalb 30–60 % ab", () => {
-    expect(() => pruefeUebersteuerung({ art: "marge", key: "marge", wert: 25, grund: "Stammkunde" })).toThrow(
-      "Marge zwischen 30 und 60 %"
-    );
-    expect(() => pruefeUebersteuerung({ art: "marge", key: "marge", wert: 61, grund: "x" })).toThrow("Marge zwischen 30 und 60 %");
+  it("Marge: 0 bis 90 % erlaubt (außerhalb 30 bis 60 mit Warnung in der Ansicht, 18.11.), sonst abgelehnt", () => {
+    expect(pruefeUebersteuerung({ art: "marge", key: "marge", wert: 22, grund: "Stammkunde" })).toMatchObject({ art: "marge", wert: 22 });
+    expect(pruefeUebersteuerung({ art: "marge", key: "marge", wert: 75, grund: "x" })).toMatchObject({ art: "marge", wert: 75 });
+    expect(() => pruefeUebersteuerung({ art: "marge", key: "marge", wert: -1, grund: "x" })).toThrow("Marge zwischen 0 und 90 %");
+    expect(() => pruefeUebersteuerung({ art: "marge", key: "marge", wert: 91, grund: "x" })).toThrow("Marge zwischen 0 und 90 %");
     expect(pruefeUebersteuerung({ art: "marge", key: "marge", wert: 45, grund: "x" })).toMatchObject({ art: "marge", key: "marge", wert: 45 });
   });
 

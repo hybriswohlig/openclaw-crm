@@ -303,13 +303,15 @@ describe("Sperren mit Paketpreisen (Schalter an)", () => {
     expect(preisHash(versionsPreiseAusZeile(t.zeilen[0]))).toBe(gezeigt);
   });
 
-  it("Paketpreis-Anpassung: Pflichtgrund, nie unter 30 % Marge, ohne neuen Rechner-Aufruf, Meldung erst beim Sperren", async () => {
+  it("Paketpreis-Anpassung: Pflichtgrund, nie unter Selbstkosten (unter 30 % Marge erlaubt, 18.11.), ohne neuen Rechner-Aufruf, Meldung erst beim Sperren", async () => {
     const t = aufbau({ optionen: PAKETE });
     await entwurfHolenOderAnlegen("ws", "deal1", MENSCH, t.deps);
     t.rechner.mockClear();
-    // komfort: Selbstkosten 894 → bei 30 % Marge mindestens 1280 €.
-    await expect(uebersteuern("ws", "deal1", 1, { art: "paketpreis", key: "komfort", wert: { betrag: 1200 }, grund: "Stammkunde" }, MENSCH, t.deps))
-      .rejects.toThrow(/Mindestmarge von 30 % \(mindestens 1\.280 €\)/);
+    // komfort: Selbstkosten 894 → mindestens 900 € (aufgerundet); 1.200 € liegt unter 30 % Marge und geht.
+    await expect(uebersteuern("ws", "deal1", 1, { art: "paketpreis", key: "komfort", wert: { betrag: 890 }, grund: "Stammkunde" }, MENSCH, t.deps))
+      .rejects.toThrow(/unter den Selbstkosten \(mindestens 900 €\)/);
+    const tief = await uebersteuern("ws", "deal1", 1, { art: "paketpreis", key: "komfort", wert: { betrag: 1200 }, grund: "Kundin hat zugestimmt" }, MENSCH, t.deps);
+    expect(tief.version.packagePrices.find((p) => p.slug === "komfort")).toMatchObject({ festpreis: 1200 });
     await expect(uebersteuern("ws", "deal1", 1, { art: "paketpreis", key: "komfort", wert: { betrag: 1390 }, grund: " " }, MENSCH, t.deps))
       .rejects.toBeInstanceOf(UebersteuerungFehler);
     await expect(uebersteuern("ws", "deal1", 1, { art: "paketpreis", key: "luxus", wert: { betrag: 1390 }, grund: "x" }, MENSCH, t.deps))
@@ -387,8 +389,13 @@ describe("Sperren mit Tagespreisen", () => {
   it("Tagespreis-Anpassung: Untergrenze, Liste ist der ganze Stand (fehlende aufgehoben)", async () => {
     const t = aufbau();
     await entwurfHolenOderAnlegen("ws", "deal1", MENSCH, t.deps);
-    await expect(tageSetzen("ws", "deal1", 1, MENSCH, tageEingabe({ uebersteuerungen: [{ datum: "2026-11-21", paketSlug: null, betrag: 900, grund: "Lücke" }] }), t.deps))
-      .rejects.toThrow(/Mindestmarge/);
+    // Selbstkosten am Tag 800 €: darunter abgelehnt, 900 € (unter 30 % Marge) geht seit 18.11.
+    await expect(tageSetzen("ws", "deal1", 1, MENSCH, tageEingabe({ uebersteuerungen: [{ datum: "2026-11-21", paketSlug: null, betrag: 790, grund: "Lücke" }] }), t.deps))
+      .rejects.toThrow(/unter den Selbstkosten/);
+    const t2 = aufbau();
+    await entwurfHolenOderAnlegen("ws", "deal1", MENSCH, t2.deps);
+    const tief = await tageSetzen("ws", "deal1", 1, MENSCH, tageEingabe({ uebersteuerungen: [{ datum: "2026-11-21", paketSlug: null, betrag: 900, grund: "Lücke" }] }), t2.deps);
+    expect(tief.dayPrices[1]).toMatchObject({ festpreis: 900 });
     const v = await tageSetzen("ws", "deal1", 1, MENSCH, tageEingabe({ uebersteuerungen: [{ datum: "2026-11-21", paketSlug: null, betrag: 1490, grund: "Wie Freitag" }] }), t.deps);
     expect(v.dayPrices[1]).toMatchObject({ festpreis: 1490, rechnerFestpreis: 1590, uebersteuert: { betrag: 1490, grund: "Wie Freitag" } });
     const ohne = await tageSetzen("ws", "deal1", 1, MENSCH, tageEingabe(), t.deps);
