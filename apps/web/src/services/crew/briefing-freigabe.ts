@@ -15,7 +15,7 @@ import { zeilen } from "@/lib/db-werte";
 import { dealTerminLesen } from "@/services/einsatz";
 import { sendBaileysDirektText } from "@/services/inbox-whatsapp";
 import { absenderKonto, type SendenDeps } from "./link-senden";
-import { crewLinkSicherstellen } from "./links";
+import { crewLinkLesen } from "./links";
 
 export interface BriefingPerson {
   employeeId: string;
@@ -150,8 +150,8 @@ async function anPersonSenden(x: {
   if (!x.p.telefon) return { status: "kein_telefon" };
   if (!x.p.active) return { status: "kein_link" };
   if (!x.konto) return { status: "kein_absender" };
-  // Link bei Bedarf anlegen; ein gesperrter Link bleibt gesperrt.
-  const l = await crewLinkSicherstellen(x.ws, x.p.id, x.autor);
+  // Beta: nur wer schon einen aktiven Link hat; nie still einen anlegen.
+  const l = await crewLinkLesen(x.ws, x.p.id);
   if (!l.ok || !l.link || !l.link.aktiv) return { status: "kein_link" };
   const text = briefingNachricht(istCrewLocale(x.p.sprache) ? x.p.sprache : "de", x.p.name, x.tag, briefingUrl(l.link.url, x.deal));
   try {

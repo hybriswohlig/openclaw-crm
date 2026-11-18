@@ -194,11 +194,18 @@ describe.skipIf(!url)("WhatsApp an die Crew (DB)", { timeout: 30_000 }, () => {
     expect(senden.mock.calls[0]![0].peerWaId).toBe("491511111111");
   });
 
-  it("Zusage: wer noch keinen Link hat, bekommt ihn und trotzdem die echte Job-Zeile", async () => {
+  it("Beta: wer noch keinen Link hat, bekommt nichts und bekommt auch keinen Link angelegt", async () => {
     await sql`INSERT INTO employees (id, workspace_id, name, phone_canonical) VALUES ('e5', 'w1', 'Eva Ernst', '+491555555555')`;
     await sql`INSERT INTO deal_employees (deal_record_id, employee_id, role) VALUES ('dB', 'e5', 'helper')`;
     const r = await n.zusageSenden("w1", "dB", ["e5"], "u1", deps());
-    expect(r).toEqual({ gesendet: 1, gesamt: 1 });
+    expect(r).toEqual({ gesendet: 0, gesamt: 1 });
+    expect(senden).not.toHaveBeenCalled();
+    expect(await sql`SELECT 1 FROM crew_links WHERE employee_id = 'e5'`).toHaveLength(0);
+    const v = await sql`SELECT status FROM crew_notifications WHERE employee_id = 'e5'`;
+    expect(v.map((z) => z.status)).toEqual(["kein_link"]);
+    // Mit Link: die echte Job-Zeile, „noch nicht fix“ bleibt.
+    await sql`INSERT INTO crew_links (id, workspace_id, employee_id, token) VALUES ('l5', 'w1', 'e5', ${"E".repeat(32)})`;
+    expect(await n.zusageSenden("w1", "dB", ["e5"], "u1", deps())).toEqual({ gesendet: 1, gesamt: 1 });
     expect(senden.mock.calls[0]![0].text).toMatch(/^Hallo Eva! Du bist dabei: So\., 11\.01\. · Umzug · Nagold \(noch nicht fix\)\./);
   });
 

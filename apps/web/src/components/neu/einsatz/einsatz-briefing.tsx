@@ -10,7 +10,7 @@ const VERSAND: Record<NonNullable<CrewBriefingAnsicht["team"][number]["versand"]
   gesendet: "WhatsApp gesendet",
   fehler: "Versand fehlgeschlagen",
   kein_telefon: "keine Nummer",
-  kein_link: "Link gesperrt",
+  kein_link: "noch kein Portal-Link",
   kein_absender: "WhatsApp nicht verbunden",
 };
 

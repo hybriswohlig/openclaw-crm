@@ -8,6 +8,8 @@
  *    angekündigt wurden. Zwischen den Personen eine Pause, damit die verknüpfte
  *    Nummer nicht wie ein Massenversender aussieht.
  *
+ * Nur Personen mit aktivem Crew-Link bekommen Nachrichten (Beta: der Link wird
+ * bewusst per „Per WhatsApp senden“ verteilt, nie still hier angelegt).
  * Jeder Versuch steht in `crew_notifications`. Ein Fehler bei einer Person hält
  * die anderen nicht auf. Abschalten je Workspace: `crew_neue_jobs` = `aus`.
  */
@@ -24,7 +26,7 @@ import { getSetting } from "@/services/workspace-settings";
 import type { CrewKontext } from "./auth";
 import { ladeCrewJobs } from "./jobs";
 import { absenderKonto, type SendenDeps } from "./link-senden";
-import { crewLinkSicherstellen } from "./links";
+import { crewLinkLesen } from "./links";
 
 export const NEUE_JOBS_SCHALTER = "crew_neue_jobs";
 
@@ -134,7 +136,8 @@ async function anPerson(
     if (!p.telefon) return { status: "kein_telefon" };
     if (!p.active) return { status: "kein_link" };
     if (!konto) return { status: "kein_absender" };
-    const l = await crewLinkSicherstellen(ws, p.id, autor);
+    // Beta: nur wer schon einen aktiven Link hat; nie still einen anlegen.
+    const l = await crewLinkLesen(ws, p.id);
     if (!l.ok || !l.link || !l.link.aktiv) return { status: "kein_link" };
     let frist: ReturnType<typeof setTimeout> | undefined;
     const zeitueberschreitung = new Promise<never>((_, nein) => {
@@ -168,10 +171,6 @@ export async function zusageSenden(ws: string, deal: string, neu: string[], auto
   let gesendet = 0;
   try {
     const konto = await deps.absender(ws).catch(() => null);
-    // Erst die Links anlegen, damit der Text den Job so zeigt, wie die Person ihn im Portal sieht.
-    for (const p of await personenLesen(ws, neu)) {
-      if (p.active && p.telefon && !p.linkId) await crewLinkSicherstellen(ws, p.id, autor).catch(() => null);
-    }
     const personen = await personenLesen(ws, neu);
     const tag = (await dealTerminLesen(ws, deal).catch(() => null)) ?? "";
     for (const [i, p] of personen.entries()) {

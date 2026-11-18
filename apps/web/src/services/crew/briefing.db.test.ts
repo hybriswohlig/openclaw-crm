@@ -57,6 +57,7 @@ describe.skipIf(!url)("Briefing (DB)", { timeout: 30_000 }, () => {
       INSERT INTO employees (id, workspace_id, name) VALUES ('e1', 'w1', 'Ali Kaya'), ('e2', 'w1', 'Ben Bauer'), ('e3', 'w1', 'Cem Can'), ('e4', 'w1', 'Dana Dorn');
       UPDATE employees SET phone_canonical = '+491511111111', locale = 'tr' WHERE id = 'e1';
       UPDATE employees SET phone_canonical = '+491522222222' WHERE id = 'e2';
+      INSERT INTO crew_links (id, workspace_id, employee_id, token) VALUES ('l1', 'w1', 'e1', '${"A".repeat(32)}'), ('l2', 'w1', 'e2', '${"B".repeat(32)}');
     `);
     const slugs: Array<[string, string[]]> = [
       ["od", ["stage", "move_date", "move_from_address", "move_to_address", "floors_from", "floors_to", "elevator_from", "elevator_to", "name"]],
