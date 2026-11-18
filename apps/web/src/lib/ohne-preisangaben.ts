@@ -13,7 +13,7 @@
  * Grenze. `Euro-Paletten` (EUR/Euro direkt mit Bindestrich und Buchstabe) ist
  * kein Betrag.
  */
-const BETRAG =
+export const BETRAG =
   /\d[\d.\s]*(,(\d{1,2}|[-–]{1,2}))?\s?(€|(EUR|Euro)(?!-\p{L})\b)|(€|\bEUR\b)\s?\d|\d,[-–]{1,2}(?!\d)/iu;
 
 /**

@@ -1,0 +1,119 @@
+{
+  "details": {
+    "serviceType": "move",
+    "cardAgreed": false,
+    "validUntil": "2026-12-31",
+    "depositDue": "2026-12-01",
+    "time": "Beginn gegen acht Uhr",
+    "from": { "details": "Zufahrt über den Hinterhof, Klingel defekt" },
+    "to": { "details": "Schlüssel beim Hausmeister" },
+    "services": {
+      "transport": { "owner": "company", "note": "Transport mit einem Koffer-Lkw" },
+      "packing": { "owner": "customer", "note": "Kartons stehen im Keller bereit" },
+      "unpacking": { "owner": "none", "note": "" },
+      "dismantling": { "owner": "company", "note": "Betten im Schlafzimmer zuerst" },
+      "assembly": { "owner": "company" },
+      "parkingPickup": { "owner": "customer", "note": "Zone vor dem Haus beantragt" },
+      "parkingDestination": { "owner": "none", "note": "" },
+      "materials": { "owner": "company", "note": "Decken und Folie bringen wir mit" }
+    },
+    "inventory": [
+      {
+        "room": "Schlafzimmer",
+        "name": "Kleiderschrank 3-türig",
+        "quantity": 1,
+        "dismantling": "company",
+        "assembly": "company",
+        "note": "Auf Foto erkannt, im Chat nicht erwähnt"
+      },
+      {
+        "room": "Schlafzimmer",
+        "name": "Doppelbett",
+        "quantity": 1,
+        "dismantling": "company",
+        "assembly": "customer",
+        "note": ""
+      },
+      {
+        "room": "Wohnzimmer",
+        "name": "Sofa",
+        "quantity": 1,
+        "dismantling": "none",
+        "assembly": "none",
+        "note": "Auf Foto erkannt, im Chat nicht erwähnt"
+      },
+      {
+        "room": "Esszimmer",
+        "name": "Esstisch",
+        "quantity": 1,
+        "dismantling": "customer",
+        "assembly": "customer",
+        "note": ""
+      },
+      {
+        "room": "Flur",
+        "name": "Kommode",
+        "quantity": 2,
+        "dismantling": "none",
+        "assembly": "company"
+      },
+      {
+        "room": "Arbeitszimmer",
+        "name": "Bücherregal",
+        "quantity": 1,
+        "dismantling": "company",
+        "assembly": "company",
+        "note": "Auf Foto erkannt, im Chat nicht erwähnt"
+      },
+      {
+        "name": "Waschmaschine",
+        "quantity": 1,
+        "dismantling": "customer",
+        "assembly": "none",
+        "note": "Auf Foto erkannt, im Chat nicht erwähnt"
+      }
+    ]
+  },
+  "auftrag": {
+    "strecke_von": "Beispielweg 12, 70173 Stuttgart",
+    "strecke_nach": "Probenweg 4, 71032 Böblingen",
+    "datum": "2026-12-15",
+    "volumen": "etwa zwanzig Kubikmeter Hausrat",
+    "besonderheiten": "Parkplatz vor dem Haus ist reserviert"
+  },
+  "inventarIds": [
+    "inv-kleiderschrank",
+    "inv-bett",
+    "inv-sofa",
+    null,
+    "inv-kommode",
+    "inv-regal",
+    "inv-waschmaschine"
+  ],
+  "bildIds": [
+    "bild-01",
+    "bild-02",
+    "bild-03",
+    "bild-04",
+    "bild-05",
+    "bild-06",
+    "bild-07",
+    "bild-08",
+    "bild-09",
+    "bild-10",
+    "bild-11",
+    "bild-12",
+    "bild-13"
+  ],
+  "preise": {
+    "modell": "pauschale",
+    "pauschale_positionen": [
+      { "titel": "Umzugsteam (4 Personen) und Transporter", "betrag": 1160 },
+      { "titel": "Demontage und Montage", "betrag": 460 }
+    ],
+    "anzahlung_betrag_eur": 200,
+    "anzahlung_zahlungsweg": "bank_transfer"
+  },
+  "gesamtCent": 162000,
+  "bezahltCent": 0
+}
