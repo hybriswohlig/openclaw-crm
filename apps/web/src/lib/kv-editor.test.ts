@@ -1,21 +1,26 @@
 import { describe, expect, it } from "vitest";
-import { positionSchluessel } from "@/lib/kalkulation-versionen";
 import {
   KV_ABLEHNUNGEN,
+  KV_BEREICHE,
   KV_EDITOR_FEHLER,
   KV_EDITOR_STATUS,
   KV_EDITOR_TEXT,
   KV_FELDER_CRM,
   KV_FELDER_VPS,
   KV_FELDER_VPS_GEPRUEFT,
+  KV_KI_LAEUFT_TEXT,
+  KV_KUECHE_TEXTFELDER,
+  KV_NUR_ADMIN_TEXT,
+  KV_PDF_NICHT_PRUEFBAR_TEXT,
+  KV_PREIS_ABWEICHUNG_TEXT,
   feldDefFuer,
   feldFreigeschaltet,
-  kuechenTeilZiel,
-  kvNamensSchluessel,
   kvSchluessel,
+  kvVerworfenPushText,
   schluesselTeile,
-  umzugsgutZielOhneId,
 } from "./kv-editor";
+
+const GEDANKENSTRICH = /[–—]/;
 
 describe("Vertrag KV-Editor: Schlüssel", () => {
   it("baut und zerlegt Schlüssel, Ziel darf Doppelpunkte enthalten", () => {
@@ -26,23 +31,16 @@ describe("Vertrag KV-Editor: Schlüssel", () => {
       ziel: "inv_8c1",
       feld: "notiz",
     });
-    expect(schluesselTeile("umzugsgut:n-regal: weiß~2:notiz")?.ziel).toBe("n-regal: weiß~2");
-    expect(schluesselTeile("kueche-teil:spüle~1:notiz")?.abschnitt).toBe("kueche");
+    expect(schluesselTeile("leistungen:a:b:notiz")?.ziel).toBe("a:b");
+    expect(schluesselTeile("kueche-leistung:installation:notiz")?.abschnitt).toBe("kueche");
   });
 
-  it("lehnt Unbekanntes und falsche Form ab", () => {
-    for (const s of ["", "preise:pauschale:betrag", "umzugsgut::notiz", "umzugsgut:x:", "umzugsgut:x", "uebersicht"]) {
+  it("lehnt Unbekanntes und falsche Form ab, Küchenteile gibt es nicht mehr", () => {
+    for (const s of ["", "preise:pauschale:betrag", "umzugsgut::notiz", "umzugsgut:x:", "umzugsgut:x", "uebersicht", "kueche-teil:spüle~1:notiz"]) {
       expect(schluesselTeile(s)).toBeNull();
     }
+    expect(KV_BEREICHE).not.toContain("kueche-teil");
     expect(() => kvSchluessel("umzugsgut", "", "notiz")).toThrow();
-  });
-
-  it("Ziele ohne ID folgen positionSchluessel", () => {
-    for (const n of ["  Kleiderschrank   3-türig ", "ÜBERSEE-Kiste", "Regal: weiß"]) {
-      expect(kvNamensSchluessel(n)).toBe(positionSchluessel(n));
-    }
-    expect(umzugsgutZielOhneId("Kleiderschrank  3-türig", 2)).toBe("n-kleiderschrank 3-türig~2");
-    expect(kuechenTeilZiel("Spüle", 1)).toBe("spüle~1");
   });
 });
 
@@ -55,7 +53,8 @@ describe("Vertrag KV-Editor: Felderliste", () => {
         else expect(d.max).toBeUndefined();
       }
     }
-    expect(KV_FELDER_VPS).toHaveLength(24);
+    // 4 Übersicht, 2 Leistungen, 5 Umzugsgut, 1 Bilder, 1 Vereinbarungen, 7 Küche, 2 Küchenleistungen
+    expect(KV_FELDER_VPS).toHaveLength(22);
     expect(KV_FELDER_CRM.map((d) => d.muster)).toEqual([
       "anschreiben:einleitung:text",
       "uebersicht:zusammenfassung:text",
@@ -64,21 +63,30 @@ describe("Vertrag KV-Editor: Felderliste", () => {
     ]);
   });
 
+  it("„Unsere Arbeiten“ der Küche ist nicht änderbar (Kimi 15)", () => {
+    expect(KV_KUECHE_TEXTFELDER).not.toContain("companyWork");
+    expect(feldDefFuer("vps", "kueche:companyWork:text")).toBeNull();
+    expect(feldDefFuer("vps", "kueche:customerPrep:text")?.max).toBe(1000);
+  });
+
   it("findet die Definition zu konkreten Schlüsseln, Preise nie", () => {
     expect(feldDefFuer("vps", "umzugsgut:abc:montage")?.muster).toBe("umzugsgut:{inventarId}:montage");
     expect(feldDefFuer("vps", "leistungen:transport:zustaendig")?.art).toBe("zustaendig");
-    expect(feldDefFuer("vps", "kueche:notes:text")?.max).toBe(1000);
     expect(feldDefFuer("vps", "kueche:address:text")).toBeNull();
     expect(feldDefFuer("vps", "uebersicht:termin:datum")).toBeNull();
     expect(feldDefFuer("vps", "anschreiben:einleitung:text")).toBeNull();
-    expect(feldDefFuer("crm", "anschreiben:einleitung:text")?.label).toBe("Einleitung");
+    expect(feldDefFuer("crm", "anschreiben:einleitung:text")?.wirkt).toContain("copy.introText");
     expect(feldDefFuer("crm", "preise:pauschale_betrag:text")).toBeNull();
   });
 
-  it("VPS-Felder erst nach V1, CRM immer", () => {
+  it("VPS-Felder erst nach V1, je Schlüssel oder je Muster; CRM immer", () => {
     expect(KV_FELDER_VPS_GEPRUEFT.size).toBe(0);
     expect(feldFreigeschaltet("vps", "vereinbarungen:text:text")).toBe(false);
-    expect(feldFreigeschaltet("vps", "vereinbarungen:text:text", new Set(["vereinbarungen:text:text"]))).toBe(true);
+    const je = new Set(["leistungen:transport:notiz", "umzugsgut:{inventarId}:notiz"]);
+    expect(feldFreigeschaltet("vps", "leistungen:transport:notiz", je)).toBe(true);
+    expect(feldFreigeschaltet("vps", "leistungen:packing:notiz", je)).toBe(false);
+    expect(feldFreigeschaltet("vps", "umzugsgut:inv_1:notiz", je)).toBe(true);
+    expect(feldFreigeschaltet("vps", "leistungen:transport:gibtsnicht", new Set(["leistungen:transport:gibtsnicht"]))).toBe(false);
     expect(feldFreigeschaltet("crm", "bemerkungen:text:text")).toBe(true);
     expect(feldFreigeschaltet("crm", "umzugsgut:abc:notiz")).toBe(false);
   });
@@ -89,11 +97,26 @@ describe("Vertrag KV-Editor: Fehler und Texte", () => {
     for (const f of KV_EDITOR_FEHLER) expect(KV_EDITOR_STATUS[f]).toBeGreaterThanOrEqual(400);
     for (const k of [...KV_EDITOR_FEHLER, ...KV_ABLEHNUNGEN]) {
       expect(KV_EDITOR_TEXT[k].length).toBeGreaterThan(0);
-      expect(KV_EDITOR_TEXT[k]).not.toMatch(/[–—]/);
+      expect(KV_EDITOR_TEXT[k]).not.toMatch(GEDANKENSTRICH);
+    }
+    for (const t of [KV_PREIS_ABWEICHUNG_TEXT, KV_PDF_NICHT_PRUEFBAR_TEXT, kvVerworfenPushText(6)]) {
+      expect(t).not.toMatch(GEDANKENSTRICH);
     }
     expect(KV_EDITOR_STATUS.NUR_MENSCH).toBe(403);
+    expect(KV_EDITOR_STATUS.NUR_ADMIN).toBe(403);
     expect(KV_EDITOR_STATUS.KEIN_KV).toBe(404);
+    expect(KV_EDITOR_STATUS.LAEUFT).toBe(409);
     expect(KV_EDITOR_STATUS.VPS_FEHLER).toBe(502);
     expect(KV_EDITOR_STATUS.KI_FEHLER).toBe(504);
+  });
+
+  it("Texte aus dem Plan", () => {
+    expect(KV_KI_LAEUFT_TEXT).toBe(KV_EDITOR_TEXT.LAEUFT);
+    expect(KV_NUR_ADMIN_TEXT).toBe("Nur ein Admin kann ein angenommenes Angebot ändern.");
+    expect(KV_EDITOR_TEXT.PREIS).toBe(
+      "Preisangaben (Beträge, Prozent, Rabatt, Zahlung) gehören nicht in den Text. Preise änderst du in der Kalkulation."
+    );
+    expect(kvVerworfenPushText(6)).toBe("Inzwischen wurde Stand 6 gepusht. KV neu erstellen, die Änderungen wandern mit.");
+    expect(KV_ABLEHNUNGEN).toContain("NICHT_VORGESCHLAGEN");
   });
 });

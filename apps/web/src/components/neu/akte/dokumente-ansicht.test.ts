@@ -1,10 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { kvErsetzt, kvMeta, kvNummer } from "./dokumente-ansicht";
+import { kvErsetzt, kvMeta } from "./dokumente-ansicht";
 
 describe("KV in den Dokumenten (Plan 16)", () => {
-  it("Nummer aus dem VPS-Dateinamen, sonst keine; Version als „Kalkulation vN“", () => {
-    expect(kvNummer("KV-KO-20261110-ART-3.pdf")).toBe("KV-KO-20261110-ART-3");
-    expect(kvNummer("KV-ceylan-2026-11-11-ab12cd34.pdf")).toBeNull();
+  it("Nummer aus dem VPS-Dateinamen (lib/kv-nummer), sonst keine; Version als „Kalkulation vN“", () => {
     expect(kvMeta({ fileName: "KV-KO-20261110-ART-3.pdf", kvVersion: 3 })).toBe("Nr. KV-KO-20261110-ART-3 · Kalkulation v3 · ");
     expect(kvMeta({ fileName: "KV-Familie-Weber-v2.pdf", kvVersion: 2 })).toBe("Kalkulation v2 · ");
     expect(kvMeta({ fileName: "x.pdf", kvVersion: null })).toBe("");

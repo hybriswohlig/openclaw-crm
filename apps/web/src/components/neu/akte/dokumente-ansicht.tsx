@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { tagKurz } from "@/lib/anzeige";
+import { kvNummer } from "@/lib/kv-nummer";
 import { apiAufruf } from "./api";
 
 interface Dokument {
@@ -26,14 +27,9 @@ export function kvErsetzt(d: Pick<Dokument, "id" | "documentType" | "kvVersion">
 }
 
 /**
- * Plan 16 (Review M5): KV-Nummer ist die Nummer des VPS im Dateinamen („KV-KO-20261110-ART-3“),
- * sonst keine. Die Version heißt „Kalkulation vN“, damit sie nicht wie eine zweite Nummer aussieht.
+ * Plan 16 (Review M5): KV-Nummer aus `lib/kv-nummer`. Die Version heißt „Kalkulation vN“, damit sie
+ * nicht wie eine zweite Nummer aussieht.
  */
-export function kvNummer(fileName: string): string | null {
-  const m = /^(KV-[A-Z]{2,}-\d{8}-[A-Z0-9]+(?:-\d+)?)(?:\.pdf)?$/i.exec(fileName.trim());
-  return m ? m[1] : null;
-}
-
 export function kvMeta(d: Pick<Dokument, "fileName" | "kvVersion">): string {
   const nr = kvNummer(d.fileName);
   return [nr ? `Nr. ${nr}` : null, typeof d.kvVersion === "number" ? `Kalkulation v${d.kvVersion}` : null].filter(Boolean).map((t) => `${t} · `).join("");

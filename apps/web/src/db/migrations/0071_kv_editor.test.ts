@@ -26,6 +26,19 @@ describe("Migration 0071 KV-Editor (Text)", () => {
     expect(ohneKommentare).toContain('ADD COLUMN IF NOT EXISTS "kv_stand_ziel"');
   });
 
+  it("Preisprüfung, KI-Herkunft und ein Job je Stand (0b)", () => {
+    expect(ohneKommentare).toMatch(/"pruefung" jsonb,/);
+    expect(ohneKommentare).toMatch(/"ki_nachricht_id" text\n/);
+    expect(ohneKommentare).toContain(
+      'CREATE UNIQUE INDEX IF NOT EXISTS "kv_staende_ki_nachricht_uq" ON "kv_staende" ("ki_nachricht_id") WHERE "ki_nachricht_id" IS NOT NULL;'
+    );
+    expect(ohneKommentare).toContain(
+      'CREATE UNIQUE INDEX IF NOT EXISTS "document_render_jobs_kv_stand_uq" ON "document_render_jobs" ("kv_stand_id") WHERE "kv_stand_id" IS NOT NULL;'
+    );
+    expect(ohneKommentare).toContain('CHECK ("kv_stand_id" IS NULL OR "kv_stand_ziel" IS NOT NULL)');
+    expect(ohneKommentare).not.toMatch(/CREATE\s+(OR REPLACE\s+)?(TRIGGER|FUNCTION)/i);
+  });
+
   it("Bedingungen am Job-Register nur in DO-Blöcken mit duplicate_object", () => {
     const constraints = [...ohneKommentare.matchAll(/ADD CONSTRAINT "([^"]+)"/g)].map((m) => m[1]);
     expect(constraints).toEqual([

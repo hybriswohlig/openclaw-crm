@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { check, index, integer, pgTable, text, timestamp, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { check, index, integer, pgTable, text, timestamp, uniqueIndex, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { records } from "./records";
 import { dealCalculationVersions } from "./deal-calculation-versions";
 import { dealDocuments } from "./financial";
@@ -47,6 +47,7 @@ export const documentRenderJobs = pgTable(
   (t) => [
     index("document_render_jobs_status_idx").on(t.status, t.createdAt),
     index("document_render_jobs_deal_idx").on(t.workspaceId, t.dealRecordId),
+    uniqueIndex("document_render_jobs_kv_stand_uq").on(t.kvStandId).where(sql`${t.kvStandId} IS NOT NULL`),
     check(
       "document_render_jobs_kv_stand_ziel_chk",
       sql`${t.kvStandZiel} IS NULL OR ${t.kvStandZiel} IN ('entwurf','aktuell')`

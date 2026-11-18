@@ -9,6 +9,7 @@
  */
 import type { QuotationDocumentDetails } from "@/db/schema/quotations";
 import type { DocumentModel, RenderInput } from "@openclaw-crm/document-templates";
+import type { DbExecutor } from "@/services/einsatz-personen";
 
 // ════════════════════════════════════════════════════════════════════════
 // Grundtypen (Spec 5.2)
@@ -104,8 +105,11 @@ export interface KvKonflikt {
   entschiedenAm?: string;
 }
 
-/** Gründe, aus denen ein einzelner Eintrag (Hand oder KI) abgelehnt wird. */
-export const KV_ABLEHNUNGEN = ["UNBEKANNT", "TYP", "ZU_LANG", "PREIS", "FIRMA_GESPERRT"] as const;
+/**
+ * Gründe, aus denen ein einzelner Eintrag (Hand oder KI) abgelehnt wird. `NICHT_VORGESCHLAGEN`:
+ * Speichern mit `kiNachrichtId`, aber der Wert stand so nicht im KI-Vorschlag (Spec 7.2).
+ */
+export const KV_ABLEHNUNGEN = ["UNBEKANNT", "TYP", "ZU_LANG", "PREIS", "FIRMA_GESPERRT", "NICHT_VORGESCHLAGEN"] as const;
 export type KvAblehnung = (typeof KV_ABLEHNUNGEN)[number];
 
 export const KV_EDITOR_FEHLER = [
@@ -120,6 +124,8 @@ export const KV_EDITOR_FEHLER = [
   "ANGABEN_FEHLEN",
   "VPS_FEHLER",
   "KI_FEHLER",
+  "LAEUFT",
+  "NUR_ADMIN",
 ] as const;
 export type KvEditorFehler = (typeof KV_EDITOR_FEHLER)[number];
 
@@ -147,21 +153,41 @@ export const KV_STAND_ZIELE = ["entwurf", "aktuell"] as const;
 export type KvStandZiel = (typeof KV_STAND_ZIELE)[number];
 
 /**
- * Grundgerüst eines Stands (`kv_staende.grundlage`).
- * VPS: das Datenpaket wie vom Browser bzw. Editor gesendet, ohne die Schlüssel aus
- * `KV_GRUNDLAGE_OHNE` und ohne `preise.anzahlung_betrag_eur` / `preise.anzahlung_zahlungsweg`.
- * CRM: `{ copy }`.
+ * Grundgerüst eines Stands (`kv_staende.grundlage`): nur die Auswahl beim Erstellen (Spec 4.2, 5.1).
+ * Das Paket entsteht bei jedem Druck frisch aus Lead und Quotation (`kvEingabeAusDeal`,
+ * `attachDocumentJobContext` bzw. `ladeModellMitVersion`); Preise, Kunde, Strecke, Umzugsgut und
+ * Leistungen stehen nie in der Grundlage.
  */
-export type KvGrundlageVps = Record<string, unknown>;
+export interface KvGrundlageVps {
+  /** Sonderhinweis an den VPS-Skill aus dem Dialog. */
+  anweisung?: string;
+  /** Küchenblock wie im Dialog (nur Küche). */
+  kitchen?: QuotationDocumentDetails["kitchen"];
+  /** `_image_attachment_ids` beim Erstellen; ausgeblendete Fotos wirken über `bilder:<id>:zeigen`. */
+  bildIds: string[];
+}
 export interface KvGrundlageCrm {
-  copy: { intro?: string; closing?: string; remarks?: string };
+  /**
+   * `introText` ersetzt nur den Standardtext nach der Begrüßung (die Begrüßung entsteht bei jedem
+   * Druck aus dem Lead). `intro` nur Altbestand; `crmAnwenden` setzt `introText` und löscht `intro`.
+   */
+  copy: { introText?: string; intro?: string; closing?: string; remarks?: string };
 }
 export type KvGrundlage = KvGrundlageVps | KvGrundlageCrm;
 
-/** Schlüssel des VPS-Pakets, die nie in die Grundlage kommen (beim Druck frisch). */
-export const KV_GRUNDLAGE_OHNE = ["_images", "_rechnung", "_document_context", "_calculation_version_id", "_kv_stand"] as const;
-/** Schlüssel unter `preise`, die nie in die Grundlage kommen (kommen aus der Quotation). */
-export const KV_GRUNDLAGE_PREISE_OHNE = ["anzahlung_betrag_eur", "anzahlung_zahlungsweg"] as const;
+/**
+ * Preisprüfung eines VPS-PDFs (`kv_staende.pruefung`, Spec 7.3). Beträge in Cent. `erwartet`: jeder
+ * Betrag des gesendeten Preisblocks und der Gesamtbetrag; `erlaubt`: darf zusätzlich vorkommen
+ * (0, bezahlt, offen, nach Anzahlung). `fehlt`: erwartet, aber nicht im Text; `fremd`: im Text,
+ * aber weder erwartet noch erlaubt. `offen` bis das PDF gelesen ist. CRM: keine Prüfung (null).
+ */
+export interface KvPreisPruefung {
+  erwartetCent: number[];
+  erlaubtCent: number[];
+  preis: "offen" | "ok" | "abweichung" | "nicht_lesbar";
+  fehlt: number[];
+  fremd: number[];
+}
 
 /** Person in Verlauf und Ansicht (Anzeigename aus `users`). */
 export interface KvPerson {
@@ -192,6 +218,8 @@ export interface KvStandKopf {
   aktuell: boolean;
   dealDocumentId: string | null;
   grundlageRekonstruiert: boolean;
+  /** VPS: Preisprüfung des PDFs; ein Stand ist nur mit `preis: "ok"` pushbar. CRM: null. */
+  pruefung: KvPreisPruefung | null;
 }
 
 export interface KvEditorAnsicht {
@@ -206,11 +234,15 @@ export interface KvEditorAnsicht {
   aktuellDokumentId: string | null;
   quotationVersionId: string | null;
   kalkulationVersion: number | null;
-  annahme: { aktiv: boolean; am: string | null; standNummer: number | null };
+  /** `aufhebenErlaubt`: der Aufrufer ist Admin und darf eine Annahme beim Pushen aufheben (Kimi 9). */
+  annahme: { aktiv: boolean; am: string | null; standNummer: number | null; aufhebenErlaubt: boolean };
   /** Nur lesend, z. B. „Gesamtpreis 1.620,00 € aus Kalkulation v3“. */
   preis: { text: string; kalkulationUrl: string };
-  /** Hinweis oben im Editor: kein KV (Link Kalkulation) oder Ausgangs-KV rekonstruiert. */
-  hinweis: "kein_kv" | "rekonstruiert" | null;
+  /**
+   * Hinweis oben im Editor: kein KV (Link Kalkulation), Ausgangs-KV rekonstruiert, oder das neueste KV
+   * hat keinen Stand, es gibt aber ältere (Upload von Hand; „Änderungen aus Stand N übertragen“, Spec 7.4).
+   */
+  hinweis: "kein_kv" | "rekonstruiert" | "quelle_ohne_stand" | null;
   /** Anzahl offener Konflikte im aktuellen bzw. neuesten Stand (gelber Streifen). */
   offeneKonflikte: number;
 }
@@ -239,11 +271,12 @@ export interface KvStandDetail extends KvStandKopf {
 // Eingaben und Antworten der Routen (Plan Aufgabe 5)
 // ════════════════════════════════════════════════════════════════════════
 
+/** Ohne `quelle`: der Server leitet `ki` nur aus einer geprüften `kiNachrichtId` ab, sonst `hand` (Spec 7.2). */
 export interface StandAnlegenEingabe {
   vorgaengerId: string;
   setzen: { schluessel: string; wert: KvWert }[];
   zuruecksetzen: string[];
-  quelle: "hand" | "ki";
+  /** ID des `kv_editor.chat`-Ereignisses der KI-Antwort, aus der übernommen wird (höchstens einmal). */
   kiNachrichtId?: string;
 }
 
@@ -321,6 +354,10 @@ export interface KvEditorFehlerDaten {
   ANGABEN_FEHLEN: { text: string };
   VPS_FEHLER: undefined;
   KI_FEHLER: undefined;
+  /** Die KI arbeitet noch an der letzten Nachricht zu diesem Deal. */
+  LAEUFT: undefined;
+  /** Annahme aufheben ohne Admin-Rolle. */
+  NUR_ADMIN: undefined;
 }
 
 export interface KvEditorFehlerAntwort<C extends KvEditorFehler = KvEditorFehler> {
@@ -339,6 +376,8 @@ export const KV_EDITOR_STATUS: Record<KvEditorFehler, number> = {
   ANGABEN_FEHLEN: 400,
   VPS_FEHLER: 502,
   KI_FEHLER: 504,
+  LAEUFT: 409,
+  NUR_ADMIN: 403,
 };
 
 /** Interne Texte (du, ohne Gedankenstrich). Fehlercodes und Ablehnungsgründe. */
@@ -354,15 +393,20 @@ export const KV_EDITOR_TEXT: Record<KvEditorFehler | KvAblehnung, string> = {
   ANGABEN_FEHLEN: "Am Lead fehlen Angaben für den KV. Bitte in der Akte ergänzen.",
   VPS_FEHLER: "Druck konnte nicht starten. Bitte gleich nochmal speichern.",
   KI_FEHLER: "Die KI braucht gerade zu lange. Bitte nochmal schicken.",
+  LAEUFT: "Die KI arbeitet noch an deiner letzten Nachricht.",
+  NUR_ADMIN: "Nur ein Admin kann ein angenommenes Angebot ändern.",
   UNBEKANNT: "Dieses Feld lässt sich im KV-Editor nicht ändern.",
   TYP: "Der Wert passt nicht zu diesem Feld.",
   ZU_LANG: "Der Text ist zu lang.",
-  PREIS: "Beträge gehören nicht in den Text. Preise änderst du in der Kalkulation.",
+  PREIS: "Preisangaben (Beträge, Prozent, Rabatt, Zahlung) gehören nicht in den Text. Preise änderst du in der Kalkulation.",
   FIRMA_GESPERRT: "Im Preis nicht enthalten. Über die Kalkulation ändern.",
+  NICHT_VORGESCHLAGEN: "Diese Änderung stand so nicht im Vorschlag der KI.",
 };
 
-/** Zweite Anfrage an die KI, während die erste noch läuft (409 `UNGUELTIG`). */
-export const KV_KI_LAEUFT_TEXT = "Die KI arbeitet noch an deiner letzten Nachricht.";
+/** Zweite Anfrage an die KI, während die erste noch läuft (409 `LAEUFT`). */
+export const KV_KI_LAEUFT_TEXT = KV_EDITOR_TEXT.LAEUFT;
+/** Annahme aufheben ohne Admin (403 `NUR_ADMIN`, wie Plan 16). */
+export const KV_NUR_ADMIN_TEXT = KV_EDITOR_TEXT.NUR_ADMIN;
 /** KI hat nichts Gültiges geliefert (Ablehnung `LEER`). */
 export const KV_KI_LEER_TEXT = "Dazu kann ich im KV nichts ändern.";
 /** Hinweise im Editor (Spec 7.4, Plan Aufgabe 0). */
@@ -370,8 +414,18 @@ export const KV_HINWEIS_KEIN_KV = "Noch kein KV. Erst in der Kalkulation erstell
 export const KV_HINWEIS_REKONSTRUIERT =
   "Dieser KV entstand vor dem Editor. Beim ersten Speichern wird neu gedruckt; ein früherer Sonderhinweis oder eigener Anschreibentext fehlt dann.";
 export const KV_HINWEIS_FELDER_GEPRUEFT = "Felder werden geprüft. Bis dahin lässt sich dieser KV hier nicht ändern.";
+export const KV_HINWEIS_QUELLE_OHNE_STAND = "Der aktuelle KV stammt nicht aus dem Editor.";
 /** Stand verworfen, weil die Kalkulation beim Ablegen schon neuer war (Spec 7.6). */
 export const KV_STAND_VERWORFEN_TEXT = "KV verworfen, Kalkulation neuer";
+/** Stand `fehler`: Preisprüfung des VPS-PDFs ergab `abweichung` (Spec 7.3). */
+export const KV_PREIS_ABWEICHUNG_TEXT =
+  "Preis im Druck weicht von der Kalkulation ab. Bitte neu drucken; bleibt es so, Claude Bescheid sagen.";
+/** Stand `fehler`: Preisprüfung ergab `nicht_lesbar`. */
+export const KV_PDF_NICHT_PRUEFBAR_TEXT = "PDF nicht prüfbar. Bitte neu drucken.";
+/** Stand `fehler`: neuer KV verworfen, weil inzwischen ein Stand von Hand oder KI gepusht wurde (Spec 7.6 Schritt 4). */
+export function kvVerworfenPushText(nummer: number): string {
+  return `Inzwischen wurde Stand ${nummer} gepusht. KV neu erstellen, die Änderungen wandern mit.`;
+}
 
 // ════════════════════════════════════════════════════════════════════════
 // Konstanten
@@ -379,7 +433,7 @@ export const KV_STAND_VERWORFEN_TEXT = "KV verworfen, Kalkulation neuer";
 
 export const KV_CHAT_EVENT = "kv_editor.chat" as const;
 export const KV_EDITOR_KI_SLUG = "deal.kv-editor" as const;
-/** Anrede im KV-Text bei VPS-KVs (Kottke). Frage an den Inhaber offen; Empfehlung: wie das Dokument, Sie. */
+/** Anrede im KV-Text bei VPS-KVs (Kottke). Inhaber 18.11.: wie das Dokument, Sie. */
 export const KV_ANREDE_VPS: "sie" | "du" = "sie";
 
 /** Abfrage eines druckenden Stands im Browser. */
@@ -410,19 +464,20 @@ export function kvEditorApiPfad(dealId: string): string {
 // Schlüssel-Schema (Spec 6)
 // ════════════════════════════════════════════════════════════════════════
 //
-// Form `<bereich>:<ziel>:<feld>`. `bereich` ist ein Abschnitt oder einer der
-// Unterbereiche der Küche (`kueche-leistung`, `kueche-teil`, beide im Abschnitt
-// `kueche`). Das Ziel ist eine Lead-Kennung (Umzugsgut-ID, Anhang-ID,
-// Leistungsschlüssel), keine Position, darum stabil über Kalkulationsversionen.
+// Form `<bereich>:<ziel>:<feld>`. `bereich` ist ein Abschnitt oder der Unterbereich
+// `kueche-leistung` (Abschnitt `kueche`). Das Ziel ist eine Lead-Kennung
+// (`deal_inventory_items.id`, Anhang-ID, Leistungsschlüssel) oder ein fester Name,
+// nie eine Position, darum stabil über Kalkulationsversionen. Umzugsgut ohne Lead-ID
+// (gespeichertes Inventar, Altbestand, MCP) ist nicht änderbar.
 // Das Ziel darf Doppelpunkte enthalten: `schluesselTeile` trennt am ersten und
 // am letzten Doppelpunkt.
 
-export const KV_BEREICHE = [...KV_ABSCHNITTE, "kueche-leistung", "kueche-teil"] as const;
+export const KV_BEREICHE = [...KV_ABSCHNITTE, "kueche-leistung"] as const;
 export type KvBereich = (typeof KV_BEREICHE)[number];
 
-/** Abschnitt eines Bereichs (`kueche-leistung`, `kueche-teil` → `kueche`). */
+/** Abschnitt eines Bereichs (`kueche-leistung` → `kueche`). */
 export function abschnittVon(bereich: KvBereich): KvAbschnitt {
-  return bereich === "kueche-leistung" || bereich === "kueche-teil" ? "kueche" : bereich;
+  return bereich === "kueche-leistung" ? "kueche" : bereich;
 }
 
 function istBereich(s: string): s is KvBereich {
@@ -448,34 +503,12 @@ export function schluesselTeile(
   return { bereich, abschnitt: abschnittVon(bereich), ziel: s.slice(a + 1, b), feld: s.slice(b + 1) };
 }
 
-/**
- * Normalform eines Namens für Ziele ohne ID. Gleiche Regel wie
- * `positionSchluessel` in `lib/kalkulation-versionen` (Test hält beide gleich;
- * hier dupliziert, damit die Oberfläche den Rechner nicht mitlädt).
- */
-export function kvNamensSchluessel(name: string): string {
-  return name.trim().replace(/\s+/g, " ").toLocaleLowerCase("de-DE");
-}
-
-/**
- * Ziel eines Umzugsguts ohne `deal_inventory_items.id` (Altbestand, MCP):
- * `n-<kvNamensSchluessel(name)>~<k>`, k = 1 für das erste Vorkommen dieses Namens.
- */
-export function umzugsgutZielOhneId(name: string, k: number): string {
-  return `n-${kvNamensSchluessel(name)}~${k}`;
-}
-
-/** Ziel eines Küchenteils: `<kvNamensSchluessel(name)>~<k>`, k = 1 für das erste Vorkommen. */
-export function kuechenTeilZiel(name: string, k: number): string {
-  return `${kvNamensSchluessel(name)}~${k}`;
-}
-
 // ════════════════════════════════════════════════════════════════════════
 // Feste Felderliste (Spec 6.1, 6.2)
 // ════════════════════════════════════════════════════════════════════════
 
-/** Platzhalter im Muster: `{key}` Leistungsschlüssel, `{inventarId}`, `{attachmentId}`, `{teil}`. */
-export type KvPlatzhalter = "key" | "inventarId" | "attachmentId" | "teil";
+/** Platzhalter im Muster: `{key}` Leistungsschlüssel, `{inventarId}` (`deal_inventory_items.id`), `{attachmentId}`. */
+export type KvPlatzhalter = "key" | "inventarId" | "attachmentId";
 
 export interface KvFeldDef {
   /** z. B. "umzugsgut:{inventarId}:notiz"; für feste Ziele der Schlüssel selbst. */
@@ -495,7 +528,7 @@ export interface KvFeldDef {
 type DefEingabe = Omit<KvFeldDef, "muster" | "abschnitt" | "ziel"> & { ziel: string };
 
 function def(e: DefEingabe): KvFeldDef {
-  const m = /^\{(key|inventarId|attachmentId|teil)\}$/.exec(e.ziel);
+  const m = /^\{(key|inventarId|attachmentId)\}$/.exec(e.ziel);
   return {
     ...e,
     muster: `${e.bereich}:${e.ziel}:${e.feld}`,
@@ -504,12 +537,14 @@ function def(e: DefEingabe): KvFeldDef {
   };
 }
 
-/** Freitextfelder der Küche (`kueche:<feld>:text`), Reihenfolge wie im KV. */
+/**
+ * Freitextfelder der Küche (`kueche:<feld>:text`), Reihenfolge wie im KV. Ohne `companyWork`
+ * („Unsere Arbeiten“ ist Leistungsumfang, nur über die Kalkulation; Kimi 15).
+ */
 export const KV_KUECHE_TEXTFELDER = [
   "details",
   "dimensions",
   "customerPrep",
-  "companyWork",
   "excluded",
   "otherContractor",
   "notes",
@@ -521,7 +556,6 @@ export const KV_KUECHE_TEXTFELD_LABEL: Record<KvKuecheTextfeld, string> = {
   details: "Details",
   dimensions: "Maße",
   customerPrep: "Vorbereitung durch den Kunden",
-  companyWork: "Unsere Arbeiten",
   excluded: "Nicht enthalten",
   otherContractor: "Andere Gewerke",
   notes: "Hinweise",
@@ -572,23 +606,21 @@ export const KV_FELDER_VPS: readonly KvFeldDef[] = [
   ),
   def({ bereich: "kueche-leistung", ziel: "{key}", feld: "notiz", label: "Notiz", art: "langtext", max: 500, wirkt: "document_details.kitchen.services[key].note" }),
   def({ bereich: "kueche-leistung", ziel: "{key}", feld: "zustaendig", label: "Zuständig", art: "zustaendig", wirkt: "document_details.kitchen.services[key].owner" }),
-  def({ bereich: "kueche-teil", ziel: "{teil}", feld: "notiz", label: "Notiz", art: "text", max: 300, wirkt: "document_details.kitchen.components[i].note" }),
 ];
 
 /** CRM-Renderer (Ceylan), Spec 6.2, Reihenfolge = KV. */
 export const KV_FELDER_CRM: readonly KvFeldDef[] = [
-  def({ bereich: "anschreiben", ziel: "einleitung", feld: "text", label: "Einleitung", art: "langtext", max: 2000, wirkt: "copy.intro (Absätze mit Leerzeile)" }),
+  def({ bereich: "anschreiben", ziel: "einleitung", feld: "text", label: "Einleitung", art: "langtext", max: 2000, wirkt: "copy.introText (Text nach der Begrüßung; löscht ein altes copy.intro)" }),
   def({ bereich: "uebersicht", ziel: "zusammenfassung", feld: "text", label: "Leistung", art: "langtext", max: 1000, wirkt: "RenderInput.quotation.summary (nur PDF, nicht die Quotation)" }),
   def({ bereich: "bemerkungen", ziel: "text", feld: "text", label: "Bemerkungen", art: "langtext", max: 2000, wirkt: "copy.remarks" }),
   def({ bereich: "anschreiben", ziel: "schluss", feld: "text", label: "Schluss", art: "langtext", max: 2000, wirkt: "copy.closing" }),
 ];
 
 /**
- * Ergebnis der VPS-Feldprüfung V1 (Muster aus `KV_FELDER_VPS`). Nur diese Felder
- * erscheinen in Formular und KI-Katalog; ungeprüfte bleiben im Code, sind aber aus.
- * Leer bis V1 durch ist: das VPS-Formular zeigt dann `KV_HINWEIS_FELDER_GEPRUEFT`.
- * `zustaendig` und `zeigen` haben keinen Markierungstext; V1 prüft sie über die
- * Zeile bzw. das Bild im PDF.
+ * Ergebnis der VPS-Feldprüfung V1: konkrete Schlüssel (`leistungen:transport:notiz`) oder
+ * Muster für gleichartige Zeilen (`umzugsgut:{inventarId}:notiz`), Kimi 16. Nur diese Felder
+ * erscheinen in Formular und KI-Katalog; ungeprüfte bleiben im Code, sind aber aus. Leer bis
+ * V1 durch ist (auch die Preisprüfung): das VPS-Formular zeigt dann `KV_HINWEIS_FELDER_GEPRUEFT`.
  */
 export const KV_FELDER_VPS_GEPRUEFT: ReadonlySet<string> = new Set<string>([]);
 
@@ -607,7 +639,7 @@ export function feldDefFuer(renderer: KvRenderer, schluessel: string): KvFeldDef
   return null;
 }
 
-/** Ist das Feld zu diesem Schlüssel freigeschaltet? CRM: immer, VPS: nur nach V1. */
+/** Ist das Feld zu diesem Schlüssel freigeschaltet? CRM: immer, VPS: Schlüssel oder Muster aus V1. */
 export function feldFreigeschaltet(
   renderer: KvRenderer,
   schluessel: string,
@@ -615,7 +647,7 @@ export function feldFreigeschaltet(
 ): boolean {
   const d = feldDefFuer(renderer, schluessel);
   if (!d) return false;
-  return renderer === "crm" || gepruefte.has(d.muster);
+  return renderer === "crm" || gepruefte.has(schluessel) || gepruefte.has(d.muster);
 }
 
 // ════════════════════════════════════════════════════════════════════════
@@ -627,7 +659,7 @@ export interface VpsPaketTeile {
   details: QuotationDocumentDetails;
   /** `params.auftrag` */
   auftrag: Record<string, unknown>;
-  /** Je `details.inventory[i]` die `deal_inventory_items.id`; null = ohne ID (Altbestand). */
+  /** Je `details.inventory[i]` die `deal_inventory_items.id`; null = ohne ID (gespeichertes Inventar, nur lesend). */
   inventarIds: (string | null)[];
   /** `_image_attachment_ids` der Grundlage. */
   bildIds: string[];
@@ -644,12 +676,14 @@ export interface PruefErgebnis {
   abgelehnt: { schluessel: string; grund: KvAblehnung }[];
 }
 
+/**
+ * Spec 7.6 Schritt 2. `liste`: Ziel da und Basis gleich `vorher` (angewendet) oder Basis schon
+ * gleich `wert` (bleibt wirkungslos in der Liste, `vorher` = neue Basis); dazu offene Konflikte
+ * der Quelle, die jetzt passen. `konflikte`: `basis_geaendert`, `ziel_fehlt`, `nicht_erlaubt`,
+ * Status `offen`, mit neuer `basisJetzt`; verworfene Konflikte der Quelle fallen weg.
+ */
 export interface AbgleichErgebnis {
-  /** Ziel da, Basis gleich `vorher`: wird angewendet. */
-  passend: KvAenderung[];
-  /** Ziel da, Basis schon gleich `wert`: fällt still weg. */
-  erledigt: KvAenderung[];
-  /** `basis_geaendert`, `ziel_fehlt`, `nicht_erlaubt`, alle mit Status `offen`. */
+  liste: KvAenderung[];
   konflikte: KvKonflikt[];
 }
 
@@ -668,6 +702,10 @@ export interface PushPruefEingabe {
   schonGepusht: boolean;
   annahmeAktiv: boolean;
   annahmeAufhebenBestaetigt: boolean;
+  /** `workspaceRole === "admin"`. */
+  admin: boolean;
+  /** VPS: `pruefung.preis === "ok"`; CRM: immer true. */
+  preisOk: boolean;
 }
 
 export type PushPruefErgebnis = { ok: true; annahmeAufheben: boolean } | { ok: false; fehler: KvEditorFehler };
@@ -676,21 +714,26 @@ export type PushPruefErgebnis = { ok: true; annahmeAufheben: boolean } | { ok: f
  * Was `lib/kv-editor-anwenden.ts` exportiert. Dort zur Prüfung:
  * `const _vertrag: KvEditorKern = { vpsBasis, vpsAnwenden, … };`
  *
- * Regeln (Plan Aufgabe 1): Umzugsgut-Ziel = Inventar-ID oder `umzugsgutZielOhneId`;
- * `zeigen` nur `true → false` und zurück; `zustaendig` `company` nur bei
- * `basis === "company"` (`FIRMA_GESPERRT`); Text getrimmt, leer erlaubt, über `max`
- * → `ZU_LANG`; Betrag (Regel `BETRAG` aus `lib/ohne-preisangaben.ts`) → `PREIS`;
- * Schlüssel nicht im Katalog der Basis → `UNBEKANNT`; falscher Typ → `TYP`.
- * Anwenden ändert nie `preise`, Mengen, `validUntil`, `cardAgreed`.
+ * Regeln (Plan Aufgabe 1): Umzugsgut nur mit `deal_inventory_items.id`; `zeigen` nur
+ * `true → false` und zurück; `zustaendig` `company` nur bei `basis === "company"`
+ * (`FIRMA_GESPERRT`); Text getrimmt, leer erlaubt, über `max` → `ZU_LANG`;
+ * `preisVerdacht` → `PREIS`; Schlüssel nicht im Katalog der Basis → `UNBEKANNT`;
+ * falscher Typ → `TYP`. Anwenden schreibt nur die Pfade aus `KvFeldDef.wirkt`, nie
+ * `preise`, Mengen, `validUntil`, `cardAgreed`.
  */
 export interface KvEditorKern {
   /** Katalog aus dem Paket; nur Felder, deren Muster in `gepruefte` steht. */
   vpsBasis(p: VpsPaketTeile, gepruefte: ReadonlySet<string>): KvBasis;
   vpsAnwenden(p: VpsPaketTeile, aenderungen: readonly KvAenderung[]): VpsAngewendet;
-  /** Katalog aus dem gedruckten Modell ohne Änderungen (Absätze mit Leerzeile verbunden). */
-  crmBasis(model: Pick<DocumentModel, "intro" | "closing" | "remarks" | "summary">): KvBasis;
+  /**
+   * Katalog aus dem gedruckten Modell ohne Änderungen (Absätze mit Leerzeile verbunden).
+   * Einleitung = `copy.introText` ?? `copy.intro` ?? Text nach der Begrüßung (`model.intro` ohne erste Zeile).
+   */
+  crmBasis(model: Pick<DocumentModel, "intro" | "closing" | "remarks" | "summary">, copy: KvGrundlageCrm["copy"]): KvBasis;
   crmAnwenden(input: RenderInput, aenderungen: readonly KvAenderung[]): RenderInput;
-  abgleichen(basis: KvBasis, aenderungen: readonly KvAenderung[]): AbgleichErgebnis;
+  abgleichen(basis: KvBasis, aenderungen: readonly KvAenderung[], offen: readonly KvKonflikt[]): AbgleichErgebnis;
+  /** Spec 6.4: Betrag, Prozent, Preis- und Zahlungswörter, dreistellige Zahl ohne Einheit und ohne Datum. */
+  preisVerdacht(text: string): boolean;
   pruefeEingabe(basis: KvBasis, setzen: readonly { schluessel: string; wert: unknown }[]): PruefErgebnis;
   /** Neue vollständige Liste; ein Wert gleich der Basis entfernt die Änderung. */
   listeFortschreiben(
@@ -706,8 +749,30 @@ export interface KvEditorKern {
     deren: readonly KvAenderung[]
   ): ZusammenfuehrenErgebnis;
   standUnterschied(basis: KvBasis, alt: readonly KvAenderung[], neu: readonly KvAenderung[]): KvUnterschiedZeile[];
-  /** Reihenfolge: nicht fertig, schon gepusht (`UNGUELTIG`), Aktuell geändert, Kalkulation neu, Annahme. */
+  /**
+   * Reihenfolge: nicht fertig oder `!preisOk` (`STAND_NICHT_FERTIG`), schon gepusht (`UNGUELTIG`),
+   * `AKTUELL_GEAENDERT`, `KALKULATION_NEU`, Annahme aktiv ohne Bestätigung (`ANNAHME_AKTIV`),
+   * mit Bestätigung ohne Admin (`NUR_ADMIN`).
+   */
   pushPruefung(e: PushPruefEingabe): PushPruefErgebnis;
+  /**
+   * Erwartet: alle Beträge aus `pauschale_positionen[].betrag`, `pauschale_betrag`,
+   * `stundensatz_helfer_eur`, `stundensatz_transporter_eur`, `anzahlung_betrag_eur` (Euro → Cent) und
+   * `gesamtCent`. Erlaubt: 0, `bezahltCent`, `gesamtCent − bezahltCent`, `gesamtCent − anzahlung`,
+   * `anzahlung − bezahltCent` (nur ≥ 0).
+   */
+  vpsErwarteteBetraege(
+    preise: Record<string, unknown>,
+    e: { gesamtCent: number | null; bezahltCent: number }
+  ): { erwartetCent: number[]; erlaubtCent: number[] };
+  /**
+   * Text bis „Vertragsunterlagen“, Beträge `1.234,56 €` als Cent (geschütztes Leerzeichen zählt als
+   * Leerzeichen); fehlt ein erwarteter oder steht ein fremder Betrag: `abweichung`.
+   */
+  vpsPreisPruefung(
+    text: string,
+    p: { erwartetCent: number[]; erlaubtCent: number[] }
+  ): Pick<KvPreisPruefung, "preis" | "fehlt" | "fremd">;
 }
 
 // ════════════════════════════════════════════════════════════════════════
@@ -738,9 +803,15 @@ export interface KvEditorKiRein {
  * (`KvEditorOptionen` im Dienst). Fehler als `KvEditorFehlerKlasse` mit `code`
  * aus `KvEditorFehler` und `daten` nach `KvEditorFehlerDaten`.
  */
+/** Mensch hinter dem Aufruf; `admin` aus `workspaceRole === "admin"` (Route), der Dienst prüft erneut. */
+export interface KvAufrufer {
+  userId: string;
+  admin: boolean;
+}
+
 export interface KvEditorDienst {
-  /** Legt bei Bedarf „Stand 1, Ausgangs-KV“ an (Spec 7.4). */
-  ansicht(ws: string, deal: string): Promise<KvEditorAnsicht>;
+  /** Legt bei Bedarf „Stand 1, Ausgangs-KV“ an (Spec 7.4); `annahme.aufhebenErlaubt` aus `wer.admin`. */
+  ansicht(ws: string, deal: string, wer: KvAufrufer): Promise<KvEditorAnsicht>;
   standLesen(ws: string, deal: string, standId: string): Promise<KvStandDetail>;
   standPdf(
     ws: string,
@@ -748,8 +819,9 @@ export interface KvEditorDienst {
     standId: string
   ): Promise<{ fileName: string; mimeType: string; bytes: Buffer } | null>;
   standAnlegen(ws: string, deal: string, e: StandAnlegenEingabe, userId: string): Promise<KvStandKopf>;
+  /** Neuer Stand mit derselben Liste und Grundlage (Kimi 21), eigener Druck. */
   neuDrucken(ws: string, deal: string, standId: string, userId: string): Promise<KvStandKopf>;
-  pushen(ws: string, deal: string, standId: string, e: PushenEingabe, userId: string): Promise<PushenAntwort>;
+  pushen(ws: string, deal: string, standId: string, e: PushenEingabe, wer: KvAufrufer): Promise<PushenAntwort>;
   konflikteEntscheiden(ws: string, deal: string, e: KonflikteEingabe, userId: string): Promise<KonflikteAntwort>;
   /** `KALKULATION_NEU`: Liste dieses Stands auf den aktuellen KV legen. */
   uebertragen(ws: string, deal: string, standId: string, userId: string): Promise<KvStandKopf>;
@@ -757,20 +829,38 @@ export interface KvEditorDienst {
   kvChatVerlauf(ws: string, deal: string): Promise<KvChatBeitrag[]>;
 }
 
-/** Haken für neue KVs aus der Kalkulation (Route `/api/tools/run`, `storeCommercialDocument`). */
+/**
+ * Stand zu einem neuen KV aus der Kalkulation (Spec 7.6 Schritt 3). Quelle `neu` ohne Änderungen
+ * und ohne `quelleId`, sonst `mitgewandert`. VPS: in der Transaktion mit `jobAnlegen` (Ziel
+ * `aktuell`), `status druckt`. CRM: in der Transaktion mit `createDealDocument`, `status fertig`.
+ */
 export interface KvStandZumNeuenKvEingabe {
   renderer: KvRenderer;
   grundlage: KvGrundlage;
-  basis: KvBasis;
-  /** Änderungsliste des Quell-Stands (leer: Stand `neu`). */
-  quelle: KvAenderung[];
+  /** `abgleichen(...).liste` (leer: Stand `neu`). */
+  aenderungen: KvAenderung[];
+  /** `abgleichen(...).konflikte`. */
+  offen: KvKonflikt[];
+  /** Stand des bisher aktuellen KV, aus dem die Liste stammt; wird `vorgaenger_id`. */
+  quelleId: string | null;
   calculationVersionId: string | null;
+  /** VPS: Job im Register. */
   renderJobId: string | null;
+  /** CRM: abgelegtes Dokument. */
   dealDocumentId: string | null;
+  /** CRM: PDF des Dokuments; jeder Stand behält seine Datei (Spec 5.1). */
+  datei?: { fileName: string; fileSize: number; fileContent: string } | null;
+  /** VPS: `erwartetCent`/`erlaubtCent` aus `vpsErwarteteBetraege`, `preis: "offen"`. CRM: null. */
+  pruefung: KvPreisPruefung | null;
   userId: string | null;
 }
 
+/** Stub in `services/kv-editor-haken.ts` (0b), Aufgabe 3 ersetzt ihn. */
 export interface KvEditorHaken {
-  kvEditorBeimNeuenKv(ws: string, deal: string): Promise<{ quelle: { id: string; aenderungen: KvAenderung[] } | null }>;
-  kvEditorStandZumNeuenKv(ws: string, deal: string, e: KvStandZumNeuenKvEingabe): Promise<KvStandKopf>;
+  /** Quelle nur der Stand, dessen `deal_document_id` das aktuelle KV ist (Kimi 2), sonst null. */
+  kvEditorBeimNeuenKv(
+    ws: string,
+    deal: string
+  ): Promise<{ quelle: { id: string; aenderungen: KvAenderung[]; offen: KvKonflikt[] } | null }>;
+  kvEditorStandZumNeuenKv(ex: DbExecutor, ws: string, deal: string, e: KvStandZumNeuenKvEingabe): Promise<KvStandKopf>;
 }

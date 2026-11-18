@@ -95,7 +95,10 @@ export type ActivityEventType =
   // Plan 14: Zählung ohne Datensatz (record_id null), erscheint in keinem Deal-Protokoll.
   // Nutzlast QuotationZaehlung bzw. AltAufruf aus lib/dunkel-abschaltung.ts.
   | "quotation.put"
-  | "alte_seite.aufruf";
+  | "alte_seite.aufruf"
+  // KV-Editor: Chat-Beitrag (Nutzer oder KI), still und nur angehängt; payload KvChatEreignis aus lib/kv-editor.ts.
+  // Geschrieben über einen eigenen Insert mit Rückgabe der ID, nicht über emitEvent.
+  | "kv_editor.chat";
 
 export interface EmitEventInput {
   workspaceId: string;

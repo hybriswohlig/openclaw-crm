@@ -25,7 +25,9 @@ CREATE TABLE IF NOT EXISTS "kv_staende" (
   "erstellt_von" text,
   "created_at" timestamptz NOT NULL DEFAULT now(),
   "gepusht_von" text,
-  "gepusht_am" timestamptz
+  "gepusht_am" timestamptz,
+  "pruefung" jsonb,
+  "ki_nachricht_id" text
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX IF NOT EXISTS "kv_staende_deal_nummer_uq" ON "kv_staende" ("deal_record_id", "nummer");
@@ -34,9 +36,15 @@ CREATE INDEX IF NOT EXISTS "kv_staende_ws_deal_idx" ON "kv_staende" ("workspace_
 --> statement-breakpoint
 CREATE UNIQUE INDEX IF NOT EXISTS "kv_staende_dokument_uq" ON "kv_staende" ("deal_document_id") WHERE "deal_document_id" IS NOT NULL;
 --> statement-breakpoint
+-- Ein KI-Vorschlag wird höchstens einmal übernommen.
+CREATE UNIQUE INDEX IF NOT EXISTS "kv_staende_ki_nachricht_uq" ON "kv_staende" ("ki_nachricht_id") WHERE "ki_nachricht_id" IS NOT NULL;
+--> statement-breakpoint
 ALTER TABLE "document_render_jobs" ADD COLUMN IF NOT EXISTS "kv_stand_id" text;
 --> statement-breakpoint
 ALTER TABLE "document_render_jobs" ADD COLUMN IF NOT EXISTS "kv_stand_ziel" text;
+--> statement-breakpoint
+-- Ein Druckjob je Stand.
+CREATE UNIQUE INDEX IF NOT EXISTS "document_render_jobs_kv_stand_uq" ON "document_render_jobs" ("kv_stand_id") WHERE "kv_stand_id" IS NOT NULL;
 --> statement-breakpoint
 DO $$
 BEGIN
