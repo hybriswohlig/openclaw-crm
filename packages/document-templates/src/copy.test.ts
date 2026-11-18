@@ -391,6 +391,36 @@ describe("preview", () => {
     expect(model.paymentTerms).not.toContain("9999");
   });
 
+  it("introText replaces only the text after the greeting; the greeting follows the deal", () => {
+    const mit = (givenName: string, introText: string | undefined) =>
+      buildDocumentModel({
+        kind: "KV",
+        deal: { ...deal, customerName: `${givenName} Heiker`, givenName, addressForm: "du" },
+        quotation: quotation(),
+        copy: { introText },
+      });
+    expect(mit("Kyra", "Wie besprochen kommen wir zu dritt.").intro).toEqual([
+      "Hallo Kyra,",
+      "Wie besprochen kommen wir zu dritt.",
+    ]);
+    // Name am Lead geändert: neue Begrüßung, eigener Text bleibt.
+    expect(mit("Mira", "Wie besprochen kommen wir zu dritt.").intro).toEqual([
+      "Hallo Mira,",
+      "Wie besprochen kommen wir zu dritt.",
+    ]);
+    // Leer: nur die Begrüßung. Ohne introText: Standardtext.
+    expect(mit("Mira", "  ").intro).toEqual(["Hallo Mira,"]);
+    expect(mit("Mira", undefined).intro[1]).toContain("Vielen Dank");
+    // Ein altes copy.intro hat Vorrang (Altbestand).
+    const alt = buildDocumentModel({
+      kind: "KV",
+      deal: { ...deal, addressForm: "du" },
+      quotation: quotation(),
+      copy: { intro: "Alter Text.", introText: "Neu." },
+    });
+    expect(alt.intro).toEqual(["Alter Text."]);
+  });
+
   it("prints the transport wording in the PDF as well", async () => {
     const model = buildDocumentModel({
       kind: "AB",

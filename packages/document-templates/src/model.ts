@@ -46,6 +46,7 @@ export function buildDocumentModel(input: RenderInput): DocumentModel {
   });
   const copy: DocumentCopy = {
     intro: cleanCopy(input.copy?.intro),
+    introText: input.copy?.introText === undefined ? undefined : (cleanCopy(input.copy.introText) ?? ""),
     closing: cleanCopy(input.copy?.closing),
     remarks: cleanCopy(input.copy?.remarks),
   };
