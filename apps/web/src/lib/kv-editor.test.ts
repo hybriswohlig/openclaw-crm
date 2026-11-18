@@ -79,9 +79,44 @@ describe("Vertrag KV-Editor: Felderliste", () => {
     expect(feldDefFuer("crm", "preise:pauschale_betrag:text")).toBeNull();
   });
 
-  it("VPS-Felder erst nach V1, je Schlüssel oder je Muster; CRM immer", () => {
-    expect(KV_FELDER_VPS_GEPRUEFT.size).toBe(0);
-    expect(feldFreigeschaltet("vps", "vereinbarungen:text:text")).toBe(false);
+  it("VPS-Felder nach V1: freigegebene Schlüssel und Muster mit Platzhaltern, die fünf ungeprüften Notizen aus", () => {
+    const an = [
+      "uebersicht:termin:zeit",
+      "uebersicht:umzugsgut:text",
+      "leistungen:transport:notiz",
+      "leistungen:materials:notiz",
+      "leistungen:unpacking:zustaendig",
+      "leistungen:parkingDestination:zustaendig",
+      "umzugsgut:7f3c2a10-inv:bezeichnung",
+      "umzugsgut:inv_1:raum",
+      "umzugsgut:inv_1:notiz",
+      "umzugsgut:inv_1:demontage",
+      "umzugsgut:inv_1:montage",
+      "bilder:att_99:zeigen",
+      "vereinbarungen:text:text",
+      "kueche:details:text",
+      "kueche:time:text",
+      "kueche-leistung:worktop:notiz",
+      "kueche-leistung:delivery:zustaendig",
+    ];
+    for (const s of an) expect(feldFreigeschaltet("vps", s), s).toBe(true);
+    const aus = [
+      "leistungen:unpacking:notiz",
+      "leistungen:parkingDestination:notiz",
+      "kueche-leistung:delivery:notiz",
+      "kueche-leistung:connections:notiz",
+      "kueche-leistung:disposal:notiz",
+      "kueche:companyWork:text",
+      "uebersicht:termin:datum",
+    ];
+    for (const s of aus) expect(feldFreigeschaltet("vps", s), s).toBe(false);
+    // Jeder Eintrag der Liste ist ein konkreter Schlüssel oder das Muster einer Felddefinition.
+    const muster = new Set(KV_FELDER_VPS.map((d) => d.muster));
+    for (const s of KV_FELDER_VPS_GEPRUEFT) expect(muster.has(s) || feldDefFuer("vps", s) !== null, s).toBe(true);
+  });
+
+  it("Freigabe je Schlüssel oder je Muster; CRM immer", () => {
+    expect(feldFreigeschaltet("vps", "vereinbarungen:text:text", new Set())).toBe(false);
     const je = new Set(["leistungen:transport:notiz", "umzugsgut:{inventarId}:notiz"]);
     expect(feldFreigeschaltet("vps", "leistungen:transport:notiz", je)).toBe(true);
     expect(feldFreigeschaltet("vps", "leistungen:packing:notiz", je)).toBe(false);

@@ -628,10 +628,39 @@ export const KV_FELDER_CRM: readonly KvFeldDef[] = [
 /**
  * Ergebnis der VPS-Feldprüfung V1: konkrete Schlüssel (`leistungen:transport:notiz`) oder
  * Muster für gleichartige Zeilen (`umzugsgut:{inventarId}:notiz`), Kimi 16. Nur diese Felder
- * erscheinen in Formular und KI-Katalog; ungeprüfte bleiben im Code, sind aber aus. Leer bis
- * V1 durch ist (auch die Preisprüfung): das VPS-Formular zeigt dann `KV_HINWEIS_FELDER_GEPRUEFT`.
+ * erscheinen in Formular und KI-Katalog; ungeprüfte bleiben im Code, sind aber aus.
+ *
+ * V1 (18.11., Koordinator ausgewertet): der VPS druckt Textfelder wörtlich, Preise in allen Normaldrucken ok.
+ * Aus bleiben die Notizen, die im Test nicht erschienen (Leistung „nicht vorgesehen“):
+ * `leistungen:unpacking|parkingDestination:notiz`, `kueche-leistung:delivery|connections|disposal:notiz`.
  */
-export const KV_FELDER_VPS_GEPRUEFT: ReadonlySet<string> = new Set<string>([]);
+export const KV_FELDER_VPS_GEPRUEFT: ReadonlySet<string> = new Set<string>([
+  "uebersicht:termin:zeit",
+  "uebersicht:auszug:details",
+  "uebersicht:einzug:details",
+  "uebersicht:umzugsgut:text",
+  "leistungen:transport:notiz",
+  "leistungen:packing:notiz",
+  "leistungen:dismantling:notiz",
+  "leistungen:assembly:notiz",
+  "leistungen:parkingPickup:notiz",
+  "leistungen:materials:notiz",
+  "leistungen:{key}:zustaendig",
+  "umzugsgut:{inventarId}:bezeichnung",
+  "umzugsgut:{inventarId}:raum",
+  "umzugsgut:{inventarId}:notiz",
+  "umzugsgut:{inventarId}:demontage",
+  "umzugsgut:{inventarId}:montage",
+  "bilder:{attachmentId}:zeigen",
+  "vereinbarungen:text:text",
+  ...KV_KUECHE_TEXTFELDER.map((f) => `kueche:${f}:text`),
+  "kueche-leistung:installation:notiz",
+  "kueche-leistung:oldKitchenDismantling:notiz",
+  "kueche-leistung:worktop:notiz",
+  "kueche-leistung:appliances:notiz",
+  "kueche-leistung:packagingRemoval:notiz",
+  "kueche-leistung:{key}:zustaendig",
+]);
 
 export function kvFelderVon(renderer: KvRenderer): readonly KvFeldDef[] {
   return renderer === "vps" ? KV_FELDER_VPS : KV_FELDER_CRM;
