@@ -35,6 +35,8 @@ function zuJob(row: DocumentRenderJobRow): RenderJob {
     dealDocumentId: row.dealDocumentId,
     fehler: row.fehler,
     invoiceId: row.invoiceId ?? null,
+    kvStandId: row.kvStandId ?? null,
+    kvStandZiel: row.kvStandZiel ?? null,
   };
 }
 
@@ -66,6 +68,8 @@ export async function jobAnlegen(j: NeuerJob): Promise<void> {
       priceCents: j.priceCents,
       createdBy: j.createdBy,
       invoiceId: j.invoiceId ?? null,
+      kvStandId: j.kvStandId ?? null,
+      kvStandZiel: j.kvStandZiel ?? null,
     })
     .onConflictDoNothing({ target: documentRenderJobs.vpsJobId });
 }

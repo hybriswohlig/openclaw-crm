@@ -16,6 +16,7 @@
 import type { BuchungsAnteil, KapazitaetTon } from "@/lib/einsatz";
 import type { Uebersteuerung } from "@/lib/kalkulation-versionen";
 import type { HebelArt, KvPosten } from "@/services/rechner/kv-posten";
+import type { KvStandZiel } from "@/lib/kv-editor";
 
 const inCent = (eur: number) => Math.round(eur * 100);
 const postenCent = (p: readonly KvPosten[]) => p.reduce((s, x) => s + inCent(x.unitRate) * x.quantity, 0);
@@ -46,6 +47,10 @@ export interface RenderJob {
   fehler: string | null;
   /** Nur RE (Plan 9): Rechnungsdatensatz, der mit diesem Job gestellt wird. */
   invoiceId?: string | null;
+  /** KV-Editor (Migration 0070): Stand, zu dem dieser Job druckt; null ohne Editor-Bezug. */
+  kvStandId?: string | null;
+  /** `entwurf`: PDF in den Stand, nie in `deal_documents`; `aktuell`: neuer KV, der seinen Stand verknüpft. */
+  kvStandZiel?: KvStandZiel | null;
 }
 
 export const RENDER_JOB_RESERVIERUNG_MS = 2 * 60 * 1000;
