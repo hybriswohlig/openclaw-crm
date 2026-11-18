@@ -24,6 +24,12 @@ function gefuellt(x: unknown): boolean {
   return typeof x === "string" && x.trim() !== "" && x.trim() !== "—";
 }
 
+/** Leistung des Jobs: document_details.serviceType vor dem Top-Level-Feld (wie der Job-Kontext). */
+function leistungDesJobs(params: Record<string, unknown>): string {
+  const details = (params.document_details && typeof params.document_details === "object" ? params.document_details : {}) as Record<string, unknown>;
+  return String(details.serviceType || params.service_type || "move");
+}
+
 /** Was im Auftrag an die Vorlage fehlt, nach dem Umschreiben des Namens durch den Server. */
 export function fehlendeVpsAngaben(params: Record<string, unknown>): VpsPflicht[] {
   const kunde = (params.kunde && typeof params.kunde === "object" ? params.kunde : {}) as Record<string, unknown>;
@@ -31,6 +37,8 @@ export function fehlendeVpsAngaben(params: Record<string, unknown>): VpsPflicht[
   if (!gefuellt(kunde.nachname)) fehlt.push("kundenname");
   if (!gefuellt(kunde.adresse)) fehlt.push("auszug");
   // KV-Meldung 10.11.: VON und NACH dürfen nie still dieselbe Adresse zeigen.
+  // Eine Entrümpelung hat kein Ziel: die Vorlage liest dort nur den Einsatzort (strecke_von).
+  if (leistungDesJobs(params) === "clearance") return fehlt;
   const auftrag = (params.auftrag && typeof params.auftrag === "object" ? params.auftrag : {}) as Record<string, unknown>;
   if (gleicheAdresse(auftrag.strecke_von, auftrag.strecke_nach)) fehlt.push("einzug_gleich");
   return fehlt;
@@ -57,14 +65,17 @@ export interface JobFehler {
 /** Bekannte Abbrüche der Vorlage, in der Sprache der Disponenten. */
 const BEKANNT: Array<[RegExp, string]> = [
   [/kundenanschrift fehlt/i, "Kundenanschrift fehlt"],
-  [/umzug\.von\.adresse fehlt|von[_ .-]?adresse fehlt|strecke_von fehlt/i, "Auszugsadresse fehlt"],
-  [/umzug\.nach\.adresse fehlt|nach[_ .-]?adresse fehlt|strecke_nach fehlt/i, "Einzugsadresse fehlt"],
+  [/umzug\.(von|from)\.adresse fehlt|von[_ .-]?adresse fehlt|strecke_von fehlt/i, "Auszugsadresse fehlt"],
+  [/umzug\.(nach|to)\.adresse fehlt|nach[_ .-]?adresse fehlt|strecke_nach fehlt/i, "Einzugsadresse fehlt"],
+  // Entrümpelung (VPS seit 18.11.): Einsatzort ist die Adresse des Leads, der Termin das Umzugsdatum.
+  [/einsatzort fehlt/i, "Einsatzort fehlt"],
+  [/termin der entr(ü|ue)mpelung/i, "Termin der Entrümpelung fehlt"],
   [/(kunde\.)?nachname fehlt|kundenname fehlt/i, "Kundenname fehlt"],
   [/umzugsdatum fehlt|auftrag\.datum fehlt/i, "Umzugsdatum fehlt"],
 ];
 
 /** Gründe, die man in der Akte unter „Kunde und Adressen“ beheben kann: nur dann der Link. */
-const IN_DER_AKTE = /^((kundenanschrift|auszugsadresse|einzugsadresse|kundenname|umzugsdatum) fehlt|einzugsadresse ist gleich der auszugsadresse)$/i;
+const IN_DER_AKTE = /^((kundenanschrift|auszugsadresse|einzugsadresse|einsatzort|termin der entrümpelung|kundenname|umzugsdatum) fehlt|einzugsadresse ist gleich der auszugsadresse)$/i;
 
 function inDerAkte(grund: string): boolean {
   return grund.split(/,\s*/).every((g) => IN_DER_AKTE.test(g.trim()));

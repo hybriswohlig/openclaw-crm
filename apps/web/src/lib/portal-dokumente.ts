@@ -61,9 +61,25 @@ export function serviceTypeZuSpeichern(input: {
   return input.gespeichert === input.gewaehlt ? null : input.gewaehlt;
 }
 
-/** Der VPS kennt nur Umzug und Küche; Entrümpelung rendert im Umzugs-Layout. */
-export function vpsLeistungsart(art: ServiceArt): "move" | "kitchen_installation" {
-  return art === "kitchen_installation" ? "kitchen_installation" : "move";
+/**
+ * Leistungsart für die VPS-Vorlage. Seit 18.11. kennt sie Umzug, Küche und Entrümpelung
+ * (eigenes Layout: ein Einsatzort, keine Einzugsadresse, kein § 451g). Entrümpelung + Umzug
+ * kommt hier schon als „move“ an.
+ */
+export function vpsLeistungsart(art: ServiceArt): ServiceArt {
+  return art === "kitchen_installation" || art === "clearance" ? art : "move";
+}
+
+/**
+ * Leistungen, die an die VPS-Vorlage gehen. Gespeicherte Leistungen und Pakete sind
+ * Umzugsleistungen (Einpacken, Montage, Halteverbot am Einzugsort …). Bei einer Entrümpelung
+ * gehen sie nicht mit; die Vorlage setzt Räumung, Abtransport und Entsorgung selbst.
+ */
+export function vpsLeistungen<T>(art: ServiceArt, umzugsLeistungen: T | undefined, standard: T): T | undefined {
+  if (art === "clearance") return undefined;
+  // Küche: wie bisher durchreichen, ohne Umzugs-Standard (die Vorlage liest kitchen.services).
+  if (art === "kitchen_installation") return umzugsLeistungen;
+  return umzugsLeistungen ?? standard;
 }
 
 /**

@@ -66,6 +66,24 @@ describe("jobFehlerText", () => {
     expect(jobFehlerText("Verbindung verloren", "KV").text).toBe("KV nicht erstellt: Verbindung verloren.");
   });
 
+  it("Entrümpelung: gleiche Adressen blockieren nicht, VPS-Meldungen werden übersetzt", () => {
+    const gleich = { kunde: { nachname: "Muster", adresse: "Lindenweg 3, 70563 Stuttgart" }, auftrag: { strecke_von: "Lindenweg 3, 70563 Stuttgart", strecke_nach: "Lindenweg 3, 70563 Stuttgart" } };
+    expect(fehlendeVpsAngaben({ ...gleich, document_details: { serviceType: "clearance" } })).toEqual([]);
+    expect(fehlendeVpsAngaben({ ...gleich, service_type: "clearance" })).toEqual([]);
+    expect(fehlendeVpsAngaben({ ...gleich, document_details: { serviceType: "move" } })).toEqual(["einzug_gleich"]);
+    expect(jobFehlerText("skill exited with code 2. stderr tail: Einsatzort fehlt.", "KV")).toEqual({
+      text: "KV nicht erstellt: Einsatzort fehlt.",
+      angabenFehlen: true,
+    });
+    expect(jobFehlerText("skill exited with code 2. stderr tail: Termin der Entrümpelung: gültiges Datum JJJJ-MM-TT erforderlich.", "AB")).toEqual({
+      text: "AB nicht erstellt: Termin der Entrümpelung fehlt.",
+      angabenFehlen: true,
+    });
+    // Meldung der VPS-Vorlage beim Umzug („Umzug.to.Adresse fehlt.“) war bisher nicht übersetzt.
+    expect(jobFehlerText("skill exited with code 2. stderr tail: Umzug.to.Adresse fehlt.", "KV").text).toBe("KV nicht erstellt: Einzugsadresse fehlt.");
+    expect(jobFehlerText("skill exited with code 2. stderr tail: Umzug.from.Adresse fehlt.", "KV").text).toBe("KV nicht erstellt: Auszugsadresse fehlt.");
+  });
+
   it("Link in die Akte", () => {
     expect(angabenLink("deal 1")).toBe("/app/leads/deal%201?angaben=1");
   });

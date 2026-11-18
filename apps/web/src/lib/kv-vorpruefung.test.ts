@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { LeadContext } from "./deal-doc-data";
-import { kvVorpruefung, type KvHinweisDaten } from "./kv-vorpruefung";
+import { fehltFuerLeistung, kvVorpruefung, type KvHinweisDaten } from "./kv-vorpruefung";
 import { addressStringToLocationValue, alsOrtWert } from "./adresse";
 
 function ctx(over: Partial<LeadContext> = {}): LeadContext {
@@ -50,6 +50,19 @@ describe("kvVorpruefung", () => {
     expect(r.bereit).toBe(true);
     const umzug = kvVorpruefung({ ctx: ctx({ move_to_address: null }), daten: daten({ leistungsart: "clearance_move" }), documentType: "KV" });
     expect(umzug.bereit).toBe(false);
+  });
+
+  it("Entrümpelung: Felder heißen Einsatzort und Termin, Hinweis nennt die Gegenstände", () => {
+    const r = kvVorpruefung({ ctx: ctx({ move_to_address: null }), daten: daten({ leistungsart: "clearance", umzugsgutAnzahl: 0 }), documentType: "KV" });
+    expect(r.felder.map((f) => f.label)).toEqual(["Kundenname", "Einsatzort", "Termin"]);
+    expect(r.hinweise.map((h) => h.text)).toContain("Die Liste der Gegenstände ist leer. Im KV steht dann keine Liste.");
+    expect(r.hinweise.some((h) => h.text.includes("Umzugsgut"))).toBe(false);
+    // Gleiche Adresse als Ziel stört eine Entrümpelung nicht: das Ziel wird gar nicht geprüft.
+    const gleich = kvVorpruefung({ ctx: ctx({ move_to_address: ctx().move_from_address }), daten: daten({ leistungsart: "clearance" }), documentType: "KV" });
+    expect(gleich.bereit).toBe(true);
+    const deal = { kunde: { nachname: "Muster" }, auftrag: {} };
+    expect(fehltFuerLeistung("clearance", deal)).toEqual(["Einsatzort", "Termin"]);
+    expect(fehltFuerLeistung("move", deal)).toEqual(["Auszugsadresse", "Einzugsadresse", "Umzugsdatum"]);
   });
 
   it("vollständiger Auftrag: bereit, keine Hinweise", () => {

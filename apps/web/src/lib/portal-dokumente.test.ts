@@ -64,12 +64,23 @@ describe("serviceTypeZuSpeichern", () => {
   });
 });
 
-describe("Entrümpelung: Leistungsart im CRM, Umzugs-Layout auf dem VPS", () => {
-  it("der VPS bekommt für Entrümpelung das Umzugs-Layout", async () => {
+describe("Entrümpelung: Leistungsart im CRM und auf dem VPS", () => {
+  it("der VPS bekommt Entrümpelung als eigene Leistung, Entrümpelung + Umzug kommt als Umzug an", async () => {
     const { vpsLeistungsart } = await import("./portal-dokumente");
-    expect(vpsLeistungsart("clearance")).toBe("move");
+    expect(vpsLeistungsart("clearance")).toBe("clearance");
     expect(vpsLeistungsart("move")).toBe("move");
     expect(vpsLeistungsart("kitchen_installation")).toBe("kitchen_installation");
+  });
+  it("Entrümpelung schickt keine Umzugsleistungen an den VPS, Umzug den Standard", async () => {
+    const { vpsLeistungen } = await import("./portal-dokumente");
+    type L = Record<string, { owner: string }>;
+    const umzug: L = { packing: { owner: "company" } };
+    const standard: L = { transport: { owner: "company" } };
+    expect(vpsLeistungen("clearance", umzug, standard)).toBeUndefined();
+    expect(vpsLeistungen("clearance", undefined, standard)).toBeUndefined();
+    expect(vpsLeistungen("move", umzug, standard)).toBe(umzug);
+    expect(vpsLeistungen("move", undefined, standard)).toBe(standard);
+    expect(vpsLeistungen("kitchen_installation", undefined, standard)).toBeUndefined();
   });
   it("beim KV wird Entrümpelung am Angebot gespeichert", async () => {
     const { serviceTypeZuSpeichern } = await import("./portal-dokumente");

@@ -85,7 +85,7 @@ export function fehltFuerLeistung(
     einzug: !!deal.auftrag.strecke_nach?.trim(),
     datum: !!deal.auftrag.datum?.trim(),
   };
-  const fehlt = pflichtJeLeistung(leistung).filter((f) => !da[f]).map((f) => LABEL[f]);
+  const fehlt = pflichtJeLeistung(leistung).filter((f) => !da[f]).map((f) => labelFuer(f, leistung));
   if (leistung === "kitchen_installation" && !einbauadresse?.trim() && !da.einzug) fehlt.push("Einbauadresse");
   return fehlt;
 }
@@ -107,6 +107,13 @@ const LABEL: Record<PflichtFeld, string> = {
   einzug: "Einzugsadresse",
   datum: "Umzugsdatum",
 };
+
+/** Bei einer Entrümpelung heißt die Adresse des Leads Einsatzort und das Datum Termin. */
+const LABEL_ENTRUEMPELUNG: Partial<Record<PflichtFeld, string>> = { auszug: "Einsatzort", datum: "Termin" };
+
+export function labelFuer(feld: PflichtFeld, leistung: PortalLeistung | null | undefined): string {
+  return (leistung === "clearance" ? LABEL_ENTRUEMPELUNG[feld] : undefined) ?? LABEL[feld];
+}
 
 function adresse(v: unknown): string {
   return locationValueToText(v);
@@ -130,7 +137,7 @@ export function kvVorpruefung(input: {
   const einzugGleich = !!ctx && gleicheAdresse(ctx.move_from_address, ctx.move_to_address);
   const felder = pflicht.map((feld) => ({
     feld,
-    label: LABEL[feld],
+    label: labelFuer(feld, daten?.leistungsart),
     wert: werte[feld],
     fehlt: !werte[feld].trim() || (feld === "einzug" && einzugGleich),
     ...(feld === "einzug" && einzugGleich && werte[feld].trim() ? { grund: EINZUG_GLEICH_TEXT } : {}),
@@ -142,26 +149,28 @@ export function kvVorpruefung(input: {
   if (input.documentType === "KV" && daten) {
     const fotos = (n: number, eins: string, viele: string) => `${n} ${n === 1 ? eins : viele}`;
     const offen = fotos(daten.fotosOffen, "Foto wird", "Fotos werden");
+    // Bei einer Entrümpelung ist die Liste die der Gegenstände, nicht das Umzugsgut.
+    const liste = daten.leistungsart === "clearance" ? "Die Liste der Gegenstände" : "Umzugsgut";
     if (daten.umzugsgutAnzahl === 0) {
       hinweise.push({
         art: "umzugsgut",
         text:
           daten.fotosOffen > 0
-            ? `Umzugsgut ist noch leer, ${offen} gerade ausgewertet.`
-            : "Umzugsgut ist leer. Im KV steht dann keine Liste.",
+            ? `${liste} ist noch leer, ${offen} gerade ausgewertet.`
+            : `${liste} ist leer. Im KV steht dann keine Liste.`,
       });
     } else if (daten.fotosOffen > 0) {
       // Teilweise gefüllt: sonst sähe eine halbe Liste fertig aus.
       hinweise.push({
         art: "umzugsgut",
-        text: `Umzugsgut hat ${daten.umzugsgutAnzahl} Einträge, ${offen} noch ausgewertet.`,
+        text: `${liste} hat ${daten.umzugsgutAnzahl} Einträge, ${offen} noch ausgewertet.`,
       });
     }
     const gescheitert = daten.fotosGescheitert ?? 0;
     if (gescheitert > 0) {
       hinweise.push({
         art: "umzugsgut",
-        text: `${fotos(gescheitert, "Foto konnte", "Fotos konnten")} nicht ausgewertet werden. Bitte das Umzugsgut mit den Fotos im Posteingang vergleichen.`,
+        text: `${fotos(gescheitert, "Foto konnte", "Fotos konnten")} nicht ausgewertet werden. Bitte ${daten.leistungsart === "clearance" ? "die Liste der Gegenstände" : "das Umzugsgut"} mit den Fotos im Posteingang vergleichen.`,
       });
     }
     const ceylan = /ceylan/i.test(ctx?.operating_company?.displayName ?? "");

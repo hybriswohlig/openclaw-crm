@@ -20,7 +20,7 @@ import { kvaConfirmations } from "@/db/schema/customer-portal";
 import { dealDocuments } from "@/db/schema/financial";
 import { getQuotation } from "@/services/quotations";
 import { quotations, type QuotationDocumentDetails } from "@/db/schema/quotations";
-import { serviceTypeZuSpeichern, vpsLeistungsart } from "@/lib/portal-dokumente";
+import { serviceTypeZuSpeichern, vpsLeistungen, vpsLeistungsart } from "@/lib/portal-dokumente";
 import type { ServiceArt } from "@openclaw-crm/customer-portal-core";
 import { aktivBedingung } from "./kva-annahme";
 import { preisQuelleAusAnnahme, type PreisQuelle } from "@/lib/ab-preise";
@@ -347,7 +347,7 @@ export async function attachDocumentJobContext(
     parkingDestination: { owner: "none" as const },
     materials: { owner: "none" as const },
   };
-  // Am Angebot zählt die gewählte Art (Widerruf im Portal), der VPS rendert Entrümpelung als Umzug.
+  // Am Angebot zählt die gewählte Art (Widerruf im Portal). Der VPS hat ein eigenes Entrümpelungs-Layout.
   const vpsArt = vpsLeistungsart(serviceType);
   const details: QuotationDocumentDetails = {
     ...storedDetails,
@@ -357,7 +357,7 @@ export async function attachDocumentJobContext(
     mitEntruempelung,
     reference,
     inventory: clientDetails.inventory || storedDetails.inventory || inventoryRows,
-    services: services || (vpsArt === "move" ? defaultMoveServices : undefined),
+    services: vpsLeistungen(vpsArt, services, defaultMoveServices),
     kitchen: clientDetails.kitchen || storedDetails.kitchen,
     cardAgreed:
       clientDetails.cardAgreed ??
