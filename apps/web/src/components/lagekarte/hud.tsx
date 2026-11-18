@@ -162,7 +162,7 @@ function AnsichtSchalter({ onListe }: Pick<HudProps, "onListe">) {
       label="Startseite"
       kinder={[
         { key: "karte", inhalt: "Karte", aktiv: true, onClick: () => undefined, title: "Lagekarte (aktuelle Ansicht)" },
-        { key: "liste", inhalt: "Liste", aktiv: false, onClick: onListe, title: "Zur klassischen Startseite" },
+        { key: "liste", inhalt: "Liste", aktiv: false, onClick: onListe, title: "Zu Heute (Liste)" },
       ]}
     />
   );
@@ -414,7 +414,7 @@ export default function Hud(p: HudProps) {
         <button
           type="button"
           onClick={p.onListe}
-          title="Zur klassischen Startseite"
+          title="Zu Heute (Liste)"
           className={cn(
             "inline-flex h-11 items-center gap-1.5 rounded-full px-2.5 text-[12.5px] font-medium transition-colors hover:bg-[var(--lk-hover)]",
             FOKUS,

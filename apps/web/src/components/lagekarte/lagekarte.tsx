@@ -451,7 +451,7 @@ function LagekarteInhalt({ onListe, thema: themaVorgabe }: LagekarteProps) {
                 onClick={onListe}
                 className="inline-flex h-9 items-center gap-1.5 rounded-full border border-[var(--lk-panel-rand)] px-3 text-[12.5px] font-medium text-[var(--lk-text)] hover:bg-[var(--lk-hover)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--lk-akzent)]"
               >
-                <LayoutList className="size-4" aria-hidden="true" /> Klassische Startseite
+                <LayoutList className="size-4" aria-hidden="true" /> Zu Heute
               </button>
             </div>
             <div className="min-h-0 flex-1">{leiste(false)}</div>
@@ -601,7 +601,7 @@ function LagekarteInhalt({ onListe, thema: themaVorgabe }: LagekarteProps) {
                   onClick={onListe}
                   className="inline-flex h-9 items-center gap-1.5 rounded-full border border-[var(--lk-panel-rand)] px-4 text-[13px] font-medium text-[var(--lk-text)] hover:bg-[var(--lk-hover)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--lk-akzent)]"
                 >
-                  <LayoutList className="size-4" aria-hidden="true" /> Klassische Startseite
+                  <LayoutList className="size-4" aria-hidden="true" /> Zu Heute
                 </button>
               </div>
             </div>
