@@ -21,6 +21,10 @@ export interface Foto {
   crew?: boolean;
   /** Crew-Portal: Format lässt sich freigeben (JPEG, PNG, WebP, GIF). */
   crewMoeglich?: boolean;
+  /** Crew-Portal: im Briefing für das bestätigte Team sichtbar (Standard ja). */
+  briefing?: boolean;
+  /** Crew-Portal: nur Chat-Fotos erscheinen im Briefing. */
+  briefingMoeglich?: boolean;
 }
 
 /** Gleiche Liste wie die Crew-API (`CREW_FOTO_TYPEN`); HEIC und SVG nie. */
@@ -33,6 +37,8 @@ interface Anhang {
   fileSize: number;
   createdAt: string;
   crewFreigegebenAt?: string | null;
+  crewGesperrtAt?: string | null;
+  briefingMoeglich?: boolean;
 }
 
 export function istBild(mime: string): boolean {
@@ -64,7 +70,32 @@ export function FotosAnsicht({ dealId }: { dealId: string }) {
       toast.error("Freigabe nicht gespeichert.", { description: r.message });
       return;
     }
-    setZustand((z) => (z.art === "fertig" ? { ...z, fotos: z.fotos.map((x) => (x.id === f.id ? { ...x, crew: !!r.data.crewFreigegebenAt } : x)) } : z));
+    // Wer es allen zeigt, zeigt es auch dem Team im Briefing.
+    setZustand((z) =>
+      z.art === "fertig"
+        ? { ...z, fotos: z.fotos.map((x) => (x.id === f.id ? { ...x, crew: !!r.data.crewFreigegebenAt, briefing: r.data.crewFreigegebenAt ? true : x.briefing } : x)) }
+        : z,
+    );
+  }
+
+  async function briefingUmschalten(f: Foto) {
+    const neu = !f.briefing;
+    setSchaltet(f.id);
+    const r = await apiAufruf<{ crewGesperrtAt: string | null }>(
+      `/api/v1/deals/${encodeURIComponent(dealId)}/fotos/${encodeURIComponent(f.id)}/crew`,
+      jsonAufruf("PATCH", { imBriefing: neu }),
+    );
+    setSchaltet(null);
+    if (!r.ok) {
+      toast.error("Nicht gespeichert.", { description: r.message });
+      return;
+    }
+    // Ausblenden nimmt das Foto auch aus der Jobbörse.
+    setZustand((z) =>
+      z.art === "fertig"
+        ? { ...z, fotos: z.fotos.map((x) => (x.id === f.id ? { ...x, briefing: !r.data.crewGesperrtAt, crew: r.data.crewGesperrtAt ? false : x.crew } : x)) }
+        : z,
+    );
   }
 
   useEffect(() => {
@@ -78,7 +109,15 @@ export function FotosAnsicht({ dealId }: { dealId: string }) {
       }
       const fotos = (r.data ?? [])
         .filter((a) => istBild(a.mimeType))
-        .map((a) => ({ id: a.id, name: a.fileName, am: a.createdAt, crew: !!a.crewFreigegebenAt, crewMoeglich: CREW_FORMATE.has(a.mimeType.toLowerCase()) }));
+        .map((a) => ({
+          id: a.id,
+          name: a.fileName,
+          am: a.createdAt,
+          crew: !!a.crewFreigegebenAt,
+          crewMoeglich: CREW_FORMATE.has(a.mimeType.toLowerCase()),
+          briefing: !a.crewGesperrtAt,
+          briefingMoeglich: a.briefingMoeglich === true,
+        }));
       setZustand({ art: "fertig", fotos });
     });
     return () => {
@@ -110,12 +149,20 @@ export function FotosAnsicht({ dealId }: { dealId: string }) {
                 <img src={anhangUrl(f.id)} alt="" loading="lazy" />
               </button>
               {f.crewMoeglich || f.crew ? (
-                <label className="akte-foto-crew" title="Nur Innen- und Möbelfotos. Keine Fassade, Hausnummer, Kennzeichen oder Gesichter.">
-                  <input type="checkbox" checked={!!f.crew} disabled={schaltet === f.id} onChange={() => void crewUmschalten(f)} />
-                  Für Crew freigeben
-                </label>
+                <>
+                  <label className="akte-foto-crew" title="Alle Helfer sehen es schon in der Jobbörse. Nur Innen- und Möbelfotos: keine Fassade, Hausnummer, Kennzeichen oder Gesichter.">
+                    <input type="checkbox" checked={!!f.crew} disabled={schaltet === f.id} onChange={() => void crewUmschalten(f)} />
+                    Allen Helfern zeigen
+                  </label>
+                  {f.briefingMoeglich ? (
+                    <label className="akte-foto-crew" title="Das bestätigte Team sieht es im freigegebenen Briefing. Ausweise, Rechnungen o. Ä. hier abschalten (dann auch nicht für alle Helfer).">
+                      <input type="checkbox" checked={f.briefing !== false} disabled={schaltet === f.id} onChange={() => void briefingUmschalten(f)} />
+                      Im Briefing fürs Team
+                    </label>
+                  ) : null}
+                </>
               ) : (
-                <span className="akte-foto-crew" title="Nur JPEG, PNG, WebP oder GIF lassen sich für die Crew freigeben.">
+                <span className="akte-foto-crew" title="Nur JPEG, PNG, WebP oder GIF lassen sich für die Crew zeigen.">
                   Format geht nicht für die Crew
                 </span>
               )}

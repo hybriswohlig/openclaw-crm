@@ -2,8 +2,10 @@
  * Fotos eines Deals für die Crew. Quellen: Bildanhänge im Chat
  * (`inbox_message_attachments`, base64; dort liegen fast alle Kundenfotos),
  * Agenten-Fotos (`deal_internal_photos`, base64) und Einsatz-Fotos
- * (`job_media`, privater Blob). Die Crew sieht nur freigegebene Fotos in
- * erlaubtem Format (`CREW_FOTO_TYPEN`).
+ * (`job_media`, privater Blob). Die Crew sieht freigegebene Fotos in
+ * erlaubtem Format (`CREW_FOTO_TYPEN`). Zusätzlich sieht das bestätigte Team
+ * im freigegebenen Briefing alle Kundenfotos aus dem Chat, die nicht
+ * ausgeblendet sind (`crew_gesperrt_at`).
  *
  * Auslieferung: (1) freigegebenes Foto → Deal, (2) Deal für diesen Link
  * sichtbar (schmale Prüfung, keine Jobliste), (3) Bytes lesen mit Deal,
@@ -12,7 +14,7 @@
  * (`./bild.ts`: ohne EXIF/GPS, max. 1000 px, WebP).
  */
 import { get } from "@vercel/blob";
-import { and, eq, isNotNull, sql } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { dealInternalPhotos, inboxMessageAttachments, jobMedia } from "@/db/schema";
 import type { CrewKontext } from "./auth";
@@ -28,7 +30,7 @@ const TYPEN = sql`${sql.param([...CREW_FOTO_TYPEN])}::text[]`;
 export async function freigegebenesFoto(ws: string, id: string): Promise<{ tabelle: Tabelle; dealId: string; am: string } | null> {
   const res = await db.execute(sql`
     SELECT 'chat' AS tabelle, a.deal_record_id AS deal_id, a.crew_freigegeben_at::text AS am FROM inbox_message_attachments a
-    WHERE a.id = ${id} AND a.workspace_id = ${ws} AND a.crew_freigegeben_at IS NOT NULL AND a.deal_record_id IS NOT NULL AND lower(a.mime_type) = ANY(${TYPEN})
+    WHERE a.id = ${id} AND a.workspace_id = ${ws} AND a.crew_freigegeben_at IS NOT NULL AND a.crew_gesperrt_at IS NULL AND a.deal_record_id IS NOT NULL AND lower(a.mime_type) = ANY(${TYPEN})
     UNION ALL
     SELECT 'intern', p.deal_record_id, p.crew_freigegeben_at::text FROM deal_internal_photos p
     WHERE p.id = ${id} AND p.workspace_id = ${ws} AND p.crew_freigegeben_at IS NOT NULL AND lower(p.mime_type) = ANY(${TYPEN})
@@ -41,6 +43,24 @@ export async function freigegebenesFoto(ws: string, id: string): Promise<{ tabel
   return z ? { tabelle: z.tabelle, dealId: z.deal_id, am: z.am } : null;
 }
 
+/**
+ * Schritt 1b: Kundenfoto aus dem Chat im freigegebenen Briefing dieser Person
+ * (eingeteilt, Briefing nicht zurückgezogen, Foto nicht ausgeblendet). `am`
+ * trägt die Freigabe, damit ein neu freigegebenes Briefing neu gecacht wird.
+ */
+export async function briefingFoto(ws: string, employeeId: string, id: string): Promise<{ tabelle: "chat"; dealId: string; am: string } | null> {
+  const res = await db.execute(sql`
+    SELECT a.deal_record_id AS deal_id, 'b' || b.released_at::text AS am FROM inbox_message_attachments a
+    INNER JOIN crew_briefings b ON b.deal_record_id = a.deal_record_id AND b.workspace_id = a.workspace_id AND b.withdrawn_at IS NULL
+    WHERE a.id = ${id} AND a.workspace_id = ${ws} AND a.deal_record_id IS NOT NULL AND a.crew_gesperrt_at IS NULL
+      AND lower(a.mime_type) = ANY(${TYPEN})
+      AND EXISTS (SELECT 1 FROM deal_employees de WHERE de.deal_record_id = a.deal_record_id AND de.employee_id = ${employeeId})
+    LIMIT 1
+  `);
+  const [z] = (Array.isArray(res) ? res : ((res as { rows?: unknown[] }).rows ?? [])) as Array<{ deal_id: string; am: string }>;
+  return z ? { tabelle: "chat", dealId: z.deal_id, am: z.am } : null;
+}
+
 type Quelle = { art: "base64"; inhalt: string } | { art: "blob"; pfad: string } | { art: "gueltig" };
 
 /**
@@ -48,16 +68,32 @@ type Quelle = { art: "base64"; inhalt: string } | { art: "blob"; pfad: string } 
  * und im Format ist (alles in derselben Abfrage). `mitInhalt: false` prüft nur
  * (für einen Cache-Treffer), ohne den Inhalt zu lesen.
  */
-export async function fotoQuelleLesen(ws: string, id: string, dealId: string, tabelle: Tabelle, mitInhalt = true): Promise<Quelle | null> {
+export async function fotoQuelleLesen(
+  ws: string,
+  id: string,
+  dealId: string,
+  tabelle: Tabelle,
+  mitInhalt = true,
+  /** Zugang über das Briefing dieser Person statt über die Freigabe. */
+  briefingFuer: string | null = null,
+): Promise<Quelle | null> {
   if (tabelle === "chat") {
     const t = inboxMessageAttachments;
+    const zugang = briefingFuer
+      ? and(
+          isNull(t.crewGesperrtAt),
+          sql`EXISTS (SELECT 1 FROM crew_briefings b WHERE b.deal_record_id = ${t.dealRecordId} AND b.workspace_id = ${ws} AND b.withdrawn_at IS NULL)`,
+          sql`EXISTS (SELECT 1 FROM deal_employees de WHERE de.deal_record_id = ${t.dealRecordId} AND de.employee_id = ${briefingFuer})`,
+        )
+      : and(isNotNull(t.crewFreigegebenAt), isNull(t.crewGesperrtAt));
     const [z] = await db
       .select({ inhalt: mitInhalt ? t.fileContent : sql<string>`''` })
       .from(t)
-      .where(and(eq(t.id, id), eq(t.workspaceId, ws), eq(t.dealRecordId, dealId), isNotNull(t.crewFreigegebenAt), sql`lower(${t.mimeType}) = ANY(${TYPEN})`))
+      .where(and(eq(t.id, id), eq(t.workspaceId, ws), eq(t.dealRecordId, dealId), zugang, sql`lower(${t.mimeType}) = ANY(${TYPEN})`))
       .limit(1);
     return z ? (mitInhalt ? { art: "base64", inhalt: z.inhalt } : { art: "gueltig" }) : null;
   }
+  if (briefingFuer) return null; // Briefing-Zugang gilt nur für Chat-Fotos.
   if (tabelle === "intern") {
     const t = dealInternalPhotos;
     const [z] = await db
@@ -99,15 +135,17 @@ async function blobLesen(pfad: string): Promise<Uint8Array | null> {
 
 export type CrewFotoErgebnis = { ok: true; body: Uint8Array; contentType: "image/webp" } | { ok: false };
 
-/** Neu kodierte Bytes eines freigegebenen Fotos, nur wenn sein Job für diesen Link sichtbar ist. */
+/** Neu kodierte Bytes eines freigegebenen (oder im Briefing sichtbaren) Fotos, nur wenn sein Job für diesen Link sichtbar ist. */
 export async function crewFotoLaden(k: CrewKontext, fotoId: string, o: { jetzt?: Date } = {}): Promise<CrewFotoErgebnis> {
   if (!CREW_FOTO_ID_RE.test(fotoId)) return { ok: false };
-  const f = await freigegebenesFoto(k.workspaceId, fotoId);
+  const frei = await freigegebenesFoto(k.workspaceId, fotoId);
+  const ueberBriefing = frei ? null : await briefingFoto(k.workspaceId, k.employee.id, fotoId);
+  const f = frei ?? ueberBriefing;
   if (!f) return { ok: false };
   if (!(await dealSichtbar(k, f.dealId, { jetzt: o.jetzt }))) return { ok: false };
   const schluessel = `${fotoId}:${f.dealId}:${f.am}`;
   const gemerkt = cacheLesen(schluessel);
-  const q = await fotoQuelleLesen(k.workspaceId, fotoId, f.dealId, f.tabelle, !gemerkt);
+  const q = await fotoQuelleLesen(k.workspaceId, fotoId, f.dealId, f.tabelle, !gemerkt, ueberBriefing ? k.employee.id : null);
   if (!q) return { ok: false };
   if (gemerkt) return { ok: true, body: new Uint8Array(gemerkt), contentType: "image/webp" };
   let roh: Uint8Array | null;
@@ -155,6 +193,8 @@ export async function crewFotoFreigeben(
       .set({
         crewFreigegebenAt: freigegeben ? sql`coalesce(${t.crewFreigegebenAt}, ${am}::timestamptz)` : null,
         crewFreigegebenBy: freigegeben ? sql`coalesce(${t.crewFreigegebenBy}, ${autor})` : null,
+        // Allen zeigen heißt auch dem Team im Briefing.
+        ...(freigegeben && t === inboxMessageAttachments ? { crewGesperrtAt: null, crewGesperrtBy: null } : {}),
       })
       .where(
         and(
@@ -176,4 +216,23 @@ export async function crewFotoFreigeben(
     if (da) return crewFotoTypErlaubt(da.mime) ? { ok: false, code: "NICHT_GEFUNDEN" } : { ok: false, code: "FORMAT" };
   }
   return { ok: false, code: "NICHT_GEFUNDEN" };
+}
+
+export type BriefingFotoErgebnis = { ok: true; crewGesperrtAt: string | null } | { ok: false; code: "NICHT_GEFUNDEN" };
+
+/** „Im Briefing zeigen“ an einem Kundenfoto aus dem Chat: aus = für die ganze Crew ausgeblendet (auch die Freigabe für alle fällt weg). */
+export async function crewFotoImBriefing(ws: string, dealId: string, fotoId: string, zeigen: boolean, autor: string): Promise<BriefingFotoErgebnis> {
+  const t = inboxMessageAttachments;
+  const [neu] = await db
+    .update(t)
+    .set({
+      crewGesperrtAt: zeigen ? null : sql`coalesce(${t.crewGesperrtAt}, now())`,
+      crewGesperrtBy: zeigen ? null : sql`coalesce(${t.crewGesperrtBy}, ${autor})`,
+      // Ausgeblendet heißt für niemanden in der Crew, auch nicht in der Jobbörse.
+      ...(zeigen ? {} : { crewFreigegebenAt: null, crewFreigegebenBy: null }),
+    })
+    .where(and(eq(t.id, fotoId), eq(t.workspaceId, ws), eq(t.dealRecordId, dealId)))
+    .returning({ at: t.crewGesperrtAt });
+  if (!neu) return { ok: false, code: "NICHT_GEFUNDEN" };
+  return { ok: true, crewGesperrtAt: neu.at ? new Date(neu.at).toISOString() : null };
 }

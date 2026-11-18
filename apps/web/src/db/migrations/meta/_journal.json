@@ -407,6 +407,13 @@
       "when": 1794009600000,
       "tag": "0067_crew_briefing",
       "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1794096000000,
+      "tag": "0068_crew_briefing_fotos",
+      "breakpoints": true
     }
   ]
 }

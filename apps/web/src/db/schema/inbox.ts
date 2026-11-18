@@ -404,6 +404,9 @@ export const inboxMessageAttachments = pgTable(
     /** Crew-Portal (0066): Bild für die Crew freigegeben (nur Innen- und Objektfotos). */
     crewFreigegebenAt: timestamp("crew_freigegeben_at", { withTimezone: true }),
     crewFreigegebenBy: text("crew_freigegeben_by"),
+    /** Crew-Portal (0068): im Briefing für das Team ausgeblendet (Standard: sichtbar). */
+    crewGesperrtAt: timestamp("crew_gesperrt_at", { withTimezone: true }),
+    crewGesperrtBy: text("crew_gesperrt_by"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (table) => [
