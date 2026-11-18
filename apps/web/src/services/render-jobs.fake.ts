@@ -8,6 +8,7 @@
  * und ebenso `fake.ablage` für `@/services/kv-job-ablage`.
  */
 import { vi } from "vitest";
+import type { KvPreisPruefung } from "@/lib/kv-editor";
 import {
   jobAblage,
   RENDER_JOB_ABLAUF_MS,
@@ -16,7 +17,7 @@ import {
 } from "@/lib/angebot-wahl";
 
 type Endstand =
-  | { status: "abgelegt"; dealDocumentId: string }
+  | { status: "abgelegt"; dealDocumentId: string | null }
   | { status: "verworfen" }
   | { status: "fehler"; fehler: string };
 
@@ -55,11 +56,17 @@ const createDealDocument = vi.fn(async (input: DokumentEingabe) => ({
 }));
 /** Version der Quotation beim Ablegen (unter der Sperre). */
 const angebotsVersionId = vi.fn(async (_deal: string): Promise<string | null> => null);
+/** KV-Editor: erwartete Beträge am Stand (null: Stand ohne Prüfung). */
+const kvStandPruefungLaden = vi.fn(async (_ws: string, _stand: string): Promise<KvPreisPruefung | null> => null);
+/** Letztes Ergebnis der Preisprüfung, das an `ablegenUnterSperre` ging. */
+const ablageKv: { pruefung: KvPreisPruefung | null }[] = [];
 
 export const fake = {
   jobs,
   createDealDocument,
   angebotsVersionId,
+  kvStandPruefungLaden,
+  ablageKv,
   job(teil: Partial<RenderJob> = {}): RenderJob {
     const j: RenderJob = {
       vpsJobId: "job_1",
@@ -86,6 +93,9 @@ export const fake = {
     createDealDocument.mockClear();
     angebotsVersionId.mockReset();
     angebotsVersionId.mockResolvedValue(null);
+    kvStandPruefungLaden.mockReset();
+    kvStandPruefungLaden.mockResolvedValue(null);
+    ablageKv.length = 0;
   },
   renderJobs: {
     jobLaden: async (ws: string, id: string) => {
@@ -125,12 +135,20 @@ export const fake = {
       setzen(j, e);
       return true;
     },
+    kvStandPruefungLaden,
     ablegenUnterSperre: async (
       job: RenderJob & { claimedAt: string },
-      datei: { fileName: string; mimeType: string; fileSize: number; fileContent: string; documentType: string }
+      datei: { fileName: string; mimeType: string; fileSize: number; fileContent: string; documentType: string },
+      kv: { pruefung: KvPreisPruefung | null } = { pruefung: null }
     ) => {
       const j = eigene(job.workspaceId, job.vpsJobId, job.claimedAt);
       if (!j) return { art: "verloren" as const };
+      ablageKv.push(kv);
+      // KV-Editor-Entwurf: nur Stand, kein Dokument (die echte Verzweigung prüft kv-job-ablage.db.test.ts).
+      if (job.kvStandZiel === "entwurf") {
+        setzen(j, { status: "abgelegt", dealDocumentId: null });
+        return { art: "entwurf" as const, status: kv.pruefung?.preis === "ok" ? ("fertig" as const) : ("fehler" as const) };
+      }
       const version =
         job.documentType === "quotation" && job.calculationVersionId !== null
           ? await angebotsVersionId(job.dealRecordId)

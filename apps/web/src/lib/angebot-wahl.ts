@@ -62,6 +62,10 @@ export type JobAbschluss =
   | { status: "laeuft" }
   | { status: "schon_erledigt"; dealDocumentId: string | null }
   | { status: "verworfen"; grund: "version_veraltet" }
+  /** KV-Editor: verworfen mit Grund am Stand (Push dazwischen, Preis im Druck), Spec 7.3, 7.6. */
+  | { status: "verworfen"; grund: "kv_editor"; text: string }
+  /** KV-Editor: Entwurf im Stand abgelegt (nie in `deal_documents`) oder an der Preisprüfung gescheitert. */
+  | { status: "entwurf"; standStatus: "fertig" | "fehler" }
   | { status: "fehler"; fehler: string };
 
 /**
