@@ -137,9 +137,9 @@ export const crewNotifications = pgTable(
     employeeId: text("employee_id")
       .notNull()
       .references(() => employees.id, { onDelete: "cascade" }),
-    kind: text("kind").$type<"briefing">().notNull(),
-    /** Freigabe (`crew_briefings.released_at`), zu der dieser Versand gehört. */
-    releaseAt: timestamp("release_at", { withTimezone: true }).notNull(),
+    kind: text("kind").$type<"briefing" | "zusage" | "neue_jobs">().notNull(),
+    /** Nur Briefing: Freigabe (`crew_briefings.released_at`), zu der dieser Versand gehört. */
+    releaseAt: timestamp("release_at", { withTimezone: true }),
     status: text("status").$type<CrewNachrichtStatus>().notNull(),
     error: text("error"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -147,7 +147,7 @@ export const crewNotifications = pgTable(
   },
   (t) => [
     index("crew_notifications_deal_idx").on(t.dealRecordId, t.employeeId, t.releaseAt),
-    check("crew_notifications_kind_check", sql`${t.kind} IN ('briefing')`),
+    check("crew_notifications_kind_check", sql`${t.kind} IN ('briefing', 'zusage', 'neue_jobs')`),
     check(
       "crew_notifications_status_check",
       sql`${t.status} IN ('gesendet', 'fehler', 'kein_telefon', 'kein_link', 'kein_absender')`
@@ -175,4 +175,28 @@ export const crewAnsprechpartner = pgTable(
     setBy: text("set_by"),
   },
   (t) => [index("crew_ansprechpartner_workspace_idx").on(t.workspaceId)]
+);
+
+/** Welche Jobs einer Person schon per WhatsApp angekündigt wurden (Migration 0070); nie doppelt. */
+export const crewJobAnnouncements = pgTable(
+  "crew_job_announcements",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    dealRecordId: text("deal_record_id")
+      .notNull()
+      .references(() => records.id, { onDelete: "cascade" }),
+    employeeId: text("employee_id")
+      .notNull()
+      .references(() => employees.id, { onDelete: "cascade" }),
+    announcedAt: timestamp("announced_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("crew_job_announcements_uq").on(t.dealRecordId, t.employeeId),
+    index("crew_job_announcements_employee_idx").on(t.employeeId),
+  ]
 );

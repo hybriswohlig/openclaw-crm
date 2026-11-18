@@ -6,10 +6,13 @@ const m = vi.hoisted(() => ({
   imWs: true,
   laden: vi.fn(),
   bestaetigen: vi.fn(),
+  vorher: vi.fn(),
+  zusage: vi.fn(),
 }));
 vi.mock("@/lib/api-utils", async (orig) => ({ ...(await orig<typeof import("@/lib/api-utils")>()), getAuthContext: async () => m.ctx }));
 vi.mock("@/lib/kalkulation-versionen-antwort", () => ({ dealImWorkspace: async () => m.imWs }));
 vi.mock("@/services/einsatz", () => ({ ladeEinsatz: m.laden, einsatzBestaetigen: m.bestaetigen }));
+vi.mock("@/services/crew/nachrichten", () => ({ teamIdsLesen: m.vorher, zusageSenden: m.zusage }));
 
 const { GET, PUT } = await import("./route");
 const params = { params: Promise.resolve({ recordId: "d1" }) };
@@ -23,6 +26,8 @@ describe("/api/v1/deals/[recordId]/einsatz", () => {
     m.imWs = true;
     m.laden.mockReset().mockResolvedValue({ dealId: "d1" });
     m.bestaetigen.mockReset().mockResolvedValue({ ok: true, team: [] });
+    m.vorher.mockReset().mockResolvedValue([]);
+    m.zusage.mockReset().mockResolvedValue({ gesendet: 1, gesamt: 1 });
   });
 
   for (const access of ["full", "read"]) {
@@ -70,5 +75,26 @@ describe("/api/v1/deals/[recordId]/einsatz", () => {
       m.bestaetigen.mockResolvedValueOnce({ ok: false, code });
       expect((await PUT(req("PUT", { team }), params)).status).toBe(status);
     }
+  });
+
+  it("Crew: nur neu Eingeteilte bekommen „Du bist dabei“, abschaltbar, nichts bei Fehler", async () => {
+    m.vorher.mockResolvedValue(["e1"]);
+    m.bestaetigen.mockResolvedValue({ ok: true, team: [{ employeeId: "e1" }, { employeeId: "e2" }] });
+    const r = await PUT(req("PUT", { team }), params);
+    expect(m.zusage).toHaveBeenCalledWith("w1", "d1", ["e2"], "u1");
+    expect((await r.json()).data.benachrichtigt).toEqual({ gesendet: 1, gesamt: 1 });
+
+    m.zusage.mockClear();
+    await PUT(req("PUT", { team, benachrichtigen: false }), params);
+    expect(m.zusage).not.toHaveBeenCalled();
+
+    m.vorher.mockResolvedValue(["e1", "e2"]);
+    const r2 = await PUT(req("PUT", { team }), params);
+    expect(m.zusage).not.toHaveBeenCalled();
+    expect((await r2.json()).data.benachrichtigt).toBeNull();
+
+    m.bestaetigen.mockResolvedValueOnce({ ok: false, code: "STEMPELT_NOCH" });
+    await PUT(req("PUT", { team }), params);
+    expect(m.zusage).not.toHaveBeenCalled();
   });
 });

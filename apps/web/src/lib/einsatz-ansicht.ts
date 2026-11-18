@@ -131,4 +131,6 @@ export interface CrewAusschreibungAnsicht {
 export interface EinsatzBestaetigenBody {
   team: Array<{ employeeId: string; role: "lead" | "helper"; plannedDriveMinutes: number | null; plannedWorkMinutes: number | null }>;
   bestaetigtAmTag?: string[];
+  /** Crew-Portal: neu Eingeteilte per WhatsApp benachrichtigen (Standard ja). */
+  benachrichtigen?: boolean;
 }

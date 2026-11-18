@@ -102,6 +102,8 @@ export function EinsatzDialog({
   vorgabeKarte?: EinsatzKarte;
 }) {
   const portalZiel = usePortalZiel();
+  // Crew-Portal: neu Eingeteilte bekommen „Du bist dabei“ per WhatsApp.
+  const [whatsappNeu, setWhatsappNeu] = useState(true);
   const [laden, setLaden] = useState<Laden>(vorgabe ? { art: "da", ansicht: vorgabe } : { art: "laedt" });
   const [auswahl, setAuswahl] = useState<Auswahl | null>(vorgabe ? startAuswahl(vorgabe) : null);
   const [rueckfrage, setRueckfrage] = useState<Rueckfrage | { art: "konflikt"; text: string; ids: string[] } | null>(null);
@@ -258,13 +260,17 @@ export function EinsatzDialog({
       zusaetzlich.length > 0 ? { ...auswahl, bestaetigtAmTag: [...new Set([...auswahl.bestaetigtAmTag, ...zusaetzlich])] } : auswahl;
     setAuswahl(naechste);
     setSpeichert(true);
-    const r = await teamBestaetigen(dealId, teamBody(naechste));
+    const r = await teamBestaetigen(dealId, { ...teamBody(naechste), benachrichtigen: whatsappNeu });
     setSpeichert(false);
     if (r.ok) {
+      const wa = r.benachrichtigt;
       toast.success(
         r.team.length === 0
           ? "Team entfernt."
           : `Team bestätigt. In der App sichtbar für ${r.team.length} ${r.team.length === 1 ? "Person" : "Personen"}.`,
+        wa && wa.gesamt > 0
+          ? { description: `WhatsApp „Du bist dabei“ an ${wa.gesendet} von ${wa.gesamt} neuen.${wa.gesendet < wa.gesamt ? " Bei den anderen fehlt Nummer, Link oder die Verbindung." : ""}` }
+          : undefined,
       );
       await onGespeichert?.();
       onSchliessen();
@@ -484,6 +490,10 @@ export function EinsatzDialog({
 
         <footer className="ez-fuss">
           <p>Erst danach sehen die Mitarbeiter den Auftrag in ihrer App.</p>
+          <label className="ez-crew-schalter ez-fuss-wa">
+            <input type="checkbox" checked={whatsappNeu} disabled={speichert} onChange={(e) => setWhatsappNeu(e.target.checked)} />
+            Neue im Team per WhatsApp benachrichtigen
+          </label>
           <GlassButton
             type="button"
             variant="ghost"
