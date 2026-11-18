@@ -64,6 +64,19 @@ export function KvPdf({
   }
   return (
     <div className="kve-pdf">
+      {a.warnung ? (
+        <div className="kve-pdf-warnung" role="alert">
+          <b>{a.warnung.titel}</b>
+          <p>{a.warnung.text}</p>
+          {a.warnung.details.length > 0 ? (
+            <ul>
+              {a.warnung.details.map((d) => (
+                <li key={d}>{d}</li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      ) : null}
       {pdfUrl ? (
         <iframe className="kve-iframe" src={pdfUrl} title={`KV, Stand ${stand.nummer}`} loading="lazy" />
       ) : (

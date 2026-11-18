@@ -24,7 +24,8 @@ export async function pushDazwischen(
     .select({ id: dealDocuments.id })
     .from(dealDocuments)
     .where(and(eq(dealDocuments.workspaceId, ws), eq(dealDocuments.dealRecordId, deal), eq(dealDocuments.documentType, "quotation")))
-    .orderBy(desc(dealDocuments.uploadedAt))
+    // Gleiche Reihenfolge wie `aktuellesKvDok` (Gleichstand über die ID, Review 10).
+    .orderBy(desc(dealDocuments.uploadedAt), desc(dealDocuments.id))
     .limit(1);
   if (!doc) return null;
   const [stand] = await ex

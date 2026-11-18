@@ -428,6 +428,13 @@ describe("preisVerdacht", () => {
     "200 Euro",
     "Gesamtpreis",
     "Das ist gratis fertig",
+    // Aufgabe 8 (Review 4, Grok 4)
+    "Die Montage erfolgt ohne Berechnung.",
+    "Wir erstatten Ihnen die Anfahrt.",
+    "Als Stammkunde erhalten Sie eine Gutschrift.",
+    "Endsumme 12500",
+    "Gesamtsumme wie besprochen",
+    "Ermäßigung für Senioren",
   ])("erkennt %s", (text) => {
     expect(preisVerdacht(text)).toBe(true);
   });
@@ -894,6 +901,13 @@ describe("pushPruefung", () => {
     preisOk: true,
   };
 
+  it("Aufgabe 8: Preisstand geändert bei gleicher Version → KALKULATION_NEU (Review 1)", () => {
+    expect(pushPruefung({ ...fertig, preisStandGleich: false })).toEqual({ ok: false, fehler: "KALKULATION_NEU" });
+    expect(pushPruefung({ ...fertig, preisStandGleich: true })).toEqual({ ok: true, annahmeAufheben: false });
+    // Reihenfolge: AKTUELL_GEAENDERT vor dem Preisstand.
+    expect(pushPruefung({ ...fertig, preisStandGleich: false, erwartetAktuellDokumentId: "d0" })).toEqual({ ok: false, fehler: "AKTUELL_GEAENDERT" });
+  });
+
   it("prüft in der Reihenfolge des Vertrags und gibt jeden Code", () => {
     expect(pushPruefung(fertig)).toEqual({ ok: true, annahmeAufheben: false });
     expect(pushPruefung({ ...fertig, standVersionId: null, quotationVersionId: null })).toEqual({
@@ -998,7 +1012,29 @@ describe("vpsPreisPruefung", () => {
       fehlt: erwartet.erwartetCent,
       fremd: [],
     });
-    expect(vpsPreisPruefung("Vertragsunterlagen Haftung bis 620,00 €", erwartet).preis).toBe("nicht_lesbar");
+    expect(vpsPreisPruefung("Vertragsunterlagen\nHaftung bis 620,00 €", erwartet).preis).toBe("nicht_lesbar");
+  });
+
+  it("Aufgabe 8: das Wort Vertragsunterlagen im Freitext kürzt den geprüften Teil nicht (Review 5)", () => {
+    const seiten = TEXT.split("\f");
+    const mitFreitext = [seiten[13], "Bitte Vertragsunterlagen bereithalten. Zuschlag 970,00 €", ...seiten.slice(14)].join("\f");
+    expect(vpsPreisPruefung(mitFreitext, betreage())).toMatchObject({ preis: "abweichung", fremd: [97000] });
+  });
+
+  it("Aufgabe 8: vorangestellte Währung zählt als Betrag, Tabellenzeilen nicht doppelt (Grok 1)", () => {
+    const preis = TEXT.split("\f")[13];
+    expect(vpsPreisPruefung(`${preis}\nBitte € 999,00 nennen`, betreage())).toMatchObject({ preis: "abweichung", fremd: [99900] });
+    expect(vpsPreisPruefung(`${preis}\nEUR 999 bar`, betreage())).toMatchObject({ preis: "abweichung", fremd: [99900] });
+    expect(vpsPreisPruefung(`${preis}\nTransport 1.160,00 € 2 Helfer`, betreage()).preis).toBe("ok");
+  });
+
+  it("Aufgabe 8: ohne erwarteten Betrag nie ok (Review 2)", () => {
+    expect(vpsPreisPruefung("Kostenvoranschlag\nUmzug ohne Preis", { erwartetCent: [], erlaubtCent: [0] })).toEqual({
+      preis: "nicht_lesbar",
+      fehlt: [],
+      fremd: [],
+    });
+    expect(vpsPreisPruefung("Gesamt 1.620,00 €", { erwartetCent: [], erlaubtCent: [0] })).toMatchObject({ preis: "nicht_lesbar", fremd: [162000] });
   });
 
   it("hat die Seitenstruktur des echten VPS-Texts: 21 Seiten, Vertragsunterlagen erst hinter dem Seiteninhalt", () => {

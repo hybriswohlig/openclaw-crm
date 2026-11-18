@@ -47,6 +47,16 @@ describe("standAbzeichen", () => {
 });
 
 describe("pdfAnsicht", () => {
+  it("Aufgabe 8 (Grok 2): aktueller KV mit fehlgeschlagener Prüfung zeigt das PDF mit Warnung und Abzeichen", () => {
+    const s = stand({ aktuell: true, dealDocumentId: "d1", fehler: KV_PREIS_ABWEICHUNG_TEXT, pruefung: { ...OK, preis: "abweichung", fehlt: [], fremd: [99900] } });
+    expect(pdfAnsicht(s)).toEqual({
+      art: "pdf",
+      warnung: { titel: "Preisprüfung fehlgeschlagen", text: KV_PREIS_ABWEICHUNG_TEXT, details: ["Steht zusätzlich im Druck: 999 €"] },
+    });
+    expect(standAbzeichen(s)).toEqual({ text: "Aktuell, Preis prüfen", ton: "gold" });
+    expect(pdfAnsicht(stand({ aktuell: true, pruefung: { ...OK, preis: "nicht_lesbar" } }))).toMatchObject({ art: "pdf", warnung: { text: KV_PDF_NICHT_PRUEFBAR_TEXT } });
+  });
+
   it("fertig zeigt das PDF, druckt einen Platzhalter (VPS mit Preisprüfung)", () => {
     expect(pdfAnsicht(stand())).toEqual({ art: "pdf" });
     const d = pdfAnsicht(stand({ status: "druckt" }));

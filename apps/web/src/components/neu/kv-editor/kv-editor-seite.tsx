@@ -150,12 +150,14 @@ export function KvEditor({
           if (!r.ok || r.data.status === "druckt") return;
           const k = r.data;
           setAnsicht((a) => (a ? { ...a, staende: a.staende.map((s) => (s.id === id ? k : s)) } : a));
-          void detailLaden(id);
+          // Wurde der Stand dabei zum aktuellen KV (KV aus der Kalkulation), die ganze Ansicht neu laden.
+          if (k.dealDocumentId) void laden();
+          else void detailLaden(id);
         });
       }
     }, pollMs);
     return () => window.clearInterval(t);
-  }, [druckSchluessel, pollMs, detailLaden, quelle]);
+  }, [druckSchluessel, pollMs, detailLaden, laden, quelle]);
 
   // Chat-Verlauf beim ersten Öffnen.
   useEffect(() => {

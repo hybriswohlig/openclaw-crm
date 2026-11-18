@@ -75,6 +75,11 @@ export const kvStaende = pgTable(
     pruefung: jsonb("pruefung").$type<KvPreisPruefung>(),
     /** `activity_events.id` des KI-Beitrags, aus dem übernommen wurde (`quelle ki`), höchstens einmal. */
     kiNachrichtId: text("ki_nachricht_id"),
+    /**
+     * Preisstand der Quotation beim Druck (`preisStandAus`): Festpreis, Posten, Anzahlung, Paket, Stunden.
+     * Ein Stand ist nur pushbar, solange er dem jetzigen gleicht (Aufgabe 8, Review 1); null → nicht pushbar.
+     */
+    preisStand: text("preis_stand"),
   },
   (t) => [
     uniqueIndex("kv_staende_deal_nummer_uq").on(t.dealRecordId, t.nummer),

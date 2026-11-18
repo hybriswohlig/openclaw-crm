@@ -8,7 +8,7 @@
  *
  * Sperrreihenfolge überall: erst `angebotSperren`, dann `kv-editor:<deal>`, nie umgekehrt.
  */
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, getTableColumns, inArray, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { users } from "@/db/schema/auth";
 import { dealCalculationVersions } from "@/db/schema/deal-calculation-versions";
@@ -24,6 +24,7 @@ import {
   type KvStandZumNeuenKvEingabe,
 } from "@/lib/kv-editor";
 import type { DbExecutor } from "@/services/einsatz-personen";
+import { quotationLesen } from "@/services/quotations";
 
 // ─── Bausteine ──────────────────────────────────────────────────────────────
 
@@ -47,13 +48,22 @@ export async function aktuellesKvDok(
   return doc ? { ...doc, calculationVersionId: doc.calculationVersionId ?? null } : null;
 }
 
-/** Alle Stände des Deals, neueste zuerst. */
+/** Spalten ohne den PDF-Inhalt (Review 8): Listen und Prüfungen brauchen ihn nicht. */
+function ohneDatei() {
+  const { fileContent: _ohne, ...spalten } = getTableColumns(kvStaende);
+  void _ohne;
+  return spalten;
+}
+const ohneInhalt = (r: Omit<KvStandRow, "fileContent">): KvStandRow => ({ ...r, fileContent: null });
+
+/** Alle Stände des Deals, neueste zuerst; ohne PDF-Inhalt (`fileContent` null, dafür `standLaden`). */
 export async function staendeLaden(ex: DbExecutor, ws: string, deal: string): Promise<KvStandRow[]> {
-  return ex
-    .select()
+  const rows = await ex
+    .select(ohneDatei())
     .from(kvStaende)
     .where(and(eq(kvStaende.workspaceId, ws), eq(kvStaende.dealRecordId, deal)))
     .orderBy(desc(kvStaende.nummer));
+  return rows.map(ohneInhalt);
 }
 
 export async function standLaden(ex: DbExecutor, ws: string, deal: string, id: string): Promise<KvStandRow | null> {
@@ -65,14 +75,44 @@ export async function standLaden(ex: DbExecutor, ws: string, deal: string, id: s
   return row ?? null;
 }
 
+/** Neuester Stand ohne PDF-Inhalt. */
 export async function neuesterStand(ex: DbExecutor, ws: string, deal: string): Promise<KvStandRow | null> {
   const [row] = await ex
-    .select()
+    .select(ohneDatei())
     .from(kvStaende)
     .where(and(eq(kvStaende.workspaceId, ws), eq(kvStaende.dealRecordId, deal)))
     .orderBy(desc(kvStaende.nummer))
     .limit(1);
-  return row ?? null;
+  return row ? ohneInhalt(row) : null;
+}
+
+const centAus = (x: unknown): number | null => {
+  if (x === null || x === undefined || String(x).trim() === "") return null;
+  const n = Number(x);
+  return Number.isFinite(n) ? Math.round(n * 100) : null;
+};
+
+/**
+ * Preisstand einer Quotation (Aufgabe 8, Review 1): alles, was den Preis im KV bestimmt (Festpreis,
+ * nach Aufwand, Posten mit Menge und Satz, Anzahlung, gewähltes Paket, Stunden-Angebot). Gleich heißt:
+ * ein früher gedrucktes PDF zeigt noch denselben Preis, auch wenn die Kalkulationsversion gleich blieb
+ * (Kundenwahl im Portal, Preis von Hand, Altbestand ohne Version).
+ */
+export function preisStandAus(q: Awaited<ReturnType<typeof quotationLesen>>): string {
+  if (!q) return "ohne-angebot";
+  return JSON.stringify({
+    fest: centAus(q.fixedPrice),
+    aufwand: q.isVariable,
+    anzahlung: q.depositRequiredCents ?? null,
+    paket: q.selectedPackageSlug ?? null,
+    option: q.selectedPackageOptionId ?? null,
+    stunden: (q.documentDetails as { stunden?: unknown } | null)?.stunden ?? null,
+    posten: q.lineItems.map((li) => [li.type, li.quantity, centAus(li.unitRate)]),
+  });
+}
+
+export async function preisStandLesen(ex: DbExecutor, deal: string): Promise<string> {
+  return preisStandAus(await quotationLesen(ex, deal));
 }
 
 /**
@@ -200,6 +240,7 @@ export async function kvEditorStandZumNeuenKv(
     fileContent: e.datei?.fileContent ?? null,
     pruefung: e.pruefung,
     erstelltVon: e.userId,
+    preisStand: await preisStandLesen(ex, deal),
   });
   return kopf(ex, row, crm ? e.dealDocumentId : undefined);
 }

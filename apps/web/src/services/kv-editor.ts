@@ -57,6 +57,7 @@ import {
   kopf,
   kvEditorSperren,
   neuesterStand,
+  preisStandLesen,
   staendeLaden,
   standEinfuegen,
   standLaden,
@@ -68,6 +69,11 @@ import { angebotsVersionId, createDealDocument, dealDokumentNachlauf } from "./d
 import { assertDealInWorkspace } from "./document-job-context";
 import { jobAnlegen } from "./render-jobs";
 import type { DbExecutor } from "./einsatz-personen";
+
+/** Aufgabe 8 (Review 3, 2): Gründe, warum ein Editor-Druck nicht startet. */
+const KV_VPS_NUR_KOTTKE_TEXT =
+  "Dieser KV wurde über den VPS gedruckt. Im Editor geht das nur bei Kottke. Bitte den KV einmal neu aus der Kalkulation erstellen, dann lässt er sich hier ändern.";
+const KV_OHNE_PREIS_TEXT = "In der Kalkulation steht noch kein Preis. Bitte erst dort einen Preis festlegen.";
 
 // ─── Typen und Optionen ─────────────────────────────────────────────────────
 
@@ -226,6 +232,7 @@ async function ausgangSicherstellen(ws: string, deal: string, firma: string | nu
       fileContent: datei?.file_content ?? null,
       pruefung: null,
       erstelltVon: null,
+      preisStand: await preisStandLesen(tx, deal),
     });
   });
 }
@@ -416,6 +423,16 @@ async function entwurfDrucken(ws: string, deal: string, e: EntwurfEingabe, q: Q)
     return ergebnis.liste;
   };
 
+  // Preisstand VOR dem Druck lesen: ändert sich die Quotation währenddessen, ist der Stand nie pushbar
+  // (Aufgabe 8, Review 1), nie umgekehrt.
+  const preisStand = await preisStandLesen(db, deal);
+  if (e.renderer === "vps") {
+    // Aufgabe 8 (Review 3): Der VPS-Editor ist nur für Kottke geprüft. Bei anderen Firmen kennt das
+    // Paket Preis-Schalter aus dem Dialog nicht (Stammkundenrabatt), der Preis könnte sich ändern.
+    const dk = await q.dealKopf(ws, deal);
+    if (dk.firma !== "kottke") throw ungueltig([], KV_VPS_NUR_KOTTKE_TEXT);
+  }
+
   // 1 und 2: lesen, prüfen, Druck starten (VPS noch ohne Register; CRM synchron).
   let druck:
     | { art: "vps"; jobId: string; paket: KvVpsPaket; pruefung: KvPreisPruefung | null }
@@ -423,6 +440,8 @@ async function entwurfDrucken(ws: string, deal: string, e: EntwurfEingabe, q: Q)
   if (e.renderer === "vps") {
     const paket = await q.vpsPaket(ws, deal, e.grundlage as KvGrundlageVps, listeAus, q.gepruefte);
     if (!ergebnis) listeAus(paket.basis);
+    // Ohne erwarteten Betrag lässt sich der Druck nicht prüfen (Review 2): gar nicht erst drucken.
+    if (!paket.kvPreise || paket.kvPreise.erwartetCent.length === 0) throw ungueltig([], KV_OHNE_PREIS_TEXT);
     const jobId = await q.vpsStarten(ws, deal, e.userId, paket.params);
     druck = {
       art: "vps",
@@ -458,6 +477,7 @@ async function entwurfDrucken(ws: string, deal: string, e: EntwurfEingabe, q: Q)
         quelle: e.quelle,
         kiNachrichtId: e.kiNachrichtId,
         erstelltVon: e.userId,
+        preisStand,
         ...(druck.art === "vps"
           ? {
               calculationVersionId: druck.paket.calculationVersionId,
@@ -773,10 +793,11 @@ export async function pushen(
     await angebotSperren(tx, deal);
     await kvEditorSperren(tx, deal);
     const row = await standOderFehler(tx, ws, deal, standId);
-    const [doc, quotationVersionId, annahme] = [
+    const [doc, quotationVersionId, annahme, preisJetzt] = [
       await aktuellesKvDok(tx, ws, deal),
       await angebotsVersionId(deal, tx),
       await aktiveAnnahme(tx, ws, deal),
+      await preisStandLesen(tx, deal),
     ];
     const pruef = pushPruefung({
       status: row.status,
@@ -790,6 +811,8 @@ export async function pushen(
       admin: wer.admin === true,
       // Ein schon abgelegter Stand (Ausgang, KV aus der Kalkulation) scheitert an „schon gepusht“, nicht am Preis.
       preisOk: row.renderer === "crm" || row.pruefung?.preis === "ok" || !!row.dealDocumentId,
+      // Review 1: Preis der Quotation seit dem Druck geändert (auch ohne neue Version) → KALKULATION_NEU.
+      preisStandGleich: row.preisStand !== null && row.preisStand === preisJetzt,
     });
     if (!pruef.ok) {
       const rows = await staendeLaden(tx, ws, deal);
@@ -855,7 +878,8 @@ export async function kvChat(ws: string, deal: string, e: KvChatEingabe, userId:
   return kiChat(ws, deal, e, userId, {
     ...(q.ki ?? {}),
     stand: async (w, d, standId) => {
-      const s = await standIntern(w, d, standId, q);
+      // Läuft unter der KI-Sperre (offene Transaktion): keinen Druck anstoßen (Review 12).
+      const s = await standIntern(w, d, standId, { ...q, druckAnstossen: async () => {} });
       const dk = await q.dealKopf(w, d);
       return { renderer: s.detail.renderer, basis: s.detail.basis, werte: s.detail.werte, firma: dk.firmaName, anrede: s.anrede };
     },

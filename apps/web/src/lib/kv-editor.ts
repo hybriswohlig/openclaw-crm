@@ -428,7 +428,7 @@ export const KV_HINWEIS_QUELLE_OHNE_STAND = "Der aktuelle KV stammt nicht aus de
 export const KV_STAND_VERWORFEN_TEXT = "KV verworfen, Kalkulation neuer";
 /** Stand `fehler`: Preisprüfung des VPS-PDFs ergab `abweichung` (Spec 7.3). */
 export const KV_PREIS_ABWEICHUNG_TEXT =
-  "Preis im Druck weicht von der Kalkulation ab. Bitte neu drucken; bleibt es so, Claude Bescheid sagen.";
+  "Preis im Druck weicht von der Kalkulation ab. Bitte neu drucken; bleibt es so, Dario Bescheid sagen.";
 /** Stand `fehler`: Preisprüfung ergab `nicht_lesbar`. */
 export const KV_PDF_NICHT_PRUEFBAR_TEXT = "PDF nicht prüfbar. Bitte neu drucken.";
 /** Stand `fehler`: neuer KV verworfen, weil inzwischen ein Stand von Hand oder KI gepusht wurde (Spec 7.6 Schritt 4). */
@@ -744,6 +744,11 @@ export interface PushPruefEingabe {
   admin: boolean;
   /** VPS: `pruefung.preis === "ok"`; CRM: immer true. */
   preisOk: boolean;
+  /**
+   * Aufgabe 8 (Review 1): Preisstand der Quotation (Festpreis, Posten, Anzahlung, Paket, Stunden) beim
+   * Druck des Stands gleich dem jetzigen. `false` → `KALKULATION_NEU`, auch wenn die Version gleich blieb.
+   */
+  preisStandGleich?: boolean;
 }
 
 export type PushPruefErgebnis = { ok: true; annahmeAufheben: boolean } | { ok: false; fehler: KvEditorFehler };

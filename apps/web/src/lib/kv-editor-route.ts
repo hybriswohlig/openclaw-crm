@@ -27,7 +27,7 @@ function fehlerAntwort(f: KvEditorFehlerKlasse): NextResponse {
  * Rahmen jeder Route, in dieser Reihenfolge: angemeldet (401), kein API-Schlüssel (403
  * `NUR_MENSCH`), Deal im Workspace (404 `KEIN_KV`, ohne zu verraten, ob es ihn anderswo gibt),
  * dann `f` mit `wer.admin` aus der Workspace-Rolle (wie Plan 16). Fehler des Dienstes werden
- * zur Antwort, alles andere wird weitergeworfen.
+ * zur Antwort mit ihrem Status, alles andere zu 500 `INTERN` (geloggt).
  */
 export async function kvRoute(
   req: NextRequest,
@@ -44,7 +44,12 @@ export async function kvRoute(
   } catch (err) {
     const antwort = kvFehlerAntwort(err);
     if (antwort) return antwort;
-    throw err;
+    // Alles andere (Renderer, Datenbank) als JSON wie die übrigen Fehler, nicht als HTML-Seite (Review 9).
+    console.error("[kv-editor] unerwarteter Fehler", err);
+    return NextResponse.json(
+      { error: { code: "INTERN", message: "Das hat nicht geklappt. Bitte noch einmal versuchen; bleibt es so, Dario Bescheid sagen." } },
+      { status: 500 }
+    );
   }
 }
 

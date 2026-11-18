@@ -229,7 +229,8 @@ export async function ablegenUnterSperre(
       tx
     );
     if (ziel === "aktuell" && stand) {
-      // Jeder Stand behält seine Datei (Spec 5.1); eine Preiswarnung bleibt sichtbar am Stand.
+      // Jeder Stand behält seine Datei (Spec 5.1); eine Preiswarnung bleibt sichtbar am Stand: `fehler`
+      // trägt dann den Text der Prüfung, obwohl der Stand `fertig` und aktuell ist (Aufgabe 8, Grok 2).
       await tx
         .update(kvStaende)
         .set({
@@ -239,7 +240,7 @@ export async function ablegenUnterSperre(
           fileContent: datei.fileContent,
           pruefung: kv.pruefung,
           status: "fertig",
-          fehler: null,
+          fehler: kv.pruefung && !preisOk ? pruefFehlerText(kv.pruefung) : null,
         })
         .where(druckt);
     }

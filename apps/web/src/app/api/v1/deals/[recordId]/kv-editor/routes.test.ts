@@ -397,9 +397,13 @@ describe("Fehlerabbildung", () => {
     );
   });
 
-  it("unbekannter Fehler wird weitergeworfen", async () => {
+  it("unbekannter Fehler wird 500 INTERN als JSON (Aufgabe 8, Review 9)", async () => {
     mocks.ansicht.mockRejectedValue(new Error("x"));
-    await expect(ansichtGet(anfrage("GET", ""), dealParams())).rejects.toThrow("x");
+    const fehlerLog = vi.spyOn(console, "error").mockImplementation(() => {});
+    const res = await ansichtGet(anfrage("GET", ""), dealParams());
+    expect(res.status).toBe(500);
+    expect((await res.json()).error.code).toBe("INTERN");
+    fehlerLog.mockRestore();
   });
 });
 

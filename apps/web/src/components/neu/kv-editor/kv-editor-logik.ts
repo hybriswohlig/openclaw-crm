@@ -26,6 +26,8 @@ export function standAbzeichen(s: KvStandKopf): { text: string; ton: Ton } {
   if (s.status === "fehler") {
     return preisFehlgeschlagen(s) ? { text: "Preisprüfung fehlgeschlagen", ton: "rose" } : { text: "Fehler", ton: "rose" };
   }
+  // Aktueller KV aus der Kalkulation, dessen Druck die Preisprüfung nicht bestand (Aufgabe 8, Grok 2).
+  if (s.aktuell && preisFehlgeschlagen(s)) return { text: "Aktuell, Preis prüfen", ton: "gold" };
   if (s.aktuell) return { text: "Aktuell", ton: "jade" };
   // War schon einmal der KV des Deals (gepusht oder aus der Kalkulation abgelegt).
   if (s.gepushtAm || s.dealDocumentId) return { text: "Früher aktuell", ton: "grau" };
@@ -37,7 +39,7 @@ function preisFehlgeschlagen(s: KvStandKopf): boolean {
 }
 
 export type PdfAnsicht =
-  | { art: "pdf" }
+  | { art: "pdf"; warnung?: { titel: string; text: string; details: string[] } }
   | { art: "druckt"; text: string }
   | { art: "fehler"; titel: string; text: string; details: string[] };
 
@@ -52,13 +54,22 @@ export function pdfAnsicht(s: KvStandKopf): PdfAnsicht {
       text: s.renderer === "vps" ? "Der KV wird gedruckt und danach auf den Preis geprüft. Das dauert meist ein bis zwei Minuten." : "Der KV wird gedruckt.",
     };
   }
-  if (s.status === "fertig") return { art: "pdf" };
   const p = s.pruefung;
-  if (p?.preis === "abweichung") {
+  const preisDetails = (): string[] => {
     const details: string[] = [];
-    if (p.fehlt.length > 0) details.push(`Fehlt im Druck: ${p.fehlt.map(euroText).join(", ")}`);
-    if (p.fremd.length > 0) details.push(`Steht zusätzlich im Druck: ${p.fremd.map(euroText).join(", ")}`);
-    return { art: "fehler", titel: "Preisprüfung fehlgeschlagen", text: s.fehler ?? KV_PREIS_ABWEICHUNG_TEXT, details };
+    if (p && p.fehlt.length > 0) details.push(`Fehlt im Druck: ${p.fehlt.map(euroText).join(", ")}`);
+    if (p && p.fremd.length > 0) details.push(`Steht zusätzlich im Druck: ${p.fremd.map(euroText).join(", ")}`);
+    return details;
+  };
+  if (s.status === "fertig") {
+    // Ein fertiger Stand mit fehlgeschlagener Prüfung ist ein KV aus der Kalkulation, der trotzdem abgelegt
+    // wurde (wie vor dem Editor): PDF zeigen, Warnung darüber (Aufgabe 8, Grok 2).
+    if (!preisFehlgeschlagen(s)) return { art: "pdf" };
+    const text = p?.preis === "nicht_lesbar" ? KV_PDF_NICHT_PRUEFBAR_TEXT : KV_PREIS_ABWEICHUNG_TEXT;
+    return { art: "pdf", warnung: { titel: "Preisprüfung fehlgeschlagen", text: s.fehler ?? text, details: preisDetails() } };
+  }
+  if (p?.preis === "abweichung") {
+    return { art: "fehler", titel: "Preisprüfung fehlgeschlagen", text: s.fehler ?? KV_PREIS_ABWEICHUNG_TEXT, details: preisDetails() };
   }
   if (p?.preis === "nicht_lesbar") {
     return { art: "fehler", titel: "Preisprüfung fehlgeschlagen", text: s.fehler ?? KV_PDF_NICHT_PRUEFBAR_TEXT, details: [] };

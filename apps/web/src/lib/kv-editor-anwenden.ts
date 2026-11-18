@@ -253,10 +253,10 @@ export function crmAnwenden(input: RenderInput, aenderungen: readonly KvAenderun
 // ════════════════════════════════════════════════════════════════════════
 
 const WORTANFANG =
-  /(?<!\p{L})(prozent|rabatt|nachlass|skonto|kostenlos|kostenfrei|gratis|umsonst|unentgeltlich|aufpreis|zuschlag|aufschlag|betrag|kosten|kostet|mehrkosten|bezahl|zahlung|zahlbar|anzahlung|rechnung)/giu;
+  /(?<!\p{L})(prozent|rabatt|nachlass|skonto|kostenlos|kostenfrei|gratis|umsonst|unentgeltlich|aufpreis|zuschlag|aufschlag|betrag|kosten|kostet|mehrkosten|bezahl|zahlung|zahlbar|anzahlung|rechnung|berechn|gutschrift|erstatt|ermäßig|ermässig|vergünstig|nachberechn)/giu;
 /** `Kostenvoranschlag` (auch `…schläge`, `…schlags`) ist der Name des Dokuments, kein Preiswort. */
 const KOSTENVORANSCHLAG = /^kostenvoranschl(a|ä)g/iu;
-const PREIS_IM_WORT = /preis/iu;
+const PREIS_IM_WORT = /preis|summe/iu;
 const RATE = /(?<!\p{L})raten?(?!\p{L})/iu;
 const EURO = /(?<!\p{L})eur(o)?(?![\p{L}-])/iu;
 const ZAHL = /\d+(?:[.,]\d+)*/gu;
@@ -474,7 +474,7 @@ export function pushPruefung(e: PushPruefEingabe): PushPruefErgebnis {
   if (e.status !== "fertig" || !e.preisOk) return { ok: false, fehler: "STAND_NICHT_FERTIG" };
   if (e.schonGepusht) return { ok: false, fehler: "UNGUELTIG" };
   if (e.aktuellDokumentId !== e.erwartetAktuellDokumentId) return { ok: false, fehler: "AKTUELL_GEAENDERT" };
-  if (e.standVersionId !== e.quotationVersionId) return { ok: false, fehler: "KALKULATION_NEU" };
+  if (e.standVersionId !== e.quotationVersionId || e.preisStandGleich === false) return { ok: false, fehler: "KALKULATION_NEU" };
   if (e.annahmeAktiv && !e.annahmeAufhebenBestaetigt) return { ok: false, fehler: "ANNAHME_AKTIV" };
   if (e.annahmeAktiv && !e.admin) return { ok: false, fehler: "NUR_ADMIN" };
   return { ok: true, annahmeAufheben: e.annahmeAktiv };
@@ -522,6 +522,11 @@ export function vpsErwarteteBetraege(
  * Betrag ohne Cent nicht ungeprüft durchgeht. „Euro-Paletten“ ist kein Betrag.
  */
 const BETRAG_IM_PDF = /(?<![\d.,])([0-9]{1,3}(?:\.[0-9]{3})+|[0-9]+)(?:,([0-9]{2}))?\s?(?:€|EUR(?![\p{L}-])|Euro(?![\p{L}-]))/gu;
+/**
+ * Vorangestellte Währung (`€ 999,00`, `EUR 999`), Aufgabe 8 (Grok 1). Nicht, wenn die Währung selbst
+ * hinter einem Betrag steht (`1.160,00 € 2 Helfer` in einer Tabellenzeile), und nur über ein Leerzeichen.
+ */
+const BETRAG_IM_PDF_VORN = /(?<![\d,-] ?)(?:€|(?<!\p{L})EUR|(?<!\p{L})Euro) ?([0-9]{1,3}(?:\.[0-9]{3})+|[0-9]+)(?:,([0-9]{2}))?(?![\d])/gu;
 const SEITE = "\f";
 
 /**
@@ -531,8 +536,10 @@ const SEITE = "\f";
  * endet er an der Überschrift.
  */
 function vorVertragsunterlagen(text: string): string {
-  const ende = text.indexOf("Vertragsunterlagen");
-  if (ende < 0) return text;
+  // Nur die Überschrift (eigene Zeile) zählt, nicht das Wort in einem Freitext (Aufgabe 8, Review 5).
+  const m = /(?:^|[\n\f])[ \t]*Vertragsunterlagen[ \t]*(?=[\n\f]|$)/u.exec(text);
+  if (!m) return text;
+  const ende = m.index + m[0].indexOf("Vertragsunterlagen");
   const seite = text.lastIndexOf(SEITE, ende);
   return text.slice(0, seite >= 0 ? seite : ende);
 }
@@ -545,9 +552,11 @@ export function vpsPreisPruefung(
   const teil = vorVertragsunterlagen(pdfText.replace(/[\u00A0\u202F]/g, " "));
   if (teil.replaceAll(SEITE, "").trim() === "") return { preis: "nicht_lesbar", fehlt: sortiert(p.erwartetCent), fremd: [] };
   const gefunden = new Set<number>();
-  for (const m of teil.matchAll(BETRAG_IM_PDF)) {
-    gefunden.add(Number(m[1].replace(/\./g, "")) * 100 + Number(m[2] ?? 0));
+  for (const re of [BETRAG_IM_PDF, BETRAG_IM_PDF_VORN]) {
+    for (const m of teil.matchAll(re)) gefunden.add(Number(m[1].replace(/\./g, "")) * 100 + Number(m[2] ?? 0));
   }
+  // Ohne erwarteten Betrag (kein Preis in der Kalkulation) ist nichts belegt: nie „ok“ (Review 2).
+  if (p.erwartetCent.length === 0) return { preis: "nicht_lesbar", fehlt: [], fremd: sortiert(gefunden) };
   const bekannt = new Set([...p.erwartetCent, ...p.erlaubtCent]);
   const fehlt = sortiert(p.erwartetCent.filter((c) => !gefunden.has(c)));
   const fremd = sortiert([...gefunden].filter((c) => !bekannt.has(c)));

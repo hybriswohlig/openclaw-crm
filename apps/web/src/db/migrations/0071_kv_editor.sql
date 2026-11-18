@@ -30,6 +30,9 @@ CREATE TABLE IF NOT EXISTS "kv_staende" (
   "ki_nachricht_id" text
 );
 --> statement-breakpoint
+-- Preisstand der Quotation beim Druck (Festpreis, Posten, Anzahlung, Paket, Stunden); Push nur bei gleichem Stand.
+ALTER TABLE "kv_staende" ADD COLUMN IF NOT EXISTS "preis_stand" text;
+--> statement-breakpoint
 CREATE UNIQUE INDEX IF NOT EXISTS "kv_staende_deal_nummer_uq" ON "kv_staende" ("deal_record_id", "nummer");
 --> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "kv_staende_ws_deal_idx" ON "kv_staende" ("workspace_id", "deal_record_id", "created_at");

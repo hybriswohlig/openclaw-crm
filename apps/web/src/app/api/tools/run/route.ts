@@ -182,7 +182,12 @@ export async function POST(req: NextRequest) {
             quelleId: quelle?.id ?? null,
             abgleich,
             grundlage,
-            pruefung: kontext.kvPreise ? { ...kontext.kvPreise, preis: "offen", fehlt: [], fremd: [] } : null,
+            // Stammkundenrabatt (nur Nicht-Kottke, nur im Browser-Paket): den Betrag mit Skonto kennt die
+            // Prüfung nicht, darum ungeprüft statt falsch „abweichung“ (Aufgabe 8, Review 3).
+            pruefung:
+              kontext.kvPreise && (params.preise as Record<string, unknown> | undefined)?.stammkundenrabatt !== true
+                ? { ...kontext.kvPreise, preis: "offen", fehlt: [], fremd: [] }
+                : null,
           };
         }
       } catch (err) {

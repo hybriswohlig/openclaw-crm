@@ -434,6 +434,56 @@ describe.skipIf(!url)("KV-Editor Dienst (DB, Aufgabe 3)", { timeout: 60_000 }, (
     ).rejects.toMatchObject({ code: "UNGUELTIG" });
   });
 
+  it("Aufgabe 8 (Review 1): Preis geändert ohne neue Version (Kundenwahl, von Hand) → älterer Entwurf nicht pushbar", async () => {
+    await kvDokument("KV-KO-20261110-ART-3.pdf");
+    const a = await dienst.ansicht(ws, deal, { userId: dario, admin: false }, opt());
+    const s1 = a.staende[0];
+    const entwurf = await dienst.standAnlegen(
+      ws,
+      deal,
+      { vorgaengerId: s1.id, setzen: [{ schluessel: "leistungen:transport:notiz", wert: "Schrank zuerst" }], zuruecksetzen: [] },
+      dario,
+      opt()
+    );
+    await vpsFertig(vpsStarts[0]);
+    const vorher = (await sql`select fixed_price, deposit_required_cents from quotations where deal_record_id = ${deal}`)[0];
+    // Preis ändert sich, die Version bleibt (wie eine Paketwahl im Portal).
+    await sql`update quotations set fixed_price = '1500.00' where deal_record_id = ${deal}`;
+    await expect(
+      dienst.pushen(ws, deal, entwurf.id, { erwartetAktuellDokumentId: a.aktuellDokumentId }, { userId: dario, admin: false }, opt())
+    ).rejects.toMatchObject({ code: "KALKULATION_NEU", status: 409 });
+    // Anzahlung allein zählt auch.
+    await sql`update quotations set fixed_price = ${vorher.fixed_price}, deposit_required_cents = 99900 where deal_record_id = ${deal}`;
+    await expect(
+      dienst.pushen(ws, deal, entwurf.id, { erwartetAktuellDokumentId: a.aktuellDokumentId }, { userId: dario, admin: false }, opt())
+    ).rejects.toMatchObject({ code: "KALKULATION_NEU" });
+    // Zurück auf den Preis beim Druck: pushbar.
+    await sql`update quotations set deposit_required_cents = ${vorher.deposit_required_cents} where deal_record_id = ${deal}`;
+    const p = await dienst.pushen(ws, deal, entwurf.id, { erwartetAktuellDokumentId: a.aktuellDokumentId }, { userId: dario, admin: false }, opt());
+    expect(p.stand.aktuell).toBe(true);
+    expect((await sql`select count(*)::int as n from kv_staende where deal_record_id = ${deal} and preis_stand is null`)[0].n).toBe(0);
+  });
+
+  it("Aufgabe 8 (Review 2, 3): VPS-Entwurf ohne Preis oder für eine andere Firma als Kottke startet keinen Druck", async () => {
+    await kvDokument("KV-KO-20261110-ART-3.pdf");
+    const s1 = (await dienst.ansicht(ws, deal, { userId: dario, admin: false }, opt())).staende[0];
+    const eingabe = { vorgaengerId: s1.id, setzen: [{ schluessel: "leistungen:transport:notiz", wert: "Schrank zuerst" }], zuruecksetzen: [] };
+    const ohnePreis = opt({
+      vpsPaket: async (_w, _d, grundlage: KvGrundlageVps, aenderungen) => {
+        const basis = vpsBasis();
+        return { params: { grundlage, liste: aenderungen(basis) }, basis, nurLesen: [], calculationVersionId: await versionJetzt(), priceCents: null, kvPreise: { erwartetCent: [], erlaubtCent: [0] } };
+      },
+    });
+    await expect(dienst.standAnlegen(ws, deal, eingabe, dario, ohnePreis)).rejects.toMatchObject({
+      code: "UNGUELTIG",
+      message: "In der Kalkulation steht noch kein Preis. Bitte erst dort einen Preis festlegen.",
+    });
+    const ceylan = opt({ dealKopf: async () => ({ kunde: "Mira Beispiel", firma: "ceylan", firmaName: "Ceylan Umzüge" }) });
+    await expect(dienst.standAnlegen(ws, deal, eingabe, dario, ceylan)).rejects.toMatchObject({ code: "UNGUELTIG", status: 400 });
+    expect(vpsStarts).toHaveLength(0);
+    expect((await zaehlen()).staende).toBe(1);
+  });
+
   it("Push: zweiter paralleler Push 409 AKTUELL_GEAENDERT; neue Kalkulation 409 KALKULATION_NEU", async () => {
     await kvDokument("KV-KO-20261110-ART-3.pdf");
     const a = await dienst.ansicht(ws, deal, { userId: dario, admin: false }, opt());

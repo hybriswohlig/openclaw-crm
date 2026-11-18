@@ -200,7 +200,7 @@ describe.skipIf(!url)("kv-job-ablage (DB)", () => {
       expect(await ablage.ablegenUnterSperre(a.job, pdf, { pruefung: abweichung })).toEqual({ art: "entwurf", status: "fehler" });
       expect(await standLesen(a.standId)).toMatchObject({
         status: "fehler",
-        fehler: "Preis im Druck weicht von der Kalkulation ab. Bitte neu drucken; bleibt es so, Claude Bescheid sagen.",
+        fehler: "Preis im Druck weicht von der Kalkulation ab. Bitte neu drucken; bleibt es so, Dario Bescheid sagen.",
         pruefung: abweichung,
       });
       const b = await mitStand("entwurf");
@@ -241,7 +241,12 @@ describe.skipIf(!url)("kv-job-ablage (DB)", () => {
 
       const ohne = await mitStand("aktuell");
       expect((await ablage.ablegenUnterSperre(ohne.job, pdf, { pruefung: abweichung })).art).toBe("abgelegt");
-      expect(await standLesen(ohne.standId)).toMatchObject({ status: "fertig", pruefung: abweichung });
+      // Aufgabe 8 (Grok 2): die Warnung steht als Text am fertigen Stand.
+      expect(await standLesen(ohne.standId)).toMatchObject({
+        status: "fertig",
+        pruefung: abweichung,
+        fehler: "Preis im Druck weicht von der Kalkulation ab. Bitte neu drucken; bleibt es so, Dario Bescheid sagen.",
+      });
       expect(await dokumente()).toBe(1);
     });
 

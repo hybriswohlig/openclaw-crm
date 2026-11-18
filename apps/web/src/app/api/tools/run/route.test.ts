@@ -158,6 +158,21 @@ describe("POST /api/tools/run: Job-Register", () => {
     expect(gesendet.params.preise).toEqual({ modell: "pauschale" });
   });
 
+  it("Aufgabe 8 (Review 3): Stammkundenrabatt im Paket → Stand ohne Preisprüfung (ungeprüft statt falsch abweichend)", async () => {
+    m.attachDocumentJobContext.mockImplementationOnce(async (_ws: string, p: Record<string, unknown>) => ({
+      params: { ...p, preise: { modell: "pauschale", pauschale_betrag: 980, stammkundenrabatt: true } },
+      kv: { calculationVersionId: "ver_3", priceCents: 98000 },
+      kvBasis: null,
+      kvPreise: { erwartetCent: [98000], erlaubtCent: [0] },
+      bildIds: [],
+      inventarIds: [],
+      re: null,
+    }));
+    const res = await run("rechnungen-und-auftragsbestaetigungen", { firma: "ceylan", document_type: "KV", _deal_record_id: "deal_1" });
+    expect(res.status).toBe(200);
+    expect(m.standZumNeuenKv).toHaveBeenCalledWith({ tx: true }, WS, "deal_1", expect.objectContaining({ pruefung: null }));
+  });
+
   it("KV-Editor: Änderungen der Quelle wandern über den Abgleich mit, Grundlage aus dem Dialog, _kv_stand weg", async () => {
     const aenderung = (schluessel: string, wert: string, vorher: string) => ({
       schluessel,

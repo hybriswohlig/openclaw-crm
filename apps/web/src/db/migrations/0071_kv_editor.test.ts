@@ -24,6 +24,7 @@ describe("Migration 0071 KV-Editor (Text)", () => {
     expect(ohneKommentare).toContain('CREATE TABLE IF NOT EXISTS "kv_staende"');
     expect(ohneKommentare).toContain('ADD COLUMN IF NOT EXISTS "kv_stand_id"');
     expect(ohneKommentare).toContain('ADD COLUMN IF NOT EXISTS "kv_stand_ziel"');
+    expect(ohneKommentare).toContain('ALTER TABLE "kv_staende" ADD COLUMN IF NOT EXISTS "preis_stand" text;');
   });
 
   it("Preisprüfung, KI-Herkunft und ein Job je Stand (0b)", () => {
