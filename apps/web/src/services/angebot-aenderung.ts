@@ -36,7 +36,7 @@ import type { Autor, VersionsZeile } from "./kalkulation-versionen";
 
 // ─── Fehler ─────────────────────────────────────────────────────────────────
 
-export type AenderungsFehlerCode = "KEIN_ANGEBOT" | "KEIN_VORGANG" | "LEAD_RUECKFRAGE" | "NUR_MENSCH" | "UNGUELTIG" | "KI_FEHLER";
+export type AenderungsFehlerCode = "KEIN_ANGEBOT" | "KEIN_VORGANG" | "LEAD_RUECKFRAGE" | "NUR_MENSCH" | "UNGUELTIG" | "KI_FEHLER" | "LAEUFT";
 
 const STATUS: Record<AenderungsFehlerCode, number> = {
   KEIN_ANGEBOT: 409,
@@ -45,6 +45,7 @@ const STATUS: Record<AenderungsFehlerCode, number> = {
   NUR_MENSCH: 403,
   UNGUELTIG: 400,
   KI_FEHLER: 502,
+  LAEUFT: 409,
 };
 
 export class AenderungsFehler extends Error {
@@ -91,6 +92,11 @@ export interface AenderungsQuellen {
   /** Eingehende Kundennachrichten der Gespräche dieses Deals seit `seit`, älteste zuerst. */
   eingang: (ws: string, deal: string, seit: Date | null) => Promise<{ texte: string[]; stand: string }>;
   ki: (ws: string, eingabe: KiEingabe) => Promise<unknown[] | null>;
+  /**
+   * Eine KI-Auswertung je Deal über alle Server-Instanzen (Review M7): `f` läuft nur,
+   * wenn keine andere läuft, sonst sofort `{ belegt: true }`.
+   */
+  kiSperre: <T>(ws: string, deal: string, f: () => Promise<T>) => Promise<{ belegt: true } | { belegt: false; wert: T }>;
   fotoStand: (deal: string) => Promise<{ offen: number; gescheitert: number }>;
   portalLink: (ws: string, deal: string) => Promise<string | null>;
   kundenName: (ws: string, deal: string) => Promise<string | null>;
@@ -411,26 +417,13 @@ export async function starten(ws: string, deal: string, autor: Autor, quellen?: 
   return { entwurfVersion: version.version, neu };
 }
 
-/** Laufende KI-Auswertungen je Deal: gleichzeitige Klicks warten auf dieselbe. */
-const laufend = new Map<string, Promise<unknown[] | null>>();
 export const KI_ZEITGRENZE_MS = 90_000;
 
-async function kiEinmal(ws: string, deal: string, schluessel: string, q: AenderungsQuellen, e: KiEingabe): Promise<unknown[]> {
-  const k = `${ws}:${deal}`;
-  const schon = laufend.get(k);
-  if (schon) {
-    // Eine Auswertung je Deal: eine andere läuft gerade.
-    await schon.catch(() => null);
-    throw new AenderungsFehler("UNGUELTIG", LAEUFT_TEXT);
-  }
+/** KI-Aufruf mit Zeitgrenze. Nur unter `kiSperre` aufrufen (`unterKiSperre`). */
+async function kiEinmal(ws: string, q: AenderungsQuellen, e: KiEingabe): Promise<unknown[]> {
   let timer: ReturnType<typeof setTimeout> | null = null;
   const ki = q.ki(ws, e);
-  // Review 5: der Platz bleibt belegt, bis der KI-Aufruf selbst endet (auch nach der Zeitgrenze).
-  laufend.set(k, ki);
-  void ki.catch(() => null).finally(() => {
-    if (laufend.get(k) === ki) laufend.delete(k);
-  });
-  void schluessel;
+  void ki.catch(() => null);
   try {
     const r = await Promise.race([
       ki,
@@ -445,9 +438,33 @@ async function kiEinmal(ws: string, deal: string, schluessel: string, q: Aenderu
   }
 }
 
-const LAEUFT_TEXT = "Gerade läuft schon eine Auswertung für diesen Deal. Bitte gleich noch einmal.";
-function frei(ws: string, deal: string) {
-  if (laufend.has(`${ws}:${deal}`)) throw new AenderungsFehler("UNGUELTIG", LAEUFT_TEXT);
+export const LAEUFT_TEXT = "Für diesen Deal läuft gerade schon eine KI-Auswertung. Bitte warte kurz und versuch es dann noch einmal.";
+
+/**
+ * `f` unter der KI-Sperre des Deals (Review M7): läuft schon eine Auswertung, gleich
+ * welche Instanz, sofort 409 `LAEUFT`, ohne etwas zu schreiben und ohne zu warten.
+ */
+async function unterKiSperre<T>(ws: string, deal: string, q: AenderungsQuellen, f: () => Promise<T>): Promise<T> {
+  const r = await q.kiSperre(ws, deal, f);
+  if (r.belegt) throw new AenderungsFehler("LAEUFT", LAEUFT_TEXT);
+  return r.wert;
+}
+
+/**
+ * Standard-Sperre: `pg_try_advisory_xact_lock` in einer eigenen Transaktion, die
+ * während `f` offen bleibt. Die Transaktionsvariante gilt auch hinter einem Pooler
+ * im Transaktionsmodus (eine Sitzungssperre könnte dort auf einer fremden Verbindung
+ * hängen bleiben) und endet sicher mit Commit oder Rollback; `f` schreibt über
+ * die normale Verbindung. Die Sperre hält höchstens bis zur KI-Zeitgrenze.
+ */
+export async function kiSperreDb<T>(ws: string, deal: string, f: () => Promise<T>): Promise<{ belegt: true } | { belegt: false; wert: T }> {
+  const { db } = await import("@/db");
+  const { sql } = await import("drizzle-orm");
+  return db.transaction(async (tx) => {
+    const zeilen = (await tx.execute(sql`select pg_try_advisory_xact_lock(hashtext(${`aa-ki:${ws}:${deal}`})) as frei`)) as unknown as Array<{ frei: boolean }>;
+    if (zeilen[0]?.frei !== true) return { belegt: true as const };
+    return { belegt: false as const, wert: await f() };
+  });
 }
 
 async function aktiverVorgang(ws: string, deal: string, autor: Autor, q: AenderungsQuellen): Promise<Lage & { vorgang: VersionsZeile; basis: VersionsZeile }> {
@@ -464,22 +481,25 @@ async function aktiverVorgang(ws: string, deal: string, autor: Autor, q: Aenderu
 export async function ausChat(ws: string, deal: string, autor: Autor, quellen?: Partial<AenderungsQuellen>): Promise<{ hinweis: string | null }> {
   nurMensch(autor, "Die Auswertung des Chats");
   const q = await quellenMit(quellen);
-  const l = await aktiverVorgang(ws, deal, autor, q);
-  const seit = seitFuerChat(l.basis) ?? (await q.letzterKv(ws, deal));
-  const eingang = await q.eingang(ws, deal, seit);
-  if (eingang.texte.every((t) => !t.trim())) return { hinweis: "Seit dem Angebot hat der Kunde nichts geschrieben." };
-  const stand = aenderungsStand(l.ereignisse, l.vorgang.version);
-  if (stand.chatStand === eingang.stand) return { hinweis: "Keine neuen Nachrichten seit der letzten Auswertung." };
-  const roh = await kiEinmal(ws, deal, eingang.stand, q, {
-    art: "chat",
-    texte: eingang.texte,
-    inventar: l.inventar.filter((z) => z.moveFlag).map((z) => z.name),
-    bisher: [],
-    erledigt: erledigteTexte(stand.vorschlaege),
+  // Lesen erst unter der Sperre: eine eben beendete Auswertung ist dann schon im Stand.
+  return unterKiSperre(ws, deal, q, async () => {
+    const l = await aktiverVorgang(ws, deal, autor, q);
+    const seit = seitFuerChat(l.basis) ?? (await q.letzterKv(ws, deal));
+    const eingang = await q.eingang(ws, deal, seit);
+    if (eingang.texte.every((t) => !t.trim())) return { hinweis: "Seit dem Angebot hat der Kunde nichts geschrieben." };
+    const stand = aenderungsStand(l.ereignisse, l.vorgang.version);
+    if (stand.chatStand === eingang.stand) return { hinweis: "Keine neuen Nachrichten seit der letzten Auswertung." };
+    const roh = await kiEinmal(ws, q, {
+      art: "chat",
+      texte: eingang.texte,
+      inventar: l.inventar.filter((z) => z.moveFlag).map((z) => z.name),
+      bisher: [],
+      erledigt: erledigteTexte(stand.vorschlaege),
+    });
+    const vorschlaege = normalisiereVorschlaege(roh, { inventar: inventarZeilen(l.inventar), quelle: "chat", zeit: new Date().toISOString() });
+    await q.schreiben(ws, deal, { typ: "vorschlaege", entwurfVersion: l.vorgang.version, quelle: "chat", ersetzen: true, vorschlaege, stand: eingang.stand }, autor);
+    return { hinweis: vorschlaege.length === 0 ? "In den neuen Nachrichten steht keine Änderung am Angebot." : null };
   });
-  const vorschlaege = normalisiereVorschlaege(roh, { inventar: inventarZeilen(l.inventar), quelle: "chat", zeit: new Date().toISOString() });
-  await q.schreiben(ws, deal, { typ: "vorschlaege", entwurfVersion: l.vorgang.version, quelle: "chat", ersetzen: true, vorschlaege, stand: eingang.stand }, autor);
-  return { hinweis: vorschlaege.length === 0 ? "In den neuen Nachrichten steht keine Änderung am Angebot." : null };
 }
 
 const EINGABE_MAX = 1000;
@@ -498,30 +518,30 @@ export async function ausEingabe(ws: string, deal: string, text: string, autor: 
   if (!t) throw new AenderungsFehler("UNGUELTIG", "Bitte schreib, was sich ändern soll.");
   if (t.length > EINGABE_MAX) throw new AenderungsFehler("UNGUELTIG", `Höchstens ${EINGABE_MAX} Zeichen.`);
   const q = await quellenMit(quellen);
-  const l = await aktiverVorgang(ws, deal, autor, q);
-  const vorher = aenderungsStand(l.ereignisse, l.vorgang.version);
-  const verlauf = [...vorher.verlauf.map((v) => v.text), t];
-  const standText = verlauf.join("\n");
-  // Läuft schon eine Auswertung, den Text gar nicht erst in den Verlauf schreiben.
-  frei(ws, deal);
-  await q.schreiben(ws, deal, { typ: "eingabe", entwurfVersion: l.vorgang.version, text: t }, autor);
-  // Derselbe Verlauf wurde schon ausgewertet (Doppelklick): nichts Neues an die KI.
-  if (vorher.eingabeStand === standText) return { hinweis: null };
-  const roh = await kiEinmal(ws, deal, standText, q, {
-    art: "eingabe",
-    texte: verlauf,
-    inventar: l.inventar.filter((z) => z.moveFlag).map((z) => z.name),
-    bisher: vorher.vorschlaege.filter((v) => v.quelle === "eingabe" && v.status === "offen").map((v) => aenderungText(v.aenderung)),
-    erledigt: erledigteTexte(vorher.vorschlaege),
+  // Läuft schon eine Auswertung (auch auf einer anderen Instanz), den Text gar nicht erst in den Verlauf
+  // schreiben. Lesen erst unter der Sperre: der Verlauf enthält dann auch eine eben beendete Eingabe.
+  return unterKiSperre(ws, deal, q, async () => {
+    const l = await aktiverVorgang(ws, deal, autor, q);
+    const vorher = aenderungsStand(l.ereignisse, l.vorgang.version);
+    const verlauf = [...vorher.verlauf.map((v) => v.text), t];
+    const standText = verlauf.join("\n");
+    await q.schreiben(ws, deal, { typ: "eingabe", entwurfVersion: l.vorgang.version, text: t }, autor);
+    const roh = await kiEinmal(ws, q, {
+      art: "eingabe",
+      texte: verlauf,
+      inventar: l.inventar.filter((z) => z.moveFlag).map((z) => z.name),
+      bisher: vorher.vorschlaege.filter((v) => v.quelle === "eingabe" && v.status === "offen").map((v) => aenderungText(v.aenderung)),
+      erledigt: erledigteTexte(vorher.vorschlaege),
+    });
+    const vorschlaege = normalisiereVorschlaege(roh, {
+      inventar: inventarZeilen(l.inventar),
+      quelle: "eingabe",
+      zeit: new Date().toISOString(),
+      originalText: t,
+    });
+    await q.schreiben(ws, deal, { typ: "vorschlaege", entwurfVersion: l.vorgang.version, quelle: "eingabe", ersetzen: true, vorschlaege, stand: standText }, autor);
+    return { hinweis: vorschlaege.length === 0 ? "Daraus konnte ich keine Änderung lesen. Schreib es bitte konkreter." : null };
   });
-  const vorschlaege = normalisiereVorschlaege(roh, {
-    inventar: inventarZeilen(l.inventar),
-    quelle: "eingabe",
-    zeit: new Date().toISOString(),
-    originalText: t,
-  });
-  await q.schreiben(ws, deal, { typ: "vorschlaege", entwurfVersion: l.vorgang.version, quelle: "eingabe", ersetzen: true, vorschlaege, stand: standText }, autor);
-  return { hinweis: vorschlaege.length === 0 ? "Daraus konnte ich keine Änderung lesen. Schreib es bitte konkreter." : null };
 }
 
 /** Bots und Hand: strukturierte Änderungen als Vorschläge, nie übernommen. */
@@ -712,6 +732,7 @@ const standardSchluessel: Record<keyof AenderungsQuellen, true> = {
   inventar: true,
   eingang: true,
   ki: true,
+  kiSperre: true,
   fotoStand: true,
   portalLink: true,
   kundenName: true,
@@ -850,6 +871,7 @@ export async function standardQuellen(): Promise<AenderungsQuellen> {
         .limit(200);
       return { texte: zeilen.map((z) => z.body ?? "").reverse(), stand: `${zeilen.length}:${zeilen[0]?.id ?? "-"}` };
     },
+    kiSperre: kiSperreDb,
     ki: async (ws, e) => {
       const { z } = await import("zod");
       const { runAITask } = await import("@/services/ai/run-task");
