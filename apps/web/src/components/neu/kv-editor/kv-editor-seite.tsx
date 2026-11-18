@@ -143,11 +143,19 @@ export function KvEditor({
   useEffect(() => {
     if (!druckSchluessel) return;
     const ids = druckSchluessel.split(",");
+    // Schlank: nur der Kopf; das volle Detail (Basis, Werte) einmal, wenn der Druck endet.
     const t = window.setInterval(() => {
-      for (const id of ids) void detailLaden(id);
+      for (const id of ids) {
+        void quelle.standKopf(id).then((r) => {
+          if (!r.ok || r.data.status === "druckt") return;
+          const k = r.data;
+          setAnsicht((a) => (a ? { ...a, staende: a.staende.map((s) => (s.id === id ? k : s)) } : a));
+          void detailLaden(id);
+        });
+      }
     }, pollMs);
     return () => window.clearInterval(t);
-  }, [druckSchluessel, pollMs, detailLaden]);
+  }, [druckSchluessel, pollMs, detailLaden, quelle]);
 
   // Chat-Verlauf beim ersten Öffnen.
   useEffect(() => {

@@ -39,6 +39,7 @@ describe("apiQuelle gegen die Routen", () => {
     const q = apiQuelle("deal 1");
     await q.ansicht();
     await q.stand("st/1");
+    await q.standKopf("st_1");
     await q.standAnlegen({ vorgaengerId: "st_1", setzen: [], zuruecksetzen: [] });
     await q.neuDrucken("st_1");
     await q.pushen("st_1", { erwartetAktuellDokumentId: null });
@@ -56,7 +57,8 @@ describe("apiQuelle gegen die Routen", () => {
       expect(fs.existsSync(datei), `${a.method} ${a.url} → ${datei}`).toBe(true);
       expect(fs.readFileSync(datei, "utf8"), `${a.method} in ${datei}`).toMatch(new RegExp(`export (async function|const) ${a.method}\\b`));
     }
-    expect(aufrufe.map((a) => a.method)).toEqual(["GET", "GET", "POST", "POST", "POST", "POST", "POST", "POST", "GET"]);
+    expect(aufrufe[2].url).toBe("/api/v1/deals/deal%201/kv-editor/staende/st_1/kopf");
+    expect(aufrufe.map((a) => a.method)).toEqual(["GET", "GET", "GET", "POST", "POST", "POST", "POST", "POST", "POST", "GET"]);
   });
 
   it("Fehler mit daten kommen bei fehlerDaten an", async () => {

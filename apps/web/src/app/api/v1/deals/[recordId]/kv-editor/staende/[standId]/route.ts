@@ -5,7 +5,7 @@ import { standLesen } from "@/services/kv-editor";
 
 export const dynamic = "force-dynamic";
 
-/** GET → `KvStandDetail` (die Oberfläche fragt druckende Stände alle 5 s ab). */
+/** GET → `KvStandDetail` (einmal beim Wählen und wenn ein Druck endet; die Abfrage nutzt `…/kopf`). */
 export async function GET(req: NextRequest, { params }: KvStandParams) {
   return kvRoute(req, params, async (ctx, deal) => {
     const { standId } = await params;

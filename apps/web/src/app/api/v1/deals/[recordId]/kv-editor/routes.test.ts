@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   dealImWorkspace: vi.fn(),
   ansicht: vi.fn(),
   standLesen: vi.fn(),
+  standKopfLesen: vi.fn(),
   standPdf: vi.fn(),
   standAnlegen: vi.fn(),
   neuDrucken: vi.fn(),
@@ -40,6 +41,7 @@ vi.mock("@/lib/kalkulation-versionen-antwort", async (importOriginal) => {
 vi.mock("@/services/kv-editor", () => ({
   ansicht: mocks.ansicht,
   standLesen: mocks.standLesen,
+  standKopfLesen: mocks.standKopfLesen,
   standPdf: mocks.standPdf,
   standAnlegen: mocks.standAnlegen,
   neuDrucken: mocks.neuDrucken,
@@ -53,6 +55,7 @@ vi.mock("@/services/kv-editor", () => ({
 import { GET as ansichtGet } from "./route";
 import { POST as standAnlegenPost } from "./staende/route";
 import { GET as standGet } from "./staende/[standId]/route";
+import { GET as kopfGet } from "./staende/[standId]/kopf/route";
 import { GET as pdfGet } from "./staende/[standId]/pdf/route";
 import { POST as neuDruckenPost } from "./staende/[standId]/neu-drucken/route";
 import { POST as pushenPost } from "./staende/[standId]/pushen/route";
@@ -156,6 +159,14 @@ const ROUTEN: {
     daten: { id: "stand_1" },
     args: ["ws_1", "deal_1", "stand_1"],
     laden: () => standGet(anfrage("GET", "/staende/stand_1"), standParams()),
+  },
+  {
+    name: "GET /staende/[standId]/kopf",
+    dienst: mocks.standKopfLesen,
+    status: 200,
+    daten: { id: "stand_1", status: "druckt" },
+    args: ["ws_1", "deal_1", "stand_1"],
+    laden: () => kopfGet(anfrage("GET", "/staende/stand_1/kopf"), standParams()),
   },
   {
     name: "GET /staende/[standId]/pdf",

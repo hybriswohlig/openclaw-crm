@@ -25,8 +25,10 @@ export type { ApiAntwort };
 export interface KvEditorQuelle {
   /** GET …/kv-editor */
   ansicht(): Promise<ApiAntwort<KvEditorAnsicht>>;
-  /** GET …/staende/<id> (auch zum Abfragen alle 5 s, solange `druckt`). */
+  /** GET …/staende/<id> (volles Detail: beim Wählen und einmal, wenn ein Druck endet). */
   stand(standId: string): Promise<ApiAntwort<KvStandDetail>>;
+  /** GET …/staende/<id>/kopf (schlank, zum Abfragen alle 5 s, solange `druckt`). */
+  standKopf(standId: string): Promise<ApiAntwort<KvStandKopf>>;
   /** GET …/staende/<id>/pdf (inline); null, wenn es kein PDF gibt (Testdaten ohne Datei). */
   pdfUrl(standId: string): string | null;
   /** POST …/staende (201): neuer Entwurf, Hand oder KI (`kiNachrichtId`). */
@@ -60,6 +62,7 @@ export function apiQuelle(dealId: string): KvEditorQuelle {
   return {
     ansicht: () => apiAufruf(basis),
     stand: (id) => apiAufruf(stand(id)),
+    standKopf: (id) => apiAufruf(`${stand(id)}/kopf`),
     pdfUrl: (id) => `${stand(id)}/pdf`,
     standAnlegen: (e) => apiAufruf(`${basis}/staende`, jsonAufruf("POST", e)),
     neuDrucken: (id) => apiAufruf(`${stand(id)}/neu-drucken`, jsonAufruf("POST", {})),

@@ -283,6 +283,44 @@ describe.skipIf(!url)("KV-Editor Dienst (DB, Aufgabe 3)", { timeout: 60_000 }, (
     expect(pdf?.bytes.equals(PDF)).toBe(true);
   });
 
+  it("Abfrage druckender Stände (schlank): nur Kopf, stößt den Abschluss an, baut keine Basis, fremder Workspace KEIN_KV", async () => {
+    await kvDokument("KV-KO-20261110-ART-3.pdf");
+    const s1 = (await dienst.ansicht(ws, deal, { userId: dario, admin: false }, opt())).staende[0];
+    const s2 = await dienst.standAnlegen(
+      ws,
+      deal,
+      { vorgaengerId: s1.id, setzen: [{ schluessel: "vereinbarungen:text:text", wert: "Hausmeister" }], zuruecksetzen: [] },
+      dario,
+      opt()
+    );
+    const paket = vi.fn();
+    const ohneBasis = opt({
+      vpsPaket: async () => {
+        paket();
+        throw new Error("Basis darf hier nicht gebaut werden");
+      },
+      crmBasis: async () => {
+        paket();
+        throw new Error("Basis darf hier nicht gebaut werden");
+      },
+    });
+    // Noch im Druck: Abschluss angestoßen (Fake tut nichts), Status bleibt.
+    const angestossen: string[] = [];
+    const k1 = await dienst.standKopfLesen(ws, deal, s2.id, { ...ohneBasis, druckAnstossen: async (_w, id) => void angestossen.push(id) });
+    expect(k1).toMatchObject({ id: s2.id, status: "druckt", nummer: 2 });
+    expect(angestossen).toEqual([vpsStarts[0]]);
+    // Anstoßen schließt den Druck ab (wie der Cron); der Kopf liest danach neu.
+    const k2 = await dienst.standKopfLesen(ws, deal, s2.id, { ...ohneBasis, druckAnstossen: async (_w, id) => void (await vpsFertig(id)) });
+    expect(k2).toMatchObject({ id: s2.id, status: "fertig", aktuell: false, dealDocumentId: null, pruefung: expect.objectContaining({ preis: "ok" }) });
+    expect(paket).not.toHaveBeenCalled();
+    // Fertig: kein weiteres Anstoßen.
+    const nochmal = vi.fn(async () => {});
+    await dienst.standKopfLesen(ws, deal, s2.id, { ...ohneBasis, druckAnstossen: nochmal });
+    expect(nochmal).not.toHaveBeenCalled();
+    await expect(dienst.standKopfLesen(randomUUID(), deal, s2.id, ohneBasis)).rejects.toMatchObject({ code: "KEIN_KV", status: 404 });
+    await expect(dienst.standKopfLesen(ws, deal, "", ohneBasis)).rejects.toMatchObject({ code: "KEIN_KV" });
+  });
+
   it("Preisverdacht und unbekannte Felder: 400 UNGUELTIG, kein Druck, kein Stand", async () => {
     await kvDokument("KV-KO-20261110-ART-3.pdf");
     const s1 = (await dienst.ansicht(ws, deal, { userId: dario, admin: false }, opt())).staende[0];

@@ -130,7 +130,7 @@ export const KV_EDITOR_FEHLER = [
 export type KvEditorFehler = (typeof KV_EDITOR_FEHLER)[number];
 
 // ════════════════════════════════════════════════════════════════════════
-// Stand (Tabelle `kv_staende`, Migration 0070)
+// Stand (Tabelle `kv_staende`, Migration 0071)
 // ════════════════════════════════════════════════════════════════════════
 
 /**
@@ -851,6 +851,8 @@ export interface KvEditorDienst {
   /** Legt bei Bedarf „Stand 1, Ausgangs-KV“ an (Spec 7.4); `annahme.aufhebenErlaubt` aus `wer.admin`. */
   ansicht(ws: string, deal: string, wer: KvAufrufer): Promise<KvEditorAnsicht>;
   standLesen(ws: string, deal: string, standId: string): Promise<KvStandDetail>;
+  /** Nur Kopf und Status, für die Abfrage druckender Stände (Aufgabe 8, schlanker Weg). */
+  standKopfLesen(ws: string, deal: string, standId: string): Promise<KvStandKopf>;
   standPdf(
     ws: string,
     deal: string,

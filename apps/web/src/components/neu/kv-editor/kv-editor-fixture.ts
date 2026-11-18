@@ -468,6 +468,13 @@ export function fixtureQuelle(szenario: KvSzenario = "standard", o: FixtureOptio
       return ok(kopie(detail(s)));
     },
 
+    async standKopf(id) {
+      const s = z.staende.find((x) => x.id === id);
+      if (!s) return fehler("KEIN_KV");
+      aktualisieren(s);
+      return ok(kopie(s));
+    },
+
     pdfUrl: (id) => o.pdf?.(id) ?? null,
 
     async standAnlegen(e) {

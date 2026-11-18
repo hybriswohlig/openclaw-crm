@@ -11,7 +11,7 @@
  * Sperrreihenfolge: `angebotSperren` vor `kv-editor:<deal>`. Netz und Renderer sind über
  * `KvEditorOptionen` austauschbar (Tests rufen nie VPS, KI oder Renderer).
  */
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, getTableColumns, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { activityEvents } from "@/db/schema/activity";
 import { dealCalculationVersions } from "@/db/schema/deal-calculation-versions";
@@ -340,6 +340,36 @@ async function standIntern(ws: string, deal: string, standId: string, q: Q): Pro
 
 export async function standLesen(ws: string, deal: string, standId: string, o?: KvEditorOptionen): Promise<KvStandDetail> {
   return (await standIntern(ws, deal, standId, mitStandard(o))).detail;
+}
+
+/**
+ * Schlanker Weg für die 5-s-Abfrage druckender Stände: nur Kopf und Status (ohne PDF-Inhalt,
+ * ohne Basis, ohne Lead- und Quotation-Lesen). Ein druckender VPS-Stand stößt wie `standLesen`
+ * seinen Abschluss an. Das volle Detail lädt die Oberfläche einmal, wenn der Druck endet.
+ * Der Deal ist in der Route schon geprüft; `standLaden` filtert zusätzlich nach Workspace und Deal.
+ */
+export async function standKopfLesen(ws: string, deal: string, standId: string, o?: KvEditorOptionen): Promise<KvStandKopf> {
+  const q = mitStandard(o);
+  const lesen = async (): Promise<KvStandRow> => {
+    const { fileContent: _ohne, ...spalten } = getTableColumns(kvStaende);
+    void _ohne;
+    const [row] =
+      typeof standId === "string" && standId
+        ? await db
+            .select(spalten)
+            .from(kvStaende)
+            .where(and(eq(kvStaende.workspaceId, ws), eq(kvStaende.dealRecordId, deal), eq(kvStaende.id, standId)))
+            .limit(1)
+        : [];
+    if (!row) throw fehler("KEIN_KV", "Stand nicht gefunden.");
+    return { ...row, fileContent: null };
+  };
+  let row = await lesen();
+  if (row.status === "druckt" && row.renderJobId) {
+    await q.druckAnstossen(ws, row.renderJobId).catch((err) => console.error("[kv-editor] Druck anstoßen", err));
+    row = await lesen();
+  }
+  return kopf(db, row);
 }
 
 export async function standPdf(
@@ -840,6 +870,7 @@ export async function kvChatVerlauf(ws: string, deal: string, o?: KvEditorOption
 const _vertrag: KvEditorDienst = {
   ansicht,
   standLesen,
+  standKopfLesen,
   standPdf,
   standAnlegen,
   neuDrucken,
