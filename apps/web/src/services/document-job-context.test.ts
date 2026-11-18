@@ -472,3 +472,85 @@ describe("attachDocumentJobContext: abgewählte Montage in der Umzugsgutliste (R
   });
 });
 
+
+describe("attachDocumentJobContext: Paket-KV druckt das Paket der Wahl (Rest-vier, Punkt 1)", () => {
+  const firmaLeistungen = {
+    transport: { owner: "company", note: "Be- und Entladen." },
+    dismantling: { owner: "company", note: "Doppelbett." },
+    assembly: { owner: "company", note: "Doppelbett." },
+    parkingPickup: { owner: "company", note: "Halteverbotszone Lerchenstraße 78, inkl. Beantragung bei der Stadt und Aufstellen der Schilder." },
+  };
+  const version = {
+    id: "ver_3",
+    pricingMode: "fest",
+    packagePrices: [
+      { slug: "basis", festpreis: 1400 },
+      { slug: "komfort", festpreis: 1720 },
+    ],
+    rechnerRequest: {
+      von_adresse: "Lerchenstraße 78, 70176 Stuttgart",
+      montage_je_position: "1",
+      positionen_freitext: [{ name: "Doppelbett", menge: 1, abbau: "company", aufbau: "company" }],
+      paket_hebel: JSON.stringify({ basis: [], komfort: ["halteverbot", "montage"] }),
+    },
+    rechnerResult: { positionen: [{ name: "Doppelbett", menge: 1, volumenCbm: 1.6, zerlegt: true }] },
+  };
+  const optionen = [
+    { id: "opt_b", catalogueSlug: "basis", isRecommended: false, calculationVersionId: "ver_3" },
+    { id: "opt_k", catalogueSlug: "komfort", isRecommended: true, calculationVersionId: "ver_3" },
+  ];
+
+  async function lauf(firma: string, documentType: string, selectedPackageOptionId: string | null, v: object = version) {
+    const { dealInventoryItems } = await import("@/db/schema/inventory");
+    const { dealCalculationVersions } = await import("@/db/schema/deal-calculation-versions");
+    const { quotationPackageOptions } = await import("@/db/schema/customer-portal");
+    jobMocks.zeilen.set(dealInventoryItems, [{ name: "Doppelbett", quantity: 1, moveFlag: true, category: "Möbel", notes: null, dismantlingOwner: "company", assemblyOwner: "company" }]);
+    jobMocks.zeilen.set(dealCalculationVersions, [v]);
+    jobMocks.zeilen.set(quotationPackageOptions, optionen);
+    jobMocks.getQuotation.mockResolvedValue({
+      id: "q1", isVariable: false, fixedPrice: "1720.00", lineItems: kernUndHebel, serviceType: "move", validUntil: null,
+      depositRequiredCents: null, paymentMethodPreference: null, calculationVersionId: "ver_3", selectedPackageOptionId,
+      documentDetails: { services: firmaLeistungen },
+    });
+    try {
+      const { params: p } = await attachDocumentJobContext("ws_1", { _deal_record_id: "deal_1", document_type: documentType, firma });
+      return p.document_details as QuotationDocumentDetailsLike;
+    } finally {
+      jobMocks.zeilen.delete(dealInventoryItems);
+      jobMocks.zeilen.delete(dealCalculationVersions);
+      jobMocks.zeilen.delete(quotationPackageOptions);
+    }
+  }
+  type QuotationDocumentDetailsLike = {
+    services: Record<string, { owner: string; note?: string }>;
+    inventory: Array<{ dismantling: string; assembly: string }>;
+  };
+
+  it.each(["kottke", "ceylan"])("%s: gewähltes Paket ohne Montage: Leistungen und Umzugsgutliste nennen nie die Firma", async (firma) => {
+    const d = await lauf(firma, "KV", "opt_b");
+    expect(d.services.dismantling).toEqual({ owner: "customer", note: "Den Abbau übernehmen Sie selbst." });
+    expect(d.services.assembly).toEqual({ owner: "customer", note: "Den Aufbau übernehmen Sie selbst." });
+    expect(d.services.parkingPickup).toMatchObject({ owner: "customer" });
+    expect(d.services.transport).toEqual(firmaLeistungen.transport);
+    expect(d.inventory).toEqual([expect.objectContaining({ dismantling: "customer", assembly: "customer" })]);
+  });
+
+  it.each(["kottke", "ceylan"])("%s: Paket mit Montage (empfohlen, ohne Kundenwahl): Firma bleibt", async (firma) => {
+    const d = await lauf(firma, "KV", null);
+    expect(d.services.dismantling).toEqual(firmaLeistungen.dismantling);
+    expect(d.services.parkingPickup).toEqual(firmaLeistungen.parkingPickup);
+    expect(d.inventory).toEqual([expect.objectContaining({ dismantling: "company", assembly: "company" })]);
+  });
+
+  it("AB folgt derselben Wahl", async () => {
+    const d = await lauf("kottke", "AB", "opt_b");
+    expect(d.services.dismantling.owner).toBe("customer");
+    expect(d.inventory).toEqual([expect.objectContaining({ dismantling: "customer", assembly: "customer" })]);
+  });
+
+  it("Version ohne paket_hebel (Altbestand): unverändert", async () => {
+    const alt = { ...version, rechnerRequest: { ...version.rechnerRequest, paket_hebel: undefined } };
+    const d = await lauf("kottke", "KV", "opt_b", alt);
+    expect(d.services.dismantling).toEqual(firmaLeistungen.dismantling);
+  });
+});

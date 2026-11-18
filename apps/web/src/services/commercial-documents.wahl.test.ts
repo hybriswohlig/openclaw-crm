@@ -347,6 +347,57 @@ describe("loadCommercialModel mit Version", () => {
   });
 });
 
+describe("CRM-Vorlage (Ceylan): Paket-KV nennt Montage nur im Paket mit Montage (Rest-vier, Punkt 1)", () => {
+  beforeEach(() => {
+    mocks.zeilen.clear();
+    mocks.getQuotation.mockReset();
+  });
+  const mitHebeln = {
+    ...versionPaketeTage,
+    rechnerRequest: { paket_hebel: JSON.stringify({ basis: [], komfort: ["halteverbot", "montage"], premium: ["halteverbot", "montage", "einpacken"] }) },
+  };
+  // Notiz und Zusammenfassung erwähnen Abbau und Einpacken (sonst stünde „Möbelmontage“ immer da).
+  const summary = "Abbau und Aufbau Bett, Einpacken der Küche";
+
+  async function modell(optionId: string, preis: number, hebel: Array<[string, number]>, version: object = mitHebeln) {
+    mocks.getQuotation.mockResolvedValue(
+      angebot({
+        summary,
+        selectedPackageOptionId: optionId,
+        fixedPrice: preis.toFixed(2),
+        lineItems: posten(preis, hebel).map((p, i) => ({ id: `l${i}`, quotationId: "q1", type: "other", description: p.description, quantity: p.quantity, unitRate: p.unitRate.toFixed(2), sortOrder: i })),
+      })
+    );
+    mocks.zeilen.set(dealCalculationVersions, [version]);
+    mocks.zeilen.set(quotationPackageOptions, optionen.map((o) => ({ ...o, priceCents: 0, includedItems: [] })));
+    mocks.zeilen.set(customerDateSelections, [{ selectedDate: "2026-11-21" }]);
+    return loadCommercialModel(eingabe);
+  }
+
+  it("Basis (ohne Hebel): Zeile „Leistung“ ohne Möbelmontage und Einpackservice", async () => {
+    const m = await modell("opt_b", 1500, []);
+    expect(m.offerLabel).toBe("Preis für Basis am Sa., 21.11.2026");
+    expect(m.serviceLabel).not.toMatch(/Möbelmontage|Einpackservice/);
+  });
+
+  it("Komfort (Montage): Möbelmontage ja, Einpackservice nein", async () => {
+    const m = await modell("opt_k", 1890, HEBEL_KOMFORT);
+    expect(m.serviceLabel).toContain("Möbelmontage");
+    expect(m.serviceLabel).not.toContain("Einpackservice");
+  });
+
+  it("Premium (alle): wie bisher", async () => {
+    const m = await modell("opt_p", 2340, HEBEL_PREMIUM);
+    expect(m.serviceLabel).toContain("Möbelmontage");
+    expect(m.serviceLabel).toContain("Einpackservice");
+  });
+
+  it("Version ohne paket_hebel (Altbestand): wie bisher", async () => {
+    const m = await modell("opt_b", 1500, [], versionPaketeTage);
+    expect(m.serviceLabel).toContain("Möbelmontage");
+  });
+});
+
 describe("Stunden-KV: QuotationDocumentDetails.stunden ist StundenAngebot", () => {
   it("die Vorlage liest genau die Felder des Vertrags", () => {
     const stunden: StundenAngebot = {

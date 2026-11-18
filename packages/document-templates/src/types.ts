@@ -36,6 +36,11 @@ export interface ServiceSignals {
   packing?: boolean | null;
   assembly?: boolean | null;
   inventory?: boolean | null;
+  /**
+   * Not part of the price shown at the top (package KV without these levers):
+   * never named as an included extra, whatever the flags or texts say.
+   */
+  excluded?: Array<"assembly" | "packing"> | null;
 }
 
 /** Per-company letterhead from Einstellungen → Gesellschaften. Blank fields fall back. */

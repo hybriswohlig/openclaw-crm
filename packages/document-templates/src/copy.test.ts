@@ -457,3 +457,14 @@ describe("preview", () => {
     expect(tax).toBe(1);
   });
 });
+
+describe("selectDocumentService: excluded (Paket-KV ohne Montage bzw. Einpacken)", () => {
+  const signals: ServiceSignals = { assembly: true, packing: true, mention: "Abbau Bett, Einpacken Küche" };
+
+  it("nennt ausgeschlossene Zusätze nie, auch wenn Haken oder Text sie nennen", () => {
+    expect(selectDocumentService("move", signals).detail).toBe("Einpackservice und Möbelmontage");
+    expect(selectDocumentService("move", { ...signals, excluded: ["assembly"] }).detail).toBe("Einpackservice");
+    expect(selectDocumentService("move", { ...signals, excluded: ["assembly", "packing"] }).detail).toBeUndefined();
+    expect(selectDocumentService("move", { ...signals, excluded: null }).detail).toBe("Einpackservice und Möbelmontage");
+  });
+});

@@ -104,10 +104,13 @@ function serviceDetail(signals: ServiceSignals): string | undefined {
   const blob = `${signals.title ?? ""} ${signals.mention ?? ""}`;
   const items: string[] = [];
   if (signals.inventory === true || hasToken(blob, "inventar")) items.push("Inventar");
-  if (signals.packing === true || /einpack|auspack|verpack/i.test(blob)) items.push("Einpackservice");
+  const excluded = new Set(signals.excluded ?? []);
+  if (!excluded.has("packing") && (signals.packing === true || /einpack|auspack|verpack/i.test(blob))) {
+    items.push("Einpackservice");
+  }
   if (
-    signals.assembly === true ||
-    /möbelmontage|moebelmontage|abbau|aufbau/i.test(blob)
+    !excluded.has("assembly") &&
+    (signals.assembly === true || /möbelmontage|moebelmontage|abbau|aufbau/i.test(blob))
   ) {
     items.push("Möbelmontage");
   }

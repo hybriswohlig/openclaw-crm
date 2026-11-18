@@ -186,6 +186,58 @@ export function hebelAusEnthaelt(anfrage: RechnerAnfrage, hebel: string): boolea
   }
 }
 
+const HEBEL_ARTEN: readonly HebelArt[] = ["montage", "halteverbot", "einpacken", "kueche"];
+
+/**
+ * Hebel eines Pakets laut Anfrage der Version (`paket_hebel`, JSON wie beim Rechnen).
+ * null, wenn die Anfrage das Paket nicht kennt (alte Version, ohne Pakete): dann
+ * bleibt alles, wie es ist.
+ */
+export function paketHebelAus(anfrage: RechnerAnfrage | null | undefined, slug: string | null | undefined): HebelArt[] | null {
+  if (!anfrage || !slug) return null;
+  const roh = anfrage.paket_hebel;
+  if (typeof roh !== "string") return null;
+  try {
+    const karte: unknown = JSON.parse(roh);
+    if (!karte || typeof karte !== "object" || Array.isArray(karte)) return null;
+    const liste = (karte as Record<string, unknown>)[slug];
+    if (!Array.isArray(liste)) return null;
+    return HEBEL_ARTEN.filter((h) => liste.includes(h));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * „Unsere Leistungen“ für genau ein Paket (Paket-KV, Review I2): was der Paketpreis
+ * nicht enthält, übernimmt nicht die Firma. Der Rechner rechnet ein Paket ohne
+ * `montage` ohne jede Montagezeit der Firma (`ohneMontagearbeit`), ohne
+ * `halteverbot` ohne Zonen und ohne `einpacken` ohne Einpack-Kartons. Nur Seiten
+ * der Firma werden umgestellt, alles andere bleibt; die Eingabe bleibt unverändert.
+ */
+export function leistungenFuerPaket<T extends Record<string, { owner: LeistungsTraeger; note?: string }>>(
+  leistungen: T,
+  hebel: readonly HebelArt[],
+  anfrage: RechnerAnfrage | null
+): T {
+  const mit = new Set(hebel);
+  const aus: Record<string, { owner: LeistungsTraeger; note?: string }> = { ...leistungen };
+  const firma = (key: string) => aus[key]?.owner === "company";
+  if (!mit.has("montage")) {
+    if (firma("dismantling")) aus.dismantling = { owner: "customer", note: "Den Abbau übernehmen Sie selbst." };
+    if (firma("assembly")) aus.assembly = { owner: "customer", note: "Den Aufbau übernehmen Sie selbst." };
+  }
+  if (!mit.has("halteverbot")) {
+    if (firma("parkingPickup")) aus.parkingPickup = parkplatz(true, true, strasseAus(anfrage?.von_adresse));
+    if (firma("parkingDestination")) aus.parkingDestination = parkplatz(true, true, strasseAus(anfrage?.nach_adresse));
+  }
+  if (!mit.has("einpacken")) {
+    if (firma("packing")) aus.packing = { owner: "customer", note: "Ihre Umzugskartons packen Sie selbst." };
+    if (firma("materials")) aus.materials = { owner: "none" };
+  }
+  return aus as T;
+}
+
 /** Schlüssel eines Möbels wie `positionSchluessel` (lib/kalkulation-versionen, dort Kreisimport). */
 const schluessel = (name: string) => name.trim().replace(/\s+/g, " ").toLocaleLowerCase("de-DE");
 
@@ -429,7 +481,8 @@ export function kvBausteine(input: {
     hebel: hebel.map((k) => ({ art: k.art, betrag: betrag(k.posten) })),
     abzug,
     entfalleneKosten: Math.round(entfalleneKosten * 100) / 100,
-    leistungen,
+    // Paket: Leistungen genau wie das Paket (dieselbe Regel wie beim Drucken des Paket-KV).
+    leistungen: input.hebelNur ? leistungenFuerPaket(leistungen, input.hebelNur, anfrage) : leistungen,
     montageMoebel,
     montageDurchUns: montageDabei,
   };

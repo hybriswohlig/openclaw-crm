@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { kernBefund } from "@/lib/angebot-wahl";
-import { halteverbotVorlaufHinweis, kvBausteine, kvGueltigBis, strasseAus } from "./kv-posten";
+import { halteverbotVorlaufHinweis, kvBausteine, kvGueltigBis, leistungenFuerPaket, paketHebelAus, strasseAus } from "./kv-posten";
 
 // Kalkulation wie bei Lead "Patrick" (2026-09-29): 4 Personen, zwei Halteverbotszonen, drei zerlegte Möbel.
 const ergebnis = {
@@ -488,5 +488,58 @@ describe("kvBausteine: abgewählte Montage (Review I2)", () => {
     expect(k.leistungen).toMatchObject(kunde);
     const mit = kvBausteine({ festpreis: 2260, ergebnis, anfrage: { ...anfrage, ...wahl }, hebelNur: ["montage"] });
     expect(mit.leistungen.dismantling.owner).toBe("company");
+  });
+});
+
+describe("Paket-KV: Leistungen je Paket (Rest-vier, Punkt 1)", () => {
+  const paketHebel = JSON.stringify({ basis: [], komfort: ["halteverbot", "montage"], premium: ["halteverbot", "montage", "einpacken"] });
+  const mitPaketen = { ...anfrage, paket_hebel: paketHebel, einpack_kartons: "20" };
+  const standard = kvBausteine({ festpreis: 2260, ergebnis: { ...ergebnis, zeiten: { ...ergebnis.zeiten, packen: 120 } }, anfrage: mitPaketen }).leistungen;
+
+  it("paketHebelAus liest die Hebel des Pakets aus der Anfrage der Version", () => {
+    expect(paketHebelAus(mitPaketen, "komfort")).toEqual(["montage", "halteverbot"]);
+    expect(paketHebelAus(mitPaketen, "basis")).toEqual([]);
+    expect(paketHebelAus(mitPaketen, "gold")).toBeNull();
+    expect(paketHebelAus(anfrage, "komfort")).toBeNull();
+    expect(paketHebelAus({ paket_hebel: "kaputt" }, "komfort")).toBeNull();
+    expect(paketHebelAus(mitPaketen, null)).toBeNull();
+  });
+
+  it("Standard der Version nennt Montage, Zonen und Einpacken bei der Firma", () => {
+    expect(standard.dismantling.owner).toBe("company");
+    expect(standard.parkingPickup.owner).toBe("company");
+    expect(standard.packing.owner).toBe("company");
+  });
+
+  it("Basis (ohne Hebel): nichts davon bei der Firma, Transport bleibt", () => {
+    const l = leistungenFuerPaket(standard, [], mitPaketen);
+    expect(l.dismantling).toEqual({ owner: "customer", note: "Den Abbau übernehmen Sie selbst." });
+    expect(l.assembly).toEqual({ owner: "customer", note: "Den Aufbau übernehmen Sie selbst." });
+    expect(l.parkingPickup).toMatchObject({ owner: "customer" });
+    expect(l.parkingPickup.note).toContain("Lerchenstraße 78");
+    expect(l.parkingDestination.note).toContain("Friedenstraße 5");
+    expect(l.packing).toEqual({ owner: "customer", note: "Ihre Umzugskartons packen Sie selbst." });
+    expect(l.materials).toEqual({ owner: "none" });
+    expect(l.transport).toEqual(standard.transport);
+  });
+
+  it("Komfort (Montage, Halteverbot): Montage bleibt bei der Firma, Einpacken nicht", () => {
+    const l = leistungenFuerPaket(standard, ["halteverbot", "montage"], mitPaketen);
+    expect(l.dismantling).toEqual(standard.dismantling);
+    expect(l.parkingPickup).toEqual(standard.parkingPickup);
+    expect(l.packing.owner).toBe("customer");
+  });
+
+  it("ändert nur Seiten der Firma und lässt die Eingabe stehen", () => {
+    const vorher = JSON.stringify(standard);
+    const nichts = { dismantling: { owner: "none" as const }, assembly: { owner: "customer" as const, note: "Selbst." } };
+    expect(leistungenFuerPaket(nichts, [], null)).toEqual(nichts);
+    expect(JSON.stringify(standard)).toBe(vorher);
+  });
+
+  it("kvBausteine mit hebelNur nutzt dieselbe Regel", () => {
+    const e = { ...ergebnis, zeiten: { ...ergebnis.zeiten, packen: 120 } };
+    const k = kvBausteine({ festpreis: 1840, ergebnis: e, anfrage: mitPaketen, festpreisIstEndpreis: true, hebelNur: [] });
+    expect(k.leistungen).toEqual(leistungenFuerPaket(standard, [], mitPaketen));
   });
 });
