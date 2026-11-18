@@ -152,6 +152,18 @@ export interface EnsureLinkResult {
 }
 
 /**
+ * Kundenportal der Firma des Deals an (`loadEffectiveBranding(...).enabled`)?
+ * Dieselbe Regel für das Anlegen eines Links und für das Lesen eines
+ * vorhandenen (kv-danach M1: bei „Portal aus“ keinen Link herausgeben).
+ */
+export async function portalAnFuerDeal(workspaceId: string, dealRecordId: string): Promise<boolean> {
+  const dealAttrs = await loadDealAttributeMap(workspaceId);
+  const dealValues = await loadValuesForRecord(dealRecordId);
+  const ocId = await refValue(dealValues, dealAttrs.bySlug.get("operating_company")?.id);
+  return (await loadEffectiveBranding(ocId)).enabled;
+}
+
+/**
  * Idempotent: returns the existing link's token if one already exists for
  * the deal, otherwise creates a new row with a fresh token.
  *
@@ -189,11 +201,7 @@ export async function ensureCustomerStatusLink(
   if (!deal) return { token: null, created: false, skipped: true };
 
   // Block link creation for deals whose operating company has the feature off.
-  const dealAttrs = await loadDealAttributeMap(input.workspaceId);
-  const dealValues = await loadValuesForRecord(input.dealRecordId);
-  const ocId = await refValue(dealValues, dealAttrs.bySlug.get("operating_company")?.id);
-  const effective = await loadEffectiveBranding(ocId);
-  if (!effective.enabled) {
+  if (!(await portalAnFuerDeal(input.workspaceId, input.dealRecordId))) {
     return { token: null, created: false, skipped: true };
   }
 

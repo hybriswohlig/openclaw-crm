@@ -30,6 +30,15 @@ describe("Statuslink", () => {
     expect(statusLinkAusGet({ ok: false, status: 500, message: "kaputt" })).toEqual({ art: "fehler", text: "kaputt" });
   });
 
+  it("Portal der Firma aus: vorhandener Link wird nicht kopiert, Meldung wie beim Anlegen (Review M1)", () => {
+    expect(statusLinkAusGet({ ok: true, data: { url: URL_, revokedAt: null, portalAn: false } })).toEqual({ art: "portal_aus" });
+    expect(statusLinkAusGet({ ok: true, data: { url: URL_, revokedAt: "2026-11-01T10:00:00Z", portalAn: false } })).toEqual({ art: "portal_aus" });
+    expect(statusLinkAusGet({ ok: true, data: { url: URL_, revokedAt: null, portalAn: true } })).toMatchObject({ art: "ok" });
+    // Ältere Antwort ohne Feld: wie bisher.
+    expect(statusLinkAusGet({ ok: true, data: { url: URL_, revokedAt: null } })).toMatchObject({ art: "ok" });
+    expect(statusLinkMeldung({ art: "portal_aus" }).titel).toBe("Kundenportal ist für diese Firma aus.");
+  });
+
   it("entsperrt nie still: gesperrt bleibt gesperrt", () => {
     expect(statusLinkAusGet({ ok: true, data: { url: URL_, revokedAt: "2026-11-01T10:00:00Z" } })).toEqual({ art: "gesperrt" });
     expect(statusLinkMeldung({ art: "gesperrt" }).text).toContain("alten Akte");

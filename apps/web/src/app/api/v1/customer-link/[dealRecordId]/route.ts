@@ -3,7 +3,7 @@
  * a specific deal. Lives under /api/v1 so it follows the existing auth
  * conventions (cookie or oc_sk_* Bearer).
  *
- * GET    → returns { token, url, dealNumber, viewCount, firstViewedAt, lastViewedAt, revokedAt, widerrufBis }
+ * GET    → returns { token, url, dealNumber, viewCount, firstViewedAt, lastViewedAt, revokedAt, widerrufBis, portalAn }
  * POST   → ensure link exists (idempotent); returns the same shape
  * DELETE → revokes the link (soft — sets revoked_at, doesn't drop the row)
  *
@@ -23,6 +23,7 @@ import {
   ensureCustomerStatusLink,
   erneuereCustomerStatusLink,
   loadVisitTelemetry,
+  portalAnFuerDeal,
   reactivateCustomerStatusLink,
   resolveCustomerLinkOrigin,
   revokeCustomerStatusLink,
@@ -85,6 +86,8 @@ export async function GET(
   const telemetry = await loadVisitTelemetry(ctx.workspaceId, dealRecordId);
   // Beim Sperren warnt das CRM, solange der Kunde noch widerrufen kann.
   const widerrufBis = await laufendeWiderrufsfrist(dealRecordId).catch(() => null);
+  // kv-danach M1: ist das Portal der Firma aus, gibt „Statuslink kopieren“ den Link nicht heraus.
+  const portalAn = await portalAnFuerDeal(ctx.workspaceId, dealRecordId);
 
   return success({
     token: row.token,
@@ -95,6 +98,7 @@ export async function GET(
     lastViewedAt: row.lastViewedAt,
     revokedAt: row.revokedAt,
     widerrufBis,
+    portalAn,
     telemetry,
   });
 }

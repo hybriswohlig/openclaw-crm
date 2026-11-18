@@ -20,6 +20,8 @@ export interface LinkGet {
   url?: string | null;
   dealNumber?: string | null;
   revokedAt?: string | null;
+  /** Kundenportal der Firma an (fehlt bei älteren Antworten: dann wie an). */
+  portalAn?: boolean;
 }
 
 /** `POST /api/v1/customer-link/{deal}` (Ausschnitt). */
@@ -37,13 +39,16 @@ export type StatusLink =
   | { art: "fehler"; text: string };
 
 /**
- * Erst lesen: gibt es den Link, nimm ihn (gesperrt bleibt gesperrt). Nur bei
- * 404 mit `KEIN_LINK` „anlegen“ über den bestehenden Weg (`POST`, idempotent).
+ * Erst lesen: gibt es den Link, nimm ihn (gesperrt bleibt gesperrt, Portal aus
+ * meldet „portal_aus“ wie beim Anlegen). Nur bei 404 mit `KEIN_LINK`
+ * „anlegen“ über den bestehenden Weg (`POST`, idempotent).
  */
 export function statusLinkAusGet(a: Antwort<LinkGet | null>): StatusLink | "anlegen" {
   // Anlegen nur bei „kein Link“; ein 404 für den Deal selbst (fremder Workspace, gelöscht) ist ein Fehler.
   if (!a.ok) return a.status === 404 && a.code === KEIN_LINK_CODE ? "anlegen" : { art: "fehler", text: a.message };
   if (!a.data) return "anlegen";
+  // Portal der Firma aus: auch ein vorhandener Link führt nur auf die Rumpfseite (Review M1).
+  if (a.data.portalAn === false) return { art: "portal_aus" };
   if (a.data.revokedAt) return { art: "gesperrt" };
   if (typeof a.data.url === "string" && a.data.url !== "") {
     return { art: "ok", url: a.data.url, dealNumber: a.data.dealNumber ?? null, neu: false };

@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   getAuthContext: vi.fn(),
   reactivate: vi.fn(),
   erneuere: vi.fn(),
+  portalAn: vi.fn(),
 }));
 
 vi.mock("@/lib/api-utils", async (importOriginal) => {
@@ -21,12 +22,17 @@ vi.mock("@/services/customer-portal-data", () => ({
   loadVisitTelemetry: vi.fn(),
   reactivateCustomerStatusLink: mocks.reactivate,
   erneuereCustomerStatusLink: mocks.erneuere,
+  portalAnFuerDeal: mocks.portalAn,
   resolveCustomerLinkOrigin: async () => "https://status.test",
   revokeCustomerStatusLink: vi.fn(),
 }));
 vi.mock("@/services/kva-widerruf", () => ({ laufendeWiderrufsfrist: async () => null }));
+vi.mock("@/lib/kalkulation-versionen-antwort", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/kalkulation-versionen-antwort")>()),
+  dealImWorkspace: async () => true,
+}));
 
-import { PATCH } from "./route";
+import { GET, PATCH } from "./route";
 
 function patch(body?: unknown) {
   return PATCH(
@@ -61,5 +67,22 @@ describe("PATCH /api/v1/customer-link/[dealRecordId]", () => {
     expect(mocks.reactivate).not.toHaveBeenCalled();
     expect(json.data.url).toBe("https://status.test/s/neu");
     expect(json.data.erneuert).toBe(true);
+  });
+});
+
+describe("GET /api/v1/customer-link/[dealRecordId]: Portal der Firma (Review kv-danach M1)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.getAuthContext.mockResolvedValue({ userId: "usr_1", workspaceId: "ws_1", workspaceRole: "admin", permissions: {}, authMethod: "session" });
+  });
+
+  it.each([true, false])("meldet portalAn = %s aus den Einstellungen der Firma", async (an) => {
+    mocks.portalAn.mockResolvedValue(an);
+    const res = await GET(new NextRequest("https://crm.test/api/v1/customer-link/deal_1"), {
+      params: Promise.resolve({ dealRecordId: "deal_1" }),
+    });
+    expect(res.status).toBe(200);
+    expect((await res.json()).data.portalAn).toBe(an);
+    expect(mocks.portalAn).toHaveBeenCalledWith("ws_1", "deal_1");
   });
 });
