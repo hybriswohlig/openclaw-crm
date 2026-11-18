@@ -102,17 +102,86 @@ export const CrewJob = z.object({
    * no seat counter, never full, "ja" means "would have time" and becomes a request once booked.
    */
   fix: z.boolean().default(true),
+  /**
+   * Only for confirmed team members once we released the briefing: "neu" until they tapped
+   * "Gelesen", then "gelesen". null: no briefing (yet) for me.
+   */
+  briefing: z.enum(["neu", "gelesen"]).nullable().default(null),
 });
 export type CrewJob = z.infer<typeof CrewJob>;
 
 export const CrewJobsResponse = z.object({ jobs: z.array(CrewJob), serverTime: z.string() });
 export type CrewJobsResponse = z.infer<typeof CrewJobsResponse>;
 
+/** One address of the job, with what the team needs on site. Option texts are the German originals. */
+export const CrewBriefingStop = z.object({
+  kind: z.enum(["from", "to"]),
+  address: z.string(),
+  /** 0 = ground floor. */
+  floor: z.number().int().nullable(),
+  /** German option title of the access ("Aufzug", "Treppe", "Erdgeschoss", ...). */
+  access: z.string().nullable(),
+  /** German option title of the stairwell ("Wendeltreppe", "Eng", "Normal"). */
+  stairwell: z.string().nullable(),
+  walkM: z.number().int().nullable(),
+  halteverbot: z.boolean(),
+  contact: z.object({ name: z.string().nullable(), phone: z.string().nullable() }).nullable(),
+});
+export type CrewBriefingStop = z.infer<typeof CrewBriefingStop>;
+
+export const CrewBriefingMember = z.object({
+  firstName: z.string(),
+  initials: z.string(),
+  color: z.string(),
+  role: CrewMemberRole,
+  /** E.164, so the team can call each other. */
+  phone: z.string().nullable(),
+  me: z.boolean(),
+});
+export type CrewBriefingMember = z.infer<typeof CrewBriefingMember>;
+
+/**
+ * Briefing for one job, only for confirmed team members after we released it.
+ * Never contains prices, line items or internal notes. `payment` only for the lead
+ * (or for everyone when the team has no lead).
+ */
+export const CrewBriefing = z.object({
+  job: CrewJob,
+  releasedAt: z.string(),
+  readAt: z.string().nullable(),
+  stops: z.array(CrewBriefingStop),
+  team: z.array(CrewBriefingMember),
+  /** German option title, e.g. "Mercedes Sprinter lang". */
+  vehicle: z.string().nullable(),
+  /** Where the vehicle is picked up (rental depot). */
+  vehiclePickup: z.object({ name: z.string(), address: z.string().nullable() }).nullable(),
+  /** German option titles ("Sackkarre", "Decken", ...). */
+  equipment: z.array(z.string()),
+  boxes: z.number().int().nullable(),
+  /** Customer wishes, German original. */
+  wishes: z.string().nullable(),
+  payment: z
+    .object({
+      kind: z.enum(["bar", "ueberweisung", "bezahlt"]),
+      /** Cash to collect on site; only with kind "bar". */
+      amountCents: z.number().int().nullable(),
+    })
+    .nullable(),
+});
+export type CrewBriefing = z.infer<typeof CrewBriefing>;
+
+export const CrewBriefingResponse = z.object({ briefing: CrewBriefing });
+export type CrewBriefingResponse = z.infer<typeof CrewBriefingResponse>;
+
+/** "Gelesen" names the release the person saw, so a stale page never acknowledges a newer one. */
+export const CrewBriefingReadBody = z.object({ releasedAt: z.string() });
+export type CrewBriefingReadBody = z.infer<typeof CrewBriefingReadBody>;
+
 export const CrewAnswerBody = z.object({ answer: z.enum(["ja", "vielleicht", "nein"]).nullable() });
 export type CrewAnswerBody = z.infer<typeof CrewAnswerBody>;
 
 export const CrewError = z.object({
-  error: z.enum(["UNAUTHORIZED", "LINK_UNGUELTIG", "JOB_NICHT_SICHTBAR", "BEREITS_BESTAETIGT", "UNGUELTIG"]),
+  error: z.enum(["UNAUTHORIZED", "LINK_UNGUELTIG", "JOB_NICHT_SICHTBAR", "BEREITS_BESTAETIGT", "UNGUELTIG", "BRIEFING_NICHT_FREI", "BRIEFING_VERALTET"]),
   message: z.string().optional(),
 });
 export type CrewError = z.infer<typeof CrewError>;

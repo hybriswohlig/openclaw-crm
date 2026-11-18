@@ -13,6 +13,8 @@ const STATUS: Record<CrewFehlerCode, number> = {
   JOB_NICHT_SICHTBAR: 404,
   BEREITS_BESTAETIGT: 409,
   UNGUELTIG: 400,
+  BRIEFING_NICHT_FREI: 404,
+  BRIEFING_VERALTET: 409,
 };
 
 export const KEIN_CACHE = { "Cache-Control": "no-store" } as const;

@@ -1,7 +1,7 @@
 /**
  * Nur für Tests: Wegwerf-Schema in EINSATZ_TEST_DATABASE_URL mit den Spalten,
- * die Crew-Dienste, Einsatz-Termin und Fotos lesen, plus die echte Migration
- * 0066. Die Tests binden `@/db` per `search_path` an dieses Schema.
+ * die Crew-Dienste, Einsatz-Termin und Fotos lesen, plus die echten Migrationen
+ * 0066 und 0067. Die Tests binden `@/db` per `search_path` an dieses Schema.
  */
 import { readFileSync } from "node:fs";
 import type postgres from "postgres";
@@ -40,8 +40,10 @@ export async function crewTestSchemaAnlegen(sql: postgres.Sql, schema: string): 
     CREATE TABLE job_media (id text PRIMARY KEY, workspace_id text NOT NULL, deal_record_id text, content_type text NOT NULL,
       blob_pathname text NOT NULL DEFAULT '', size_bytes integer NOT NULL DEFAULT 0, created_at timestamp NOT NULL DEFAULT now());
   `);
-  const mig = readFileSync(new URL("../../db/migrations/0066_crew_portal.sql", import.meta.url), "utf8");
-  for (const s of mig.split("--> statement-breakpoint").map((x) => x.trim()).filter(Boolean)) await sql.unsafe(s);
+  for (const datei of ["0066_crew_portal.sql", "0067_crew_briefing.sql"]) {
+    const mig = readFileSync(new URL(`../../db/migrations/${datei}`, import.meta.url), "utf8");
+    for (const s of mig.split("--> statement-breakpoint").map((x) => x.trim()).filter(Boolean)) await sql.unsafe(s);
+  }
 }
 
 /** Wert ins EAV schreiben (Spalte nach Typ des Werts). */

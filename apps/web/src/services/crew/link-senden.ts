@@ -28,7 +28,7 @@ export function waehleAbsender(zeilen: KontoZeile[]): string | null {
 }
 
 /** Verknüpfte WhatsApp-Konten (Baileys, nicht Business-API) mit Namen der Betriebsfirma. */
-async function absenderKonto(ws: string): Promise<string | null> {
+export async function absenderKonto(ws: string): Promise<string | null> {
   const res = await db.execute(sql`
     SELECT ca.id, ca.baileys_pairing_status AS status, (
       SELECT v.text_value FROM record_values v

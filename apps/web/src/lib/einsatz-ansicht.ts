@@ -96,6 +96,20 @@ export interface EinsatzAnsicht {
   anfragen?: EinsatzAnfrage[];
   /** Crew-Portal: gesuchte Leute und ob der Job ausgeschrieben ist; null, wenn das Lesen scheiterte. */
   crewAusschreibung?: CrewAusschreibungAnsicht | null;
+  /** Crew-Portal: Briefing-Freigabe, wer gelesen hat, wer die Nachricht bekam; null, wenn das Lesen scheiterte. */
+  crewBriefing?: CrewBriefingAnsicht | null;
+}
+
+export interface CrewBriefingAnsicht {
+  freigegebenAm: string | null;
+  team: Array<{
+    employeeId: string;
+    name: string;
+    rolle: "lead" | "helper";
+    gelesenAm: string | null;
+    versand: { status: "gesendet" | "fehler" | "kein_telefon" | "kein_link" | "kein_absender"; am: string } | null;
+    hatTelefon: boolean;
+  }>;
 }
 
 export interface CrewAusschreibungAnsicht {

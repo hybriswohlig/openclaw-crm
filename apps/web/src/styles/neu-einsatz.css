@@ -1695,3 +1695,74 @@
   color: var(--ink-2);
   cursor: pointer;
 }
+
+/* Crew-Portal: Briefing-Freigabe */
+[data-neu] .ez-briefing h3 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+}
+
+[data-neu] .ez-briefing-stand {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink-2);
+}
+
+[data-neu] .ez-briefing-stand.an {
+  color: var(--jade-ink);
+}
+
+[data-neu] .ez-briefing-team {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+[data-neu] .ez-briefing-team li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  font-size: 13px;
+  color: var(--ink);
+}
+
+[data-neu] .ez-briefing-name {
+  font-weight: 600;
+  margin-right: auto;
+}
+
+[data-neu] .ez-briefing-name small {
+  font-weight: 400;
+  color: var(--ink-2);
+}
+
+[data-neu] .ez-briefing-chip {
+  font-size: 11.5px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--fill-3);
+  color: var(--ink-2);
+}
+
+[data-neu] .ez-briefing-chip.ok {
+  background: color-mix(in srgb, var(--jade) 14%, transparent);
+  color: var(--jade-ink);
+}
+
+[data-neu] .ez-briefing-chip.warn {
+  background: var(--gold-tint);
+  color: var(--gold-ink);
+}
+
+[data-neu] .ez-briefing-wa {
+  margin-left: 0;
+}
+
+[data-neu] .ez-briefing-knopf {
+  margin-left: auto;
+}
