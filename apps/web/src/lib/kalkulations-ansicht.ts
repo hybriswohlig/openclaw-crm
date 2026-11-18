@@ -247,6 +247,8 @@ export interface KalkulationsAnsicht {
   /** Plan 5a: Zeilen-Anpassungen, deren Kostenzeile nach dem Neurechnen fehlt (blockieren das Sperren). */
   verwaist: VerwaistAnsicht[];
   zeitpostenVorlagen: { id: string; bezeichnung: string; minuten: number }[];
+  /** KV-Editor: offene Konflikte im Stand des aktuellen KV; null, solange der Dienst (Aufgabe 3) sie nicht liefert. */
+  kvEditor: { offeneKonflikte: number } | null;
 }
 
 /**
@@ -1696,5 +1698,6 @@ export function ansichtAus(v: VersionsZeile, rest: AnsichtRest): KalkulationsAns
     })),
     verwaist: verwaistMitNamen(verwaist, v),
     zeitpostenVorlagen: rest.vorlagen.map((z) => ({ id: z.id, bezeichnung: z.bezeichnung, minuten: z.minuten })),
+    kvEditor: null,
   };
 }

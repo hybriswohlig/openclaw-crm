@@ -12,7 +12,7 @@ import { apiAufruf } from "@/components/neu/akte/api";
 import { useBreit } from "@/components/neu/breit";
 import { nachVerfassenSchluessel, verfassenAus, type VerfassenVorgabe } from "@/lib/handy-links";
 import type { InboxChips, InboxFilter, InboxListe, Kurzfassung } from "@/lib/inbox-neu";
-import { KV_NACHRICHT_PARAM } from "@/lib/kv-danach";
+import { KV_ANNAHME_PARAM, KV_NACHRICHT_PARAM, kvChatAuftragAus, type KvChatArt } from "@/lib/kv-danach";
 import { textKopieren } from "@/components/neu/kv-danach/status-link";
 import type { Gespraech } from "@/services/gespraech";
 import { InboxChipsZeile } from "./inbox-chips";
@@ -227,26 +227,33 @@ export function InboxSeite() {
 
   // ── „Im Chat senden“ nach dem KV (kv-danach) ──────────────────────────────
 
-  /** Deal, für den der Kurztext zum KV vorbereitet wird; `?kv=1` wird sofort abgeräumt. */
-  const [kvDeal, setKvDeal] = useState<string | null>(null);
+  /** Auftrag, den Kurztext vorzubereiten; `kv` und `annahme` werden sofort aus der Adresse geräumt. */
+  const [kvDeal, setKvDeal] = useState<{ dealId: string; art: KvChatArt; neuAnnehmen: boolean } | null>(null);
   useEffect(() => {
-    if (params.get(KV_NACHRICHT_PARAM) !== "1") return;
+    const auftrag = kvChatAuftragAus(new URLSearchParams(params.toString()));
+    if (!auftrag) return;
     const s = schluesselAus(params.get("e"));
     const rest = new URLSearchParams(params.toString());
     rest.delete(KV_NACHRICHT_PARAM);
+    rest.delete(KV_ANNAHME_PARAM);
     const q = rest.toString();
     window.history.replaceState(null, "", q ? `/app/inbox?${q}` : "/app/inbox");
-    if (s?.art === "deal") setKvDeal(s.id);
+    if (s?.art === "deal") setKvDeal({ dealId: s.id, art: auftrag.art, neuAnnehmen: auftrag.neuAnnehmen });
   }, [params]);
   // Wer zu einem anderen Eintrag wechselt, verwirft den Auftrag (sonst käme er beim Zurückkehren wieder).
   useEffect(() => {
     if (!kvDeal) return;
     const s = schluesselAus(eParam);
-    if (s && !(s.art === "deal" && s.id === kvDeal)) setKvDeal(null);
+    if (s && !(s.art === "deal" && s.id === kvDeal.dealId)) setKvDeal(null);
   }, [eParam, kvDeal]);
   const kvAuftrag = useMemo<KvAuftrag>(
-    () => ({ onErledigt: () => setKvDeal(null), onVerfassen: (vorgabe, text) => void verfassenOeffnen(vorgabe, text) }),
-    [verfassenOeffnen]
+    () => ({
+      art: kvDeal?.art ?? "fertig",
+      neuAnnehmen: kvDeal?.neuAnnehmen ?? false,
+      onErledigt: () => setKvDeal(null),
+      onVerfassen: (vorgabe, text) => void verfassenOeffnen(vorgabe, text),
+    }),
+    [verfassenOeffnen, kvDeal?.art, kvDeal?.neuAnnehmen]
   );
 
   // `?verfassen=1` (Akte, alte Links) öffnet das Fenster einmal; die Abfrage wird sofort
@@ -363,7 +370,7 @@ export function InboxSeite() {
             kompakt
             aktionen={aktionen}
             kv={kvDeal ? kvAuftrag : undefined}
-            kvDeal={kvDeal}
+            kvDeal={kvDeal?.dealId ?? null}
             onNeuLaden={neuLaden}
             onErneut={() => void gespraechLaden(schluessel, "oeffnen")}
           />
@@ -420,7 +427,7 @@ export function InboxSeite() {
             schluessel={schluessel}
             eintrag={eintrag}
             kv={kvDeal ? kvAuftrag : undefined}
-            kvDeal={kvDeal}
+            kvDeal={kvDeal?.dealId ?? null}
             onNeuLaden={neuLaden}
             onErneut={() => schluessel && void gespraechLaden(schluessel, "oeffnen")}
           />

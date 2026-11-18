@@ -1,7 +1,9 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { tagKurz } from "@/lib/anzeige";
+import { kvEditorUrl } from "@/lib/kv-editor";
 import { kvNummer } from "@/lib/kv-nummer";
 import { apiAufruf } from "./api";
 
@@ -109,6 +111,11 @@ export function DokumenteAnsicht({ dealId, kvVersionAktuell = null }: { dealId: 
                     {ersetzt ? " · ersetzt" : ""}
                   </span>
                 </span>
+                {d.id === neuesterKv ? (
+                  <Link className="akte-gespraech-oeffnen" href={kvEditorUrl(dealId)} aria-label={`KV ${d.fileName} im Editor bearbeiten`}>
+                    Bearbeiten
+                  </Link>
+                ) : null}
                 <a
                   className="akte-gespraech-oeffnen"
                   href={`/api/v1/deals/${dealId}/documents/${d.id}`}

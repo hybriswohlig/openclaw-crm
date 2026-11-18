@@ -215,10 +215,76 @@ export function kvFertigNachricht(e: {
 /** Abfrage-Schlüssel der Inbox: Kurztext zum KV vorbereiten. */
 export const KV_NACHRICHT_PARAM = "kv";
 
-/** „Im Chat senden“: die neue Inbox im Eintrag des Deals, Kurztext wird dort vorbereitet. */
-export function kvChatUrl(dealId: string): string {
-  const p = new URLSearchParams({ e: `deal:${dealId}`, [KV_NACHRICHT_PARAM]: "1" });
+export type KvChatArt = "fertig" | "angepasst";
+
+/** Abfrage-Schlüssel: Annahme wurde beim Push aufgehoben, der Kunde nimmt neu an. */
+export const KV_ANNAHME_PARAM = "annahme";
+
+/**
+ * „Im Chat senden“: die neue Inbox im Eintrag des Deals, Kurztext wird dort vorbereitet.
+ * `fertig` (oder ohne `art`) bleibt `kv=1`. `angepasst` setzt `kv=angepasst` und bei
+ * `neuAnnehmen` zusätzlich `annahme=1`.
+ */
+export function kvChatUrl(dealId: string, opts?: { art?: KvChatArt; neuAnnehmen?: boolean }): string {
+  const angepasst = opts?.art === "angepasst";
+  const p = new URLSearchParams({ e: `deal:${dealId}`, [KV_NACHRICHT_PARAM]: angepasst ? "angepasst" : "1" });
+  if (angepasst && opts?.neuAnnehmen) p.set(KV_ANNAHME_PARAM, "1");
   return `/app/inbox?${p.toString()}`;
+}
+
+export interface KvChatAuftrag {
+  art: KvChatArt;
+  neuAnnehmen: boolean;
+}
+
+/** `kv=1` → fertig; `kv=angepasst` → angepasst (`annahme=1` → neuAnnehmen); sonst null. */
+export function kvChatAuftragAus(p: URLSearchParams): KvChatAuftrag | null {
+  const kv = p.get(KV_NACHRICHT_PARAM);
+  if (kv === "1") return { art: "fertig", neuAnnehmen: false };
+  if (kv === "angepasst") return { art: "angepasst", neuAnnehmen: p.get(KV_ANNAHME_PARAM) === "1" };
+  return null;
+}
+
+/**
+ * Nachricht nach dem Push aus dem KV-Editor (`art: "angepasst"`), nur ins Eingabefeld, nie gesendet.
+ * Ersetzt den Kurztext „Angebot ist fertig“ und eine Plan-16-Änderungsnachricht. Kottke duzt, sonst Sie.
+ */
+export function kvAngepasstNachricht(e: {
+  /** Anzeigename der Firma (entscheidet du/Sie und steht im Gruß). */
+  firma: string | null;
+  vorname: string | null;
+  url: string;
+  dealNumber?: string | null;
+  /** Beim Push wurde eine Annahme aufgehoben: der Kunde nimmt neu an. */
+  neuAnnehmen: boolean;
+}): string {
+  const t = (sie: string, du: string) => kundenText(e.firma, sie, du);
+  const anrede = e.vorname ? `Hallo ${e.vorname},` : "Hallo,";
+  const ref = e.dealNumber ? ` (Auftrag ${e.dealNumber})` : "";
+  const kopf = t(
+    `ich habe Ihr Angebot${ref} noch einmal angepasst. Die neue Fassung finden Sie hier:`,
+    `ich habe dein Angebot${ref} noch einmal angepasst. Die neue Fassung findest du hier:`
+  );
+  const annahme = e.neuAnnehmen
+    ? t(
+        "Weil sich das Angebot geändert hat, gilt Ihre bisherige Annahme nicht mehr. Bitte nehmen Sie es dort noch einmal an.",
+        "Weil sich das Angebot geändert hat, gilt deine bisherige Annahme nicht mehr. Bitte nimm es dort noch einmal an."
+      )
+    : null;
+  const bitte = t(
+    "Geben Sie mir gern kurz Bescheid, ob alles passt oder ob Sie noch Fragen haben.",
+    "Gib mir gern kurz Bescheid, ob alles passt oder ob du noch Fragen hast."
+  );
+  const gruss = e.firma?.trim() ? `Viele Grüße\n${e.firma.trim()}` : "Viele Grüße";
+  return [anrede, `${kopf}\n${e.url}`, annahme, bitte, gruss].filter((x): x is string => !!x).join("\n\n");
+}
+
+/** Zeile auf der Kalkulationsseite bei offenen Konflikten aus dem KV-Editor; null ohne Konflikte. */
+export function kvEditorKonfliktText(n: number): string | null {
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return n === 1
+    ? "1 Änderung aus dem KV-Editor passt nicht zum neuen KV."
+    : `${n} Änderungen aus dem KV-Editor passen nicht zum neuen KV.`;
 }
 
 // ─── Pakete-Zeile im KV-Fenster ──────────────────────────────────────────────

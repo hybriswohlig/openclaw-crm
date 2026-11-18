@@ -5,7 +5,7 @@ import "@/styles/neu-kv-danach.css";
 import Link from "next/link";
 import { useState } from "react";
 import { toast } from "sonner";
-import { kvChatUrl, linkVerwaltenUrl, PORTAL_EINSTELLUNGEN_URL, statusLinkMeldung } from "@/lib/kv-danach";
+import { kvChatUrl, linkVerwaltenUrl, PORTAL_EINSTELLUNGEN_URL, statusLinkMeldung, type KvChatArt } from "@/lib/kv-danach";
 import { statusLinkHolen, textKopieren } from "./status-link";
 
 /**
@@ -23,12 +23,18 @@ export function KvDanachKnoepfe({
   klasse,
   gruppeKlasse,
   ohneChat = false,
+  art = "fertig",
+  neuAnnehmen = false,
 }: {
   dealId: string;
   klasse: string;
   gruppeKlasse?: string;
   /** Nur „Statuslink kopieren“ (etwa ohne neue Inbox). */
   ohneChat?: boolean;
+  /** `fertig`: Kurztext „Angebot ist fertig“. `angepasst`: Text nach dem Push aus dem Editor. */
+  art?: KvChatArt;
+  /** Beim Push wurde eine Annahme aufgehoben. Wirkt nur bei `art: "angepasst"`. */
+  neuAnnehmen?: boolean;
 }) {
   const [laeuft, setLaeuft] = useState(false);
   const [kopiert, setKopiert] = useState(false);
@@ -70,7 +76,7 @@ export function KvDanachKnoepfe({
         {laeuft ? "Holt den Link …" : kopiert ? "Kopiert" : "Statuslink kopieren"}
       </button>
       {ohneChat ? null : (
-        <Link className={klasse} href={kvChatUrl(dealId)}>
+        <Link className={klasse} href={kvChatUrl(dealId, { art, neuAnnehmen })}>
           Im Chat senden
         </Link>
       )}

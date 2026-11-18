@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Kurzfassung } from "@/lib/inbox-neu";
 import type { Gespraech, GespraechKanal } from "@/services/gespraech";
+import { kvAngepasstNachricht } from "@/lib/kv-danach";
 import { kvNachrichtWeg, kvTextFuerVersion, sendeZiel } from "./kv-nachricht";
 
 function kanal(teil: Partial<GespraechKanal>): GespraechKanal {
@@ -185,6 +186,27 @@ describe("Plan 16: geänderte Version", () => {
     expect(weg.text).toContain("Fahrrad kommt dazu");
     expect(weg.text).toContain("https://p/s/tok");
     expect(weg.text.match(/Herzliche Grüße|Viele Grüße/g)).toHaveLength(1);
+  });
+
+  it("eingefügter Text nach dem Push", async () => {
+    fetchMit({
+      ["GET /api/v1/customer-link/d1"]: { body: { data: { url: "https://p/s/tok", dealNumber: "2026-003" } } },
+      ["GET /api/v1/deals/d1/quotation"]: { body: { data: { fixedPrice: "2560.00", isVariable: false } } },
+      ["GET /api/v1/deals/d1/angebot-aenderung"]: { body: { data: AEND } },
+    });
+    const weg = await kvNachrichtWeg("d1", KURZ, gespraech([kanal({})]), { art: "angepasst", neuAnnehmen: true });
+    expect(weg.art).toBe("einfuegen");
+    if (weg.art !== "einfuegen") return;
+    expect(weg.text).toBe(
+      kvAngepasstNachricht({
+        firma: "Kottke Entrümpelung & Umzüge",
+        vorname: "Max",
+        url: "https://p/s/tok",
+        dealNumber: "2026-003",
+        neuAnnehmen: true,
+      })
+    );
+    expect(weg.text).not.toContain("Fahrrad kommt dazu");
   });
 });
 

@@ -10,6 +10,7 @@ import { usePortalZiel } from "@/components/neu/portal-ziel";
 import { textKopieren } from "@/components/neu/kv-danach/status-link";
 import type { VerfassenVorgabe } from "@/lib/handy-links";
 import type { InboxEintrag, Kurzfassung } from "@/lib/inbox-neu";
+import type { KvChatArt } from "@/lib/kv-danach";
 import type { Gespraech } from "@/services/gespraech";
 import { AVATAR_GRAU, SCHNELLAKTION_TEXT, avatarFarbe, gespraechUnterzeile, type Schluessel } from "./inbox-logik";
 import type { LaneAktionen } from "./lane-aktionen";
@@ -19,6 +20,8 @@ import { Schnellaktionen } from "./schnellaktionen";
 
 /** „Im Chat senden“ nach dem KV (kv-danach): Auftrag an die Mitte dieses Deals. */
 export interface KvAuftrag {
+  art: KvChatArt;
+  neuAnnehmen: boolean;
   onErledigt: () => void;
   /** Kein Gespräch: das WhatsApp-Verfassen mit dem vorbereiteten Text öffnen. */
   onVerfassen: (vorgabe: VerfassenVorgabe, text: string) => void;
@@ -82,7 +85,7 @@ export function InboxMitte({
   useEffect(() => {
     if (!kv || !dealId) return;
     let verworfen = false;
-    const { onErledigt, onVerfassen } = kv;
+    const { onErledigt, onVerfassen, art, neuAnnehmen } = kv;
     // Kopieren nur per Knopf im Hinweis: dort ist es eine Nutzergeste, die Zwischenablage nimmt es an.
     const kopierKnopf = (text: string) => ({
       label: "Text kopieren",
@@ -128,7 +131,7 @@ export function InboxMitte({
       });
     };
 
-    void kvNachrichtWeg(dealId, stand.current.kurz, stand.current.gespraech)
+    void kvNachrichtWeg(dealId, stand.current.kurz, stand.current.gespraech, { art, neuAnnehmen })
       .then((weg) => (verworfen ? undefined : ausfuehren(weg)))
       .catch(() => {
         if (!verworfen) toast.error("Nachricht konnte nicht vorbereitet werden.");

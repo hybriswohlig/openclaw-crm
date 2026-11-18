@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { GlassDock, GlassDockSeparator } from "@/components/glassyui/glass-dock";
 import type { AkteDaten, DockAktion } from "@/lib/akte";
+import { kvEditorUrl } from "@/lib/kv-editor";
 import { apiAufruf, jsonAufruf } from "./api";
 import { meldungBearbeiten } from "./zahlungsmeldung";
 
@@ -209,6 +210,10 @@ export function AkteDock({
           <Link href={kvLink} className="akte-dock-knopf">
             <Symbol art="kv_anpassen" />
             {kvLabel}
+          </Link>
+          <Link href={kvEditorUrl(dealId)} className="akte-dock-knopf">
+            <Symbol art="kv_anpassen" />
+            KV bearbeiten
           </Link>
           <DockKnopf art="ab_erstellen" label="AB erstellen" gesperrt={dock.abErlaubt ? null : "Erst nach der Annahme"} onClick={() => onDokument("AB")} />
           <DockKnopf art="rechnung_erstellen" label="Rechnung" gesperrt={dock.rechnungErlaubt ? null : "Erst ab Geplant"} onClick={() => onDokument("RE")} />

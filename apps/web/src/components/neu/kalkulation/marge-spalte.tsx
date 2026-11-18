@@ -435,6 +435,7 @@ export function MargeSpalte({ ansicht, kontext }: { ansicht: KalkulationsAnsicht
         onNeuRechnen={() => void kontext.neuRechnen()}
         tagespreise={tagesKnopf}
         onTagespreise={() => terminDialogOeffnen({ dealId: kontext.dealId, version: version.nummer })}
+        kvEditor={ansicht.kvEditor}
       />
     </GlassPanel>
 

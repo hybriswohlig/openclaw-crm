@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  kvAngepasstNachricht,
+  kvChatAuftragAus,
   kvChatUrl,
+  kvEditorKonfliktText,
   kvFertigNachricht,
   kvPreisAus,
   paketeZeile,
@@ -145,6 +148,101 @@ describe("Kurztext nach dem KV", () => {
 
   it("führt in die Inbox des Deals mit dem Auftrag, den Text vorzubereiten", () => {
     expect(kvChatUrl("deal_1")).toBe("/app/inbox?e=deal%3Adeal_1&kv=1");
+    // art fehlt oder fertig: wie der alte Aufruf, auch wenn neuAnnehmen gesetzt ist.
+    expect(kvChatUrl("deal_1", { art: "fertig" })).toBe("/app/inbox?e=deal%3Adeal_1&kv=1");
+    expect(kvChatUrl("deal_1", { art: "fertig", neuAnnehmen: true })).toBe("/app/inbox?e=deal%3Adeal_1&kv=1");
+    expect(kvChatUrl("deal_1", { neuAnnehmen: true })).toBe("/app/inbox?e=deal%3Adeal_1&kv=1");
+    expect(kvChatUrl("deal_1", { art: "angepasst" })).toBe("/app/inbox?e=deal%3Adeal_1&kv=angepasst");
+    expect(kvChatUrl("deal_1", { art: "angepasst", neuAnnehmen: false })).toBe("/app/inbox?e=deal%3Adeal_1&kv=angepasst");
+    expect(kvChatUrl("deal_1", { art: "angepasst", neuAnnehmen: true })).toBe(
+      "/app/inbox?e=deal%3Adeal_1&kv=angepasst&annahme=1"
+    );
+  });
+});
+
+describe("Auftrag aus der Inbox-Adresse", () => {
+  it("liest fertig, angepasst und die neue Annahme", () => {
+    expect(kvChatAuftragAus(new URLSearchParams("kv=1"))).toEqual({ art: "fertig", neuAnnehmen: false });
+    expect(kvChatAuftragAus(new URLSearchParams("e=deal:deal_1&kv=1&annahme=1"))).toEqual({ art: "fertig", neuAnnehmen: false });
+    expect(kvChatAuftragAus(new URLSearchParams("kv=angepasst"))).toEqual({ art: "angepasst", neuAnnehmen: false });
+    expect(kvChatAuftragAus(new URLSearchParams("kv=angepasst&annahme=1"))).toEqual({ art: "angepasst", neuAnnehmen: true });
+    expect(kvChatAuftragAus(new URLSearchParams("kv=anders"))).toBeNull();
+    expect(kvChatAuftragAus(new URLSearchParams(""))).toBeNull();
+  });
+});
+
+describe("Nachricht nach dem Push und Konflikthinweis", () => {
+  const basis = { url: URL_, vorname: "Max" as string | null, dealNumber: "2026-003" as string | null };
+
+  it("Kottke duzt, mit und ohne Annahme, Vorname und Auftragsnummer", () => {
+    const mit = kvAngepasstNachricht({
+      firma: "Kottke Entrümpelung & Umzüge",
+      ...basis,
+      neuAnnehmen: true,
+    });
+    expect(mit).toBe(
+      "Hallo Max,\n\n" +
+        "ich habe dein Angebot (Auftrag 2026-003) noch einmal angepasst. Die neue Fassung findest du hier:\n" +
+        `${URL_}\n\n` +
+        "Weil sich das Angebot geändert hat, gilt deine bisherige Annahme nicht mehr. Bitte nimm es dort noch einmal an.\n\n" +
+        "Gib mir gern kurz Bescheid, ob alles passt oder ob du noch Fragen hast.\n\n" +
+        "Viele Grüße\nKottke Entrümpelung & Umzüge"
+    );
+    expect(mit).toContain("Bitte nimm es dort noch einmal an.");
+    expect(mit).not.toMatch(/[–—]/);
+
+    const ohne = kvAngepasstNachricht({
+      firma: "Kottke Entrümpelung & Umzüge",
+      vorname: null,
+      url: URL_,
+      neuAnnehmen: false,
+    });
+    expect(ohne).toBe(
+      "Hallo,\n\n" +
+        "ich habe dein Angebot noch einmal angepasst. Die neue Fassung findest du hier:\n" +
+        `${URL_}\n\n` +
+        "Gib mir gern kurz Bescheid, ob alles passt oder ob du noch Fragen hast.\n\n" +
+        "Viele Grüße\nKottke Entrümpelung & Umzüge"
+    );
+    expect(ohne).not.toContain("bisherige Annahme");
+    expect(ohne).not.toMatch(/[–—]/);
+  });
+
+  it("Ceylan siezt, mit und ohne Annahme, Vorname und Auftragsnummer", () => {
+    const mit = kvAngepasstNachricht({
+      firma: "Ceylan Umzüge",
+      vorname: "Anna",
+      url: URL_,
+      dealNumber: "2026-014",
+      neuAnnehmen: true,
+    });
+    expect(mit).toBe(
+      "Hallo Anna,\n\n" +
+        "ich habe Ihr Angebot (Auftrag 2026-014) noch einmal angepasst. Die neue Fassung finden Sie hier:\n" +
+        `${URL_}\n\n` +
+        "Weil sich das Angebot geändert hat, gilt Ihre bisherige Annahme nicht mehr. Bitte nehmen Sie es dort noch einmal an.\n\n" +
+        "Geben Sie mir gern kurz Bescheid, ob alles passt oder ob Sie noch Fragen haben.\n\n" +
+        "Viele Grüße\nCeylan Umzüge"
+    );
+    expect(mit).toContain("Bitte nehmen Sie es dort noch einmal an.");
+    expect(mit).not.toMatch(/[–—]/);
+
+    const ohne = kvAngepasstNachricht({ firma: "Ceylan Umzüge", vorname: null, url: URL_, neuAnnehmen: false });
+    expect(ohne).toBe(
+      "Hallo,\n\n" +
+        "ich habe Ihr Angebot noch einmal angepasst. Die neue Fassung finden Sie hier:\n" +
+        `${URL_}\n\n` +
+        "Geben Sie mir gern kurz Bescheid, ob alles passt oder ob Sie noch Fragen haben.\n\n" +
+        "Viele Grüße\nCeylan Umzüge"
+    );
+    expect(ohne).not.toContain("bisherige Annahme");
+    expect(ohne).not.toMatch(/[–—]/);
+  });
+
+  it("nennt offene Konflikte aus dem KV-Editor, sonst nichts", () => {
+    expect(kvEditorKonfliktText(0)).toBeNull();
+    expect(kvEditorKonfliktText(1)).toBe("1 Änderung aus dem KV-Editor passt nicht zum neuen KV.");
+    expect(kvEditorKonfliktText(3)).toBe("3 Änderungen aus dem KV-Editor passen nicht zum neuen KV.");
   });
 });
 

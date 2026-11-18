@@ -8,7 +8,18 @@ import { fensterZu, startFolge } from "@/components/neu/akte/gespraech-texte";
 import { statusLinkHolen } from "@/components/neu/kv-danach/status-link";
 import { verfassenAus, type VerfassenVorgabe } from "@/lib/handy-links";
 import type { Kurzfassung } from "@/lib/inbox-neu";
-import { kvFertigNachricht, kvPreisAus, type KvPreisAngebot, type KvPreisOption, type KvPreisTag, linkVerwaltenUrl, PORTAL_EINSTELLUNGEN_URL, statusLinkMeldung } from "@/lib/kv-danach";
+import {
+  kvAngepasstNachricht,
+  kvFertigNachricht,
+  kvPreisAus,
+  type KvChatArt,
+  type KvPreisAngebot,
+  type KvPreisOption,
+  type KvPreisTag,
+  linkVerwaltenUrl,
+  PORTAL_EINSTELLUNGEN_URL,
+  statusLinkMeldung,
+} from "@/lib/kv-danach";
 import type { Gespraech } from "@/services/gespraech";
 import { vornameAus } from "./inbox-logik";
 
@@ -54,17 +65,24 @@ export function sendeZiel(g: Pick<Gespraech, "kanaele" | "vorauswahl">): { gespr
   return { gespraechId: gewaehlt.gespraechId, fensterZu: fensterZu(gewaehlt) };
 }
 
-export async function kvNachrichtWeg(dealId: string, kurzVorher: Kurzfassung | null, gespraech: Gespraech): Promise<KvWeg> {
+export async function kvNachrichtWeg(
+  dealId: string,
+  kurzVorher: Kurzfassung | null,
+  gespraech: Gespraech,
+  opts: { art?: KvChatArt; neuAnnehmen?: boolean } = {}
+): Promise<KvWeg> {
+  const angepasst = opts.art === "angepasst";
   const deal = encodeURIComponent(dealId);
   const [link, angebot, optionen, tage, kurzNeu, aenderung] = await Promise.all([
     statusLinkHolen(dealId),
-    apiAufruf<KvPreisAngebot | null>(`/api/v1/deals/${deal}/quotation`),
-    apiAufruf<{ options?: KvPreisOption[] } | null>(`/api/v1/deals/${deal}/package-options`),
-    apiAufruf<{ offers?: KvPreisTag[] } | null>(`/api/v1/deals/${deal}/date-offers`),
+    // Nach dem Push entfallen Preis, Pakete, Termine und die Plan-16-Änderung: der Text steht fest.
+    angepasst ? null : apiAufruf<KvPreisAngebot | null>(`/api/v1/deals/${deal}/quotation`),
+    angepasst ? null : apiAufruf<{ options?: KvPreisOption[] } | null>(`/api/v1/deals/${deal}/package-options`),
+    angepasst ? null : apiAufruf<{ offers?: KvPreisTag[] } | null>(`/api/v1/deals/${deal}/date-offers`),
     // Fehlt die Kurzfassung (Firma entscheidet du/Sie), noch einmal holen.
     kurzVorher ? Promise.resolve(null) : apiAufruf<Kurzfassung>(`/api/v1/deals/${deal}/kurzfassung`),
     // Plan 16: ist das aktuelle Angebot eine geänderte Version, gilt die Änderungsnachricht.
-    apiAufruf<AenderungsStandFuerKv>(`/api/v1/deals/${deal}/angebot-aenderung`),
+    angepasst ? null : apiAufruf<AenderungsStandFuerKv>(`/api/v1/deals/${deal}/angebot-aenderung`),
   ]);
   const kurz = kurzVorher ?? (kurzNeu?.ok ? kurzNeu.data : null);
   if (link.art !== "ok") {
@@ -77,18 +95,29 @@ export async function kvNachrichtWeg(dealId: string, kurzVorher: Kurzfassung | n
           : undefined;
     return { art: "meldung", titel: m.titel, text: m.text, ziel };
   }
-  const standard = kvFertigNachricht({
-    firma: kurz?.kunde.firma ?? null,
-    vorname: vornameAus(kurz?.name),
-    preis: kvPreisAus(
-      angebot.ok ? angebot.data : null,
-      optionen.ok ? (optionen.data?.options ?? []) : [],
-      tage.ok ? (tage.data?.offers ?? []) : []
-    ),
-    url: link.url,
-    dealNumber: link.dealNumber,
-  });
-  const text = kvTextFuerVersion(aenderung.ok ? aenderung.data : null, standard, link.url);
+  const text = angepasst
+    ? kvAngepasstNachricht({
+        firma: kurz?.kunde.firma ?? null,
+        vorname: vornameAus(kurz?.name),
+        url: link.url,
+        dealNumber: link.dealNumber,
+        neuAnnehmen: !!opts.neuAnnehmen,
+      })
+    : kvTextFuerVersion(
+        aenderung && aenderung.ok ? aenderung.data : null,
+        kvFertigNachricht({
+          firma: kurz?.kunde.firma ?? null,
+          vorname: vornameAus(kurz?.name),
+          preis: kvPreisAus(
+            angebot && angebot.ok ? angebot.data : null,
+            optionen && optionen.ok ? (optionen.data?.options ?? []) : [],
+            tage && tage.ok ? (tage.data?.offers ?? []) : []
+          ),
+          url: link.url,
+          dealNumber: link.dealNumber,
+        }),
+        link.url
+      );
 
   const ziel = sendeZiel(gespraech);
   if (ziel) return { art: "einfuegen", text, fensterZu: ziel.fensterZu, gespraechId: ziel.gespraechId };

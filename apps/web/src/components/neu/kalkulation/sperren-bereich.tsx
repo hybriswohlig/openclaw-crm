@@ -4,6 +4,8 @@ import Link from "next/link";
 import { KvDanachKnoepfe } from "@/components/neu/kv-danach/kv-danach-knoepfe";
 import { angabenLink } from "@/lib/dokument-angaben";
 import type { KalkulationsAnsicht } from "@/lib/kalkulations-ansicht";
+import { kvEditorUrl } from "@/lib/kv-editor";
+import { kvEditorKonfliktText } from "@/lib/kv-danach";
 import type { Lauf } from "./kalk-seite";
 import { kvKnopf, kvStatus } from "./kv-erzeugung";
 
@@ -36,6 +38,7 @@ export function SperrenBereich({
   onTagespreise,
   onAngebotAendern,
   jetzt = new Date(),
+  kvEditor = null,
 }: {
   dealId: string;
   version: KalkulationsAnsicht["version"];
@@ -50,6 +53,8 @@ export function SperrenBereich({
   /** Plan 16: an der maßgeblichen gesperrten Version „Angebot ändern“ (Entwurf + Vorschlagsliste). */
   onAngebotAendern?: () => void;
   jetzt?: Date;
+  /** Offene Konflikte aus dem KV-Editor; null, solange die Ansicht sie nicht liefert. */
+  kvEditor?: { offeneKonflikte: number } | null;
 }) {
   const beschaeftigt = laeuft !== null;
   const gesperrt = version.status === "gesperrt";
@@ -59,6 +64,7 @@ export function SperrenBereich({
   const neuRechnenNoetig = !gesperrt && (version.fehler !== null || (version.veraltet && version.veraltetGrund !== "rechner"));
   const status = kvStatus(version, jetzt);
   const knopf = kvKnopf(version, jetzt);
+  const konflikt = gesperrt ? kvEditorKonfliktText(kvEditor?.offeneKonflikte ?? 0) : null;
 
   return (
     <div className="kalk-aktionen">
@@ -91,6 +97,11 @@ export function SperrenBereich({
                   KV öffnen
                 </a>
               ) : null}
+              {status.dokumentId ? (
+                <Link className="kalk-kleinknopf" href={kvEditorUrl(dealId)}>
+                  Im Editor öffnen
+                </Link>
+              ) : null}
               {/* Nächster Schritt zum Kunden (kv-danach): Link kopieren oder im Chat vorbereiten. */}
               {status.dokumentId ? <KvDanachKnoepfe dealId={dealId} klasse="kalk-kleinknopf" gruppeKlasse="kalk-kv-danach" /> : null}
               {status.angabenFehlen ? (
@@ -98,6 +109,14 @@ export function SperrenBereich({
                   Angaben ergänzen
                 </Link>
               ) : null}
+            </p>
+          ) : null}
+          {konflikt ? (
+            <p className="kalk-kv-fertig" data-ton="gold" role="status">
+              <span>{konflikt}</span>
+              <Link className="kalk-kleinknopf" href={kvEditorUrl(dealId)}>
+                Im Editor ansehen
+              </Link>
             </p>
           ) : null}
           {onAngebotAendern ? (
