@@ -298,6 +298,20 @@ describe.skipIf(!url)("Briefing (DB)", { timeout: 30_000 }, () => {
       expect(await fotos.crewFotoImBriefing("w1", "d2", "f2", false, "u1")).toEqual({ ok: false, code: "NICHT_GEFUNDEN" });
     });
 
+    it("Ausgeblendet gilt für alle Wege: auch ein für alle freigegebenes Foto ist dann weg, Freigeben blendet wieder ein", async () => {
+      expect(await fotos.crewFotoFreigeben("w1", "d1", "f1", true, "u1")).toMatchObject({ ok: true });
+      expect(await fotos.freigegebenesFoto("w1", "f1")).not.toBeNull();
+      await fotos.crewFotoImBriefing("w1", "d1", "f1", false, "u1");
+      expect(await fotos.freigegebenesFoto("w1", "f1")).toBeNull();
+      expect(await fotos.briefingFoto("w1", "e2", "f1")).toBeNull();
+      expect(await fotos.fotoQuelleLesen("w1", "f1", "d1", "chat", false)).toBeNull();
+      // Wieder für alle freigeben blendet es auch im Briefing ein.
+      await fotos.crewFotoFreigeben("w1", "d1", "f1", true, "u1");
+      expect(await fotos.briefingFoto("w1", "e2", "f1")).not.toBeNull();
+      expect(await fotos.freigegebenesFoto("w1", "f1")).not.toBeNull();
+      await fotos.crewFotoFreigeben("w1", "d1", "f1", false, "u1");
+    });
+
     it("Street-View-Adresse nur fürs Team und nur bei freigegebenem Briefing", async () => {
       expect(await br.briefingStoppAdresse(helfer, "d1", "from")).toBe("Hauptstraße 5, 70176 Stuttgart");
       expect(await br.briefingStoppAdresse(helfer, "d1", "to")).toBe("Rosenweg 3, 72070 Tübingen");

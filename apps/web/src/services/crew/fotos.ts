@@ -30,7 +30,7 @@ const TYPEN = sql`${sql.param([...CREW_FOTO_TYPEN])}::text[]`;
 export async function freigegebenesFoto(ws: string, id: string): Promise<{ tabelle: Tabelle; dealId: string; am: string } | null> {
   const res = await db.execute(sql`
     SELECT 'chat' AS tabelle, a.deal_record_id AS deal_id, a.crew_freigegeben_at::text AS am FROM inbox_message_attachments a
-    WHERE a.id = ${id} AND a.workspace_id = ${ws} AND a.crew_freigegeben_at IS NOT NULL AND a.deal_record_id IS NOT NULL AND lower(a.mime_type) = ANY(${TYPEN})
+    WHERE a.id = ${id} AND a.workspace_id = ${ws} AND a.crew_freigegeben_at IS NOT NULL AND a.crew_gesperrt_at IS NULL AND a.deal_record_id IS NOT NULL AND lower(a.mime_type) = ANY(${TYPEN})
     UNION ALL
     SELECT 'intern', p.deal_record_id, p.crew_freigegeben_at::text FROM deal_internal_photos p
     WHERE p.id = ${id} AND p.workspace_id = ${ws} AND p.crew_freigegeben_at IS NOT NULL AND lower(p.mime_type) = ANY(${TYPEN})
@@ -85,7 +85,7 @@ export async function fotoQuelleLesen(
           sql`EXISTS (SELECT 1 FROM crew_briefings b WHERE b.deal_record_id = ${t.dealRecordId} AND b.workspace_id = ${ws} AND b.withdrawn_at IS NULL)`,
           sql`EXISTS (SELECT 1 FROM deal_employees de WHERE de.deal_record_id = ${t.dealRecordId} AND de.employee_id = ${briefingFuer})`,
         )
-      : isNotNull(t.crewFreigegebenAt);
+      : and(isNotNull(t.crewFreigegebenAt), isNull(t.crewGesperrtAt));
     const [z] = await db
       .select({ inhalt: mitInhalt ? t.fileContent : sql<string>`''` })
       .from(t)
@@ -193,6 +193,8 @@ export async function crewFotoFreigeben(
       .set({
         crewFreigegebenAt: freigegeben ? sql`coalesce(${t.crewFreigegebenAt}, ${am}::timestamptz)` : null,
         crewFreigegebenBy: freigegeben ? sql`coalesce(${t.crewFreigegebenBy}, ${autor})` : null,
+        // Allen zeigen heißt auch dem Team im Briefing.
+        ...(freigegeben && t === inboxMessageAttachments ? { crewGesperrtAt: null, crewGesperrtBy: null } : {}),
       })
       .where(
         and(
@@ -218,7 +220,7 @@ export async function crewFotoFreigeben(
 
 export type BriefingFotoErgebnis = { ok: true; crewGesperrtAt: string | null } | { ok: false; code: "NICHT_GEFUNDEN" };
 
-/** „Im Briefing zeigen“ an einem Kundenfoto aus dem Chat: aus = für das Team ausgeblendet. */
+/** „Im Briefing zeigen“ an einem Kundenfoto aus dem Chat: aus = für die ganze Crew ausgeblendet (auch die Freigabe für alle fällt weg). */
 export async function crewFotoImBriefing(ws: string, dealId: string, fotoId: string, zeigen: boolean, autor: string): Promise<BriefingFotoErgebnis> {
   const t = inboxMessageAttachments;
   const [neu] = await db
@@ -226,6 +228,8 @@ export async function crewFotoImBriefing(ws: string, dealId: string, fotoId: str
     .set({
       crewGesperrtAt: zeigen ? null : sql`coalesce(${t.crewGesperrtAt}, now())`,
       crewGesperrtBy: zeigen ? null : sql`coalesce(${t.crewGesperrtBy}, ${autor})`,
+      // Ausgeblendet heißt für niemanden in der Crew, auch nicht in der Jobbörse.
+      ...(zeigen ? {} : { crewFreigegebenAt: null, crewFreigegebenBy: null }),
     })
     .where(and(eq(t.id, fotoId), eq(t.workspaceId, ws), eq(t.dealRecordId, dealId)))
     .returning({ at: t.crewGesperrtAt });

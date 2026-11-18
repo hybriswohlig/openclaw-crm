@@ -398,7 +398,7 @@ async function ladeDetails(ex: DbExecutor, k: CrewKontext, ids: string[]): Promi
            AND NOT EXISTS (SELECT 1 FROM deal_employees de WHERE de.deal_record_id = r.id AND de.employee_id = cr.employee_id))::int AS offene,
         (SELECT jsonb_agg(f.id ORDER BY f.created_at, f.id) FROM (
            SELECT a.id, a.created_at FROM inbox_message_attachments a
-           WHERE a.workspace_id = ${ws} AND a.deal_record_id = r.id AND a.crew_freigegeben_at IS NOT NULL AND lower(a.mime_type) = ANY(${typen})
+           WHERE a.workspace_id = ${ws} AND a.deal_record_id = r.id AND a.crew_freigegeben_at IS NOT NULL AND a.crew_gesperrt_at IS NULL AND lower(a.mime_type) = ANY(${typen})
            UNION ALL
            SELECT p.id, p.created_at FROM deal_internal_photos p
            WHERE p.workspace_id = ${ws} AND p.deal_record_id = r.id AND p.crew_freigegeben_at IS NOT NULL AND lower(p.mime_type) = ANY(${typen})

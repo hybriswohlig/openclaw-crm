@@ -23,6 +23,8 @@ export interface Foto {
   crewMoeglich?: boolean;
   /** Crew-Portal: im Briefing für das bestätigte Team sichtbar (Standard ja). */
   briefing?: boolean;
+  /** Crew-Portal: nur Chat-Fotos erscheinen im Briefing. */
+  briefingMoeglich?: boolean;
 }
 
 /** Gleiche Liste wie die Crew-API (`CREW_FOTO_TYPEN`); HEIC und SVG nie. */
@@ -36,6 +38,7 @@ interface Anhang {
   createdAt: string;
   crewFreigegebenAt?: string | null;
   crewGesperrtAt?: string | null;
+  briefingMoeglich?: boolean;
 }
 
 export function istBild(mime: string): boolean {
@@ -67,7 +70,12 @@ export function FotosAnsicht({ dealId }: { dealId: string }) {
       toast.error("Freigabe nicht gespeichert.", { description: r.message });
       return;
     }
-    setZustand((z) => (z.art === "fertig" ? { ...z, fotos: z.fotos.map((x) => (x.id === f.id ? { ...x, crew: !!r.data.crewFreigegebenAt } : x)) } : z));
+    // Wer es allen zeigt, zeigt es auch dem Team im Briefing.
+    setZustand((z) =>
+      z.art === "fertig"
+        ? { ...z, fotos: z.fotos.map((x) => (x.id === f.id ? { ...x, crew: !!r.data.crewFreigegebenAt, briefing: r.data.crewFreigegebenAt ? true : x.briefing } : x)) }
+        : z,
+    );
   }
 
   async function briefingUmschalten(f: Foto) {
@@ -82,7 +90,12 @@ export function FotosAnsicht({ dealId }: { dealId: string }) {
       toast.error("Nicht gespeichert.", { description: r.message });
       return;
     }
-    setZustand((z) => (z.art === "fertig" ? { ...z, fotos: z.fotos.map((x) => (x.id === f.id ? { ...x, briefing: !r.data.crewGesperrtAt } : x)) } : z));
+    // Ausblenden nimmt das Foto auch aus der Jobbörse.
+    setZustand((z) =>
+      z.art === "fertig"
+        ? { ...z, fotos: z.fotos.map((x) => (x.id === f.id ? { ...x, briefing: !r.data.crewGesperrtAt, crew: r.data.crewGesperrtAt ? false : x.crew } : x)) }
+        : z,
+    );
   }
 
   useEffect(() => {
@@ -103,6 +116,7 @@ export function FotosAnsicht({ dealId }: { dealId: string }) {
           crew: !!a.crewFreigegebenAt,
           crewMoeglich: CREW_FORMATE.has(a.mimeType.toLowerCase()),
           briefing: !a.crewGesperrtAt,
+          briefingMoeglich: a.briefingMoeglich === true,
         }));
       setZustand({ art: "fertig", fotos });
     });
@@ -140,10 +154,12 @@ export function FotosAnsicht({ dealId }: { dealId: string }) {
                     <input type="checkbox" checked={!!f.crew} disabled={schaltet === f.id} onChange={() => void crewUmschalten(f)} />
                     Allen Helfern zeigen
                   </label>
-                  <label className="akte-foto-crew" title="Das bestätigte Team sieht es im freigegebenen Briefing. Ausweise, Rechnungen o. Ä. hier abschalten.">
-                    <input type="checkbox" checked={f.briefing !== false} disabled={schaltet === f.id} onChange={() => void briefingUmschalten(f)} />
-                    Im Briefing fürs Team
-                  </label>
+                  {f.briefingMoeglich ? (
+                    <label className="akte-foto-crew" title="Das bestätigte Team sieht es im freigegebenen Briefing. Ausweise, Rechnungen o. Ä. hier abschalten (dann auch nicht für alle Helfer).">
+                      <input type="checkbox" checked={f.briefing !== false} disabled={schaltet === f.id} onChange={() => void briefingUmschalten(f)} />
+                      Im Briefing fürs Team
+                    </label>
+                  ) : null}
                 </>
               ) : (
                 <span className="akte-foto-crew" title="Nur JPEG, PNG, WebP oder GIF lassen sich für die Crew zeigen.">

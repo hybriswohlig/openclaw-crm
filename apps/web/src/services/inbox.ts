@@ -525,6 +525,8 @@ export async function getAttachmentsForDeal(
       ...row,
       // Agent JSON uploads stay on the deal and are not shown in the customer portal.
       customerVisible: !isInternalPhotoCarrier(externalMessageId),
+      // Crew-Briefing: nur Chat-Anhänge lassen sich dort zeigen oder ausblenden.
+      briefingMoeglich: true as const,
     })),
     ...internal.map((row) => ({
       id: row.id,
@@ -536,6 +538,8 @@ export async function getAttachmentsForDeal(
       messageId: "",
       customerVisible: false as const,
       crewFreigegebenAt: row.crewFreigegebenAt ?? null,
+      crewGesperrtAt: null,
+      briefingMoeglich: false as const,
     })),
   ];
   mapped.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
