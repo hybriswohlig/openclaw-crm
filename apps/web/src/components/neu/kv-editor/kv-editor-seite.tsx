@@ -528,7 +528,7 @@ export function KvEditor({
 
 function kopfAus(d: KvStandDetail): KvStandKopf {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const { basis, werte, unterschied, ...kopf } = d;
+  const { basis, werte, unterschied, nurLesen, ...kopf } = d;
   return kopf;
 }
 
