@@ -47,7 +47,7 @@ export interface RenderJob {
   fehler: string | null;
   /** Nur RE (Plan 9): Rechnungsdatensatz, der mit diesem Job gestellt wird. */
   invoiceId?: string | null;
-  /** KV-Editor (Migration 0070): Stand, zu dem dieser Job druckt; null ohne Editor-Bezug. */
+  /** KV-Editor (Migration 0071): Stand, zu dem dieser Job druckt; null ohne Editor-Bezug. */
   kvStandId?: string | null;
   /** `entwurf`: PDF in den Stand, nie in `deal_documents`; `aktuell`: neuer KV, der seinen Stand verknüpft. */
   kvStandZiel?: KvStandZiel | null;
