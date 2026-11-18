@@ -1,0 +1,6 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": { "incremental": false, "plugins": [] },
+  "include": ["../../next-env.d.ts", "../../src/components/neu/kv-editor/**/*.ts", "../../src/components/neu/kv-editor/**/*.tsx", "./main.tsx", "./link-shim.tsx"],
+  "exclude": ["../../node_modules"]
+}

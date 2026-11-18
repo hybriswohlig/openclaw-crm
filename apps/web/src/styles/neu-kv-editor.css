@@ -1,0 +1,1355 @@
+/*
+ * KV-Editor (Spec KV-Editor 10, Skizze bubble.png): PDF groß in der Mitte, links der
+ * Verlauf, rechts Formular oder Chat. Unter 1024 px werden Verlauf und rechte Seite zur
+ * unteren Schublade. Nur Tokens aus neu.css (Farb-Wächter), Präfix .kve-.
+ */
+
+[data-neu] .kve {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  min-height: calc(100dvh - 28px);
+}
+
+/* ── Kopf ────────────────────────────────────────────── */
+
+[data-neu] .kve-kopf {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  padding: 0 4px;
+}
+
+[data-neu] .kve-kopf-links,
+[data-neu] .kve-kopf-rechts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 12px;
+  min-width: 0;
+}
+
+[data-neu] .kve-kopf-text {
+  min-width: 0;
+}
+
+[data-neu] .kve-krume {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+[data-neu] .kve-krume a {
+  color: var(--blue-ink);
+  font-weight: 500;
+  text-decoration: none;
+}
+
+[data-neu] .kve-krume a:hover {
+  text-decoration: underline;
+}
+
+[data-neu] .kve-titel {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  line-height: 1.1;
+  overflow-wrap: anywhere;
+}
+
+[data-neu] .kve-titel-kunde {
+  color: var(--ink-2);
+}
+
+[data-neu] .kve-kopf-pillen {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+[data-neu] .kve-pille {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--rim), var(--shadow);
+  color: var(--ink);
+  font-size: 12.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  text-decoration: none;
+}
+
+[data-neu] .kve-pille-link {
+  color: var(--blue-ink);
+}
+
+[data-neu] .kve-pille-link:hover {
+  background: var(--rim);
+}
+
+[data-neu] .kve-pille-klein {
+  padding: 2px 9px;
+  font-size: 11.5px;
+  box-shadow: inset 0 0 0 1px var(--rim);
+}
+
+[data-neu] .kve-punkt {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ink-3);
+}
+
+[data-neu] .kve-punkt[data-ton="jade"] {
+  background: var(--jade);
+}
+
+[data-neu] .kve-punkt[data-ton="blau"] {
+  background: var(--blue);
+}
+
+[data-neu] .kve-punkt[data-ton="gold"] {
+  background: var(--gold);
+}
+
+[data-neu] .kve-punkt[data-ton="rose"] {
+  background: var(--rose);
+}
+
+[data-neu] .kve-pille[data-ton="rose"] {
+  color: var(--rose-ink);
+}
+
+/* Runde Glasknöpfe: Verlauf, Bearbeiten, Sprechblase. */
+[data-neu] .kve-rund {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-width: 40px;
+  height: 40px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--rim), var(--shadow);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+[data-neu] .kve-rund:hover:not(:disabled) {
+  background: var(--rim);
+}
+
+[data-neu] .kve-rund[data-an] {
+  color: var(--blue-ink);
+  box-shadow: inset 0 0 0 1.5px var(--blue), var(--shadow);
+}
+
+[data-neu] .kve-rund:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+[data-neu] .kve-blase {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+}
+
+[data-neu] .kve-blase svg {
+  width: 22px;
+  height: 22px;
+}
+
+[data-neu] .kve-push {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 40px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--blue);
+  box-shadow: var(--shadow);
+  color: #fff;
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+[data-neu] .kve-push:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--blue) 88%, var(--ink));
+}
+
+[data-neu] .kve-push:disabled {
+  opacity: 0.55;
+  cursor: progress;
+}
+
+[data-neu] :is(.kve-rund, .kve-push, .kve-knopf, .kve-klein-knopf, .kve-link, .kve-zu, .kve-senden):focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+/* ── Bänder (Hinweis, Konflikt, Fehler, gepusht) ─────── */
+
+[data-neu] .kve-baender {
+  display: grid;
+  gap: 8px;
+}
+
+[data-neu] .kve-baender:empty {
+  display: none;
+}
+
+[data-neu] .kve-band {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--gold) 14%, var(--fill-3));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gold) 35%, var(--fill-3));
+  color: var(--gold-ink);
+  font-size: 13px;
+}
+
+[data-neu] .kve-band[data-ton="rose"] {
+  background: color-mix(in srgb, var(--rose) 10%, var(--fill-3));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--rose) 30%, var(--fill-3));
+  color: var(--rose-ink);
+}
+
+[data-neu] .kve-band[data-ton="blau"] {
+  background: color-mix(in srgb, var(--blue) 10%, var(--fill-3));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--blue) 30%, var(--fill-3));
+  color: var(--blue-ink);
+}
+
+[data-neu] .kve-band[data-ton="jade"] {
+  background: color-mix(in srgb, var(--jade) 12%, var(--fill-3));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--jade) 32%, var(--fill-3));
+  color: var(--jade-ink);
+}
+
+[data-neu] .kve-band > span:first-child {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+
+[data-neu] .kve-konflikte ul {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+[data-neu] .kve-konflikte li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 12px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: var(--fill-3);
+  color: var(--ink);
+}
+
+[data-neu] .kve-konflikt-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  flex: 1 1 260px;
+}
+
+[data-neu] .kve-konflikt-knoepfe,
+[data-neu] .kve-danach {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* ── Fläche: Verlauf | PDF | rechts ──────────────────── */
+
+/* Füllt den Rest des Fensters unter Kopf und Bändern, mindestens 520 px. */
+[data-neu] .kve-flaeche {
+  display: flex;
+  flex: 1 1 0;
+  gap: 14px;
+  align-items: stretch;
+  min-height: 520px;
+  min-width: 0;
+}
+
+[data-neu] .kve-mitte {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+}
+
+[data-neu] .kve-seite {
+  display: flex;
+  flex-direction: column;
+  flex: none;
+  min-height: 0;
+  border-radius: 22px;
+  background: var(--fill-2);
+  box-shadow: inset 0 0 0 1px var(--rim), var(--shadow);
+  overflow: hidden;
+}
+
+[data-neu] .kve-seite[data-seite="links"] {
+  width: 300px;
+}
+
+[data-neu] .kve-seite[data-seite="rechts"] {
+  width: 400px;
+}
+
+[data-neu] .kve-seite-kopf {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 12px 8px 16px;
+  border-bottom: 1px solid var(--hair);
+}
+
+[data-neu] .kve-seite-kopf h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+}
+
+[data-neu] .kve-zu {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--rim);
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+[data-neu] .kve-zu:hover {
+  color: var(--ink);
+}
+
+/* ── PDF ─────────────────────────────────────────────── */
+
+[data-neu] .kve-pdf {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  border-radius: 22px;
+  background: var(--fill-2);
+  box-shadow: inset 0 0 0 1px var(--rim), var(--shadow);
+  overflow: hidden;
+}
+
+[data-neu] .kve-iframe {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: var(--fill-3);
+}
+
+[data-neu] .kve-pdf-ohne {
+  flex: 1;
+  display: grid;
+  place-content: center;
+  gap: 4px;
+  margin: 18px auto;
+  width: min(100% - 36px, 620px);
+  border-radius: 6px;
+  background: var(--flaeche);
+  box-shadow: var(--shadow-raised);
+  color: var(--ink-2);
+  text-align: center;
+  font-size: 13px;
+}
+
+[data-neu] .kve-pdf-ohne b {
+  color: var(--ink);
+  font-size: 15px;
+}
+
+[data-neu] .kve-pdf-handy {
+  display: none;
+}
+
+[data-neu] .kve-pdf-leer {
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  padding: 24px;
+}
+
+[data-neu] .kve-blatt {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  width: min(100%, 360px);
+  aspect-ratio: 1 / 1.3;
+  padding: 28px 26px;
+  border-radius: 8px;
+  background: var(--flaeche);
+  box-shadow: var(--shadow);
+}
+
+[data-neu] .kve-blatt-zeile,
+[data-neu] .kve-blatt-block {
+  height: 10px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--ink) 9%, transparent);
+  animation: kve-puls 1.6s ease-in-out infinite;
+}
+
+@keyframes kve-puls {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-neu] :is(.kve-blatt-zeile, .kve-blatt-block) {
+    animation: none;
+  }
+}
+
+[data-neu] .kve-blatt-zeile[data-breit="kurz"] {
+  width: 40%;
+}
+
+[data-neu] .kve-blatt-zeile[data-breit="mittel"] {
+  width: 70%;
+}
+
+[data-neu] .kve-blatt-block {
+  height: 80px;
+  border-radius: 6px;
+}
+
+[data-neu] .kve-pdf-status {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  max-width: 420px;
+  text-align: center;
+  color: var(--ink-2);
+  font-size: 13px;
+}
+
+[data-neu] .kve-pdf-status b {
+  color: var(--ink);
+  font-size: 14px;
+}
+
+[data-neu] .kve-fehlerkasten {
+  display: grid;
+  gap: 8px;
+  max-width: 520px;
+  padding: 18px 20px;
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--rose) 10%, var(--fill-3));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--rose) 35%, var(--fill-3));
+  color: var(--ink);
+  font-size: 13.5px;
+}
+
+[data-neu] .kve-fehlerkasten > b {
+  color: var(--rose-ink);
+  font-size: 15px;
+}
+
+[data-neu] .kve-fehlerkasten p,
+[data-neu] .kve-fehlerkasten ul {
+  margin: 0;
+}
+
+[data-neu] .kve-fehlerkasten ul {
+  padding-left: 18px;
+  color: var(--rose-ink);
+  font-variant-numeric: tabular-nums;
+}
+
+[data-neu] .kve-fehlerkasten .kve-knopf {
+  justify-self: start;
+}
+
+/* ── Knöpfe und Kleinteile ───────────────────────────── */
+
+[data-neu] .kve-knopf {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--blue);
+  box-shadow: var(--shadow);
+  color: #fff;
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+[data-neu] .kve-knopf:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+[data-neu] .kve-knopf[data-art="leise"] {
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--rim), var(--shadow);
+  color: var(--ink);
+}
+
+[data-neu] .kve-klein-knopf {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--rim), var(--shadow);
+  color: var(--blue-ink);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.2;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+[data-neu] .kve-klein-knopf:hover:not(:disabled) {
+  background: var(--rim);
+}
+
+[data-neu] .kve-klein-knopf:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+[data-neu] .kve-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--blue-ink);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+[data-neu] .kve-klein {
+  margin: 0;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+[data-neu] .kve-marke {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--violet) 14%, var(--fill-3));
+  color: var(--violet-ink);
+  font-size: 10.5px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  vertical-align: 1px;
+}
+
+[data-neu] .kve-unsichtbar {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+[data-neu] .kve-meldung {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--rose) 10%, var(--fill-3));
+  color: var(--rose-ink);
+  font-size: 12.5px;
+}
+
+[data-neu] .kve-meldung p {
+  margin: 0;
+}
+
+[data-neu] .kve-chat > .kve-meldung {
+  margin: 0 12px 8px;
+}
+
+/* ── Verlauf ─────────────────────────────────────────── */
+
+[data-neu] .kve-staende {
+  flex: 1;
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  margin: 0;
+  padding: 10px;
+  list-style: none;
+  overflow-y: auto;
+}
+
+[data-neu] .kve-stand {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--rim);
+  font-size: 12.5px;
+}
+
+[data-neu] .kve-stand[aria-current="true"] {
+  box-shadow: inset 0 0 0 1.5px var(--blue);
+}
+
+[data-neu] .kve-stand-kopf {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13.5px;
+}
+
+[data-neu] .kve-stand-zeilen {
+  display: grid;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--ink-2);
+}
+
+[data-neu] .kve-stand-zeilen li:first-child {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+[data-neu] .kve-stand .kve-link {
+  justify-self: start;
+}
+
+[data-neu] .kve-aenderungen {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 8px 0 0;
+  list-style: none;
+  border-top: 1px solid var(--hair);
+}
+
+[data-neu] .kve-aenderungen li {
+  display: grid;
+  gap: 1px;
+}
+
+[data-neu] .kve-aenderung-titel {
+  font-weight: 600;
+}
+
+[data-neu] .kve-aenderung-wert {
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+
+[data-neu] .kve-aenderung-wert s {
+  color: var(--ink-3);
+}
+
+[data-neu] .kve-stand-knoepfe {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* ── Formular ────────────────────────────────────────── */
+
+[data-neu] .kve-form {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+[data-neu] .kve-form-rumpf {
+  flex: 1;
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  padding: 12px;
+  overflow-y: auto;
+}
+
+[data-neu] .kve-abschnitt {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 16px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--rim);
+}
+
+[data-neu] .kve-abschnitt h3 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+[data-neu] .kve-abschnitt p {
+  margin: 0;
+}
+
+[data-neu] .kve-preisblock > p:first-of-type {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+[data-neu] .kve-preisblock .kve-klein-knopf {
+  justify-self: start;
+}
+
+[data-neu] .kve-zeile {
+  display: grid;
+  gap: 8px;
+}
+
+[data-neu] .kve-zeile[data-gruppe] {
+  padding-top: 8px;
+  border-top: 1px solid var(--hair);
+}
+
+[data-neu] .kve-zeile[data-gruppe]:first-of-type {
+  padding-top: 0;
+  border-top: 0;
+}
+
+[data-neu] .kve-zeile h4 {
+  margin: 0;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+[data-neu] .kve-feld {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  font-size: 12.5px;
+}
+
+[data-neu] .kve-feld legend {
+  padding: 0;
+  margin-bottom: 4px;
+}
+
+[data-neu] .kve-feld-kopf {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  color: var(--ink-2);
+  font-weight: 500;
+}
+
+[data-neu] .kve-zaehler {
+  margin-left: auto;
+  color: var(--ink-3);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+[data-neu] :is(.kve-feld, .kve-chat-eingabe) .lg-input {
+  min-height: 0;
+  padding: 8px 12px;
+  border-radius: 12px;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+[data-neu] .kve-feld textarea {
+  resize: vertical;
+  min-height: 52px;
+}
+
+[data-neu] .kve-feld[data-fehler] :is(input.lg-input, textarea) {
+  box-shadow: inset 0 0 0 1.5px var(--rose);
+}
+
+[data-neu] .kve-feld-fehler {
+  color: var(--rose-ink);
+  font-size: 12px;
+}
+
+[data-neu] .kve-feld-zeigen {
+  grid-template-columns: auto auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+}
+
+[data-neu] .kve-feld-zeigen .kve-feld-fehler {
+  grid-column: 1 / -1;
+}
+
+[data-neu] .kve-feld input[type="checkbox"],
+[data-neu] .kve-wahl input[type="radio"] {
+  width: 17px;
+  height: 17px;
+  margin: 0;
+  accent-color: var(--blue);
+}
+
+[data-neu] .kve-bild {
+  display: block;
+  width: 56px;
+  height: 42px;
+  border-radius: 8px;
+  background: var(--fill);
+  box-shadow: inset 0 0 0 1px var(--hair);
+  object-fit: cover;
+}
+
+[data-neu] .kve-wahl {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+[data-neu] .kve-wahl label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px 5px 8px;
+  border-radius: 999px;
+  background: var(--fill-2);
+  box-shadow: inset 0 0 0 1px var(--hair);
+  color: var(--ink);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+[data-neu] .kve-wahl label:has(input:checked) {
+  box-shadow: inset 0 0 0 1.5px var(--blue);
+  color: var(--blue-ink);
+  font-weight: 600;
+}
+
+[data-neu] .kve-wahl label[data-gesperrt] {
+  color: var(--ink-3);
+  text-decoration: line-through;
+  cursor: not-allowed;
+}
+
+[data-neu] .kve-wahl-spalten {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+[data-neu] .kve-wahl-spalten label {
+  border-radius: 12px;
+  align-items: flex-start;
+  overflow-wrap: anywhere;
+}
+
+[data-neu] .kve-nurlesen ul {
+  margin: 0 0 4px;
+  padding: 0 0 0 18px;
+  color: var(--ink-2);
+  font-size: 12.5px;
+}
+
+[data-neu] .kve-form-fuss {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px 12px;
+  border-top: 1px solid var(--hair);
+  background: var(--fill-2);
+}
+
+[data-neu] .kve-knoepfe {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* ── Chat ────────────────────────────────────────────── */
+
+[data-neu] .kve-chat-verlauf {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  overflow-y: auto;
+}
+
+[data-neu] .kve-chat-leer {
+  margin: auto 0;
+  color: var(--ink-2);
+  font-size: 13px;
+  text-align: center;
+}
+
+[data-neu] .kve-blase-nutzer,
+[data-neu] .kve-blase-ki {
+  display: grid;
+  gap: 6px;
+  max-width: 92%;
+  padding: 9px 12px;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+[data-neu] .kve-blase-nutzer {
+  align-self: flex-end;
+  border-radius: 16px 16px 4px 16px;
+  background: var(--blue);
+  color: #fff;
+}
+
+[data-neu] .kve-blase-ki {
+  align-self: flex-start;
+  border-radius: 16px 16px 16px 4px;
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--rim);
+  color: var(--ink);
+}
+
+[data-neu] :is(.kve-blase-nutzer, .kve-blase-ki) p {
+  margin: 0;
+}
+
+[data-neu] :is(.kve-blase-nutzer, .kve-blase-ki) time {
+  font-size: 10.5px;
+  opacity: 0.75;
+  font-variant-numeric: tabular-nums;
+}
+
+[data-neu] .kve-blase-nutzer time {
+  justify-self: end;
+}
+
+[data-neu] .kve-tippt {
+  color: var(--ink-2);
+  font-style: italic;
+}
+
+[data-neu] .kve-vorschlag {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--violet) 7%, var(--fill-2));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--violet) 25%, var(--fill-3));
+}
+
+[data-neu] .kve-vorschlag[data-status="uebernommen"] {
+  background: color-mix(in srgb, var(--jade) 8%, var(--fill-2));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--jade) 25%, var(--fill-3));
+}
+
+[data-neu] .kve-vorschlag-titel {
+  font-size: 11.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--violet-ink);
+}
+
+[data-neu] .kve-vorschlag[data-status="uebernommen"] .kve-vorschlag-titel {
+  color: var(--jade-ink);
+}
+
+[data-neu] .kve-vorschlag ul {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+[data-neu] .kve-vorschlag li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+}
+
+[data-neu] .kve-vorschlag li input {
+  width: 16px;
+  height: 16px;
+  margin: 2px 0 0;
+  accent-color: var(--violet);
+}
+
+[data-neu] .kve-vorschlag li label {
+  display: grid;
+  gap: 2px;
+  grid-column: 2;
+  min-width: 0;
+}
+
+[data-neu] .kve-vorschlag li:not(:has(input)) label {
+  grid-column: 1 / -1;
+}
+
+[data-neu] .kve-vorschlag li[data-weg] {
+  opacity: 0.55;
+}
+
+[data-neu] .kve-vorschlag-feld {
+  font-weight: 600;
+}
+
+[data-neu] .kve-vorschlag-wert {
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+[data-neu] .kve-vorschlag-wert s {
+  color: var(--ink-3);
+}
+
+[data-neu] .kve-vorschlag-wert b {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+[data-neu] .kve-vorschlag .kve-knopf {
+  justify-self: end;
+  min-height: 32px;
+}
+
+[data-neu] .kve-abgelehnt {
+  margin: 0;
+  padding: 0 0 0 16px;
+  color: var(--gold-ink);
+  font-size: 12px;
+}
+
+[data-neu] .kve-chat-eingabe {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: end;
+  padding: 10px 12px 12px;
+  border-top: 1px solid var(--hair);
+}
+
+[data-neu] .kve-chat-eingabe textarea {
+  resize: none;
+  min-height: 44px;
+  max-height: 140px;
+}
+
+[data-neu] .kve-senden {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--blue);
+  color: #fff;
+  cursor: pointer;
+}
+
+[data-neu] .kve-senden:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* ── Dialoge ─────────────────────────────────────────── */
+
+[data-neu] .kve-dialog {
+  max-width: min(94vw, 560px);
+}
+
+[data-neu] .kve-rueckfrage {
+  display: grid;
+  gap: 8px;
+  margin: 10px 0;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--gold) 12%, var(--fill-3));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gold) 35%, var(--fill-3));
+  color: var(--ink);
+  font-size: 13px;
+}
+
+[data-neu] .kve-rueckfrage > b {
+  color: var(--gold-ink);
+}
+
+[data-neu] .kve-haken {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+
+[data-neu] .kve-haken input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--blue);
+}
+
+[data-neu] .kve-nur-admin {
+  color: var(--rose-ink);
+  font-weight: 600;
+}
+
+[data-neu] .kve-merge {
+  display: grid;
+  gap: 10px;
+  margin: 8px 0;
+  padding: 0;
+  list-style: none;
+  max-height: 46vh;
+  overflow-y: auto;
+}
+
+[data-neu] .kve-merge li {
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+}
+
+/* ── Leer, Skelett ───────────────────────────────────── */
+
+[data-neu] .kve-leer {
+  display: grid;
+  justify-items: start;
+  gap: 10px;
+  padding: 18px 6px;
+}
+
+[data-neu] .kve-leer h1 {
+  margin: 0;
+  font-size: 30px;
+  font-weight: 600;
+}
+
+[data-neu] .kve-leer p {
+  margin: 0;
+  color: var(--ink-2);
+}
+
+[data-neu] .kve-skelett-titel {
+  display: block;
+  width: 260px;
+  height: 34px;
+  border-radius: 10px;
+}
+
+[data-neu] .kve-skelett-pdf {
+  display: block;
+  flex: 1;
+  border-radius: 22px;
+}
+
+[data-neu] .kve-skelett-panel {
+  display: block;
+  flex: 1;
+  margin: 12px;
+  border-radius: 14px;
+}
+
+[data-neu] .kve-schleier {
+  display: none;
+}
+
+/* ── Handy und schmale Fenster ───────────────────────── */
+
+@media (max-width: 1023.98px) {
+  [data-neu] .kve-titel {
+    font-size: 22px;
+  }
+
+  [data-neu] .kve-rund-text {
+    display: none;
+  }
+
+  [data-neu] .kve-rund {
+    padding: 0;
+    width: 40px;
+  }
+
+  [data-neu] .kve-kopf-links {
+    flex: 1 1 100%;
+  }
+
+  [data-neu] .kve-kopf-pillen {
+    flex: 1 1 100%;
+  }
+
+  [data-neu] .kve-kopf-rechts {
+    flex: 1 1 100%;
+    justify-content: flex-end;
+  }
+
+  [data-neu] .kve {
+    min-height: 0;
+  }
+
+  [data-neu] .kve-flaeche {
+    flex: none;
+    min-height: 0;
+  }
+
+  /* PDF: Karte mit „PDF öffnen“ statt iframe (Spec 10). */
+  [data-neu] .kve-iframe,
+  [data-neu] .kve-pdf-ohne {
+    display: none;
+  }
+
+  [data-neu] .kve-pdf-handy {
+    display: grid;
+    justify-items: start;
+    gap: 8px;
+    padding: 18px;
+    font-size: 13px;
+    color: var(--ink-2);
+  }
+
+  [data-neu] .kve-pdf-handy b {
+    color: var(--ink);
+    font-size: 16px;
+  }
+
+  [data-neu] .kve-pdf-handy ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  [data-neu] .kve-pdf-leer {
+    padding: 18px;
+  }
+
+  [data-neu] .kve-blatt {
+    width: min(100%, 220px);
+    padding: 18px;
+  }
+
+  /* Verlauf und rechte Seite als untere Schublade über dem Handy-Dock. */
+  [data-neu] .kve-seite,
+  [data-neu] .kve-seite[data-seite="links"],
+  [data-neu] .kve-seite[data-seite="rechts"] {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 41;
+    width: auto;
+    max-height: 86dvh;
+    height: 86dvh;
+    border-radius: 22px 22px 0 0;
+    background: var(--fill-3);
+    box-shadow: inset 0 0 0 1px var(--rim), var(--shadow-raised);
+    padding-bottom: env(safe-area-inset-bottom);
+    backdrop-filter: blur(24px) saturate(1.6);
+    -webkit-backdrop-filter: blur(24px) saturate(1.6);
+  }
+
+  [data-neu] .kve-seite[data-seite="links"] {
+    height: auto;
+    min-height: 40dvh;
+  }
+
+  [data-neu] .kve-seite-kopf::before {
+    content: "";
+    position: absolute;
+    top: 6px;
+    left: 50%;
+    width: 38px;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--hair);
+    transform: translateX(-50%);
+  }
+
+  [data-neu] .kve-seite-kopf {
+    position: relative;
+    padding-top: 16px;
+  }
+
+  [data-neu] .kve-schleier {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    border: 0;
+    background: color-mix(in srgb, var(--tinte-flaeche) 35%, transparent);
+  }
+
+  [data-neu]:has(.kve-schleier) .neu-handy-dock {
+    display: none;
+  }
+
+  [data-neu] .kve-wahl-spalten {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Zwischen 1024 und 1279 px: Seitenleisten schmaler, PDF behält Platz. */
+@media (min-width: 1024px) and (max-width: 1279.98px) {
+  [data-neu] .kve-seite[data-seite="links"] {
+    width: 260px;
+  }
+
+  [data-neu] .kve-seite[data-seite="rechts"] {
+    width: 340px;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  [data-neu] .kve-seite {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
