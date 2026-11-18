@@ -38,8 +38,8 @@ import {
   type Tagespreis,
   type VersionsPreise,
 } from "@/lib/angebot-wahl";
-import { paketHebelAus, type HebelArt, type KvPosten } from "@/services/rechner/kv-posten";
-import type { RechnerAnfrage } from "@/services/rechner/eingabe";
+import type { KvPosten } from "@/services/rechner/kv-posten";
+import { paketDesDokuments } from "@/services/paket-wahl-dokument";
 import { formatLocation } from "@/lib/deal-doc-data";
 import { preisQuelleAusAnnahme } from "@/lib/ab-preise";
 import { assertDealInWorkspace } from "@/services/document-job-context";
@@ -430,7 +430,7 @@ async function ladeWahlen(
     fixedPrice: string | null;
     selectedPackageOptionId?: string | null;
   }
-): Promise<{ choices: OfferChoices; priceCents: number; paketHebel: HebelArt[] | null } | null> {
+): Promise<{ choices: OfferChoices; priceCents: number } | null> {
   const versionId = quotation.calculationVersionId ?? null;
   if (!versionId || quotation.isVariable) return null;
   const festpreis = quotation.fixedPrice != null && quotation.fixedPrice !== "" ? Number(quotation.fixedPrice) : NaN;
@@ -443,7 +443,6 @@ async function ladeWahlen(
       kvItems: dealCalculationVersions.kvItems,
       packagePrices: dealCalculationVersions.packagePrices,
       dayPrices: dealCalculationVersions.dayPrices,
-      rechnerRequest: dealCalculationVersions.rechnerRequest,
     })
     .from(dealCalculationVersions)
     .where(
@@ -484,7 +483,7 @@ async function ladeWahlen(
       )
       .limit(1),
   ]);
-  const wahlen = wahlenAusVersion({
+  return wahlenAusVersion({
     version: {
       id: version.id,
       pricingMode: version.pricingMode,
@@ -498,10 +497,6 @@ async function ladeWahlen(
     gewaehltesDatum: isoDay(auswahl?.[0]?.selectedDate) ?? null,
     festpreisCent: Math.round(festpreis * 100),
   });
-  if (!wahlen) return null;
-  // Paket-KV (Review I2): Hebel des Pakets, dessen Preis oben steht (Anfrage der Version, `paket_hebel`).
-  const paketHebel = paketHebelAus((version.rechnerRequest ?? null) as RechnerAnfrage | null, wahlen.choices.current?.packageSlug ?? null);
-  return { ...wahlen, paketHebel };
 }
 
 export async function loadCommercialModel(input: {
@@ -626,6 +621,14 @@ async function ladeModellMitVersion(input: {
   if (wahlen && packageOption) {
     packageOption = { ...packageOption, priceCents: wahlen.priceCents };
   }
+  // Paket des Dokuments (Rest-vier Punkt 1, Review I1/M2): KV aktuelle Wahl, AB/RE die angenommene;
+  // dieselbe Regel wie der VPS (`paketDesDokuments`), auch bei von Hand geändertem Preis.
+  const paket = await paketDesDokuments({
+    dealRecordId,
+    kind,
+    quotation,
+    annahmeSnapshot: accepted?.quotationSnapshot,
+  });
 
   const people = deal.values.associated_people;
   const personId =
@@ -724,11 +727,11 @@ async function ladeModellMitVersion(input: {
         assembly: flags.assembly,
         inventory: inventoryNotes.trim().length > 0,
         // Paket ohne Montage bzw. Einpacken: die Zeile „Leistung“ nennt sie nicht als Zusatz.
-        excluded: wahlen?.paketHebel
-          ? ([
-              wahlen.paketHebel.includes("montage") ? null : "assembly",
-              wahlen.paketHebel.includes("einpacken") ? null : "packing",
-            ].filter((x): x is "assembly" | "packing" => x !== null))
+        excluded: paket
+          ? [
+              ...(paket.hebel.includes("montage") ? [] : (["assembly"] as const)),
+              ...(paket.hebel.includes("einpacken") ? [] : (["packing"] as const)),
+            ]
           : null,
         title: [dealTitle, flags.auftragName].filter(Boolean).join(" "),
         mention: [quotation.summary, inventoryNotes].filter(Boolean).join(" "),

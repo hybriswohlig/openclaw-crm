@@ -14,9 +14,8 @@ import { dealCalculations } from "@/db/schema/deal-calculations";
 import { umzugsgutZustaendigkeit, type MassgeblicheKalkulation } from "@/lib/umzugsgut-zustaendigkeit";
 import type { RechnerAnfrage } from "@/services/rechner/eingabe";
 import type { RechnerErgebnis } from "@/services/rechner/client";
-import { leistungenFuerPaket, paketHebelAus, type HebelArt } from "@/services/rechner/kv-posten";
-import { wahlPaket } from "./kundenwahl";
-import type { PaketpreisVersion } from "@/lib/angebot-wahl";
+import { leistungenFuerPaket } from "@/services/rechner/kv-posten";
+import { paketDesDokuments } from "./paket-wahl-dokument";
 import { kvaConfirmations } from "@/db/schema/customer-portal";
 import { dealDocuments } from "@/db/schema/financial";
 import { getQuotation } from "@/services/quotations";
@@ -165,40 +164,6 @@ async function massgeblicheKalkulation(
   return ausVersion(laufend);
 }
 
-/**
- * Hebel des Pakets der aktuellen Wahl (Paket-KV, Review I2): Quotation an einer
- * Festpreis-Version mit Paketpreisen, Paket nach derselben Regel wie Portal und
- * Kundenwahl (`wahlPaket`), Hebel aus `paket_hebel` der Anfrage dieser Version.
- * null ohne Pakete oder wenn die Anfrage das Paket nicht kennt.
- */
-async function hebelDerPaketwahl(
-  dealRecordId: string,
-  quotation: { isVariable: boolean; calculationVersionId?: string | null; selectedPackageOptionId?: string | null } | null
-): Promise<{ hebel: HebelArt[]; anfrage: RechnerAnfrage | null } | null> {
-  if (!quotation || quotation.isVariable || !quotation.calculationVersionId) return null;
-  const [v] = await db
-    .select({
-      id: dealCalculationVersions.id,
-      pricingMode: dealCalculationVersions.pricingMode,
-      packagePrices: dealCalculationVersions.packagePrices,
-      rechnerRequest: dealCalculationVersions.rechnerRequest,
-    })
-    .from(dealCalculationVersions)
-    .where(and(eq(dealCalculationVersions.id, quotation.calculationVersionId), eq(dealCalculationVersions.dealRecordId, dealRecordId)))
-    .limit(1);
-  const packagePrices = (Array.isArray(v?.packagePrices) ? v.packagePrices : []) as PaketpreisVersion[];
-  if (!v || v.pricingMode !== "fest" || packagePrices.length === 0) return null;
-  const slug = await wahlPaket(
-    db,
-    dealRecordId,
-    { id: v.id, pricingMode: "fest", priceCents: null, kvItems: [], packagePrices, dayPrices: [] },
-    quotation.selectedPackageOptionId ?? null
-  );
-  const anfrage = (v.rechnerRequest ?? null) as RechnerAnfrage | null;
-  const hebel = paketHebelAus(anfrage, slug);
-  return hebel ? { hebel, anfrage } : null;
-}
-
 export async function attachDocumentJobContext(
   workspaceId: string,
   params: Record<string, unknown>
@@ -338,19 +303,31 @@ export async function attachDocumentJobContext(
     if (match) reference = match[0];
   }
 
-  // Demontage/Montage je Stück wie die maßgebliche Kalkulation (KV-Meldung 10.11.): sonst stand
-  // bei Möbeln, die der Rechner nach Regel zerlegt, „Nicht vorgesehen“ trotz Montage im Preis.
   // Paket-KV (Review I2): „Unsere Leistungen“ beim Sperren kommen aus dem Standard der Version
-  // (alle Hebel). Gedruckt wird das Paket der aktuellen Wahl: was es nicht enthält, nie als Firma.
+  // (alle Hebel). Gedruckt wird das Paket des Dokuments (KV: aktuelle Wahl, AB/RE: angenommene Wahl,
+  // `paketDesDokuments`, dieselbe Regel wie die CRM-Vorlage): was es nicht enthält, nie als Firma.
+  const paket = await paketDesDokuments({
+    dealRecordId,
+    kind: String(next.document_type ?? ""),
+    quotation,
+    annahmeSnapshot: accepted?.quotationSnapshot,
+  });
   const gespeicherteLeistungen = clientDetails.services || storedDetails.services;
-  const paket = gespeicherteLeistungen ? await hebelDerPaketwahl(dealRecordId, quotation) : null;
   const services =
     gespeicherteLeistungen && paket ? leistungenFuerPaket(gespeicherteLeistungen, paket.hebel, paket.anfrage) : gespeicherteLeistungen;
+  // Demontage/Montage je Stück wie die maßgebliche Kalkulation (KV-Meldung 10.11.): sonst stand
+  // bei Möbeln, die der Rechner nach Regel zerlegt, „Nicht vorgesehen“ trotz Montage im Preis.
+  // Ohne gespeicherte Leistungen (Review M3) deckelt das Paket allein: ohne Montage nie die Firma.
+  const deckel =
+    services ??
+    (paket
+      ? leistungenFuerPaket({ dismantling: { owner: "company" as const }, assembly: { owner: "company" as const } }, paket.hebel, paket.anfrage)
+      : null);
   const kalkulation =
     mitnehmen.length > 0
       ? await massgeblicheKalkulation(workspaceId, dealRecordId, abPreise?.calculationVersionId ?? quotation?.calculationVersionId ?? null)
       : null;
-  const zustaendig = umzugsgutZustaendigkeit(mitnehmen, kalkulation, services ?? null);
+  const zustaendig = umzugsgutZustaendigkeit(mitnehmen, kalkulation, deckel);
   const inventoryRows = mitnehmen.map((item, i) => ({
     room: item.category || "",
     name: item.name,

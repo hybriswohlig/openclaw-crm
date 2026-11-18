@@ -500,17 +500,24 @@ describe("attachDocumentJobContext: Paket-KV druckt das Paket der Wahl (Rest-vie
     { id: "opt_k", catalogueSlug: "komfort", isRecommended: true, calculationVersionId: "ver_3" },
   ];
 
-  async function lauf(firma: string, documentType: string, selectedPackageOptionId: string | null, v: object = version) {
+  async function lauf(
+    firma: string,
+    documentType: string,
+    selectedPackageOptionId: string | null,
+    v: object = version,
+    extra: { annahme?: object; documentDetails?: object } = {}
+  ) {
     const { dealInventoryItems } = await import("@/db/schema/inventory");
     const { dealCalculationVersions } = await import("@/db/schema/deal-calculation-versions");
     const { quotationPackageOptions } = await import("@/db/schema/customer-portal");
     jobMocks.zeilen.set(dealInventoryItems, [{ name: "Doppelbett", quantity: 1, moveFlag: true, category: "Möbel", notes: null, dismantlingOwner: "company", assemblyOwner: "company" }]);
     jobMocks.zeilen.set(dealCalculationVersions, [v]);
     jobMocks.zeilen.set(quotationPackageOptions, optionen);
+    if (extra.annahme) jobMocks.zeilen.set(kvaConfirmations, [{ quotationSnapshot: extra.annahme, confirmedTotalCents: 140000 }]);
     jobMocks.getQuotation.mockResolvedValue({
       id: "q1", isVariable: false, fixedPrice: "1720.00", lineItems: kernUndHebel, serviceType: "move", validUntil: null,
       depositRequiredCents: null, paymentMethodPreference: null, calculationVersionId: "ver_3", selectedPackageOptionId,
-      documentDetails: { services: firmaLeistungen },
+      documentDetails: extra.documentDetails ?? { services: firmaLeistungen },
     });
     try {
       const { params: p } = await attachDocumentJobContext("ws_1", { _deal_record_id: "deal_1", document_type: documentType, firma });
@@ -519,8 +526,13 @@ describe("attachDocumentJobContext: Paket-KV druckt das Paket der Wahl (Rest-vie
       jobMocks.zeilen.delete(dealInventoryItems);
       jobMocks.zeilen.delete(dealCalculationVersions);
       jobMocks.zeilen.delete(quotationPackageOptions);
+      jobMocks.zeilen.delete(kvaConfirmations);
     }
   }
+  const annahme = (paketSlug: string | null) => ({
+    totalCents: 140000, isVariable: false, lineItems: [], calculationVersionId: "ver_3",
+    wahl: { paketSlug, paketName: paketSlug, dateOfferId: null, datum: null, priceCents: 140000 },
+  });
   type QuotationDocumentDetailsLike = {
     services: Record<string, { owner: string; note?: string }>;
     inventory: Array<{ dismantling: string; assembly: string }>;
@@ -552,5 +564,28 @@ describe("attachDocumentJobContext: Paket-KV druckt das Paket der Wahl (Rest-vie
     const alt = { ...version, rechnerRequest: { ...version.rechnerRequest, paket_hebel: undefined } };
     const d = await lauf("kottke", "KV", "opt_b", alt);
     expect(d.services.dismantling).toEqual(firmaLeistungen.dismantling);
+  });
+
+  it.each(["AB", "RE"])("%s mit Annahme: das angenommene Paket gilt, nicht die aktuelle Wahl der Quotation (Review M1)", async (art) => {
+    // Angenommen: Basis (ohne Montage); die Quotation zeigt auf Komfort.
+    const ohne = await lauf("kottke", art, "opt_k", version, { annahme: annahme("basis") });
+    expect(ohne.services.dismantling.owner).toBe("customer");
+    expect(ohne.inventory).toEqual([expect.objectContaining({ dismantling: "customer", assembly: "customer" })]);
+    // Angenommen: Komfort (mit Montage); die Quotation zeigt auf Basis.
+    const mit = await lauf("kottke", art, "opt_b", version, { annahme: annahme("komfort") });
+    expect(mit.services.dismantling).toEqual(firmaLeistungen.dismantling);
+    expect(mit.inventory).toEqual([expect.objectContaining({ dismantling: "company", assembly: "company" })]);
+  });
+
+  it("KV ignoriert eine Annahme und nimmt die aktuelle Wahl", async () => {
+    const d = await lauf("kottke", "KV", "opt_b", version, { annahme: annahme("komfort") });
+    expect(d.services.dismantling.owner).toBe("customer");
+  });
+
+  it("ohne gespeicherte Leistungen deckelt das Paket die Umzugsgutliste trotzdem (Review M3)", async () => {
+    const ohne = await lauf("kottke", "KV", "opt_b", version, { documentDetails: {} });
+    expect(ohne.inventory).toEqual([expect.objectContaining({ dismantling: "customer", assembly: "customer" })]);
+    const mit = await lauf("kottke", "KV", "opt_k", version, { documentDetails: {} });
+    expect(mit.inventory).toEqual([expect.objectContaining({ dismantling: "company", assembly: "company" })]);
   });
 });

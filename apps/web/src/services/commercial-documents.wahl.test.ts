@@ -51,7 +51,7 @@ vi.mock("@/services/agent/agent-suppress", () => ({
 vi.mock("@/services/deal-documents", () => ({ createDealDocument: vi.fn() }));
 vi.mock("@/services/rechnung-faellig", () => ({ applyInvoiceDueDate: vi.fn() }));
 
-import { customerDateSelections, quotationPackageOptions } from "@/db/schema/customer-portal";
+import { customerDateSelections, kvaConfirmations, quotationPackageOptions } from "@/db/schema/customer-portal";
 import { dealCalculationVersions } from "@/db/schema/deal-calculation-versions";
 import { loadCommercialModel, wahlenAusVersion, type WahlOption, type WahlVersion } from "./commercial-documents";
 
@@ -359,19 +359,38 @@ describe("CRM-Vorlage (Ceylan): Paket-KV nennt Montage nur im Paket mit Montage 
   // Notiz und Zusammenfassung erwähnen Abbau und Einpacken (sonst stünde „Möbelmontage“ immer da).
   const summary = "Abbau und Aufbau Bett, Einpacken der Küche";
 
-  async function modell(optionId: string, preis: number, hebel: Array<[string, number]>, version: object = mitHebeln) {
+  async function modell(
+    optionId: string,
+    preis: number,
+    hebel: Array<[string, number]>,
+    version: object = mitHebeln,
+    extra: { kind?: "KV" | "AB" | "RE"; annahme?: string; fixedPrice?: string } = {}
+  ) {
     mocks.getQuotation.mockResolvedValue(
       angebot({
         summary,
         selectedPackageOptionId: optionId,
-        fixedPrice: preis.toFixed(2),
+        fixedPrice: extra.fixedPrice ?? preis.toFixed(2),
         lineItems: posten(preis, hebel).map((p, i) => ({ id: `l${i}`, quotationId: "q1", type: "other", description: p.description, quantity: p.quantity, unitRate: p.unitRate.toFixed(2), sortOrder: i })),
       })
     );
     mocks.zeilen.set(dealCalculationVersions, [version]);
     mocks.zeilen.set(quotationPackageOptions, optionen.map((o) => ({ ...o, priceCents: 0, includedItems: [] })));
     mocks.zeilen.set(customerDateSelections, [{ selectedDate: "2026-11-21" }]);
-    return loadCommercialModel(eingabe);
+    if (extra.annahme !== undefined) {
+      mocks.zeilen.set(kvaConfirmations, [
+        {
+          quotationSnapshot: {
+            totalCents: preis * 100,
+            isVariable: false,
+            lineItems: [],
+            calculationVersionId: "ver_1",
+            wahl: { paketSlug: extra.annahme, paketName: extra.annahme, dateOfferId: null, datum: "2026-11-21", priceCents: preis * 100 },
+          },
+        },
+      ]);
+    }
+    return loadCommercialModel({ ...eingabe, kind: extra.kind ?? "KV" });
   }
 
   it("Basis (ohne Hebel): Zeile „Leistung“ ohne Möbelmontage und Einpackservice", async () => {
@@ -395,6 +414,24 @@ describe("CRM-Vorlage (Ceylan): Paket-KV nennt Montage nur im Paket mit Montage 
   it("Version ohne paket_hebel (Altbestand): wie bisher", async () => {
     const m = await modell("opt_b", 1500, [], versionPaketeTage);
     expect(m.serviceLabel).toContain("Möbelmontage");
+  });
+
+  it.each(["AB", "RE"] as const)("%s: angenommenes Basis-Paket nennt keine Möbelmontage, auch wenn die Quotation auf Komfort zeigt (Review I1)", async (kind) => {
+    const ohne = await modell("opt_k", 1500, [], mitHebeln, { kind, annahme: "basis" });
+    expect(ohne.serviceLabel).not.toMatch(/Möbelmontage|Einpackservice/);
+    const mit = await modell("opt_b", 1890, HEBEL_KOMFORT, mitHebeln, { kind, annahme: "komfort" });
+    expect(mit.serviceLabel).toContain("Möbelmontage");
+  });
+
+  it("AB ohne Annahme: wie beim KV die aktuelle Wahl", async () => {
+    const m = await modell("opt_b", 1500, [], mitHebeln, { kind: "AB" });
+    expect(m.serviceLabel).not.toContain("Möbelmontage");
+  });
+
+  it("Preis von Hand geändert: kein Optionsblock, das gewählte Paket gilt trotzdem wie beim VPS (Review M2)", async () => {
+    const m = await modell("opt_b", 1500, [], mitHebeln, { fixedPrice: "1520.00" });
+    expect(m.choices).toBeUndefined();
+    expect(m.serviceLabel).not.toContain("Möbelmontage");
   });
 });
 

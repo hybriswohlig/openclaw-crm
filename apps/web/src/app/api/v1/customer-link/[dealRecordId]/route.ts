@@ -87,7 +87,11 @@ export async function GET(
   // Beim Sperren warnt das CRM, solange der Kunde noch widerrufen kann.
   const widerrufBis = await laufendeWiderrufsfrist(dealRecordId).catch(() => null);
   // kv-danach M1: ist das Portal der Firma aus, gibt „Statuslink kopieren“ den Link nicht heraus.
-  const portalAn = await portalAnFuerDeal(ctx.workspaceId, dealRecordId);
+  // Review M6: ein Ladefehler (Firma, Branding) kippt den GET nicht; im Zweifel wie bisher (Link liefern).
+  const portalAn = await portalAnFuerDeal(ctx.workspaceId, dealRecordId).catch((err: unknown) => {
+    console.error("[customer-link] Portal-Schalter nicht lesbar:", err instanceof Error ? err.message : err);
+    return true;
+  });
 
   return success({
     token: row.token,

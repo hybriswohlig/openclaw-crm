@@ -85,4 +85,18 @@ describe("GET /api/v1/customer-link/[dealRecordId]: Portal der Firma (Review kv-
     expect((await res.json()).data.portalAn).toBe(an);
     expect(mocks.portalAn).toHaveBeenCalledWith("ws_1", "deal_1");
   });
+
+  it("Ladefehler beim Portal-Schalter: trotzdem 200 mit Link, portalAn true (Review M6)", async () => {
+    mocks.portalAn.mockRejectedValue(new Error("Branding weg"));
+    const fehler = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const res = await GET(new NextRequest("https://crm.test/api/v1/customer-link/deal_1"), {
+      params: Promise.resolve({ dealRecordId: "deal_1" }),
+    });
+    expect(res.status).toBe(200);
+    const data = (await res.json()).data;
+    expect(data.portalAn).toBe(true);
+    expect(data.url).toContain("https://status.test/s/");
+    expect(fehler).toHaveBeenCalled();
+    fehler.mockRestore();
+  });
 });
