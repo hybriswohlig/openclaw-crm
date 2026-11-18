@@ -3,18 +3,20 @@
  * Einsatz-Dialog freigegeben haben („Briefing freigeben“), und nur, wer in
  * `deal_employees` eingeteilt ist. Inhalt deterministisch aus Auftrag und Deal.
  *
- * Nie im Briefing: Preise, Positionen, interne Notizen (`notes`), die Büro-
- * Checkliste. Die Barzahlung sieht nur der Teamleiter (ohne Teamleiter alle).
+ * Nie im Briefing: Preise, Positionen, interne Notizen (`notes`, auch nicht
+ * die am Inventar), die Büro-Checkliste. Die Barzahlung sieht nur der
+ * Teamleiter (ohne Teamleiter alle). Kundenfotos: alle Bilder aus dem Chat,
+ * außer im CRM ausgeblendete (`crew_gesperrt_at`).
  */
 import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { crewBriefingReads, crewBriefings } from "@/db/schema/crew";
-import type { CrewBriefing, CrewBriefingMember, CrewBriefingStop } from "@/lib/crew/contract";
+import type { CrewBriefing, CrewBriefingItem, CrewBriefingMember, CrewBriefingStop } from "@/lib/crew/contract";
 import { farbeAus, initialenAus, vornameAus } from "@/lib/crew/logik";
 import { alsJson, zeilen } from "@/lib/db-werte";
 import type { CrewKontext } from "./auth";
 import { auftragVon } from "./ausschreibung";
-import { adresseText, janein, ladeCrewJobs, ortAus, werteAus, werteJson, zahl, type Wert, type Werte } from "./jobs";
+import { adresseText, CREW_FOTO_TYPEN, janein, ladeCrewJobs, liste, ortAus, werteAus, werteJson, zahl, type Wert, type Werte } from "./jobs";
 
 const AUFTRAG_SLUGS = [
   "transporter",
@@ -123,6 +125,29 @@ export function teamAus(team: TeamZeile[], ich: string): CrewBriefingMember[] {
 
 export type BriefingErgebnis = { ok: true; briefing: CrewBriefing } | { ok: false; code: "JOB_NICHT_SICHTBAR" | "BRIEFING_NICHT_FREI" };
 
+interface InventarZeile {
+  name: string | null;
+  quantity: number | null;
+  size: string | null;
+  heavy: boolean | null;
+  fragile: boolean | null;
+  dismantle: boolean | null;
+}
+
+/** Inventar → „Das kommt mit“: ohne Namen fällt weg, Anzahl mindestens 1. Notizen nie (interne Vermerke). */
+export function inventarAus(zeilen: InventarZeile[]): CrewBriefingItem[] {
+  return zeilen
+    .filter((z) => typeof z.name === "string" && z.name.trim() !== "")
+    .map((z) => ({
+      name: z.name!.trim(),
+      quantity: Math.max(1, Math.round(Number(z.quantity) || 1)),
+      size: z.size?.trim() || null,
+      heavy: z.heavy === true,
+      fragile: z.fragile === true,
+      dismantle: z.dismantle === true,
+    }));
+}
+
 interface Roh {
   released_at: string | null;
   read_at: string | null;
@@ -132,6 +157,8 @@ interface Roh {
   depot: unknown;
   equipment: unknown;
   team: unknown;
+  fotos: unknown;
+  inventar: unknown;
 }
 
 export async function briefingLesen(k: CrewKontext, dealId: string): Promise<BriefingErgebnis> {
@@ -161,7 +188,15 @@ export async function briefingLesen(k: CrewKontext, dealId: string): Promise<Bri
         (SELECT jsonb_agg(jsonb_build_object('id', de.employee_id, 'role', de.role, 'name', e.name, 'phone', e.phone_canonical)
                 ORDER BY (de.role = 'lead') DESC, de.created_at, de.id)
          FROM deal_employees de INNER JOIN employees e ON e.id = de.employee_id AND e.workspace_id = ${ws}
-         WHERE de.deal_record_id = ${dealId}) AS team
+         WHERE de.deal_record_id = ${dealId}) AS team,
+        (SELECT jsonb_agg(a.id ORDER BY a.created_at, a.id) FROM inbox_message_attachments a
+         WHERE a.workspace_id = ${ws} AND a.deal_record_id = ${dealId} AND a.crew_gesperrt_at IS NULL
+           AND lower(a.mime_type) = ANY(${liste(CREW_FOTO_TYPEN)})) AS fotos,
+        (SELECT jsonb_agg(jsonb_build_object('name', i.name, 'quantity', i.quantity, 'size', i.dimensions_estimate,
+                'heavy', i.heavy_flag, 'fragile', i.fragile_flag, 'dismantle', i.disassembly_required)
+                ORDER BY i.sort_order, i.created_at, i.id)
+         FROM deal_inventory_items i
+         WHERE i.workspace_id = ${ws} AND i.deal_record_id = ${dealId} AND i.move_flag IS NOT FALSE) AS inventar
       FROM (SELECT 1) eins
       LEFT JOIN LATERAL (${auftragVon(ws, dealId)}) au ON true
     `),
@@ -194,6 +229,8 @@ export async function briefingLesen(k: CrewKontext, dealId: string): Promise<Bri
       equipment: ((alsJson(z.equipment) as string[] | null) ?? []).filter((x) => typeof x === "string" && x.trim() !== ""),
       boxes: kartons !== null && kartons > 0 ? kartons : null,
       wishes: text(aw.special_requests),
+      photos: ((alsJson(z.fotos) as string[] | null) ?? []).map((id) => ({ id, w: null, h: null })),
+      items: inventarAus((alsJson(z.inventar) as InventarZeile[] | null) ?? []),
       payment: zahlungFuer(aw, ichLeiter, teamRoh.some((t) => t.role === "lead")),
     },
   };
@@ -229,4 +266,23 @@ export async function briefingGelesen(
     .where(and(eq(crewBriefingReads.dealRecordId, dealId), eq(crewBriefingReads.employeeId, ich), eq(crewBriefingReads.releaseAt, b.releasedAt)))
     .limit(1);
   return { ok: true, readAt: (r?.readAt ?? new Date()).toISOString() };
+}
+
+/**
+ * Adresse eines Stopps fürs Street-View-Bild: nur für das eingeteilte Team bei
+ * freigegebenem Briefing, sonst null. Schmal, ohne die Jobliste zu laden.
+ */
+export async function briefingStoppAdresse(k: CrewKontext, dealId: string, stopp: "from" | "to"): Promise<string | null> {
+  const ws = k.workspaceId;
+  const [z] = zeilen<{ ok: boolean; dw: unknown }>(
+    await db.execute(sql`
+      SELECT
+        EXISTS (SELECT 1 FROM crew_briefings b WHERE b.deal_record_id = ${dealId} AND b.workspace_id = ${ws} AND b.withdrawn_at IS NULL)
+          AND EXISTS (SELECT 1 FROM deal_employees de WHERE de.deal_record_id = ${dealId} AND de.employee_id = ${k.employee.id}) AS ok,
+        ${werteJson(ws, sql`${dealId}`, "deals", ["move_from_address", "move_to_address"])} AS dw
+    `),
+  );
+  if (!z?.ok) return null;
+  const dw = werteAus(z.dw);
+  return adresseText(ortAus(stopp === "from" ? dw.move_from_address : dw.move_to_address));
 }

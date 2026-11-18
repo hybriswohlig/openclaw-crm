@@ -129,6 +129,18 @@ export const CrewBriefingStop = z.object({
 });
 export type CrewBriefingStop = z.infer<typeof CrewBriefingStop>;
 
+/** One piece from the inventory list ("Das kommt mit"). Name is the German original. */
+export const CrewBriefingItem = z.object({
+  name: z.string(),
+  quantity: z.number().int().min(1),
+  /** Size as estimated, e.g. "ca. 60 × 100 cm". */
+  size: z.string().nullable(),
+  heavy: z.boolean(),
+  fragile: z.boolean(),
+  dismantle: z.boolean(),
+});
+export type CrewBriefingItem = z.infer<typeof CrewBriefingItem>;
+
 export const CrewBriefingMember = z.object({
   firstName: z.string(),
   initials: z.string(),
@@ -160,6 +172,10 @@ export const CrewBriefing = z.object({
   boxes: z.number().int().nullable(),
   /** Customer wishes, German original. */
   wishes: z.string().nullable(),
+  /** Customer photos from the chat that are not hidden for the team; served via `/fotos/:id`. */
+  photos: z.array(z.object({ id: z.string(), w: z.number().int().nullable(), h: z.number().int().nullable() })).default([]),
+  /** Inventory list: what goes along. */
+  items: z.array(CrewBriefingItem).default([]),
   payment: z
     .object({
       kind: z.enum(["bar", "ueberweisung", "bezahlt"]),

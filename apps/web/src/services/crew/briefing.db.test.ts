@@ -110,6 +110,16 @@ describe.skipIf(!url)("Briefing (DB)", { timeout: 30_000 }, () => {
     await wertSetzen(sql, "au1", A["oa.special_requests"]!, { text: "Klavier vorsichtig" });
     await wertSetzen(sql, "au1", A["oa.notes"]!, { text: "INTERN Rabatt 200" });
     await wertSetzen(sql, "au1", A["oa.checklist"]!, { json: [{ key: "lkw_getankt", label: "LKW getankt", done: false }] });
+    await sql.unsafe(`
+      INSERT INTO inbox_message_attachments (id, workspace_id, deal_record_id, mime_type, file_content, created_at) VALUES
+        ('f1', 'w1', 'd1', 'image/jpeg', '', now() - interval '2 hours'), ('f2', 'w1', 'd1', 'image/png', '', now() - interval '1 hour'),
+        ('fHeic', 'w1', 'd1', 'image/heic', '', now()), ('fPdf', 'w1', 'd1', 'application/pdf', '', now()), ('fAnders', 'w1', 'd2', 'image/jpeg', '', now());
+      INSERT INTO deal_inventory_items (workspace_id, deal_record_id, name, quantity, dimensions_estimate, heavy_flag, fragile_flag, disassembly_required, move_flag, notes, sort_order) VALUES
+        ('w1', 'd1', 'Kleiderschrank', 1, 'ca. 200 × 60 cm', true, false, true, true, 'INTERN auf Foto erkannt', 1),
+        ('w1', 'd1', 'Vitrine', 2, null, false, true, false, true, null, 2),
+        ('w1', 'd1', 'Alte Matratze', 1, null, false, false, false, false, null, 3),
+        ('w1', 'd2', 'Fremdes Sofa', 1, null, false, false, false, true, null, 1);
+    `);
     await sql`INSERT INTO deal_employees (deal_record_id, employee_id, role, created_at) VALUES ('d1', 'e1', 'lead', now() - interval '1 minute'), ('d1', 'e2', 'helper', now()), ('d1', 'e4', 'helper', now() + interval '1 minute')`;
 
     br = await import("./briefing");
@@ -192,7 +202,13 @@ describe.skipIf(!url)("Briefing (DB)", { timeout: 30_000 }, () => {
     const text = JSON.stringify(b);
     expect(text).not.toContain("INTERN");
     expect(text).not.toContain("LKW getankt");
+    expect(text).not.toContain("auf Foto erkannt");
 
+    expect(b.photos.map((p) => p.id)).toEqual(["f1", "f2"]);
+    expect(b.items).toEqual([
+      { name: "Kleiderschrank", quantity: 1, size: "ca. 200 × 60 cm", heavy: true, fragile: false, dismantle: true },
+      { name: "Vitrine", quantity: 2, size: null, heavy: false, fragile: true, dismantle: false },
+    ]);
     const hl = await br.briefingLesen(helfer, "d1");
     expect(hl.ok && hl.briefing.payment).toBeNull();
     expect(hl.ok && hl.briefing.team.find((m) => m.me)?.firstName).toBe("Ben");
@@ -251,5 +267,44 @@ describe.skipIf(!url)("Briefing (DB)", { timeout: 30_000 }, () => {
     await new Promise((r) => setTimeout(r, 5));
     const r = await fg.briefingFreigeben("w1", "d1", { whatsapp: true }, "u1", deps());
     expect(r.ok && r.stand.team.map((p) => p.versand?.status)).toEqual(["fehler", "gesendet", "kein_telefon"]);
+  });
+
+  describe("Fotos und Street View im Briefing", () => {
+    let fotos: typeof import("./fotos");
+    beforeAll(async () => {
+      fotos = await import("./fotos");
+      await fg.briefingFreigeben("w1", "d1", { whatsapp: false }, "u1", deps());
+    });
+
+    it("Kundenfoto: nur das Team bei freigegebenem Briefing, nie ausgeblendet, nie fremder Deal oder falsches Format", async () => {
+      expect(await fotos.briefingFoto("w1", "e2", "f1")).toMatchObject({ tabelle: "chat", dealId: "d1" });
+      expect(await fotos.briefingFoto("w1", "e3", "f1")).toBeNull();
+      expect(await fotos.briefingFoto("w2", "e2", "f1")).toBeNull();
+      expect(await fotos.briefingFoto("w1", "e2", "fHeic")).toBeNull();
+      expect(await fotos.briefingFoto("w1", "e2", "fAnders")).toBeNull();
+      expect(await fotos.fotoQuelleLesen("w1", "f1", "d1", "chat", false, "e2")).toEqual({ art: "gueltig" });
+      expect(await fotos.fotoQuelleLesen("w1", "f1", "d1", "chat", false, "e3")).toBeNull();
+      expect(await fotos.fotoQuelleLesen("w1", "f1", "d1", "intern", false, "e2")).toBeNull();
+    });
+
+    it("Ausblenden wirkt sofort auf Liste und Zugang, Einblenden auch", async () => {
+      expect(await fotos.crewFotoImBriefing("w1", "d1", "f2", false, "u1")).toMatchObject({ ok: true });
+      expect(await fotos.briefingFoto("w1", "e2", "f2")).toBeNull();
+      expect(await fotos.fotoQuelleLesen("w1", "f2", "d1", "chat", false, "e2")).toBeNull();
+      const l = await br.briefingLesen(helfer, "d1");
+      expect(l.ok && l.briefing.photos.map((p) => p.id)).toEqual(["f1"]);
+      expect(await fotos.crewFotoImBriefing("w1", "d1", "f2", true, "u1")).toEqual({ ok: true, crewGesperrtAt: null });
+      expect(await fotos.briefingFoto("w1", "e2", "f2")).not.toBeNull();
+      expect(await fotos.crewFotoImBriefing("w1", "d2", "f2", false, "u1")).toEqual({ ok: false, code: "NICHT_GEFUNDEN" });
+    });
+
+    it("Street-View-Adresse nur fürs Team und nur bei freigegebenem Briefing", async () => {
+      expect(await br.briefingStoppAdresse(helfer, "d1", "from")).toBe("Hauptstraße 5, 70176 Stuttgart");
+      expect(await br.briefingStoppAdresse(helfer, "d1", "to")).toBe("Rosenweg 3, 72070 Tübingen");
+      expect(await br.briefingStoppAdresse(fremd, "d1", "from")).toBeNull();
+      await fg.briefingZurueckziehen("w1", "d1");
+      expect(await br.briefingStoppAdresse(helfer, "d1", "from")).toBeNull();
+      expect(await fotos.briefingFoto("w1", "e2", "f1")).toBeNull();
+    });
   });
 });

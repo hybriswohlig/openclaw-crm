@@ -506,6 +506,7 @@ export async function getAttachmentsForDeal(
       messageId: inboxMessageAttachments.messageId,
       externalMessageId: inboxMessages.externalMessageId,
       crewFreigegebenAt: inboxMessageAttachments.crewFreigegebenAt,
+      crewGesperrtAt: inboxMessageAttachments.crewGesperrtAt,
     })
     .from(inboxMessageAttachments)
     .innerJoin(inboxMessages, eq(inboxMessages.id, inboxMessageAttachments.messageId))
