@@ -76,7 +76,7 @@ export const quotations = pgTable(
     calculationAssumptions: jsonb("calculation_assumptions").$type<CalculationAssumptions>(),
     /**
      * move | kitchen_installation | clearance (Entrümpelung). Independent of
-     * brand and of KV/AB. clearance rendert auf dem VPS im Umzugs-Layout.
+     * brand and of KV/AB. clearance hat auf dem VPS ein eigenes Layout (Einsatzort, kein § 451g).
      */
     serviceType: text("service_type")
       .$type<"move" | "kitchen_installation" | "clearance">()

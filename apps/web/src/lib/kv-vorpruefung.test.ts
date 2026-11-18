@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { LeadContext } from "./deal-doc-data";
-import { fehltFuerLeistung, kvVorpruefung, type KvHinweisDaten } from "./kv-vorpruefung";
+import { auftragFuerLeistung, fehltFuerLeistung, kvVorpruefung, listenLink, type KvHinweisDaten } from "./kv-vorpruefung";
 import { addressStringToLocationValue, alsOrtWert } from "./adresse";
 
 function ctx(over: Partial<LeadContext> = {}): LeadContext {
@@ -186,5 +186,21 @@ describe("leistungsartVorschlag", () => {
     const { leistungsartVorschlag } = await import("./kv-vorpruefung");
     expect(leistungsartVorschlag({ gespeichert: null, leadType: null })).toBe("move");
     expect(leistungsartVorschlag({ gespeichert: "move", leadType: "fmz" })).toBe("move");
+  });
+});
+
+describe("auftragFuerLeistung", () => {
+  const auftrag = { strecke_von: "Lindenweg 3", strecke_nach: "Lindenweg 3", besonderheiten: "Auszug 2. Stock (kein Aufzug), Einzug 3. Stock", datum: "2026-12-03" };
+  it("Entrümpelung: kein Ziel, aus Auszug wird Einsatzort, Einzug fällt weg", () => {
+    expect(auftragFuerLeistung(auftrag, "clearance")).toEqual({ strecke_von: "Lindenweg 3", strecke_nach: undefined, besonderheiten: "Einsatzort 2. Stock (kein Aufzug)", datum: "2026-12-03" });
+    expect(auftragFuerLeistung({ besonderheiten: "Einzug 3. Stock" }, "clearance").besonderheiten).toBeUndefined();
+  });
+  it("Umzug, Küche und Entrümpelung + Umzug bleiben unverändert", () => {
+    for (const l of ["move", "kitchen_installation", "clearance_move"] as const) expect(auftragFuerLeistung(auftrag, l)).toBe(auftrag);
+  });
+  it("Linktext je Leistung", () => {
+    expect(listenLink("clearance")).toBe("Gegenstände öffnen");
+    expect(listenLink("move")).toBe("Umzugsgut öffnen");
+    expect(listenLink(undefined)).toBe("Umzugsgut öffnen");
   });
 });

@@ -24,7 +24,7 @@ import {
   showCrmRendererChoice,
 } from "@/lib/kottke-crm-renderer";
 import type { VpsPreise } from "@/lib/angebot-vorbelegung";
-import { fehltFuerLeistung } from "@/lib/kv-vorpruefung";
+import { auftragFuerLeistung, fehltFuerLeistung, listenLink } from "@/lib/kv-vorpruefung";
 
 export type Firma = "kottke" | "ceylan";
 export type DocumentType = "KV" | "AB" | "RE";
@@ -456,7 +456,7 @@ export function GenerateDocumentDialog({
           firma: deal.firma,
           document_type: documentType,
           kunde: deal.kunde,
-          auftrag: deal.auftrag,
+          auftrag: auftragFuerLeistung(deal.auftrag, serviceType),
           preise: buildPreise(),
           ...(trimmedAnweisung ? { anweisung: trimmedAnweisung } : {}),
           service_type: ausPortalLeistung(serviceType).serviceType,
@@ -610,7 +610,7 @@ export function GenerateDocumentDialog({
                     onClick={() => onZiel(h.art)}
                     className="ml-1 font-medium underline underline-offset-2"
                   >
-                    {h.art === "umzugsgut" ? "Umzugsgut öffnen" : "Kalkulation öffnen"}
+                    {h.art === "umzugsgut" ? listenLink(serviceType) : "Kalkulation öffnen"}
                   </button>
                 )}
               </div>

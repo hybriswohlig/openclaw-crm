@@ -23,6 +23,7 @@ function ortOhneStrasse(v: unknown): LocationValue | null {
 }
 import {
   kvVorpruefung,
+  listenLink,
   type DokumentArt,
   type HinweisArt,
   type KvHinweisDaten,
@@ -35,10 +36,6 @@ const DOK_NAME: Record<DokumentArt, string> = {
   RE: "die Rechnung",
 };
 
-const ZIEL_TEXT: Record<HinweisArt, string> = {
-  umzugsgut: "Umzugsgut öffnen",
-  preis: "Kalkulation öffnen",
-};
 
 export function KvVorpruefungDialog({
   documentType,
@@ -244,7 +241,7 @@ export function KvVorpruefungDialog({
                 {h.text}
                 {ziele.includes(h.art) && (
                   <button type="button" onClick={() => onZiel(h.art)} className="ml-1 font-medium underline underline-offset-2">
-                    {ZIEL_TEXT[h.art]}
+                    {h.art === "umzugsgut" ? listenLink(hinweisDaten?.leistungsart) : "Kalkulation öffnen"}
                   </button>
                 )}
               </div>

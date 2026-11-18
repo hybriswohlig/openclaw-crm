@@ -24,7 +24,11 @@ function gefuellt(x: unknown): boolean {
   return typeof x === "string" && x.trim() !== "" && x.trim() !== "—";
 }
 
-/** Leistung des Jobs: document_details.serviceType vor dem Top-Level-Feld (wie der Job-Kontext). */
+/**
+ * Leistung des Jobs: document_details.serviceType vor dem Top-Level-Feld (wie der Job-Kontext).
+ * Ohne Angabe gilt hier „move“; der Job-Kontext nähme die Art des Angebots. Der KV-Dialog sendet
+ * die Leistung immer mit, MCP-Aufrufe sollen es laut Werkzeugbeschreibung auch tun.
+ */
 function leistungDesJobs(params: Record<string, unknown>): string {
   const details = (params.document_details && typeof params.document_details === "object" ? params.document_details : {}) as Record<string, unknown>;
   return String(details.serviceType || params.service_type || "move");
@@ -69,13 +73,13 @@ const BEKANNT: Array<[RegExp, string]> = [
   [/umzug\.(nach|to)\.adresse fehlt|nach[_ .-]?adresse fehlt|strecke_nach fehlt/i, "Einzugsadresse fehlt"],
   // Entrümpelung (VPS seit 18.11.): Einsatzort ist die Adresse des Leads, der Termin das Umzugsdatum.
   [/einsatzort fehlt/i, "Einsatzort fehlt"],
-  [/termin der entr(ü|ue)mpelung/i, "Termin der Entrümpelung fehlt"],
+  [/termin der entr(ü|ue)mpelung/i, "Termin der Entrümpelung fehlt oder ist ungültig"],
   [/(kunde\.)?nachname fehlt|kundenname fehlt/i, "Kundenname fehlt"],
   [/umzugsdatum fehlt|auftrag\.datum fehlt/i, "Umzugsdatum fehlt"],
 ];
 
 /** Gründe, die man in der Akte unter „Kunde und Adressen“ beheben kann: nur dann der Link. */
-const IN_DER_AKTE = /^((kundenanschrift|auszugsadresse|einzugsadresse|einsatzort|termin der entrümpelung|kundenname|umzugsdatum) fehlt|einzugsadresse ist gleich der auszugsadresse)$/i;
+const IN_DER_AKTE = /^((kundenanschrift|auszugsadresse|einzugsadresse|einsatzort|termin der entrümpelung|kundenname|umzugsdatum) fehlt|termin der entrümpelung fehlt oder ist ungültig|einzugsadresse ist gleich der auszugsadresse)$/i;
 
 function inDerAkte(grund: string): boolean {
   return grund.split(/,\s*/).every((g) => IN_DER_AKTE.test(g.trim()));

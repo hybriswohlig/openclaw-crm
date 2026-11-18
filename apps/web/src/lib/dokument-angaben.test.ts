@@ -76,7 +76,7 @@ describe("jobFehlerText", () => {
       angabenFehlen: true,
     });
     expect(jobFehlerText("skill exited with code 2. stderr tail: Termin der Entrümpelung: gültiges Datum JJJJ-MM-TT erforderlich.", "AB")).toEqual({
-      text: "AB nicht erstellt: Termin der Entrümpelung fehlt.",
+      text: "AB nicht erstellt: Termin der Entrümpelung fehlt oder ist ungültig.",
       angabenFehlen: true,
     });
     // Meldung der VPS-Vorlage beim Umzug („Umzug.to.Adresse fehlt.“) war bisher nicht übersetzt.

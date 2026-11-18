@@ -108,6 +108,29 @@ const LABEL: Record<PflichtFeld, string> = {
   datum: "Umzugsdatum",
 };
 
+/** Linktext zum Sprung in die Liste: bei Entrümpelung sind es Gegenstände, kein Umzugsgut. */
+export function listenLink(leistung: PortalLeistung | null | undefined): string {
+  return leistung === "clearance" ? "Gegenstände öffnen" : "Umzugsgut öffnen";
+}
+
+/**
+ * Auftrag für die VPS-Vorlage je Leistung. Eine Entrümpelung hat kein Ziel: keine
+ * Einzugsadresse, und aus den Besonderheiten („Auszug 2. Stock, Einzug 3. Stock“,
+ * gebaut in buildDealDataForDocs) fällt der Einzug weg, der Auszug heißt Einsatzort.
+ */
+export function auftragFuerLeistung<T extends { strecke_nach?: string; besonderheiten?: string }>(
+  auftrag: T,
+  leistung: PortalLeistung
+): T {
+  if (leistung !== "clearance") return auftrag;
+  const teile = (auftrag.besonderheiten ?? "")
+    .split(/,\s*/)
+    .map((t) => t.trim())
+    .filter((t) => t && !/^Einzug\b/.test(t))
+    .map((t) => t.replace(/^Auszug\b/, "Einsatzort"));
+  return { ...auftrag, strecke_nach: undefined, besonderheiten: teile.length ? teile.join(", ") : undefined };
+}
+
 /** Bei einer Entrümpelung heißt die Adresse des Leads Einsatzort und das Datum Termin. */
 const LABEL_ENTRUEMPELUNG: Partial<Record<PflichtFeld, string>> = { auszug: "Einsatzort", datum: "Termin" };
 
