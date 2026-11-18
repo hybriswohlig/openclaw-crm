@@ -41,6 +41,11 @@ export function EinsatzAnsprechpartner({ dealId, wert }: { dealId: string; wert:
         onChange={(e) => void setzen({ employeeId: e.target.value === "" ? null : e.target.value })}
       >
         <option value="">{standardName ? `Standard (${standardName})` : "Standard (keiner festgelegt)"}</option>
+        {w.eingetragen && !w.kandidaten.some((k) => k.employeeId === w.eingetragen) ? (
+          <option value={w.eingetragen} disabled>
+            nicht mehr verfügbar (inaktiv oder ohne Nummer)
+          </option>
+        ) : null}
         {w.kandidaten.map((k) => (
           <option key={k.employeeId} value={k.employeeId}>
             {k.name}
