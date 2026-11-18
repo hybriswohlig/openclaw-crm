@@ -60,25 +60,48 @@ export function annahmeSperrAntwort(err: unknown): NextResponse | null {
   return NextResponse.json({ error: { code: err.code, message: err.message } }, { status: 409 });
 }
 
-export async function annahmeAufheben(input: {
+export interface AnnahmeAufhebenEingabe {
   workspaceId: string;
   dealRecordId: string;
   userId: string;
   grund: string;
-}): Promise<"aufgehoben" | "keine_annahme"> {
-  const aufgehoben = await db
+}
+
+/**
+ * Hebt die aktive Annahme über `ex` auf (dieselben drei Spalten wie Plan 16), ohne Ereignis.
+ * In einer Transaktion unter `angebotSperren` aufrufen; das Ereignis meldet der Aufrufer nach dem
+ * Commit mit `annahmeAufgehobenMelden`. null, wenn keine Annahme aktiv war.
+ */
+export async function annahmeAufhebenInTx(
+  ex: DbExecutor,
+  input: AnnahmeAufhebenEingabe
+): Promise<{ id: string; totalCents: number | null } | null> {
+  const [z] = await ex
     .update(kvaConfirmations)
     .set({ supersededAt: new Date(), supersededBy: input.userId, supersededReason: input.grund.slice(0, 500) })
     .where(aktivBedingung(input.dealRecordId, input.workspaceId))
     .returning({ id: kvaConfirmations.id, total: kvaConfirmations.confirmedTotalCents });
-  if (aufgehoben.length === 0) return "keine_annahme";
+  return z ? { id: z.id, totalCents: z.total ?? null } : null;
+}
+
+/** Ereignis `kva.annahme_aufgehoben` nach dem Commit (wie „Annahme aufheben“ im Status-Link). */
+export async function annahmeAufgehobenMelden(
+  input: AnnahmeAufhebenEingabe,
+  aufgehoben: { id: string; totalCents: number | null }
+): Promise<void> {
   await emitEvent({
     workspaceId: input.workspaceId,
     recordId: input.dealRecordId,
     objectSlug: "deals",
     eventType: "kva.annahme_aufgehoben",
-    payload: { confirmationId: aufgehoben[0].id, confirmedTotalCents: aufgehoben[0].total, grund: input.grund, userId: input.userId },
+    payload: { confirmationId: aufgehoben.id, confirmedTotalCents: aufgehoben.totalCents, grund: input.grund, userId: input.userId },
   });
+}
+
+export async function annahmeAufheben(input: AnnahmeAufhebenEingabe): Promise<"aufgehoben" | "keine_annahme"> {
+  const aufgehoben = await annahmeAufhebenInTx(db, input);
+  if (!aufgehoben) return "keine_annahme";
+  await annahmeAufgehobenMelden(input, aufgehoben);
   return "aufgehoben";
 }
 

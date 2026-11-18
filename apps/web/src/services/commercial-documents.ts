@@ -794,6 +794,19 @@ export interface RenderedCommercialDocument {
   kvBasis: KvBasis | null;
 }
 
+/**
+ * KV-Editor (Aufgabe 3): Katalog und Anrede eines CRM-KV ohne Druck, für Ansicht, Formular und KI.
+ * Grundlage ist die gespeicherte `copy` des Stands; das Modell entsteht frisch aus Lead und Quotation.
+ */
+export async function kvCrmBasis(input: {
+  workspaceId: string;
+  dealRecordId: string;
+  copy?: DocumentCopy;
+}): Promise<{ kvBasis: KvBasis; addressForm: "sie" | "du"; calculationVersionId: string | null }> {
+  const { model, kvBasis, calculationVersionId } = await ladeModellMitVersion({ ...input, kind: "KV" });
+  return { kvBasis: kvBasis ?? crmBasis(model, input.copy ?? {}), addressForm: model.addressForm, calculationVersionId };
+}
+
 export async function previewCommercialDocument(input: {
   workspaceId: string;
   dealRecordId: string;

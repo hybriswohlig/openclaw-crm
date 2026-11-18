@@ -55,6 +55,8 @@ export interface AnsichtOptionen {
   ladePaketOptionen?: (deal: string) => Promise<PaketOption[]>;
   /** Plan 5a: letzter KV-Job (VPS) dieser Version aus `document_render_jobs` */
   ladeKvJob?: (ws: string, deal: string, versionId: string) => Promise<RenderJob | null>;
+  /** KV-Editor (Aufgabe 3): offene Konflikte im Stand des aktuellen KV, null ohne Stand. */
+  ladeKvEditor?: (ws: string, deal: string) => Promise<{ offeneKonflikte: number } | null>;
   jetzt?: () => Date;
   /** Plan 15: letzte von der Kalkulation ins Lead geschriebene Adresse je Seite */
   ladeAdressGesetzt?: (ws: string, deal: string) => Promise<Partial<Record<"beladen" | "entladen", { adresse: string; userId: string | null; am: string }>>>;
@@ -148,6 +150,9 @@ async function abhaengigkeiten(o: AnsichtOptionen): Promise<Required<AnsichtOpti
     ladePaketNamen: o.ladePaketNamen ?? (await db()).ladePaketNamen,
     istKottke: o.istKottke ?? (await import("@/lib/kottke-crm-renderer-deal")).dealBlocksInRepoCrmRenderer,
     ladeKvJob: o.ladeKvJob ?? (await import("./render-jobs")).letzterKvJob,
+    // Tests mit eigenem Speicher berühren die Datenbank nie.
+    ladeKvEditor:
+      o.ladeKvEditor ?? (o.speicher ? async () => null : (await import("./kv-editor-haken")).kvEditorOffeneKonflikte),
     ladeSchalter: o.ladeSchalter ?? (async (ws, deal) => (await import("./plan5-schalter")).plan5Schalter(ws, deal)),
     // Wie in kalkulation-versionen.ts: mit eigener Schalter-Vorgabe ohne Buchung im Preis.
     ladeEinsatz:
@@ -243,7 +248,7 @@ export async function ladeKalkulationsAnsicht(
     d.istKottke(ws, deal),
   ]);
   const gesperrt = v.status === "gesperrt";
-  const [vorlagen, kvJob] = await Promise.all([
+  const [vorlagen, kvJob, kvEditor] = await Promise.all([
     kopf.firmaId ? d.ladeVorlagen(ws, kopf.firmaId) : Promise.resolve([]),
     // Nur ein Anzeigezustand: fällt das Job-Register aus, lädt die Seite trotzdem (dann „keins“).
     kottke && gesperrt
@@ -252,9 +257,15 @@ export async function ladeKalkulationsAnsicht(
           return null;
         })
       : Promise.resolve(null),
+    // Nur ein Anzeigezustand wie das Job-Register.
+    d.ladeKvEditor(ws, deal).catch((err: unknown) => {
+      console.error("[kalkulations-ansicht] kvEditor", err);
+      return null;
+    }),
   ]);
 
   return ansichtAus(v, {
+    kvEditor,
     alle: alle.map((x) => ({ version: x.version, status: x.status, priceCents: x.priceCents, sentAt: x.sentAt })),
     namen,
     deal: {

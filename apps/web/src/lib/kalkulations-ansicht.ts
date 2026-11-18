@@ -247,7 +247,7 @@ export interface KalkulationsAnsicht {
   /** Plan 5a: Zeilen-Anpassungen, deren Kostenzeile nach dem Neurechnen fehlt (blockieren das Sperren). */
   verwaist: VerwaistAnsicht[];
   zeitpostenVorlagen: { id: string; bezeichnung: string; minuten: number }[];
-  /** KV-Editor: offene Konflikte im Stand des aktuellen KV; null, solange der Dienst (Aufgabe 3) sie nicht liefert. */
+  /** KV-Editor: offene Konflikte im Stand des aktuellen KV; null, wenn das aktuelle KV keinen Stand hat. */
   kvEditor: { offeneKonflikte: number } | null;
 }
 
@@ -382,6 +382,8 @@ export interface AnsichtRest {
   paketSchalter?: PaketSchalterAnsicht;
   /** Plan 15: letzte Korrektur je Inventarzeile (Name, Zeit). */
   inventarKorrekturen?: Record<string, { von: string; am: string }>;
+  /** KV-Editor (Aufgabe 3): offene Konflikte im Stand des aktuellen KV; null ohne Stand. */
+  kvEditor?: { offeneKonflikte: number } | null;
   /** Plan 15: Herkunft der Adressen je Seite (Server). */
   adressen?: { beladen: AdressInfo; entladen: AdressInfo };
 }
@@ -1698,6 +1700,6 @@ export function ansichtAus(v: VersionsZeile, rest: AnsichtRest): KalkulationsAns
     })),
     verwaist: verwaistMitNamen(verwaist, v),
     zeitpostenVorlagen: rest.vorlagen.map((z) => ({ id: z.id, bezeichnung: z.bezeichnung, minuten: z.minuten })),
-    kvEditor: null,
+    kvEditor: rest.kvEditor ?? null,
   };
 }

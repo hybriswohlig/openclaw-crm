@@ -471,6 +471,8 @@ describe("preisVerdacht", () => {
     "Whg 312",
     "Nr. 117 im Hinterhof",
     "Wohnung 12, Klingel Nr. 104",
+    "Hausmeister 0711 / 123456, Zufahrt über 70173",
+    "PLZ 70173.",
   ])("lässt %s durch", (text) => {
     expect(preisVerdacht(text)).toBe(false);
   });
@@ -484,6 +486,8 @@ describe("preisVerdacht", () => {
     "1620 statt 1800",
     "123456 €",
     "Kosten 1.620",
+    "Zuschlag 123456,50",
+    "123456,50",
   ])("lehnt %s weiter ab", (text) => {
     expect(preisVerdacht(text)).toBe(true);
   });

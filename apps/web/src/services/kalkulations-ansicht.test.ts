@@ -97,6 +97,7 @@ function deps(felder: Partial<AnsichtOptionen> = {}, versionen: VersionsZeile[] 
     ladePaketNamen: vi.fn(async () => ({})),
     istKottke: vi.fn(async () => true),
     ladeKvJob: vi.fn(async () => null),
+    ladeKvEditor: vi.fn(async () => null),
     ladeSchalter: vi.fn(async () => ({ angebotAusKalkulation: false, tagespreise: false })),
     ladeEinsatz: vi.fn(async () => null),
     ladePaketOptionen: vi.fn(async () => []),
@@ -122,6 +123,15 @@ describe("ladeKalkulationsAnsicht", () => {
     expect(d.ladeVorlagen).toHaveBeenCalledWith("ws_1", "oc_kottke");
     expect(d.ladeNamen).toHaveBeenCalledWith(expect.arrayContaining([DARIO]));
     expect(d.ladePaketHebel).not.toHaveBeenCalled();
+  });
+
+  it("KV-Editor: offene Konflikte des aktuellen KV in der Ansicht, ohne Stand null (Aufgabe 3)", async () => {
+    const mit = await ladeKalkulationsAnsicht("ws_1", WEBER_DEAL, 2, deps({ ladeKvEditor: vi.fn(async () => ({ offeneKonflikte: 2 })) }));
+    expect(mit.kvEditor).toEqual({ offeneKonflikte: 2 });
+    const ohne = await ladeKalkulationsAnsicht("ws_1", WEBER_DEAL, 2, deps());
+    expect(ohne.kvEditor).toBeNull();
+    const kaputt = await ladeKalkulationsAnsicht("ws_1", WEBER_DEAL, 2, deps({ ladeKvEditor: vi.fn(async () => { throw new Error("weg"); }) }));
+    expect(kaputt.kvEditor).toBeNull();
   });
 
   it("veralteter Entwurf (Lead geändert): veraltet, nicht sperrbar", async () => {

@@ -265,6 +265,11 @@ export interface KvStandDetail extends KvStandKopf {
   werte: Record<string, KvWert>;
   /** Zum Vorgänger. */
   unterschied: KvUnterschiedZeile[];
+  /**
+   * VPS: Umzugsgut ohne Lead-ID (gespeichertes Inventar, Altbestand, MCP), nur zur Anzeige mit dem Hinweis
+   * „Umzugsgut in der Kalkulation ändern“ (Vertragsnachtrag aus 6a). Fehlt oder leer: keins.
+   */
+  nurLesen?: { name: string; raum: string | null }[];
 }
 
 // ════════════════════════════════════════════════════════════════════════
@@ -859,7 +864,7 @@ export interface KvStandZumNeuenKvEingabe {
   userId: string | null;
 }
 
-/** Stub in `services/kv-editor-haken.ts` (0b), Aufgabe 3 ersetzt ihn. */
+/** Umgesetzt in `services/kv-editor-haken.ts` (Aufgabe 3; bis dahin Stub aus 0b). */
 export interface KvEditorHaken {
   /** Quelle nur der Stand, dessen `deal_document_id` das aktuelle KV ist (Kimi 2), sonst null. */
   kvEditorBeimNeuenKv(
