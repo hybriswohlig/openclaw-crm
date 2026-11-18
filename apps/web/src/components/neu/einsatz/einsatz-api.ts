@@ -16,7 +16,7 @@ export function ladeKarte(dealId: string): Promise<ApiAntwort<EinsatzKarte>> {
 }
 
 export type BestaetigenAntwort =
-  | { ok: true; team: Zuteilung[]; benachrichtigt: { gesendet: number; gesamt: number } | null }
+  | { ok: true; team: Zuteilung[]; benachrichtigt: { geplant: number } | null }
   | { ok: false; status: number; code: string | null; message: string; konflikte: DoppelKonflikt[] };
 
 export async function teamBestaetigen(dealId: string, body: EinsatzBestaetigenBody): Promise<BestaetigenAntwort> {
@@ -27,7 +27,7 @@ export async function teamBestaetigen(dealId: string, body: EinsatzBestaetigenBo
     return { ok: false, status: 0, code: null, message: "Keine Verbindung zum Server.", konflikte: [] };
   }
   const json = (await res.json().catch(() => null)) as
-    | { data?: { team: Zuteilung[]; benachrichtigt?: { gesendet: number; gesamt: number } | null }; error?: { code?: string; message?: string; konflikte?: DoppelKonflikt[] } }
+    | { data?: { team: Zuteilung[]; benachrichtigt?: { geplant: number } | null }; error?: { code?: string; message?: string; konflikte?: DoppelKonflikt[] } }
     | null;
   if (res.ok && json?.data) return { ok: true, team: json.data.team, benachrichtigt: json.data.benachrichtigt ?? null };
   return {

@@ -37,7 +37,8 @@ export interface JobZeile {
 
 /** "Do., 19.11. · Umzug · Nagold" (+ "noch nicht fix"). */
 export function jobZeile(l: CrewLocale, j: JobZeile): string {
-  const teile = [briefingTag(l, j.date), ART[l][j.type], j.town.trim() || null].filter(Boolean);
+  const datum = /^\d{4}-\d{2}-\d{2}$/.test(j.date) ? briefingTag(l, j.date) : null;
+  const teile = [datum, ART[l][j.type], j.town.trim() || null].filter(Boolean);
   return teile.join(" · ") + (j.fix ? "" : ` (${NICHT_FIX[l]})`);
 }
 
@@ -52,7 +53,7 @@ const ZUSAGE: Record<CrewLocale, (n: string, job: string, u: string) => string> 
 };
 
 export function zusageNachricht(l: CrewLocale, name: string, job: JobZeile, url: string): string {
-  return (ZUSAGE[l] ?? ZUSAGE.de)(vorname(name), jobZeile(l, { ...job, fix: true }), url);
+  return (ZUSAGE[l] ?? ZUSAGE.de)(vorname(name), jobZeile(l, job), url);
 }
 
 const NEU: Record<CrewLocale, { kopf: (n: string, anzahl: number) => string; mehr: (k: number) => string; fuss: string }> = {

@@ -172,6 +172,36 @@ describe.skipIf(!url)("WhatsApp an die Crew (DB)", { timeout: 30_000 }, () => {
     expect(ang[0]!.n).toBe(0);
   });
 
+  it("Fehler beim Senden: sicher nicht gesendet → morgen nochmal; Zeitüberschreitung → nie doppelt", async () => {
+    await sql`DELETE FROM workspace_settings WHERE key = 'crew_neue_jobs_lauf'`;
+    await sql`UPDATE crew_notifications SET created_at = created_at - interval '1 day'`;
+    await deal("dG", "2099-01-16");
+    // e1 (tr): klarer Fehler; e2: hängt bis zur Frist.
+    senden.mockImplementation(async (a: { peerWaId: string }) => {
+      if (a.peerWaId === "491511111111") throw new Error("nicht verbunden");
+      return new Promise(() => {});
+    });
+    const r = await n.neueJobsRundschreiben({ deps: { ...deps(), fristMs: 50 } });
+    expect(r).toMatchObject({ gesendet: 0, fehler: 2 });
+    const ang = await sql`SELECT employee_id FROM crew_job_announcements WHERE deal_record_id = 'dG' ORDER BY 1`;
+    expect(ang.map((z) => z.employee_id)).toEqual(["e2"]);
+    // Nächster Tag: nur e1 bekommt dG nachgereicht.
+    senden.mockReset().mockResolvedValue({ externalMessageId: "m" });
+    await sql`DELETE FROM workspace_settings WHERE key = 'crew_neue_jobs_lauf'`;
+    await sql`UPDATE crew_notifications SET created_at = created_at - interval '1 day'`;
+    const r2 = await n.neueJobsRundschreiben({ deps: deps() });
+    expect(r2.gesendet).toBe(1);
+    expect(senden.mock.calls[0]![0].peerWaId).toBe("491511111111");
+  });
+
+  it("Zusage: wer noch keinen Link hat, bekommt ihn und trotzdem die echte Job-Zeile", async () => {
+    await sql`INSERT INTO employees (id, workspace_id, name, phone_canonical) VALUES ('e5', 'w1', 'Eva Ernst', '+491555555555')`;
+    await sql`INSERT INTO deal_employees (deal_record_id, employee_id, role) VALUES ('dB', 'e5', 'helper')`;
+    const r = await n.zusageSenden("w1", "dB", ["e5"], "u1", deps());
+    expect(r).toEqual({ gesendet: 1, gesamt: 1 });
+    expect(senden.mock.calls[0]![0].text).toMatch(/^Hallo Eva! Du bist dabei: So\., 11\.01\. · Umzug · Nagold \(noch nicht fix\)\./);
+  });
+
   it("Zusage: nur an die übergebenen Neuen, mit Tag, Art und Ort; Gründe vermerkt; Fehler stoppt nicht", async () => {
     await sql`INSERT INTO deal_employees (deal_record_id, employee_id, role) VALUES ('dA', 'e1', 'lead'), ('dA', 'e2', 'helper'), ('dA', 'e4', 'helper')`;
     senden.mockRejectedValueOnce(new Error("nicht verbunden")).mockResolvedValue({ externalMessageId: "m" });
@@ -179,9 +209,8 @@ describe.skipIf(!url)("WhatsApp an die Crew (DB)", { timeout: 30_000 }, () => {
     expect(r).toEqual({ gesendet: 1, gesamt: 3 });
     expect(senden).toHaveBeenCalledTimes(2);
     expect(senden.mock.calls[1]![0].text).toBe(`Hallo Ben! Du bist dabei: Sa., 10.01. · Umzug · Nagold. Adresse und alle Infos findest du hier:\nhttp://localhost:3100/l/${"B".repeat(32)}`);
-    const v = await sql`SELECT employee_id, status FROM crew_notifications WHERE kind = 'zusage' ORDER BY employee_id`;
+    const v = await sql`SELECT employee_id, status FROM crew_notifications WHERE kind = 'zusage' AND deal_record_id = 'dA' ORDER BY employee_id`;
     expect(v.map((z) => [z.employee_id, z.status])).toEqual([["e1", "fehler"], ["e2", "gesendet"], ["e4", "kein_telefon"]]);
-    expect(await n.teamIdsLesen("dA")).toHaveLength(3);
     expect(await n.zusageSenden("w1", "dA", [], "u1", deps())).toEqual({ gesendet: 0, gesamt: 0 });
   });
 });

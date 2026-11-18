@@ -13,7 +13,6 @@
  */
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { dealEmployees } from "@/db/schema";
 import { crewJobAnnouncements, crewNotifications, type CrewNachrichtStatus } from "@/db/schema/crew";
 import { berlinDateString } from "@/lib/berlin-date";
 import { istCrewLocale } from "@/lib/crew/telefon";
@@ -32,7 +31,20 @@ export const NEUE_JOBS_SCHALTER = "crew_neue_jobs";
 export interface NachrichtenDeps extends SendenDeps {
   /** Pause zwischen zwei Personen (Tests: sofort). */
   pause: (ms: number) => Promise<void>;
+  /** Frist für einen Versand (Tests: kurz). */
+  fristMs?: number;
 }
+
+/** Längstens so lange auf die WhatsApp-Brücke warten. */
+const VERSAND_FRIST_MS = 20_000;
+class VersandFrist extends Error {
+  constructor() {
+    super("WhatsApp hat in der Frist nicht geantwortet");
+  }
+}
+
+/** 2 bis 5 Sekunden, damit die verknüpfte Nummer nicht wie ein Massenversender aussieht. */
+const abstand = () => 2000 + Math.floor(Math.random() * 3000);
 
 const standard: NachrichtenDeps = {
   absender: absenderKonto,
@@ -117,26 +129,29 @@ async function anPerson(
   text: (url: string) => string,
   autor: string,
   deps: NachrichtenDeps,
-): Promise<{ status: CrewNachrichtStatus; fehler?: string }> {
+): Promise<{ status: CrewNachrichtStatus; fehler?: string; unklar?: boolean }> {
   try {
     if (!p.telefon) return { status: "kein_telefon" };
     if (!p.active) return { status: "kein_link" };
     if (!konto) return { status: "kein_absender" };
     const l = await crewLinkSicherstellen(ws, p.id, autor);
     if (!l.ok || !l.link || !l.link.aktiv) return { status: "kein_link" };
-    await deps.senden({ accountId: konto, peerWaId: p.telefon.replace(/\D/g, ""), text: text(l.link.url) });
+    let frist: ReturnType<typeof setTimeout> | undefined;
+    const zeitueberschreitung = new Promise<never>((_, nein) => {
+      frist = setTimeout(() => nein(new VersandFrist()), deps.fristMs ?? VERSAND_FRIST_MS);
+    });
+    try {
+      await Promise.race([deps.senden({ accountId: konto, peerWaId: p.telefon.replace(/\D/g, ""), text: text(l.link.url) }), zeitueberschreitung]);
+    } finally {
+      clearTimeout(frist);
+    }
     return { status: "gesendet" };
   } catch (err) {
     const fehler = err instanceof Error ? err.message : String(err);
     console.error("[crew-nachrichten] Versand fehlgeschlagen:", fehler);
-    return { status: "fehler", fehler: fehler.slice(0, 500) };
+    // Bei Zeitüberschreitung weiß niemand, ob die Nachricht rausging: nie nachsenden.
+    return { status: "fehler", fehler: fehler.slice(0, 500), unklar: err instanceof VersandFrist };
   }
-}
-
-/** Wer gerade im Team des Deals ist (vor „Team bestätigen“ gelesen, um die Neuen zu finden). */
-export async function teamIdsLesen(deal: string): Promise<string[]> {
-  const rows = await db.select({ id: dealEmployees.employeeId }).from(dealEmployees).where(eq(dealEmployees.dealRecordId, deal));
-  return rows.map((z) => z.id);
 }
 
 export interface ZusageErgebnis {
@@ -144,23 +159,30 @@ export interface ZusageErgebnis {
   gesamt: number;
 }
 
-/** „Du bist dabei“ an die neu eingeteilten Personen eines Deals. Wirft nie. */
+/**
+ * „Du bist dabei“ an die neu eingeteilten Personen eines Deals. Läuft nach der
+ * Antwort von „Team bestätigen“ (im Hintergrund), wirft nie.
+ */
 export async function zusageSenden(ws: string, deal: string, neu: string[], autor: string, deps: NachrichtenDeps = standard): Promise<ZusageErgebnis> {
   if (neu.length === 0) return { gesendet: 0, gesamt: 0 };
   let gesendet = 0;
   try {
     const konto = await deps.absender(ws).catch(() => null);
+    // Erst die Links anlegen, damit der Text den Job so zeigt, wie die Person ihn im Portal sieht.
+    for (const p of await personenLesen(ws, neu)) {
+      if (p.active && p.telefon && !p.linkId) await crewLinkSicherstellen(ws, p.id, autor).catch(() => null);
+    }
     const personen = await personenLesen(ws, neu);
     const tag = (await dealTerminLesen(ws, deal).catch(() => null)) ?? "";
     for (const [i, p] of personen.entries()) {
-      if (i > 0) await deps.pause(700);
-      // Job so, wie die Person ihn sieht (Tag, Art, Ort); ohne Link nur mit Tag.
-      let job: JobZeile | null = null;
+      if (i > 0) await deps.pause(abstand());
+      let job: JobZeile = { date: tag, type: "other", town: "", fix: true };
       if (p.linkId) {
         const [j] = await ladeCrewJobs(kontextAus(ws, p, p.linkId), { dealIds: [deal] }).catch(() => []);
         if (j) job = { date: j.date, type: j.type, town: j.town, fix: j.fix };
       }
-      const s = await anPerson(ws, p, konto, (url) => zusageNachricht(istCrewLocale(p.locale) ? p.locale : "de", p.name, job ?? { date: tag, type: "other", town: "", fix: true }, url), autor, deps);
+      const locale = istCrewLocale(p.locale) ? p.locale : "de";
+      const s = await anPerson(ws, p, konto, (url) => zusageNachricht(locale, p.name, job, url), autor, deps);
       if (s.status === "gesendet") gesendet++;
       await vermerken(ws, deal, p.id, "zusage", s, autor);
     }
@@ -223,6 +245,11 @@ export async function neueJobsRundschreiben(
       erg.uebersprungen++;
       continue;
     }
+    if (uhr() - start > budget) {
+      // Keinen weiteren Workspace für heute beanspruchen, den wir nicht mehr schaffen.
+      erg.abgebrochen = true;
+      return erg;
+    }
     if (!(await laufBeanspruchen(ws, heute))) {
       erg.uebersprungen++;
       continue;
@@ -243,7 +270,7 @@ export async function neueJobsRundschreiben(
       if (uhr() - start > budget) {
         erg.abgebrochen = true;
         console.warn("[crew-nachrichten] Zeitgrenze erreicht, Rest morgen");
-        break;
+        return erg;
       }
       try {
         const k = kontextAus(ws, p, p.linkId!);
@@ -265,18 +292,26 @@ export async function neueJobsRundschreiben(
           erg.ohneNeues++;
           continue;
         }
-        if (!erste) await deps.pause(2000 + Math.floor(Math.random() * 3000));
+        if (!erste) await deps.pause(abstand());
         erste = false;
+        // Vor dem Senden als angekündigt vermerken: stirbt der Lauf nach dem Senden, kommt morgen nichts doppelt.
+        await db
+          .insert(crewJobAnnouncements)
+          .values(neu.map((j) => ({ workspaceId: ws, dealRecordId: j.id, employeeId: p.id })))
+          .onConflictDoNothing();
         const locale = istCrewLocale(p.locale) ? p.locale : "de";
         const s = await anPerson(ws, p, konto, (url) => neueJobsNachricht(locale, p.name, neu.map((j) => ({ date: j.date, type: j.type, town: j.town, fix: j.fix })), url), "system", deps);
         await vermerken(ws, neu[0]!.id, p.id, "neue_jobs", s, "system");
-        if (s.status === "gesendet") {
-          erg.gesendet++;
-          await db
-            .insert(crewJobAnnouncements)
-            .values(neu.map((j) => ({ workspaceId: ws, dealRecordId: j.id, employeeId: p.id })))
-            .onConflictDoNothing();
-        } else erg.fehler++;
+        if (s.status === "gesendet") erg.gesendet++;
+        else {
+          erg.fehler++;
+          // Sicher nicht gesendet: morgen neu versuchen. Unklar (Zeitüberschreitung): lieber nicht doppelt.
+          if (!s.unklar) {
+            await db
+              .delete(crewJobAnnouncements)
+              .where(and(eq(crewJobAnnouncements.employeeId, p.id), inArray(crewJobAnnouncements.dealRecordId, neu.map((j) => j.id))));
+          }
+        }
       } catch (err) {
         erg.fehler++;
         console.error("[crew-nachrichten] Rundschreiben:", err instanceof Error ? err.message : String(err));

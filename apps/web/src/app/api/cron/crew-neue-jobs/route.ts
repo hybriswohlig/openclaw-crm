@@ -8,16 +8,20 @@ export const maxDuration = 300;
 
 /** Berliner Stunde, zu der die Sammelnachricht rausgeht. */
 const STUNDE = 18;
+/** Danach nicht mehr nachholen (abends keine Nachrichten mehr). */
+const BIS = 21;
 
 /**
  * Crew-Portal: einmal am Abend WhatsApp zu neuen Jobs (Rümpeltürken-Konto).
- * Läuft um 16 und 17 Uhr UTC; gesendet wird nur, wenn es in Berlin 18 Uhr ist
- * (Sommer- und Winterzeit). Pro Person höchstens eine Nachricht am Tag.
+ * Läuft um 16 und 17 Uhr UTC; gesendet wird ab 18 Uhr Berliner Zeit (Sommer-
+ * und Winterzeit), ein verspäteter Aufruf holt es bis 21 Uhr nach. Der Tageslauf
+ * ist je Workspace atomar beansprucht, pro Person höchstens eine Nachricht am Tag.
  */
 export async function GET(req: NextRequest) {
   const denied = requireCronAuth(req);
   if (denied) return denied;
-  if (berlinHour() !== STUNDE) return NextResponse.json({ success: true, uebersprungen: "nicht 18 Uhr in Berlin" });
+  const h = berlinHour();
+  if (h < STUNDE || h >= BIS) return NextResponse.json({ success: true, uebersprungen: "nicht zwischen 18 und 21 Uhr in Berlin" });
   try {
     const summary = await neueJobsRundschreiben();
     return NextResponse.json({ success: true, ...summary });

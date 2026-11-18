@@ -268,8 +268,8 @@ export function EinsatzDialog({
         r.team.length === 0
           ? "Team entfernt."
           : `Team bestätigt. In der App sichtbar für ${r.team.length} ${r.team.length === 1 ? "Person" : "Personen"}.`,
-        wa && wa.gesamt > 0
-          ? { description: `WhatsApp „Du bist dabei“ an ${wa.gesendet} von ${wa.gesamt} neuen.${wa.gesendet < wa.gesamt ? " Bei den anderen fehlt Nummer, Link oder die Verbindung." : ""}` }
+        wa && wa.geplant > 0
+          ? { description: `WhatsApp „Du bist dabei“ geht gleich an ${wa.geplant === 1 ? "die neue Person" : `die ${wa.geplant} Neuen`} raus.` }
           : undefined,
       );
       await onGespeichert?.();

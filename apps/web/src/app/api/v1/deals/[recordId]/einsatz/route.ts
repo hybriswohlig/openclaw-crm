@@ -9,12 +9,12 @@
  * per WhatsApp (Rümpeltürken), außer `benachrichtigen: false`. Sonst 409 mit Code (`DOPPELT_AM_TAG` samt `konflikte`,
  * `STEMPELT_NOCH`, `DOPPELTE_PERSON`), 400 bei formalen Fehlern.
  */
-import { NextResponse, type NextRequest } from "next/server";
+import { after, NextResponse, type NextRequest } from "next/server";
 import { badRequest, notFound, success } from "@/lib/api-utils";
 import type { EinsatzFehlerCode } from "@/lib/einsatz";
 import { einsatzAutor, einsatzFehler, einsatzVorlauf, teamAusBody } from "@/lib/einsatz-route";
 import { dealImWorkspace } from "@/lib/kalkulation-versionen-antwort";
-import { teamIdsLesen, zusageSenden } from "@/services/crew/nachrichten";
+import { zusageSenden } from "@/services/crew/nachrichten";
 import { einsatzBestaetigen, ladeEinsatz } from "@/services/einsatz";
 
 type Params = { params: Promise<{ recordId: string }> };
@@ -42,12 +42,16 @@ export async function PUT(req: NextRequest, { params }: Params): Promise<NextRes
   if (!eingabe) return badRequest("Body: { team: [{ employeeId, role, plannedDriveMinutes, plannedWorkMinutes }], bestaetigtAmTag?, benachrichtigen? }");
   // Crew-Portal: neu Eingeteilte bekommen „Du bist dabei“ per WhatsApp, außer ausdrücklich abgeschaltet.
   const benachrichtigen = !(body && typeof body === "object" && (body as { benachrichtigen?: unknown }).benachrichtigen === false);
-  const vorher = benachrichtigen ? await teamIdsLesen(recordId) : [];
   const r = await einsatzBestaetigen(v.ctx.workspaceId, recordId, eingabe, einsatzAutor(v.ctx));
   if (r.ok) {
-    const neu = benachrichtigen ? r.team.map((t) => t.employeeId).filter((id) => !vorher.includes(id)) : [];
-    const benachrichtigt = neu.length > 0 ? await zusageSenden(v.ctx.workspaceId, recordId, neu, einsatzAutor(v.ctx)) : null;
-    return success({ team: r.team, benachrichtigt });
+    // Nur wer in genau dieser Transaktion dazukam (ein Doppelklick schickt nie zweimal). Versand nach der Antwort.
+    const neu = benachrichtigen ? r.neu : [];
+    if (neu.length > 0) {
+      const ws = v.ctx.workspaceId;
+      const autor = einsatzAutor(v.ctx);
+      after(() => zusageSenden(ws, recordId, neu, autor).then(() => undefined));
+    }
+    return success({ team: r.team, benachrichtigt: neu.length > 0 ? { geplant: neu.length } : null });
   }
   return einsatzFehler(r.code, FORMAL.has(r.code) ? 400 : 409, r.konflikte ? { konflikte: r.konflikte } : undefined);
 }

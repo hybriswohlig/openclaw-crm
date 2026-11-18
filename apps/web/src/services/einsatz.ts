@@ -510,7 +510,7 @@ async function buchungenFuerEinsatz(
 // ─── Team bestätigen ─────────────────────────────────────────────────────────
 
 export type BestaetigenErgebnis =
-  | { ok: true; team: Zuteilung[] }
+  | { ok: true; team: Zuteilung[]; /** In dieser Transaktion neu eingeteilt (unter der Sperre). */ neu: string[] }
   | { ok: false; code: EinsatzFehlerCode; konflikte?: DoppelKonflikt[] };
 
 function istUniqueFehler(e: unknown): boolean {
@@ -625,7 +625,7 @@ export async function einsatzBestaetigen(
           .where(and(eq(dealEmployees.dealRecordId, deal), inArray(dealEmployees.employeeId, neuIds), isNull(dealEmployees.confirmedAt)));
       }
       const team = await zuteilungenLesen(ws, deal, tx);
-      return { ok: true as const, team: team.map(({ confirmedAt: _c, ...z }) => z) };
+      return { ok: true as const, team: team.map(({ confirmedAt: _c, ...z }) => z), neu: diff.anlegen.map((w) => w.employeeId) };
     });
   } catch (err) {
     if (err instanceof Abbruch) return err.ergebnis;
