@@ -77,10 +77,16 @@ export async function POST(
       return NextResponse.json(
         {
           ...a,
-          error: "KV verworfen: Die Kalkulation hat inzwischen eine andere Version. Bitte den KV neu erstellen.",
+          error:
+            a.grund === "kv_editor"
+              ? `KV verworfen: ${a.text}`
+              : "KV verworfen: Die Kalkulation hat inzwischen eine andere Version. Bitte den KV neu erstellen.",
         },
         { status: 409 }
       );
+    case "entwurf":
+      // KV-Editor: das PDF gehört in den Stand, nicht in die Akte.
+      return NextResponse.json(a);
     case "fehler":
       return NextResponse.json({ ...a, error: a.fehler }, { status: 502 });
   }

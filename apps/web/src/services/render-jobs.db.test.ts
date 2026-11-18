@@ -231,4 +231,63 @@ describe.skipIf(!url)("Render-Jobs (DB)", () => {
     await expect(sql`insert into document_render_jobs (vps_job_id, workspace_id, deal_record_id, document_type)
       values (${randomUUID()}, ${ws}, ${randomUUID()}, 'quotation')`).rejects.toMatchObject({ code: "23503" });
   });
+
+  describe("KV-Editor (Plan 2c)", () => {
+    async function standMitJob(ziel: "entwurf" | "aktuell", status = "druckt") {
+      const id = randomUUID();
+      const vpsJobId = randomUUID();
+      const [{ n }] = await sql<{ n: number }[]>`select coalesce(max(nummer), 0)::int + 1 as n from kv_staende where deal_record_id = ${deal}`;
+      await sql`insert into kv_staende (id, workspace_id, deal_record_id, nummer, renderer, grundlage, quelle, status, render_job_id)
+        values (${id}, ${ws}, ${deal}, ${n}, 'vps', ${sql.json({ bildIds: [] })}, 'hand', ${status}, ${vpsJobId})`;
+      await svc.jobAnlegen({
+        vpsJobId,
+        workspaceId: ws,
+        dealRecordId: deal,
+        documentType: "quotation",
+        calculationVersionId: v1,
+        priceCents: 19900,
+        createdBy: null,
+        kvStandId: id,
+        kvStandZiel: ziel,
+      });
+      return { id, vpsJobId };
+    }
+    const standStatus = async (id: string) => (await sql`select status, fehler from kv_staende where id = ${id}`)[0];
+
+    beforeEach(async () => {
+      await sql`delete from kv_staende where deal_record_id = ${deal}`;
+    });
+
+    it("letzterKvJob übersieht Entwürfe", async () => {
+      const normal = await anlegen({ calculationVersionId: v1 });
+      const entwurf = await standMitJob("entwurf");
+      const aktuell = await standMitJob("aktuell");
+      await zeiten(normal, new Date("2026-11-01T08:00:00.000Z"));
+      await zeiten(aktuell.vpsJobId, new Date("2026-11-02T08:00:00.000Z"));
+      await zeiten(entwurf.vpsJobId, new Date("2026-11-03T08:00:00.000Z"));
+      expect((await svc.letzterKvJob(ws, deal, v1))?.vpsJobId).toBe(aktuell.vpsJobId);
+    });
+
+    it("Ablauf und Fehler setzen den druckenden Stand auf fehler, einen fertigen nicht", async () => {
+      const jetzt = new Date("2026-11-07T12:00:00.000Z");
+      const alt = await standMitJob("entwurf");
+      const fertig = await standMitJob("entwurf", "fertig");
+      await zeiten(alt.vpsJobId, new Date(jetzt.getTime() - RENDER_JOB_ABLAUF_MS - 1));
+      await zeiten(fertig.vpsJobId, new Date(jetzt.getTime() - RENDER_JOB_ABLAUF_MS - 1));
+      expect(await svc.jobsAbgelaufenMarkieren(jetzt)).toBe(2);
+      expect(await standStatus(alt.id)).toEqual({ status: "fehler", fehler: "Druck nicht fertig geworden. Bitte neu drucken." });
+      expect(await standStatus(fertig.id)).toEqual({ status: "fertig", fehler: null });
+
+      const kaputt = await standMitJob("aktuell");
+      await svc.jobAbschliessen(ws, kaputt.vpsJobId, { status: "fehler", fehler: "Skill-Fehler auf dem VPS" });
+      expect(await standStatus(kaputt.id)).toEqual({ status: "fehler", fehler: "Skill-Fehler auf dem VPS" });
+    });
+
+    it("Stand eines anderen Jobs bleibt unberührt (render_job_id)", async () => {
+      const a = await standMitJob("entwurf");
+      await sql`update kv_staende set render_job_id = ${randomUUID()} where id = ${a.id}`;
+      await svc.jobAbschliessen(ws, a.vpsJobId, { status: "fehler", fehler: "x" });
+      expect((await standStatus(a.id)).status).toBe("druckt");
+    });
+  });
 });

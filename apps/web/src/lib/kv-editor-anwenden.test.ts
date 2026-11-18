@@ -87,11 +87,10 @@ describe("Fixture Umzug", () => {
     expect(roh.details.validUntil).toBe("2026-12-31");
     expect(roh.gesamtCent).toBe(162000);
     expect(roh.bezahltCent).toBe(0);
-    expect(TEXT).toContain("KV-KO-20261110-ART-3");
+    // Anonymisiert nach dem unpdf-Text von KV-KO-20261110-ART-3 (Seiten mit \f getrennt).
+    expect(TEXT).toContain("KV-KO-20261110-BEI-1");
     expect(TEXT).toContain("Vertragsunterlagen");
     expect(TEXT).toContain("1.160,00 €");
-    expect(TEXT).toContain("1.620,00\u00A0€");
-    expect(TEXT).toContain("460,00\u202F€");
   });
 });
 
@@ -941,8 +940,13 @@ describe("vpsPreisPruefung", () => {
     expect(vpsPreisPruefung(TEXT, betreage())).toEqual({ preis: "ok", fehlt: [], fremd: [] });
   });
 
+  it("liest geschützte Leerzeichen vor dem Euro wie Leerzeichen", () => {
+    const text = TEXT.replace("Gesamtpreis 1.620,00 €", "Gesamtpreis 1.620,00\u00A0€").replace("460,00 € 460,00 €", "460,00\u202F€ 460,00 €");
+    expect(vpsPreisPruefung(text, betreage())).toEqual({ preis: "ok", fehlt: [], fremd: [] });
+  });
+
   it("meldet einen vertauschten Betrag als Abweichung", () => {
-    const text = TEXT.replace("1.160,00", "1.260,00");
+    const text = TEXT.replaceAll("1.160,00", "1.260,00");
     expect(vpsPreisPruefung(text, betreage())).toEqual({
       preis: "abweichung",
       fehlt: [116000],
@@ -958,5 +962,29 @@ describe("vpsPreisPruefung", () => {
       fremd: [],
     });
     expect(vpsPreisPruefung("Vertragsunterlagen Haftung bis 620,00 €", erwartet).preis).toBe("nicht_lesbar");
+  });
+
+  it("hat die Seitenstruktur des echten VPS-Texts: 21 Seiten, Vertragsunterlagen erst hinter dem Seiteninhalt", () => {
+    const seiten = TEXT.split("\f");
+    expect(seiten).toHaveLength(21);
+    // Die Haftungsseite trägt 620 Euro vor ihrer Kopfzeile „Vertragsunterlagen“: zählt nicht.
+    expect(seiten[16].indexOf("620\nEuro")).toBeLessThan(seiten[16].indexOf("Vertragsunterlagen"));
+    expect(seiten.filter((s) => s.includes("Vertragsunterlagen"))).toHaveLength(5);
+  });
+
+  it("Entrümpelung: nur eine Seite mit Vertragsunterlagen, Beträge in ihrem Text zählen nicht", () => {
+    const preis = TEXT.split("\f")[13];
+    const agb = "Allgemeine Geschäftsbedingungen (AGB)\nStornogebühr 50,00 € je angefangene Stunde, Haftung bis 620 €.\nVertragsunterlagen\nAllgemeine\nGeschäftsbedingungen.";
+    expect(vpsPreisPruefung([preis, agb].join("\f"), betreage())).toEqual({ preis: "ok", fehlt: [], fremd: [] });
+  });
+
+  it("zählt auch ganze Euro als Betrag, aber keine Euro-Paletten", () => {
+    const preis = TEXT.split("\f")[13];
+    expect(vpsPreisPruefung(`${preis}\nRabatt 100 € auf den Transport`, betreage())).toEqual({
+      preis: "abweichung",
+      fehlt: [],
+      fremd: [10000],
+    });
+    expect(vpsPreisPruefung(`${preis}\nWir bringen 4 Euro-Paletten mit.`, betreage()).preis).toBe("ok");
   });
 });

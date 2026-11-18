@@ -228,3 +228,55 @@ describe("kvJobAbschliessen", () => {
     expect(fake.createDealDocument).not.toHaveBeenCalled();
   });
 });
+
+describe("kvJobAbschliessenDetails: Preisprüfung des KV-Editors (Spec 7.3)", () => {
+  const betraege = { erwartetCent: [46000, 116000, 162000], erlaubtCent: [0] };
+  const gespeichert = { ...betraege, preis: "offen" as const, fehlt: [], fremd: [] };
+  const TEXT_OK = "Leistung\n1.160,00 € 1.160,00 €\n460,00 €\nGesamtpreis 1.620,00 €\fVertragsunterlagen";
+
+  it("ohne Stand: kein PDF-Text, keine Prüfung", async () => {
+    job();
+    const pdfLesen = vi.fn(async () => TEXT_OK);
+    await kvJobAbschliessenDetails(WS, "job_1", { abruf: vps(status("done")), jetzt: JETZT, pdfLesen });
+    expect(pdfLesen).not.toHaveBeenCalled();
+    expect(fake.kvStandPruefungLaden).not.toHaveBeenCalled();
+    expect(fake.ablageKv).toEqual([{ pruefung: null }]);
+  });
+
+  it("Stand mit erwarteten Beträgen: liest das PDF, Ergebnis geht an die Ablage", async () => {
+    job({ kvStandId: "stand_1", kvStandZiel: "aktuell" });
+    fake.kvStandPruefungLaden.mockResolvedValue(gespeichert);
+    const pdfLesen = vi.fn(async () => TEXT_OK);
+    const r = await kvJobAbschliessenDetails(WS, "job_1", { abruf: vps(status("done")), jetzt: JETZT, pdfLesen });
+    expect(fake.kvStandPruefungLaden).toHaveBeenCalledWith(WS, "stand_1");
+    expect(fake.ablageKv).toEqual([{ pruefung: { ...betraege, preis: "ok", fehlt: [], fremd: [] } }]);
+    expect(r.abschluss.status).toBe("abgelegt");
+  });
+
+  it("PDF nicht lesbar: nicht_lesbar, nie ok", async () => {
+    job({ kvStandId: "stand_1", kvStandZiel: "entwurf" });
+    fake.kvStandPruefungLaden.mockResolvedValue(gespeichert);
+    const r = await kvJobAbschliessenDetails(WS, "job_1", {
+      abruf: vps(status("done")),
+      jetzt: JETZT,
+      pdfLesen: async () => {
+        throw new Error("kaputt");
+      },
+    });
+    expect(fake.ablageKv[0].pruefung).toEqual({ ...betraege, preis: "nicht_lesbar", fehlt: betraege.erwartetCent, fremd: [] });
+    // Entwurf: Stand `fehler`, kein Dokument, keine Nachläufe.
+    expect(r.abschluss).toEqual({ status: "entwurf", standStatus: "fehler" });
+    expect(fake.createDealDocument).not.toHaveBeenCalled();
+    expect(m.dealDokumentNachlauf).not.toHaveBeenCalled();
+  });
+
+  it("Entwurf mit stimmendem Preis: fertig, ohne Dokument und ohne Nachläufe", async () => {
+    job({ kvStandId: "stand_1", kvStandZiel: "entwurf" });
+    fake.kvStandPruefungLaden.mockResolvedValue(gespeichert);
+    const r = await kvJobAbschliessenDetails(WS, "job_1", { abruf: vps(status("done")), jetzt: JETZT, pdfLesen: async () => TEXT_OK });
+    expect(r.abschluss).toEqual({ status: "entwurf", standStatus: "fertig" });
+    expect(fake.createDealDocument).not.toHaveBeenCalled();
+    expect(m.dealDokumentNachlauf).not.toHaveBeenCalled();
+    expect(m.applyInvoiceDueDate).not.toHaveBeenCalled();
+  });
+});

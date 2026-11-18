@@ -172,7 +172,13 @@ export interface DealFacts {
 
 /** Optional plain text. Never a price source. */
 export interface DocumentCopy {
+  /** Ersetzt Begrüßung und Standardtext zusammen (Altbestand, Dialog). */
   intro?: string;
+  /**
+   * KV-Editor: ersetzt nur den Standardtext nach der Begrüßung; die Begrüßung entsteht bei jedem
+   * Druck aus dem Lead. Leer: nur die Begrüßung. `intro` hat Vorrang.
+   */
+  introText?: string;
   closing?: string;
   remarks?: string;
 }

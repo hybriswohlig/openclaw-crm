@@ -15,6 +15,10 @@ import {
   type KvJobBezug,
 } from "@/services/document-job-context";
 import { jobAnlegen } from "@/services/render-jobs";
+import { kvEditorBeimNeuenKv, kvEditorStandZumNeuenKv } from "@/services/kv-editor-haken";
+import { abgleichen } from "@/lib/kv-editor-anwenden";
+import type { AbgleichErgebnis, KvGrundlageVps, KvPreisPruefung } from "@/lib/kv-editor";
+import type { QuotationDocumentDetails } from "@/db/schema/quotations";
 import { fotosLaden, vpsJobStarten } from "@/services/vps-dokument-start";
 import { type ReJobBezug } from "@/services/document-job-context";
 import { angebotSperren, quotationLesen } from "@/services/quotations";
@@ -56,6 +60,25 @@ const KUNDE_SKILLS = new Set([
   "rechnungen-und-auftragsbestaetigungen",
   "auftragsanweisung",
 ]);
+
+/**
+ * Grundlage eines neuen VPS-Stands (Spec 4.2): nur die Auswahl im Dialog, vor dem Paketbau gelesen.
+ * Fotos, wie angefordert (ausgeblendete wirken über Änderungen `bilder:<id>:zeigen`).
+ */
+function grundlageAus(params: Record<string, unknown>): KvGrundlageVps {
+  const details = (params.document_details && typeof params.document_details === "object"
+    ? params.document_details
+    : {}) as QuotationDocumentDetails;
+  const anweisung = typeof params.anweisung === "string" && params.anweisung.trim() ? params.anweisung.trim() : undefined;
+  const bildIds = Array.isArray(params._image_attachment_ids)
+    ? (params._image_attachment_ids as unknown[]).filter((x): x is string => typeof x === "string")
+    : [];
+  return {
+    ...(anweisung ? { anweisung } : {}),
+    ...(details.kitchen ? { kitchen: structuredClone(details.kitchen) } : {}),
+    bildIds,
+  };
+}
 
 interface RunBody {
   skill: string;
@@ -101,6 +124,15 @@ export async function POST(req: NextRequest) {
   // Plan 9: Rechnungsschritt der Akte (`_rechnung`), nie an den VPS.
   const rechnungRoh = parseRechnungEingabe(params._rechnung);
   delete params._rechnung;
+  // KV-Editor: den Stand bestimmt nur der Server (Plan 2c), nie der Browser.
+  delete params._kv_stand;
+  // KV-Editor (Spec 7.6): neuer KV aus der Kalkulation. Quelle, Abgleich und Grundlage des Stands.
+  let kvEditor: {
+    quelleId: string | null;
+    abgleich: AbgleichErgebnis;
+    grundlage: KvGrundlageVps;
+    pruefung: KvPreisPruefung | null;
+  } | null = null;
   if (!rechnungRoh.ok) return badRequest(rechnungRoh.error);
 
   // Authoritative kunde name: never trust the browser for the PDF header.
@@ -129,10 +161,30 @@ export async function POST(req: NextRequest) {
         );
       }
       try {
-        const kontext = await attachDocumentJobContext(ctx.workspaceId, params);
+        const kvDeal =
+          String(params.document_type ?? "").toUpperCase() === "KV" && typeof params._deal_record_id === "string"
+            ? params._deal_record_id
+            : null;
+        const quelle = kvDeal ? (await kvEditorBeimNeuenKv(ctx.workspaceId, kvDeal)).quelle : null;
+        const grundlage = kvDeal ? grundlageAus(params) : null;
+        let abgleich: AbgleichErgebnis = { liste: [], konflikte: [] };
+        const kontext = await attachDocumentJobContext(ctx.workspaceId, params, {
+          aenderungen: (basis) => {
+            if (quelle) abgleich = abgleichen(basis, quelle.aenderungen, quelle.offen);
+            return abgleich.liste;
+          },
+        });
         params = kontext.params;
         kvBezug = kontext.kv;
         reBezug = kontext.re ?? null;
+        if (grundlage && kvBezug) {
+          kvEditor = {
+            quelleId: quelle?.id ?? null,
+            abgleich,
+            grundlage,
+            pruefung: kontext.kvPreise ? { ...kontext.kvPreise, preis: "offen", fehlt: [], fremd: [] } : null,
+          };
+        }
       } catch (err) {
         return NextResponse.json(
           { error: err instanceof Error ? err.message : "Dokumentkontext fehlgeschlagen" },
@@ -250,22 +302,43 @@ export async function POST(req: NextRequest) {
   if (rechnung && !vps.ok) await verwerfen("VPS ohne Job-ID");
   if (vps.ok && registerDeal && documentType) {
     const jobId = vps.jobId;
+    const job = {
+      vpsJobId: jobId,
+      workspaceId: ctx.workspaceId,
+      dealRecordId: registerDeal,
+      documentType,
+      calculationVersionId: documentType === "quotation" ? (kvBezug?.calculationVersionId ?? null) : null,
+      priceCents:
+        documentType === "quotation"
+          ? (kvBezug?.priceCents ?? null)
+          : documentType === "invoice"
+            ? (rechnung?.bruttoCent ?? null)
+            : null,
+      createdBy: ctx.userId,
+      invoiceId: rechnung?.id ?? null,
+    };
     try {
-      await jobAnlegen({
-        vpsJobId: jobId,
-        workspaceId: ctx.workspaceId,
-        dealRecordId: registerDeal,
-        documentType,
-        calculationVersionId: documentType === "quotation" ? (kvBezug?.calculationVersionId ?? null) : null,
-        priceCents:
-          documentType === "quotation"
-            ? (kvBezug?.priceCents ?? null)
-            : documentType === "invoice"
-              ? (rechnung?.bruttoCent ?? null)
-              : null,
-        createdBy: ctx.userId,
-        invoiceId: rechnung?.id ?? null,
-      });
+      const editor = documentType === "quotation" ? kvEditor : null;
+      if (editor) {
+        // Spec 7.6 Schritt 3: Stand und Job in einer Transaktion; der Cron sieht den Job erst nach dem Commit.
+        await db.transaction(async (tx) => {
+          const stand = await kvEditorStandZumNeuenKv(tx, ctx.workspaceId, registerDeal, {
+            renderer: "vps",
+            grundlage: editor.grundlage,
+            aenderungen: editor.abgleich.liste,
+            offen: editor.abgleich.konflikte,
+            quelleId: editor.quelleId,
+            calculationVersionId: job.calculationVersionId,
+            renderJobId: jobId,
+            dealDocumentId: null,
+            pruefung: editor.pruefung,
+            userId: ctx.userId,
+          });
+          await jobAnlegen({ ...job, kvStandId: stand.id, kvStandZiel: "aktuell" }, tx);
+        });
+      } else {
+        await jobAnlegen(job);
+      }
       if (rechnung) {
         await db.update(dealInvoices).set({ renderJobId: jobId }).where(eq(dealInvoices.id, rechnung.id));
       }

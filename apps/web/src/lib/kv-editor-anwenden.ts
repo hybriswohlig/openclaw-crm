@@ -42,8 +42,6 @@ import {
 type Details = QuotationDocumentDetails;
 type Leistungen = NonNullable<Details["services"]>;
 
-/** `DocumentCopy.introText` kommt mit Aufgabe 2c ins Paket; bis dahin lokal erweitert. */
-type KvCopy = DocumentCopy & { introText?: string };
 
 const text = (w: unknown): string => (typeof w === "string" ? w : "");
 
@@ -221,7 +219,7 @@ export function crmBasis(
 /** Wendet die Änderungen auf eine Kopie des Render-Eingangs an (Anschreiben, Bemerkungen, Leistung). */
 export function crmAnwenden(input: RenderInput, aenderungen: readonly KvAenderung[]): RenderInput {
   const aus = structuredClone(input);
-  const copy: KvCopy = { ...(aus.copy ?? {}) };
+  const copy: DocumentCopy = { ...(aus.copy ?? {}) };
   let copyGeaendert = false;
   for (const a of aenderungen) {
     if (typeof a.wert !== "string") continue;
@@ -499,20 +497,36 @@ export function vpsErwarteteBetraege(
   return { erwartetCent: sortiert(erwartet), erlaubtCent: sortiert(erlaubt) };
 }
 
-const BETRAG_IM_PDF = /([0-9]{1,3}(?:\.[0-9]{3})+|[0-9]+),([0-9]{2})\s?€/g;
+/**
+ * Beträge im PDF-Text: `1.234,56 €` (Spec), dazu ganze Euro (`460 €`, `460 EUR`, `460 Euro`), damit ein
+ * Betrag ohne Cent nicht ungeprüft durchgeht. „Euro-Paletten“ ist kein Betrag.
+ */
+const BETRAG_IM_PDF = /(?<![\d.,])([0-9]{1,3}(?:\.[0-9]{3})+|[0-9]+)(?:,([0-9]{2}))?\s?(?:€|EUR(?![\p{L}-])|Euro(?![\p{L}-]))/gu;
+const SEITE = "\f";
 
-/** Vergleicht die Beträge im PDF-Text vor „Vertragsunterlagen“ mit den erwarteten und erlaubten. */
+/**
+ * Teil des PDF-Texts vor den Vertragsunterlagen. Mit Seitentrennern (`pdfText`) endet er vor der
+ * ersten Seite, die „Vertragsunterlagen“ trägt: im VPS-Text steht diese Kopfzeile erst hinter dem
+ * Inhalt ihrer Seite (§ 451g, AGB), beim Entrümpelungs-KV gibt es nur eine solche Seite. Ohne Trenner
+ * endet er an der Überschrift.
+ */
+function vorVertragsunterlagen(text: string): string {
+  const ende = text.indexOf("Vertragsunterlagen");
+  if (ende < 0) return text;
+  const seite = text.lastIndexOf(SEITE, ende);
+  return text.slice(0, seite >= 0 ? seite : ende);
+}
+
+/** Vergleicht die Beträge im PDF-Text vor den Vertragsunterlagen mit den erwarteten und erlaubten. */
 export function vpsPreisPruefung(
   pdfText: string,
   p: { erwartetCent: number[]; erlaubtCent: number[] }
 ): Pick<KvPreisPruefung, "preis" | "fehlt" | "fremd"> {
-  const normal = pdfText.replace(/[  ]/g, " ");
-  const ende = normal.indexOf("Vertragsunterlagen");
-  const teil = ende >= 0 ? normal.slice(0, ende) : normal;
-  if (teil.trim() === "") return { preis: "nicht_lesbar", fehlt: sortiert(p.erwartetCent), fremd: [] };
+  const teil = vorVertragsunterlagen(pdfText.replace(/[\u00A0\u202F]/g, " "));
+  if (teil.replaceAll(SEITE, "").trim() === "") return { preis: "nicht_lesbar", fehlt: sortiert(p.erwartetCent), fremd: [] };
   const gefunden = new Set<number>();
   for (const m of teil.matchAll(BETRAG_IM_PDF)) {
-    gefunden.add(Number(m[1].replace(/\./g, "")) * 100 + Number(m[2]));
+    gefunden.add(Number(m[1].replace(/\./g, "")) * 100 + Number(m[2] ?? 0));
   }
   const bekannt = new Set([...p.erwartetCent, ...p.erlaubtCent]);
   const fehlt = sortiert(p.erwartetCent.filter((c) => !gefunden.has(c)));

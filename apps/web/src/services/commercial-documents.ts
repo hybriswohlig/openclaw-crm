@@ -70,6 +70,14 @@ import {
   KOTTKE_CRM_RENDERER_MESSAGE,
   blocksInRepoCrmRenderer,
 } from "@/lib/kottke-crm-renderer";
+import { angebotsVersionId } from "@/services/deal-documents";
+import { abgleichen, crmAnwenden, crmBasis } from "@/lib/kv-editor-anwenden";
+import { kvVerworfenPushText, type AbgleichErgebnis, type KvAenderung, type KvBasis, type KvEditorHaken } from "@/lib/kv-editor";
+import * as kvEditorHaken from "@/services/kv-editor-haken";
+import { pushDazwischen } from "@/services/kv-push-regel";
+
+/** Änderungen des KV-Editors für den CRM-Druck: Liste oder Funktion der Basis (Mitwandern). */
+export type KvAenderungenEingabe = readonly KvAenderung[] | ((basis: KvBasis) => readonly KvAenderung[]);
 
 export class CommercialDocumentError extends Error {
   constructor(
@@ -519,6 +527,8 @@ async function ladeModellMitVersion(input: {
   kind: DocKind;
   copy?: DocumentCopy;
   now?: Date;
+  /** Nur KV: Änderungen des KV-Editors (Spec 7.1), angewendet nach der Basis (`crmBasis`). */
+  aenderungen?: KvAenderungenEingabe;
   /**
    * Nur RE eines Stunden-KVs (Plan 9): der bestätigte Rechnungsbetrag. Das PDF
    * druckt ihn als eine Preiszeile; ohne Betrag wird keine Stunden-Rechnung gebaut.
@@ -531,6 +541,8 @@ async function ladeModellMitVersion(input: {
   /** Stand der Quotation, aus dem gerendert wurde (Vergleich unter der Angebots-Sperre). */
   angebotsStand: string;
   istStunden: boolean;
+  /** Nur KV: Katalog des Modells ohne Änderungen. */
+  kvBasis: KvBasis | null;
 }> {
   const { workspaceId, dealRecordId, kind } = input;
   if (!(await assertDealInWorkspace(workspaceId, dealRecordId))) {
@@ -697,7 +709,7 @@ async function ladeModellMitVersion(input: {
     : preisQuelle;
 
   try {
-    const renderInput: RenderInput = {
+    const renderEingabe: RenderInput = {
       kind,
       deal: {
         firma,
@@ -743,13 +755,24 @@ async function ladeModellMitVersion(input: {
       paidCents,
       copy: input.copy,
     };
-    const model = buildDocumentModel(renderInput);
+    let renderInput = renderEingabe;
+    let model = buildDocumentModel(renderEingabe);
+    // KV-Editor: Basis aus dem Modell ohne Änderungen, dann die Änderungen und das Modell neu.
+    const kvBasis = kind === "KV" ? crmBasis(model, input.copy ?? {}) : null;
+    if (kvBasis && input.aenderungen) {
+      const liste = typeof input.aenderungen === "function" ? input.aenderungen(kvBasis) : input.aenderungen;
+      if (liste.length > 0) {
+        renderInput = crmAnwenden(renderEingabe, liste);
+        model = buildDocumentModel(renderInput);
+      }
+    }
     return {
       model,
       calculationVersionId: quotation.calculationVersionId ?? null,
       renderInput,
       angebotsStand: angebotsStandAus(quotation),
       istStunden: quotation.isVariable,
+      kvBasis,
     };
   } catch (err) {
     if (err instanceof MissingPriceError) {
@@ -767,6 +790,8 @@ export interface RenderedCommercialDocument {
   templateVersion: string;
   /** Kalkulationsversion der Quotation, aus der gerendert wurde (null ohne Version). */
   calculationVersionId: string | null;
+  /** Nur KV: Katalog des KV-Editors aus dem Modell ohne Änderungen. */
+  kvBasis: KvBasis | null;
 }
 
 export async function previewCommercialDocument(input: {
@@ -774,8 +799,10 @@ export async function previewCommercialDocument(input: {
   dealRecordId: string;
   kind: DocKind;
   copy?: DocumentCopy;
+  /** Nur KV: Änderungen des KV-Editors. */
+  aenderungen?: KvAenderungenEingabe;
 }): Promise<RenderedCommercialDocument> {
-  const { model, calculationVersionId } = await ladeModellMitVersion(input);
+  const { model, calculationVersionId, kvBasis } = await ladeModellMitVersion(input);
   const pdf = await renderPdf(model);
   return {
     model,
@@ -784,6 +811,7 @@ export async function previewCommercialDocument(input: {
     fileName: `${model.fileStem}.pdf`,
     templateVersion: TEMPLATE_VERSION,
     calculationVersionId,
+    kvBasis,
   };
 }
 
@@ -806,6 +834,8 @@ export async function storeCommercialDocument(input: {
   rechnung?: RechnungEingabe | null;
   /** Aufruf über einen API-Schlüssel (MCP, Agent): Abweichung und Stunden nie. */
   durchAgent?: boolean;
+  /** Nur Tests: Haken des KV-Editors (sonst `services/kv-editor-haken`). */
+  kvEditor?: KvEditorHaken;
 }): Promise<{
   document: DealDocumentMeta;
   templateVersion: string;
@@ -815,6 +845,7 @@ export async function storeCommercialDocument(input: {
   rechnung?: RechnungZeile;
 }> {
   if (input.kind === "RE") return storeRechnungCrm(input);
+  if (input.kind === "KV") return storeKvCrm(input);
   const rendered = await previewCommercialDocument(input);
   if (input.pruefeVersion) await input.pruefeVersion(rendered.calculationVersionId);
   return persistCommercialDocument({
@@ -830,6 +861,89 @@ export async function storeCommercialDocument(input: {
     updatedBy: input.updatedBy,
     now: input.now,
   });
+}
+
+/** Fehler, wenn die Kalkulation zwischen Rendern und Ablegen eine andere Version bekam (Kimi 5). */
+export const KV_VERSION_GEAENDERT_TEXT = "Die Kalkulation hat sich gerade geändert. Bitte den KV neu erstellen.";
+
+/**
+ * KV über den CRM-Renderer mit dem KV-Editor (Spec 7.6, Kimi 5): Quelle lesen (`kvEditorBeimNeuenKv`),
+ * Basis abgleichen und mit der Liste rendern; dann EINE Transaktion unter `angebotSperren`: Version
+ * der Quotation erneut lesen (abweichend → wie `pruefeVersion` ablehnen), Push-Regel (Schritt 4),
+ * Dokument und Stand ablegen. Nachläufe nach dem Commit. Gilt für `kvAusVersion` und
+ * `…/documents/render` (auch MCP).
+ */
+async function storeKvCrm(input: {
+  workspaceId: string;
+  dealRecordId: string;
+  copy?: DocumentCopy;
+  notifyCustomer?: boolean;
+  updatedBy?: string | null;
+  now?: Date;
+  pruefeVersion?: (calculationVersionId: string | null) => void | Promise<void>;
+  kvEditor?: KvEditorHaken;
+}) {
+  const haken: KvEditorHaken = input.kvEditor ?? kvEditorHaken;
+  const { quelle } = await haken.kvEditorBeimNeuenKv(input.workspaceId, input.dealRecordId);
+  let abgleich: AbgleichErgebnis = { liste: [], konflikte: [] };
+  const rendered = await previewCommercialDocument({
+    workspaceId: input.workspaceId,
+    dealRecordId: input.dealRecordId,
+    kind: "KV",
+    copy: input.copy,
+    aenderungen: (basis) => {
+      if (quelle) abgleich = abgleichen(basis, quelle.aenderungen, quelle.offen);
+      return abgleich.liste;
+    },
+  });
+  if (input.pruefeVersion) await input.pruefeVersion(rendered.calculationVersionId);
+
+  const fileName = `${rendered.model.fileStem}-${crypto.randomUUID().slice(0, 8)}.pdf`;
+  const fileContent = Buffer.from(rendered.pdf).toString("base64");
+  const document = await db.transaction(async (tx) => {
+    await angebotSperren(tx, input.dealRecordId);
+    const versionJetzt = await angebotsVersionId(input.dealRecordId, tx);
+    if (versionJetzt !== rendered.calculationVersionId) {
+      if (input.pruefeVersion) await input.pruefeVersion(versionJetzt);
+      throw new CommercialDocumentError(KV_VERSION_GEAENDERT_TEXT, 409, "KALKULATION_NEU");
+    }
+    const push = await pushDazwischen(tx, input.workspaceId, input.dealRecordId, quelle?.id ?? null);
+    if (push) throw new CommercialDocumentError(kvVerworfenPushText(push.nummer), 409, "AKTUELL_GEAENDERT");
+    const doc = await createDealDocument(
+      {
+        workspaceId: input.workspaceId,
+        dealRecordId: input.dealRecordId,
+        documentType: "quotation",
+        fileName,
+        fileSize: rendered.pdf.byteLength,
+        mimeType: "application/pdf",
+        fileContent,
+        notifyCustomer: input.notifyCustomer === true,
+        calculationVersionId: rendered.calculationVersionId,
+      },
+      tx
+    );
+    await haken.kvEditorStandZumNeuenKv(tx, input.workspaceId, input.dealRecordId, {
+      renderer: "crm",
+      grundlage: { copy: { ...(input.copy ?? {}) } },
+      aenderungen: abgleich.liste,
+      offen: abgleich.konflikte,
+      quelleId: quelle?.id ?? null,
+      calculationVersionId: rendered.calculationVersionId,
+      renderJobId: null,
+      dealDocumentId: doc.id,
+      datei: { fileName, fileSize: rendered.pdf.byteLength, fileContent },
+      pruefung: null,
+      userId: input.updatedBy ?? null,
+    });
+    return doc;
+  });
+
+  await dealDokumentNachlauf(
+    { workspaceId: input.workspaceId, dealRecordId: input.dealRecordId, notifyCustomer: input.notifyCustomer === true },
+    "quotation"
+  );
+  return { document, templateVersion: rendered.templateVersion, fileName, rechnungFaelligAm: null };
 }
 
 /**

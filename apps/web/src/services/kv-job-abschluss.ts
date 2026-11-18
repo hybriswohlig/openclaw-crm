@@ -18,7 +18,14 @@ import {
   parseFilenameFromContentDisposition,
   validateDealDocumentUpload,
 } from "@/services/deal-documents";
-import { abschliessenMitAnspruch, ablegenUnterSperre } from "@/services/kv-job-ablage";
+import {
+  abschliessenMitAnspruch,
+  ablegenUnterSperre,
+  kvStandPruefungLaden,
+  type KvAblage,
+} from "@/services/kv-job-ablage";
+import { vpsPreisPruefung } from "@/lib/kv-editor-anwenden";
+import { pdfText } from "@/services/pdf-text";
 import { applyInvoiceDueDate } from "@/services/rechnung-faellig";
 import { aktiveRechnung, nachRechnung } from "@/services/rechnungen";
 
@@ -29,6 +36,33 @@ export interface AbschlussOptionen {
   faelligAm?: unknown;
   /** Wer ablegt (Browser); der Cron nimmt den Ersteller des Jobs. */
   updatedBy?: string | null;
+  /** Nur Tests: PDF-Text lesen (sonst `pdfText`). */
+  pdfLesen?: (bytes: Uint8Array) => Promise<string>;
+}
+
+/**
+ * KV-Editor (Spec 7.3): trägt der Stand des Jobs erwartete Beträge, wird das PDF gelesen und
+ * geprüft. Nicht lesbar (kaputt, leer) ergibt `nicht_lesbar`, nie `ok`.
+ */
+async function kvPreisPruefen(
+  ws: string,
+  job: RenderJob,
+  bytes: Uint8Array,
+  lesen: (bytes: Uint8Array) => Promise<string>
+): Promise<KvAblage> {
+  if (!job.kvStandId) return { pruefung: null };
+  const gespeichert = await kvStandPruefungLaden(ws, job.kvStandId);
+  if (!gespeichert) return { pruefung: null };
+  const betraege = { erwartetCent: gespeichert.erwartetCent, erlaubtCent: gespeichert.erlaubtCent };
+  let text: string | null = null;
+  try {
+    text = await lesen(bytes);
+  } catch (err) {
+    console.error("[kv-job-abschluss] PDF-Text nicht lesbar", job.vpsJobId, err);
+  }
+  const ergebnis =
+    text === null ? { preis: "nicht_lesbar" as const, fehlt: [...betraege.erwartetCent], fremd: [] } : vpsPreisPruefung(text, betraege);
+  return { pruefung: { ...betraege, ...ergebnis } };
 }
 
 /** Ergebnis samt Angaben, die `store-as-document` in seiner Antwort braucht. */
@@ -146,16 +180,22 @@ export async function kvJobAbschliessenDetails(
   const check = validateDealDocumentUpload({ fileName, fileSize: bytes.length, documentType: job.documentType });
   if (!check.ok) return fehlerAbschliessen(ws, job, check.error);
 
-  // 4) Eine Transaktion unter der Deal-Sperre: genau einmal, nie veraltet.
+  // 4) Eine Transaktion unter der Deal-Sperre: genau einmal, nie veraltet. Vorher (ohne Sperre)
+  //    die Preisprüfung des KV-Editors, wenn der Stand des Jobs eine trägt.
   let ablage: Awaited<ReturnType<typeof ablegenUnterSperre>>;
   try {
-    ablage = await ablegenUnterSperre(job, {
-      fileName,
-      mimeType,
-      fileSize: bytes.length,
-      fileContent: bytes.toString("base64"),
-      documentType: check.documentType,
-    });
+    const kv = await kvPreisPruefen(ws, job, bytes, opts.pdfLesen ?? pdfText);
+    ablage = await ablegenUnterSperre(
+      job,
+      {
+        fileName,
+        mimeType,
+        fileSize: bytes.length,
+        fileContent: bytes.toString("base64"),
+        documentType: check.documentType,
+      },
+      kv
+    );
   } catch (err) {
     // Deal gelöscht oder in einem anderen Workspace: endgültig. Sonst nach Ablauf der Reservierung neu.
     if (err instanceof Error && err.message === "Deal nicht gefunden.") return fehlerAbschliessen(ws, job, err.message);
@@ -163,7 +203,16 @@ export async function kvJobAbschliessenDetails(
     return { abschluss: { status: "laeuft" }, job };
   }
   if (ablage.art === "verloren") return neuGelesen(ws, vpsJobId);
-  if (ablage.art === "verworfen") return { abschluss: { status: "verworfen", grund: "version_veraltet" }, job };
+  if (ablage.art === "verworfen") {
+    return {
+      abschluss: ablage.text
+        ? { status: "verworfen", grund: "kv_editor", text: ablage.text }
+        : { status: "verworfen", grund: "version_veraltet" },
+      job,
+    };
+  }
+  // KV-Editor-Entwurf: PDF liegt im Stand, keine Nachläufe (der Kunde sieht nichts).
+  if (ablage.art === "entwurf") return { abschluss: { status: "entwurf", standStatus: ablage.status }, job };
   const dokument = ablage.dokument;
 
   // Nachläufe erst nach dem Commit; Fehler dort brechen das Ablegen nicht.

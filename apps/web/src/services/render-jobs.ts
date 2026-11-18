@@ -7,11 +7,16 @@ import { and, asc, desc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { documentRenderJobs, type DocumentRenderJobRow } from "@/db/schema/document-render-jobs";
 import { dealInvoices } from "@/db/schema/deal-invoices";
+import { kvStaende } from "@/db/schema/kv-editor";
 import {
   RENDER_JOB_ABLAUF_MS,
   RENDER_JOB_RESERVIERUNG_MS,
   type RenderJob,
 } from "@/lib/angebot-wahl";
+import { KV_STAND_VERWORFEN_TEXT } from "@/lib/kv-editor";
+
+/** Stand `fehler`, wenn sein Druck nie fertig wurde (Cron, RENDER_JOB_ABLAUF_MS). */
+export const KV_STAND_ABGELAUFEN_TEXT = "Druck nicht fertig geworden. Bitte neu drucken.";
 
 type NeuerJob = Omit<RenderJob, "status" | "createdAt" | "claimedAt" | "storedAt" | "dealDocumentId" | "fehler">;
 
@@ -53,6 +58,24 @@ export async function rechnungenDerJobsVerwerfen(ex: Ex, invoiceIds: (string | n
     .update(dealInvoices)
     .set({ status: "verworfen", verworfenGrund: grund.slice(0, 500), updatedAt: new Date() })
     .where(and(inArray(dealInvoices.id, ids), eq(dealInvoices.status, "entwurf")));
+}
+
+/**
+ * KV-Editor (Spec 7.3): Stände gescheiterter oder verworfener Jobs auf `fehler`, nur solange der
+ * Stand noch druckt und genau dieser Job sein Druck ist. Ein fertiger Stand bleibt unverändert.
+ */
+export async function kvStaendeFehler(
+  ex: Ex,
+  jobs: { vpsJobId: string; kvStandId: string | null | undefined }[],
+  fehler: string
+): Promise<void> {
+  for (const j of jobs) {
+    if (!j.kvStandId) continue;
+    await ex
+      .update(kvStaende)
+      .set({ status: "fehler", fehler: fehler.slice(0, 500) })
+      .where(and(eq(kvStaende.id, j.kvStandId), eq(kvStaende.renderJobId, j.vpsJobId), eq(kvStaende.status, "druckt")));
+  }
 }
 
 /** Legt den Job an (über `ex`, sonst `db`). Dieselbe `vps_job_id` ein zweites Mal ändert nichts. */
@@ -126,9 +149,10 @@ export async function jobAbschliessen(
         eq(documentRenderJobs.status, "laeuft")
       )
     )
-    .returning({ invoiceId: documentRenderJobs.invoiceId });
+    .returning({ invoiceId: documentRenderJobs.invoiceId, vpsJobId: documentRenderJobs.vpsJobId, kvStandId: documentRenderJobs.kvStandId });
   if (e.status !== "abgelegt") {
     await rechnungenDerJobsVerwerfen(db, rows.map((r) => r.invoiceId), e.fehler ?? `Job ${e.status}`);
+    await kvStaendeFehler(db, rows, e.fehler ?? (e.status === "verworfen" ? KV_STAND_VERWORFEN_TEXT : `Job ${e.status}`));
   }
 }
 
@@ -153,7 +177,7 @@ export async function offeneJobs(grenze: Date, limit: number, documentType?: str
   return rows.map(zuJob);
 }
 
-/** Neuester KV-Job (`quotation`) zu Deal und Version in diesem Workspace. */
+/** Neuester KV-Job (`quotation`) zu Deal und Version in diesem Workspace; Entwürfe des KV-Editors zählen nicht. */
 export async function letzterKvJob(ws: string, deal: string, versionId: string): Promise<RenderJob | null> {
   const [row] = await db
     .select()
@@ -164,6 +188,7 @@ export async function letzterKvJob(ws: string, deal: string, versionId: string):
         eq(documentRenderJobs.dealRecordId, deal),
         eq(documentRenderJobs.calculationVersionId, versionId),
         eq(documentRenderJobs.documentType, "quotation"),
+        sql`${documentRenderJobs.kvStandZiel} IS DISTINCT FROM 'entwurf'`,
       ),
     )
     .orderBy(desc(documentRenderJobs.createdAt))
@@ -181,7 +206,8 @@ export async function jobsAbgelaufenMarkieren(jetzt: Date): Promise<number> {
     .update(documentRenderJobs)
     .set({ status: "fehler", fehler: "abgelaufen" })
     .where(and(eq(documentRenderJobs.status, "laeuft"), lt(documentRenderJobs.createdAt, grenze)))
-    .returning({ vpsJobId: documentRenderJobs.vpsJobId, invoiceId: documentRenderJobs.invoiceId });
+    .returning({ vpsJobId: documentRenderJobs.vpsJobId, invoiceId: documentRenderJobs.invoiceId, kvStandId: documentRenderJobs.kvStandId });
   await rechnungenDerJobsVerwerfen(db, rows.map((r) => r.invoiceId), "Dokumentjob abgelaufen");
+  await kvStaendeFehler(db, rows, KV_STAND_ABGELAUFEN_TEXT);
   return rows.length;
 }

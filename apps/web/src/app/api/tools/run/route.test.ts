@@ -20,6 +20,9 @@ const m = vi.hoisted(() => {
     lesen: vi.fn(),
     dbUpdate: vi.fn(),
     leadAuszug: vi.fn((_deal: unknown): unknown => null),
+    // KV-Editor-Haken (Stub bis Aufgabe 3): Quelle und Stand im Test.
+    beimNeuenKv: vi.fn(),
+    standZumNeuenKv: vi.fn(),
   };
 });
 
@@ -54,6 +57,10 @@ vi.mock("@/services/document-job-context", () => ({
   assertDealInWorkspace: m.assertDealInWorkspace,
 }));
 vi.mock("@/services/render-jobs", () => ({ jobAnlegen: m.jobAnlegen }));
+vi.mock("@/services/kv-editor-haken", () => ({
+  kvEditorBeimNeuenKv: m.beimNeuenKv,
+  kvEditorStandZumNeuenKv: m.standZumNeuenKv,
+}));
 
 import { POST } from "./route";
 
@@ -82,9 +89,15 @@ beforeEach(() => {
   m.getAuthContext.mockResolvedValue({ userId: "usr_1", workspaceId: WS });
   m.jobAnlegen.mockResolvedValue(undefined);
   m.assertDealInWorkspace.mockResolvedValue(true);
+  m.beimNeuenKv.mockResolvedValue({ quelle: null });
+  m.standZumNeuenKv.mockResolvedValue({ id: "stand_1" });
   m.attachDocumentJobContext.mockImplementation(async (_ws: string, p: Record<string, unknown>) => ({
     params: { ...p, preise: { modell: "pauschale" } },
     kv: p.document_type === "KV" ? { calculationVersionId: "ver_3", priceCents: 172000 } : null,
+    kvBasis: null,
+    kvPreise: p.document_type === "KV" ? { erwartetCent: [172000], erlaubtCent: [0] } : null,
+    bildIds: [],
+    inventarIds: [],
     re:
       p.document_type === "RE"
         ? { istStunden: p._stunden === true, pdfBetragCent: p._stunden === true ? null : 90000, angebotsStand: "stand-1", firma: "kottke" }
@@ -112,19 +125,95 @@ describe("POST /api/tools/run: Job-Register", () => {
     });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ job_id: "job_42" });
-    expect(m.jobAnlegen).toHaveBeenCalledWith({
-      vpsJobId: "job_42",
-      workspaceId: WS,
-      dealRecordId: "deal_1",
-      documentType: "quotation",
+    // KV-Editor (Spec 7.6 Schritt 3): Stand und Job in derselben Transaktion, Ziel „aktuell“.
+    expect(m.jobAnlegen).toHaveBeenCalledWith(
+      {
+        vpsJobId: "job_42",
+        workspaceId: WS,
+        dealRecordId: "deal_1",
+        documentType: "quotation",
+        calculationVersionId: "ver_3",
+        priceCents: 172000,
+        createdBy: "usr_1",
+        invoiceId: null,
+        kvStandId: "stand_1",
+        kvStandZiel: "aktuell",
+      },
+      { tx: true }
+    );
+    expect(m.standZumNeuenKv).toHaveBeenCalledWith({ tx: true }, WS, "deal_1", {
+      renderer: "vps",
+      grundlage: { bildIds: [] },
+      aenderungen: [],
+      offen: [],
+      quelleId: null,
       calculationVersionId: "ver_3",
-      priceCents: 172000,
-      createdBy: "usr_1",
-      invoiceId: null,
+      renderJobId: "job_42",
+      dealDocumentId: null,
+      pruefung: { erwartetCent: [172000], erlaubtCent: [0], preis: "offen", fehlt: [], fremd: [] },
+      userId: "usr_1",
     });
     // An den VPS gehen die Parameter aus dem Kontext, nicht die Version aus dem Browser.
     const gesendet = JSON.parse(String(fetchMock.mock.calls[0][1].body));
     expect(gesendet.params.preise).toEqual({ modell: "pauschale" });
+  });
+
+  it("KV-Editor: Änderungen der Quelle wandern über den Abgleich mit, Grundlage aus dem Dialog, _kv_stand weg", async () => {
+    const aenderung = (schluessel: string, wert: string, vorher: string) => ({
+      schluessel,
+      wert,
+      vorher,
+      quelle: "hand" as const,
+      von: "usr_1",
+      am: "2026-11-18T10:00:00.000Z",
+    });
+    const passt = aenderung("leistungen:transport:notiz", "Mit Koffer-Lkw", "");
+    const weg = aenderung("umzugsgut:inv_alt:notiz", "Vorsicht Glas", "");
+    m.beimNeuenKv.mockResolvedValue({ quelle: { id: "stand_5", aenderungen: [passt, weg], offen: [] } });
+    const basis = {
+      renderer: "vps",
+      felder: [{ schluessel: "leistungen:transport:notiz", abschnitt: "leistungen", label: "Notiz", art: "langtext", basis: "" }],
+    };
+    let liste: unknown = null;
+    m.attachDocumentJobContext.mockImplementation(
+      async (_ws: string, p: Record<string, unknown>, opts: { aenderungen: (b: unknown) => unknown }) => {
+        liste = opts.aenderungen(basis);
+        return {
+          // Fotos lädt die Route danach selbst; hier ohne Datenbank.
+          params: { ...p, preise: { modell: "pauschale" }, _image_attachment_ids: [] },
+          kv: { calculationVersionId: "ver_3", priceCents: 172000 },
+          kvBasis: basis,
+          kvPreise: { erwartetCent: [172000], erlaubtCent: [0] },
+          bildIds: [],
+          inventarIds: [],
+        };
+      }
+    );
+    const res = await run("rechnungen-und-auftragsbestaetigungen", {
+      document_type: "KV",
+      _deal_record_id: "deal_1",
+      _kv_stand: "stand_browser",
+      anweisung: "  Klavier vorsichtig  ",
+      document_details: { kitchen: { notes: "Altbau" } },
+      _image_attachment_ids: ["att_1", "att_2"],
+    });
+    expect(res.status).toBe(200);
+    expect(m.beimNeuenKv).toHaveBeenCalledWith(WS, "deal_1");
+    expect(liste).toEqual([passt]);
+    const e = m.standZumNeuenKv.mock.calls[0][3];
+    expect(e.quelleId).toBe("stand_5");
+    expect(e.aenderungen).toEqual([passt]);
+    expect(e.offen).toEqual([{ aenderung: weg, art: "ziel_fehlt", basisJetzt: null, status: "offen" }]);
+    expect(e.grundlage).toEqual({ anweisung: "Klavier vorsichtig", kitchen: { notes: "Altbau" }, bildIds: ["att_1", "att_2"] });
+    const gesendet = JSON.parse(String(fetchMock.mock.calls[0][1].body));
+    expect(gesendet.params._kv_stand).toBeUndefined();
+  });
+
+  it("KV-Editor: scheitert der Stand, gibt es keinen Register-Eintrag und einen sichtbaren Fehler", async () => {
+    m.standZumNeuenKv.mockRejectedValue(new Error("kv-editor: Haken noch nicht gebaut"));
+    const res = await run("rechnungen-und-auftragsbestaetigungen", { document_type: "KV", _deal_record_id: "deal_1" });
+    expect(res.status).toBe(500);
+    expect(m.jobAnlegen).not.toHaveBeenCalled();
   });
 
   it("AB ohne Version und Preis; Rechnung mit Datensatz und Betrag (Plan 9)", async () => {

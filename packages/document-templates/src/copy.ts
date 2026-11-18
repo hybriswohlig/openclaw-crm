@@ -5,7 +5,8 @@
  * Sie/du only changes the pronouns and the greeting. Euro amounts are
  * never written here: the price block is the only place a figure appears.
  * Optional copy.intro / copy.closing / copy.remarks replace the matching
- * default and cannot change the total.
+ * default and cannot change the total. copy.introText (KV-Editor) replaces only the
+ * text after the greeting; the greeting is always built from the deal.
  */
 import { formatGermanDate } from "./money";
 import { kottkeRestbetragSatz } from "./restbetrag";
@@ -476,7 +477,11 @@ export function composeDocumentCopy(input: {
           givenName: input.givenName,
           businessCustomer: business,
         }),
-        defaultIntro(input.kind, addressForm, nouns),
+        ...(input.copy?.introText === undefined
+          ? [defaultIntro(input.kind, addressForm, nouns)]
+          : cleanCopy(input.copy.introText)
+            ? [cleanCopy(input.copy.introText)!]
+            : []),
       ];
   const closing = [closingOverride ?? defaultClosing(input.kind, nouns)];
   return {

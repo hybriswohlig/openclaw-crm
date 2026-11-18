@@ -50,6 +50,7 @@ describe.skipIf(!url)("kv-job-ablage (DB)", () => {
 
   beforeEach(async () => {
     await sql`delete from document_render_jobs where deal_record_id = ${deal}`;
+    await sql`delete from kv_staende where deal_record_id = ${deal}`;
     await sql`delete from deal_documents where deal_record_id = ${deal}`;
     await sql`update quotations set calculation_version_id = ${v1} where deal_record_id = ${deal}`;
   });
@@ -157,5 +158,127 @@ describe.skipIf(!url)("kv-job-ablage (DB)", () => {
     expect((await ablage.ablegenUnterSperre(job, pdf)).art).toBe("abgelegt");
     const [doc] = await sql`select calculation_version_id from deal_documents where deal_record_id = ${deal}`;
     expect(doc.calculation_version_id).toBeNull();
+  });
+
+  describe("KV-Editor: Ablage nach kv_stand_ziel (Spec 7.3)", () => {
+    const betraege = { erwartetCent: [116000, 46000, 162000], erlaubtCent: [0] };
+    const ok = { ...betraege, preis: "ok" as const, fehlt: [], fremd: [] };
+    const abweichung = { ...betraege, preis: "abweichung" as const, fehlt: [46000], fremd: [56000] };
+    let nummer = 0;
+
+    async function stand(teil: { quelle?: string; aenderungen?: unknown[]; vorgaenger?: string | null; status?: string; jobId?: string; dokument?: string | null; gepusht?: boolean } = {}) {
+      const id = randomUUID();
+      await sql`insert into kv_staende (id, workspace_id, deal_record_id, nummer, vorgaenger_id, renderer, calculation_version_id, grundlage,
+          aenderungen, quelle, status, render_job_id, deal_document_id, gepusht_am, pruefung)
+        values (${id}, ${ws}, ${deal}, ${++nummer}, ${teil.vorgaenger ?? null}, 'vps', ${v1}, ${sql.json({ bildIds: [] })},
+          ${sql.json((teil.aenderungen ?? []) as never)}, ${teil.quelle ?? "neu"}, ${teil.status ?? "druckt"}, ${teil.jobId ?? null},
+          ${teil.dokument ?? null}, ${teil.gepusht ? sql`now()` : null}, ${sql.json({ ...betraege, preis: "offen", fehlt: [], fremd: [] })})`;
+      return id;
+    }
+
+    async function mitStand(ziel: "entwurf" | "aktuell", teil: Parameters<typeof stand>[0] = {}) {
+      const vpsJobId = randomUUID();
+      const standId = await stand({ ...teil, jobId: vpsJobId });
+      const job = await reserviert(new Date(), { vpsJobId, kvStandId: standId, kvStandZiel: ziel });
+      return { job, standId };
+    }
+
+    const standLesen = async (id: string) =>
+      (await sql`select status, fehler, file_name, deal_document_id, pruefung from kv_staende where id = ${id}`)[0];
+    const AENDERUNG = [{ schluessel: "leistungen:transport:notiz", wert: "x", vorher: "", quelle: "hand", von: "u", am: "2026-11-18T10:00:00Z" }];
+
+    it("Entwurf: PDF und Prüfung nur im Stand, nie in deal_documents; Job abgelegt ohne Dokument", async () => {
+      const { job, standId } = await mitStand("entwurf");
+      expect(await ablage.ablegenUnterSperre(job, pdf, { pruefung: ok })).toEqual({ art: "entwurf", status: "fertig" });
+      expect(await dokumente()).toBe(0);
+      expect(await standLesen(standId)).toMatchObject({ status: "fertig", fehler: null, file_name: pdf.fileName, pruefung: ok });
+      expect(await jobs.jobLaden(ws, job.vpsJobId)).toMatchObject({ status: "abgelegt", dealDocumentId: null });
+    });
+
+    it("Entwurf mit Preisabweichung oder ohne Prüfung: Stand fehler mit Text", async () => {
+      const a = await mitStand("entwurf");
+      expect(await ablage.ablegenUnterSperre(a.job, pdf, { pruefung: abweichung })).toEqual({ art: "entwurf", status: "fehler" });
+      expect(await standLesen(a.standId)).toMatchObject({
+        status: "fehler",
+        fehler: "Preis im Druck weicht von der Kalkulation ab. Bitte neu drucken; bleibt es so, Claude Bescheid sagen.",
+        pruefung: abweichung,
+      });
+      const b = await mitStand("entwurf");
+      expect(await ablage.ablegenUnterSperre(b.job, pdf)).toEqual({ art: "entwurf", status: "fehler" });
+      expect((await standLesen(b.standId)).fehler).toBe("PDF nicht prüfbar. Bitte neu drucken.");
+      expect(await dokumente()).toBe(0);
+    });
+
+    it("spätes Ergebnis ändert einen fertigen Stand nicht", async () => {
+      const { job, standId } = await mitStand("entwurf", { status: "fertig" });
+      expect((await ablage.ablegenUnterSperre(job, pdf, { pruefung: abweichung })).art).toBe("verworfen");
+      expect(await standLesen(standId)).toMatchObject({ status: "fertig", fehler: null, file_name: null });
+      expect(await dokumente()).toBe(0);
+    });
+
+    it("Ziel ohne Stand (Stand gelöscht): verworfen", async () => {
+      const { job, standId } = await mitStand("entwurf");
+      await sql`delete from kv_staende where id = ${standId}`;
+      const nachLoeschen = { ...job, kvStandId: null };
+      expect((await ablage.ablegenUnterSperre(nachLoeschen, pdf, { pruefung: ok })).art).toBe("verworfen");
+      expect(await dokumente()).toBe(0);
+      expect((await jobs.jobLaden(ws, job.vpsJobId))?.status).toBe("verworfen");
+    });
+
+    it("aktuell: legt ab wie heute und verknüpft den Stand mit Dokument und Datei", async () => {
+      const { job, standId } = await mitStand("aktuell");
+      const r = await ablage.ablegenUnterSperre(job, pdf, { pruefung: ok });
+      expect(r.art).toBe("abgelegt");
+      const [doc] = await sql`select id from deal_documents where deal_record_id = ${deal}`;
+      expect(await standLesen(standId)).toMatchObject({ status: "fertig", deal_document_id: doc.id, file_name: pdf.fileName, pruefung: ok });
+    });
+
+    it("aktuell mit Preisabweichung: mit Änderungen verworfen, ohne Änderungen abgelegt mit Warnung", async () => {
+      const mit = await mitStand("aktuell", { quelle: "mitgewandert", aenderungen: AENDERUNG });
+      expect(await ablage.ablegenUnterSperre(mit.job, pdf, { pruefung: abweichung })).toMatchObject({ art: "verworfen" });
+      expect(await standLesen(mit.standId)).toMatchObject({ status: "fehler", pruefung: abweichung });
+      expect(await dokumente()).toBe(0);
+
+      const ohne = await mitStand("aktuell");
+      expect((await ablage.ablegenUnterSperre(ohne.job, pdf, { pruefung: abweichung })).art).toBe("abgelegt");
+      expect(await standLesen(ohne.standId)).toMatchObject({ status: "fertig", pruefung: abweichung });
+      expect(await dokumente()).toBe(1);
+    });
+
+    it("älterer KV-Job nach einem Push von Hand: verworfen mit Text (Kimi 1); Quelle selbst gepusht: abgelegt", async () => {
+      // Aktuelles Dokument gehört zu einem gepushten Stand „hand“, der nicht die Quelle des Jobs ist.
+      const [doc] = await sql`insert into deal_documents (id, workspace_id, deal_record_id, document_type, file_name, file_size, mime_type, file_content)
+        values (${randomUUID()}, ${ws}, ${deal}, 'quotation', 'KV-alt.pdf', 9, 'application/pdf', ${pdf.fileContent}) returning id`;
+      const gepusht = await stand({ quelle: "hand", status: "fertig", dokument: doc.id, gepusht: true });
+      const alt = await mitStand("aktuell");
+      const r = await ablage.ablegenUnterSperre(alt.job, pdf, { pruefung: ok });
+      const n = (await sql`select nummer from kv_staende where id = ${gepusht}`)[0].nummer;
+      const text = `Inzwischen wurde Stand ${n} gepusht. KV neu erstellen, die Änderungen wandern mit.`;
+      expect(r).toEqual({ art: "verworfen", text });
+      expect(await standLesen(alt.standId)).toMatchObject({ status: "fehler", fehler: text });
+      expect(await dokumente()).toBe(1);
+
+      // Der gepushte Stand war beim Start schon aktuell (Quelle): der neue KV gewinnt.
+      const neu = await mitStand("aktuell", { quelle: "mitgewandert", vorgaenger: gepusht, aenderungen: AENDERUNG });
+      expect((await ablage.ablegenUnterSperre(neu.job, pdf, { pruefung: ok })).art).toBe("abgelegt");
+      expect(await dokumente()).toBe(2);
+    });
+
+    it("Fehler und Versionswechsel setzen einen druckenden Stand auf fehler", async () => {
+      const a = await mitStand("entwurf");
+      expect(await ablage.abschliessenMitAnspruch(ws, a.job.vpsJobId, a.job.claimedAt, { status: "fehler", fehler: "Skill-Fehler auf dem VPS" })).toBe(true);
+      expect(await standLesen(a.standId)).toMatchObject({ status: "fehler", fehler: "Skill-Fehler auf dem VPS" });
+
+      const b = await mitStand("aktuell");
+      await sql`update quotations set calculation_version_id = ${v2} where deal_record_id = ${deal}`;
+      expect((await ablage.ablegenUnterSperre(b.job, pdf, { pruefung: ok })).art).toBe("verworfen");
+      expect(await standLesen(b.standId)).toMatchObject({ status: "fehler", fehler: "KV verworfen, Kalkulation neuer" });
+    });
+
+    it("kvStandPruefungLaden liest die erwarteten Beträge, nur im eigenen Workspace", async () => {
+      const id = await stand();
+      expect(await ablage.kvStandPruefungLaden(ws, id)).toEqual({ ...betraege, preis: "offen", fehlt: [], fremd: [] });
+      expect(await ablage.kvStandPruefungLaden(randomUUID(), id)).toBeNull();
+    });
   });
 });
