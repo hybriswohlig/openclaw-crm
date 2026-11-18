@@ -49,6 +49,10 @@ export const AI_TASK_SLUGS = {
   // output only — the wizard shows it as editable suggestions and never
   // writes without the operator pressing "Projekt erstellen".
   PROJECT_PLAN_GENERATE: "project_plan_generate",
+  // KV-Editor: Chat zum KV. Schlägt nur Schlüssel-Wert-Paare aus dem Feldkatalog
+  // des Stands vor (nie Preise, Datum, Adressen); ein Mensch übernimmt, der Server
+  // prüft die Herkunft (lib/kv-editor.ts, services/kv-editor-ki.ts).
+  DEAL_KV_EDITOR: "deal.kv-editor",
 } as const;
 
 /**
@@ -262,6 +266,19 @@ export const AI_TASK_REGISTRY: Record<AITaskSlug, AITaskDefinition> = {
     defaultFallbackModel: "grok-4.6",
     defaultTemperature: 0.3,
     defaultMaxTokens: 6000,
+    defaultDailySpendCapUsd: 3,
+    humanizeOutput: false,
+  },
+  [AI_TASK_SLUGS.DEAL_KV_EDITOR]: {
+    slug: AI_TASK_SLUGS.DEAL_KV_EDITOR,
+    label: "KV-Editor (Chat zum KV)",
+    description:
+      "Schlägt auf Zuruf Änderungen an den Texten eines KV vor (Notizen, Zuständigkeit, Hinweise, Uhrzeit), nur aus der Feldliste des Stands. Ändert nie Preise, Datum oder Adressen; übernommen wird erst durch einen Menschen.",
+    defaultProvider: "crm-tools",
+    defaultModel: "grok-4.6",
+    defaultFallbackModel: "claude-code",
+    defaultTemperature: 0.2,
+    defaultMaxTokens: 2048,
     defaultDailySpendCapUsd: 3,
     humanizeOutput: false,
   },

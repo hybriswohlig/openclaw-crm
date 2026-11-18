@@ -22,3 +22,19 @@ describe("project_plan_generate registry entry", () => {
     expect(listTaskDefinitions().map((d) => d.slug)).toContain("project_plan_generate");
   });
 });
+
+describe("deal.kv-editor registry entry", () => {
+  it("passt zu Spec 8 und dem Vertrag (KV_EDITOR_KI_SLUG)", async () => {
+    const { KV_EDITOR_KI_SLUG } = await import("@/lib/kv-editor");
+    expect(AI_TASK_SLUGS.DEAL_KV_EDITOR).toBe(KV_EDITOR_KI_SLUG);
+    expect(getTaskDefinition("deal.kv-editor")).toMatchObject({
+      defaultProvider: "crm-tools",
+      defaultModel: "grok-4.6",
+      defaultFallbackModel: "claude-code",
+      defaultTemperature: 0.2,
+      defaultMaxTokens: 2048,
+    });
+    expect(getTaskDefinition("deal.kv-editor")?.humanizeOutput).toBeFalsy();
+    expect(listTaskDefinitions().map((d) => d.slug)).toContain("deal.kv-editor");
+  });
+});

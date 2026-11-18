@@ -317,6 +317,10 @@ export interface KonflikteAntwort {
 }
 
 export interface KvChatBeitrag {
+  /** `activity_events.id` des Beitrags; bei der KI die `kiNachrichtId` fürs Übernehmen (Nachtrag 6a). */
+  nachrichtId: string;
+  /** Nur KI: aus diesem Vorschlag wurde schon ein Stand gespeichert (`kv_staende.ki_nachricht_id`); Nutzer: false. */
+  uebernommen: boolean;
   rolle: "nutzer" | "ki";
   text: string;
   am: string;
