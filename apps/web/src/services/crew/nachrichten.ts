@@ -153,7 +153,7 @@ export async function zusageSenden(ws: string, deal: string, neu: string[], auto
     const personen = await personenLesen(ws, neu);
     const tag = (await dealTerminLesen(ws, deal).catch(() => null)) ?? "";
     for (const [i, p] of personen.entries()) {
-      if (i > 0) await deps.pause(1500);
+      if (i > 0) await deps.pause(700);
       // Job so, wie die Person ihn sieht (Tag, Art, Ort); ohne Link nur mit Tag.
       let job: JobZeile | null = null;
       if (p.linkId) {
@@ -176,23 +176,54 @@ export interface RundschreibenErgebnis {
   ohneNeues: number;
   uebersprungen: number;
   fehler: number;
+  /** Zeitgrenze erreicht, Rest morgen. */
+  abgebrochen: boolean;
+}
+
+export const LAUF_SCHLUESSEL = "crew_neue_jobs_lauf";
+
+/**
+ * Beansprucht den heutigen Lauf für diesen Workspace in einem Schritt. Nur ein
+ * Aufruf pro Berliner Tag bekommt true; ein doppelt ausgelöster Cron sendet nie zweimal.
+ */
+export async function laufBeanspruchen(ws: string, heute: string): Promise<boolean> {
+  const r = zeilen<{ ok: number }>(
+    await db.execute(sql`
+      INSERT INTO workspace_settings (workspace_id, key, value_plain, is_secret, updated_at)
+      VALUES (${ws}, ${LAUF_SCHLUESSEL}, ${heute}, false, now())
+      ON CONFLICT (workspace_id, key) DO UPDATE SET value_plain = EXCLUDED.value_plain, updated_at = now()
+        WHERE workspace_settings.value_plain IS DISTINCT FROM EXCLUDED.value_plain
+      RETURNING 1 AS ok
+    `),
+  );
+  return r.length > 0;
 }
 
 /**
  * Sammelnachricht zu neuen Jobs, für alle Workspaces mit Crew-Links. Pro Person
  * höchstens eine am Tag (Berlin); nur Jobs ab morgen, noch offen und nicht voll.
  */
-export async function neueJobsRundschreiben(o: { jetzt?: Date; deps?: NachrichtenDeps } = {}): Promise<RundschreibenErgebnis> {
+export async function neueJobsRundschreiben(
+  o: { jetzt?: Date; deps?: NachrichtenDeps; budgetMs?: number; uhr?: () => number } = {},
+): Promise<RundschreibenErgebnis> {
   const jetzt = o.jetzt ?? new Date();
   const deps = o.deps ?? standard;
+  const uhr = o.uhr ?? Date.now;
+  const start = uhr();
+  // Vercel bricht nach 300 s ab: rechtzeitig aufhören. Wer heute nicht mehr drankommt, bekommt die Jobs morgen.
+  const budget = o.budgetMs ?? 240_000;
   const heute = berlinDateString(jetzt);
-  const erg: RundschreibenErgebnis = { workspaces: 0, gesendet: 0, ohneNeues: 0, uebersprungen: 0, fehler: 0 };
+  const erg: RundschreibenErgebnis = { workspaces: 0, gesendet: 0, ohneNeues: 0, uebersprungen: 0, fehler: 0, abgebrochen: false };
   const wss = zeilen<{ ws: string }>(await db.execute(sql`SELECT DISTINCT workspace_id AS ws FROM crew_links WHERE revoked_at IS NULL ORDER BY 1`));
   for (const { ws } of wss) {
     if ((await getSetting(ws, NEUE_JOBS_SCHALTER).catch(() => null)) === "aus") continue;
     erg.workspaces++;
     const konto = await deps.absender(ws).catch(() => null);
     if (!konto) {
+      erg.uebersprungen++;
+      continue;
+    }
+    if (!(await laufBeanspruchen(ws, heute))) {
       erg.uebersprungen++;
       continue;
     }
@@ -209,6 +240,11 @@ export async function neueJobsRundschreiben(o: { jetzt?: Date; deps?: Nachrichte
     const personen = (await personenLesen(ws)).filter((p) => p.active && p.telefon && p.linkId && !heuteSchon.has(p.id));
     let erste = true;
     for (const p of personen) {
+      if (uhr() - start > budget) {
+        erg.abgebrochen = true;
+        console.warn("[crew-nachrichten] Zeitgrenze erreicht, Rest morgen");
+        break;
+      }
       try {
         const k = kontextAus(ws, p, p.linkId!);
         const offen = (await ladeCrewJobs(k, { jetzt })).filter((j) => j.my.status === "offen" && !j.full && j.date > heute);

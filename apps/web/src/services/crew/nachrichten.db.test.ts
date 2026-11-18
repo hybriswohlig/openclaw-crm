@@ -122,8 +122,10 @@ describe.skipIf(!url)("WhatsApp an die Crew (DB)", { timeout: 30_000 }, () => {
     expect(senden).not.toHaveBeenCalled();
     // Ein Tag später: alte Jobs schon angekündigt, nichts Neues.
     await sql`UPDATE crew_notifications SET created_at = created_at - interval '1 day'`;
+    await sql`DELETE FROM workspace_settings WHERE key = 'crew_neue_jobs_lauf'`;
     expect(await n.neueJobsRundschreiben({ deps: deps() })).toMatchObject({ gesendet: 0, ohneNeues: 2 });
-    // Neuer Job: nur der kommt.
+    // Neuer Job am nächsten Tag: nur der kommt.
+    await sql`DELETE FROM workspace_settings WHERE key = 'crew_neue_jobs_lauf'`;
     await deal("dC", "2099-01-12");
     const r = await n.neueJobsRundschreiben({ deps: deps() });
     expect(r.gesendet).toBe(2);
@@ -135,17 +137,39 @@ describe.skipIf(!url)("WhatsApp an die Crew (DB)", { timeout: 30_000 }, () => {
 
   it("beantwortete Jobs werden nicht angekündigt; abgeschaltet oder ohne Absender: nichts", async () => {
     await sql`UPDATE crew_notifications SET created_at = created_at - interval '1 day'`;
+    await sql`DELETE FROM workspace_settings WHERE key = 'crew_neue_jobs_lauf'`;
     await deal("dD", "2099-01-13");
     await sql`INSERT INTO crew_job_responses (id, workspace_id, deal_record_id, employee_id, answer) VALUES ('r1', 'w1', 'dD', 'e2', 'nein')`;
     absender.mockResolvedValue(null);
     expect(await n.neueJobsRundschreiben({ deps: deps() })).toMatchObject({ gesendet: 0, uebersprungen: 1 });
     absender.mockResolvedValue("konto-r");
+    await sql`DELETE FROM workspace_settings WHERE key = 'crew_neue_jobs_lauf'`;
     await sql`INSERT INTO workspace_settings (workspace_id, key, value_plain) VALUES ('w1', 'crew_neue_jobs', 'aus')`;
     expect(await n.neueJobsRundschreiben({ deps: deps() })).toMatchObject({ workspaces: 0, gesendet: 0 });
     await sql`DELETE FROM workspace_settings WHERE key = 'crew_neue_jobs'`;
     const r = await n.neueJobsRundschreiben({ deps: deps() });
     expect(r.gesendet).toBe(1);
     expect(senden.mock.calls[0]![0].peerWaId).toBe("491511111111");
+  });
+
+  it("doppelt ausgelöst: gleichzeitige Läufe senden zusammen nur einmal; Zeitgrenze bricht sauber ab", async () => {
+    await sql`DELETE FROM workspace_settings WHERE key = 'crew_neue_jobs_lauf'`;
+    await sql`UPDATE crew_notifications SET created_at = created_at - interval '1 day'`;
+    await deal("dE", "2099-01-14");
+    const [a, b] = await Promise.all([n.neueJobsRundschreiben({ deps: deps() }), n.neueJobsRundschreiben({ deps: deps() })]);
+    expect(a.gesendet + b.gesendet).toBe(2);
+    expect(senden).toHaveBeenCalledTimes(2);
+    // Zeitgrenze: nichts gesendet, nichts als angekündigt markiert.
+    senden.mockClear();
+    await sql`DELETE FROM workspace_settings WHERE key = 'crew_neue_jobs_lauf'`;
+    await sql`UPDATE crew_notifications SET created_at = created_at - interval '1 day'`;
+    await deal("dF", "2099-01-15");
+    let t = 0;
+    const r = await n.neueJobsRundschreiben({ deps: deps(), budgetMs: 10, uhr: () => (t += 100) });
+    expect(r).toMatchObject({ abgebrochen: true, gesendet: 0 });
+    expect(senden).not.toHaveBeenCalled();
+    const ang = await sql`SELECT count(*)::int AS n FROM crew_job_announcements WHERE deal_record_id = 'dF'`;
+    expect(ang[0]!.n).toBe(0);
   });
 
   it("Zusage: nur an die übergebenen Neuen, mit Tag, Art und Ort; Gründe vermerkt; Fehler stoppt nicht", async () => {
