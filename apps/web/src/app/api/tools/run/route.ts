@@ -5,10 +5,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthContext, unauthorized, badRequest } from "@/lib/api-utils";
 import { db } from "@/db";
-import { inboxMessageAttachments } from "@/db/schema/inbox";
 import { dealInvoices } from "@/db/schema/deal-invoices";
-import { and, eq, inArray } from "drizzle-orm";
-import { findDealInternalPhotosByIds } from "@/services/deal-photos";
+import { eq } from "drizzle-orm";
 import { rewriteKundeParamsFromDeal } from "@/services/doc-customer-name";
 import { kundeAdresseErgaenzen } from "@/services/doc-kunde-adresse";
 import {
@@ -17,6 +15,7 @@ import {
   type KvJobBezug,
 } from "@/services/document-job-context";
 import { jobAnlegen } from "@/services/render-jobs";
+import { fotosLaden, vpsJobStarten } from "@/services/vps-dokument-start";
 import { type ReJobBezug } from "@/services/document-job-context";
 import { angebotSperren, quotationLesen } from "@/services/quotations";
 import {
@@ -57,15 +56,6 @@ const KUNDE_SKILLS = new Set([
   "rechnungen-und-auftragsbestaetigungen",
   "auftragsanweisung",
 ]);
-
-// Cap on the base64 image payload we forward to FastAPI. Measured as the
-// JSON-encoded size (i.e. base64 string length), since that's what actually
-// goes on the wire. ~3 MB leaves headroom under the upstream FastAPI's
-// request-body limit, which rejects larger bodies with 413.
-// Previous 8-image / 3 MB cap dropped customer photos silently. Fail visibly
-// instead of retrying without images. 12 MB still has to fit the VM body limit.
-const MAX_IMAGE_BASE64_BYTES_TOTAL = 12 * 1024 * 1024;
-const MAX_IMAGES_FORWARDED = 40;
 
 interface RunBody {
   skill: string;
@@ -163,86 +153,9 @@ export async function POST(req: NextRequest) {
     ? (params._image_attachment_ids as unknown[]).filter((x): x is string => typeof x === "string")
     : [];
   delete params._image_attachment_ids;
-  if (requestedIds.length > MAX_IMAGES_FORWARDED) {
-    return NextResponse.json(
-      { error: `Zu viele Fotos (${requestedIds.length}). Höchstens ${MAX_IMAGES_FORWARDED} Dateien.` },
-      { status: 400 }
-    );
-  }
-  if (requestedIds.length > 0) {
-    const dealId = typeof params._deal_record_id === "string" ? params._deal_record_id : null;
-    const rows = await db
-      .select({
-        id: inboxMessageAttachments.id,
-        fileName: inboxMessageAttachments.fileName,
-        mimeType: inboxMessageAttachments.mimeType,
-        fileContent: inboxMessageAttachments.fileContent,
-        dealRecordId: inboxMessageAttachments.dealRecordId,
-      })
-      .from(inboxMessageAttachments)
-      .where(
-        and(
-          eq(inboxMessageAttachments.workspaceId, ctx.workspaceId),
-          inArray(inboxMessageAttachments.id, requestedIds)
-        )
-      );
-
-    const byId = new Map(rows.map((r) => [r.id, r]));
-    const missing = requestedIds.filter((id) => !byId.has(id));
-    if (missing.length > 0) {
-      const internal = await findDealInternalPhotosByIds(
-        ctx.workspaceId,
-        missing,
-        dealId ?? undefined
-      );
-      for (const photo of internal) {
-        byId.set(photo.id, {
-          id: photo.id,
-          fileName: photo.fileName,
-          mimeType: photo.mimeType,
-          fileContent: photo.fileContent,
-          dealRecordId: photo.dealRecordId,
-        });
-      }
-    }
-    const images: { filename: string; mime: string; base64: string }[] = [];
-    let totalBase64Bytes = 0;
-    for (const id of requestedIds) {
-      const r = byId.get(id);
-      if (!r) {
-        return NextResponse.json(
-          { error: `Foto ${id} gehört nicht zu diesem Workspace.` },
-          { status: 403 }
-        );
-      }
-      if (dealId && r.dealRecordId && r.dealRecordId !== dealId) {
-        return NextResponse.json(
-          { error: `Foto ${r.fileName} gehört nicht zu diesem Auftrag.` },
-          { status: 403 }
-        );
-      }
-      if (!r.mimeType.startsWith("image/")) continue;
-      const base64Len = r.fileContent.length;
-      if (totalBase64Bytes + base64Len > MAX_IMAGE_BASE64_BYTES_TOTAL) {
-        return NextResponse.json(
-          {
-            error:
-              "Die ausgewählten Fotos sind zu groß für den Dokumentjob. Bitte kleinere Dateien wählen. Es werden keine Dokumente ohne die angeforderten Fotos erzeugt.",
-          },
-          { status: 413 }
-        );
-      }
-      totalBase64Bytes += base64Len;
-      images.push({ filename: r.fileName, mime: r.mimeType, base64: r.fileContent });
-    }
-    if (images.length !== requestedIds.filter((id) => byId.get(id)?.mimeType.startsWith("image/")).length) {
-      return NextResponse.json(
-        { error: "Nicht alle angeforderten Fotos konnten geladen werden." },
-        { status: 400 }
-      );
-    }
-    if (images.length > 0) params._images = images;
-  }
+  const fotos = await fotosLaden(ctx.workspaceId, registerDeal, requestedIds);
+  if (!fotos.ok) return NextResponse.json({ error: fotos.error }, { status: fotos.status });
+  if (fotos.images.length > 0) params._images = fotos.images;
 
   // Plan 9, Entscheidung 6: Rechnung prüfen und mit Nummer reservieren, bevor der VPS startet.
   let rechnung: RechnungZeile | null = null;
@@ -298,37 +211,21 @@ export async function POST(req: NextRequest) {
     if (rechnung) await rechnungVerwerfen(ctx.workspaceId, rechnung.id, grund).catch(() => {});
   };
 
-  const upstreamUrl = `${CRM_TOOLS_API_URL}/skills/${encodeURIComponent(body.skill)}`;
-  const buildBody = (p: Record<string, unknown>) =>
-    JSON.stringify({
-      params: {
-        ...p,
-        // Always tag the workspace so the skill has the right scope. The
-        // skill can decide whether to use it.
-        _workspace_id: ctx.workspaceId,
-        _user_id: ctx.userId,
-      },
-      timeout_sec: body.timeout_sec,
-    });
-  const callUpstream = (p: Record<string, unknown>) =>
-    fetch(upstreamUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${CRM_TOOLS_AUTH_TOKEN}`,
-      },
-      body: buildBody(p),
-    });
-
-  let upstream: Response;
+  let vps: Awaited<ReturnType<typeof vpsJobStarten>>;
   try {
-    upstream = await callUpstream(params);
+    vps = await vpsJobStarten({
+      ws: ctx.workspaceId,
+      userId: ctx.userId,
+      skill: body.skill,
+      params,
+      timeoutSec: body.timeout_sec,
+    });
   } catch (err) {
     await verwerfen("VPS nicht erreichbar");
     throw err;
   }
 
-  if (upstream.status === 413 && params._images) {
+  if (!vps.ok && vps.status === 413 && params._images) {
     await verwerfen("VPS: Anfrage zu groß");
     return NextResponse.json(
       {
@@ -339,20 +236,20 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const data = await upstream.json().catch(() => ({}));
-  if (!upstream.ok) {
-    await verwerfen(`VPS-Fehler ${upstream.status}`);
+  if (!vps.ok && vps.status >= 400) {
+    await verwerfen(`VPS-Fehler ${vps.status}`);
     return NextResponse.json(
-      { error: "upstream error", upstream: data },
-      { status: upstream.status }
+      { error: "upstream error", upstream: vps.data },
+      { status: vps.status }
     );
   }
 
   // Job-Register: Dokument-Skills mit Deal. Abgelegt wird nur, was hier steht.
-  const jobId = (data as { job_id?: unknown }).job_id;
+  const data = vps.data;
   const documentType = registerTyp(body.skill, params);
-  if (rechnung && typeof jobId !== "string") await verwerfen("VPS ohne Job-ID");
-  if (registerDeal && typeof jobId === "string" && documentType) {
+  if (rechnung && !vps.ok) await verwerfen("VPS ohne Job-ID");
+  if (vps.ok && registerDeal && documentType) {
+    const jobId = vps.jobId;
     try {
       await jobAnlegen({
         vpsJobId: jobId,

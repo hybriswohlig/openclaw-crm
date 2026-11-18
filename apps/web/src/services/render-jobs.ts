@@ -55,9 +55,9 @@ export async function rechnungenDerJobsVerwerfen(ex: Ex, invoiceIds: (string | n
     .where(and(inArray(dealInvoices.id, ids), eq(dealInvoices.status, "entwurf")));
 }
 
-/** Legt den Job an. Dieselbe `vps_job_id` ein zweites Mal ändert nichts. */
-export async function jobAnlegen(j: NeuerJob): Promise<void> {
-  await db
+/** Legt den Job an (über `ex`, sonst `db`). Dieselbe `vps_job_id` ein zweites Mal ändert nichts. */
+export async function jobAnlegen(j: NeuerJob, ex: Ex = db): Promise<void> {
+  await ex
     .insert(documentRenderJobs)
     .values({
       vpsJobId: j.vpsJobId,
