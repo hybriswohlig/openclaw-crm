@@ -98,6 +98,15 @@ export interface EinsatzAnsicht {
   crewAusschreibung?: CrewAusschreibungAnsicht | null;
   /** Crew-Portal: Briefing-Freigabe, wer gelesen hat, wer die Nachricht bekam; null, wenn das Lesen scheiterte. */
   crewBriefing?: CrewBriefingAnsicht | null;
+  /** Crew-Portal: wen das Team bei Fragen anruft; null, wenn das Lesen scheiterte. */
+  crewAnsprechpartner?: CrewAnsprechpartnerAnsicht | null;
+}
+
+export interface CrewAnsprechpartnerAnsicht {
+  eingetragen: string | null;
+  standard: string | null;
+  gilt: { employeeId: string; name: string } | null;
+  kandidaten: Array<{ employeeId: string; name: string }>;
 }
 
 export interface CrewBriefingAnsicht {

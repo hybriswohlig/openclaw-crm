@@ -154,3 +154,25 @@ export const crewNotifications = pgTable(
     ),
   ]
 );
+
+/**
+ * Ansprechpartner je Job (Migration 0069): wen das Team bei Fragen anruft.
+ * Ohne Zeile gilt der Standard aus `workspace_settings` (`crew_ansprechpartner`).
+ */
+export const crewAnsprechpartner = pgTable(
+  "crew_ansprechpartner",
+  {
+    dealRecordId: text("deal_record_id")
+      .primaryKey()
+      .references(() => records.id, { onDelete: "cascade" }),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    employeeId: text("employee_id")
+      .notNull()
+      .references(() => employees.id, { onDelete: "cascade" }),
+    setAt: timestamp("set_at", { withTimezone: true }).notNull().defaultNow(),
+    setBy: text("set_by"),
+  },
+  (t) => [index("crew_ansprechpartner_workspace_idx").on(t.workspaceId)]
+);
