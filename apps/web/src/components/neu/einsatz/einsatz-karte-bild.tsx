@@ -78,8 +78,10 @@ export default function EinsatzKarteBild(props: EinsatzKarteBildProps) {
     const ring = beladen && umkreisKm > 0 ? kreisPunkte(beladen.punkt, umkreisKm, 16) : [];
     return kartenGrenzen({ beladen, entladen, linie: [...linie, ...ring] }, gruppen);
   }, [beladen, entladen, linie, gruppen, umkreisKm]);
-  // Erster Ausschnitt einmal; Filter und Auswahl verschieben die Karte nicht, nur ein neuer Umkreis.
+  // Erster Ausschnitt einmal, sobald es Punkte gibt (Review M6); Filter und Auswahl verschieben
+  // die Karte danach nicht, nur ein neuer Umkreis.
   const start = useRef(grenzen);
+  if (start.current === null) start.current = grenzen;
   const rand = schmal ? { top: 36, bottom: 24, left: 24, right: 60 } : { top: 60, bottom: 50, left: 50, right: 120 };
   const ersterUmkreis = useRef(umkreisKm);
   useEffect(() => {

@@ -227,3 +227,22 @@ export function teamAnsage(
   ];
   return `${teile.join(" ")} ${kompakt}`;
 }
+
+// ─── Karte neu laden (Review M6) ─────────────────────────────────────────────
+
+/** Ladezustand der Karte (gleiche Form wie `KarteLaden` der Karten-Ansicht). */
+export type KartenStand<K> = { art: "laedt" } | { art: "fehler"; meldung: string } | { art: "da"; karte: K };
+
+/**
+ * Stand nach einem stillen Neuladen der Karte (nach „Fahrzeiten aktualisieren“,
+ * Fahrwahl oder Neuladen nach einer Fehlerantwort): eine neue Karte ersetzt die
+ * alte; ein Fehler ersetzt eine gezeigte Karte nicht, sonst wird er gezeigt.
+ */
+export function karteNachNeuladen<K>(
+  bisher: KartenStand<K> | null,
+  r: { ok: true; data: K } | { ok: false; message: string },
+): KartenStand<K> {
+  if (r.ok) return { art: "da", karte: r.data };
+  if (bisher?.art === "da") return bisher;
+  return { art: "fehler", meldung: r.message };
+}

@@ -8,6 +8,7 @@ import {
   minutenBehalten,
   FILTER_VORGABE,
   gruppenLage,
+  karteNachNeuladen,
   kartenPersonenFiltern,
   kurzName,
   laengsteAnfahrt,
@@ -343,5 +344,23 @@ describe("teamAnsage (Review M7)", () => {
     expect(teamAnsage(["a", "t"], ["t"], namen, "1 im Team · 200 €")).toBe("Anna Keller aus dem Team. 1 im Team · 200 €");
     expect(teamAnsage(["a"], ["a"], namen, "x")).toBeNull();
     expect(teamAnsage(["a"], ["a", "t"], namen, "x")).not.toMatch(/[—–]/);
+  });
+});
+
+describe("karteNachNeuladen (Review M6)", () => {
+  const alt = { art: "da" as const, karte: FIXTURE_KARTE };
+  const neu = { ...FIXTURE_KARTE, personen: FIXTURE_KARTE.personen.slice(0, 1) };
+
+  it("eine neue Karte ersetzt die alte (Lage der Pins nach „Fahrzeiten aktualisieren“)", () => {
+    expect(karteNachNeuladen(alt, { ok: true, data: neu })).toEqual({ art: "da", karte: neu });
+  });
+
+  it("ein Fehler beim stillen Neuladen lässt die gezeigte Karte stehen", () => {
+    expect(karteNachNeuladen(alt, { ok: false, message: "Keine Verbindung zum Server." })).toBe(alt);
+  });
+
+  it("ohne gezeigte Karte wird der Fehler gezeigt", () => {
+    expect(karteNachNeuladen({ art: "laedt" }, { ok: false, message: "Weg" })).toEqual({ art: "fehler", meldung: "Weg" });
+    expect(karteNachNeuladen(null, { ok: true, data: neu })).toEqual({ art: "da", karte: neu });
   });
 });

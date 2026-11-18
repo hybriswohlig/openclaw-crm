@@ -19,6 +19,7 @@ import { EinsatzKartenAnsicht, type KarteLaden } from "./einsatz-karte";
 import {
   ansichtLesen,
   ansichtMerken,
+  karteNachNeuladen,
   laengsteAnfahrt,
   minutenBehalten,
   verlaufMerken,
@@ -113,8 +114,27 @@ export function EinsatzDialog({
   // Rückgängig nach jeder Teamänderung (Karte und Liste), bis „Team bestätigen“.
   const [verlauf, setVerlauf] = useState<Verlauf>(VERLAUF_LEER);
 
+  // Einmal je Dialog (auch im Strict Mode nur ein Aufruf); „Noch einmal laden“ ruft karteHolen direkt.
+  const karteAngefragt = useRef(false);
+  // Nur die Antwort des letzten Kartenaufrufs zählt (Neuladen kann ein Laden überholen).
+  const karteLauf = useRef(0);
+
+  const karteHolen = useCallback(
+    async (still = false) => {
+      const lauf = ++karteLauf.current;
+      if (!still) setKarte({ art: "laedt" });
+      const r = await ladeKarte(dealId);
+      if (lauf !== karteLauf.current) return;
+      setKarte((bisher) => (still ? karteNachNeuladen(bisher, r) : r.ok ? { art: "da", karte: r.data } : { art: "fehler", meldung: r.message }));
+    },
+    [dealId],
+  );
+
   const holen = useCallback(
     async (frisch: boolean, auswahlBehalten: boolean) => {
+      // Review M6: war die Karte schon angefragt, lädt sie mit (Lage der Pins nach „Fahrzeiten
+      // aktualisieren“, Fahrwahl oder Fehlerantwort). Orte kommen aus dem Geocoding-Cache.
+      const karteMit = karteAngefragt.current;
       const r = await einsatzLaden(dealId, frisch);
       if (!r.ok) {
         if (!auswahlBehalten) setLaden({ art: "fehler", meldung: r.message });
@@ -126,22 +146,15 @@ export function EinsatzDialog({
         setAuswahl(startAuswahl(r.data));
         setVerlauf(VERLAUF_LEER);
       }
+      if (karteMit) void karteHolen(true);
     },
-    [dealId],
+    [dealId, karteHolen],
   );
 
   useEffect(() => {
     if (!vorgabe) void holen(false, false);
   }, [holen, vorgabe]);
 
-  const karteHolen = useCallback(async () => {
-    setKarte({ art: "laedt" });
-    const r = await ladeKarte(dealId);
-    setKarte(r.ok ? { art: "da", karte: r.data } : { art: "fehler", meldung: r.message });
-  }, [dealId]);
-
-  // Einmal je Dialog (auch im Strict Mode nur ein Aufruf); „Noch einmal laden“ ruft karteHolen direkt.
-  const karteAngefragt = useRef(false);
   useEffect(() => {
     if (ansichtArt !== "karte" || karte !== null || karteAngefragt.current) return;
     karteAngefragt.current = true;
@@ -390,7 +403,7 @@ export function EinsatzDialog({
               portalZiel={portalZiel}
               onAblegen={aufKarteAblegen}
               onEntfernen={(p) => umschalten(p)}
-              onNeuLaden={() => void karteHolen()}
+              onNeuLaden={() => void karteHolen(false)}
             />
           ) : (
             <section className="ez-karte ez-liste-karte" aria-labelledby="ez-liste-titel">
