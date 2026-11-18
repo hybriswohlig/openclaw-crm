@@ -12,6 +12,7 @@ import type { DoppelKonflikt, EinsatzKarte } from "@/lib/einsatz";
 import type { EinsatzAnsicht, EinsatzPersonLage } from "@/lib/einsatz-ansicht";
 import { anfahrtUebernehmen, EINSATZ_DIALOG_EVENT, einsatzLaden, ladeKarte, teamBestaetigen } from "./einsatz-api";
 import { EinsatzAnfragen } from "./einsatz-anfragen";
+import { EinsatzAnsprechpartner } from "./einsatz-ansprechpartner";
 import { EinsatzBriefing } from "./einsatz-briefing";
 import { EinsatzCrew } from "./einsatz-crew";
 import { EinsatzKartenAnsicht, type KarteLaden } from "./einsatz-karte";
@@ -338,6 +339,12 @@ export function EinsatzDialog({
         ) : null}
 
         {ansicht.crewAusschreibung ? <EinsatzCrew key={ansicht.dealId} dealId={ansicht.dealId} wert={ansicht.crewAusschreibung} /> : null}
+        {ansicht.crewAnsprechpartner ? (
+          <section className="ez-anfragen ez-crew" aria-label="Ansprechpartner fürs Team">
+            <EinsatzAnsprechpartner key={ansicht.dealId} dealId={ansicht.dealId} wert={ansicht.crewAnsprechpartner} />
+            <p className="ez-notiz">Das bestätigte Team sieht Vorname und Nummer und kann direkt anrufen.</p>
+          </section>
+        ) : null}
         {ansicht.crewBriefing ? <EinsatzBriefing key={ansicht.dealId} dealId={ansicht.dealId} wert={ansicht.crewBriefing} /> : null}
 
         <EinsatzAnfragen

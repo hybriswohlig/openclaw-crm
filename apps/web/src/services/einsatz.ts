@@ -434,6 +434,12 @@ export async function ladeEinsatz(ws: string, deal: string, o: EinsatzLadeOption
       console.error("[einsatz] Crew-Briefing", err);
       return null;
     });
+  const crewAnsprechpartner = await import("./crew/ansprechpartner")
+    .then((m) => m.ansprechpartnerAnsicht(ws, deal))
+    .catch((err) => {
+      console.error("[einsatz] Crew-Ansprechpartner", err);
+      return null;
+    });
 
   return {
     dealId: deal,
@@ -463,6 +469,7 @@ export async function ladeEinsatz(ws: string, deal: string, o: EinsatzLadeOption
     anfragen,
     crewAusschreibung,
     crewBriefing,
+    crewAnsprechpartner,
   };
 }
 

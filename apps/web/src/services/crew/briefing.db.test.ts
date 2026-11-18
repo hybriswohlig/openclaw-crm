@@ -321,4 +321,44 @@ describe.skipIf(!url)("Briefing (DB)", { timeout: 30_000 }, () => {
       expect(await fotos.briefingFoto("w1", "e2", "f1")).toBeNull();
     });
   });
+
+  describe("Ansprechpartner fürs Team", () => {
+    let ap: typeof import("./ansprechpartner");
+    beforeAll(async () => {
+      ap = await import("./ansprechpartner");
+    });
+    const kontakt = async (k: CrewKontext, deal: string) => (await jobs.ladeCrewJobs(k, { dealIds: [deal] }))[0]?.contact ?? null;
+
+    it("ohne Standard und Eintrag: keiner", async () => {
+      expect(await kontakt(helfer, "d1")).toBeNull();
+      const v = await ap.ansprechpartnerAnsicht("w1", "d1");
+      expect(v.gilt).toBeNull();
+      expect(v.kandidaten.map((k) => k.employeeId)).toEqual(["e1", "e2"]);
+    });
+
+    it("Standard gilt für alle Jobs; wer selbst Ansprechpartner ist, sieht sich nicht", async () => {
+      expect(await ap.ansprechpartnerSetzen("w1", "d1", { employeeId: "e1", alsStandard: true }, "u1")).toMatchObject({ ok: true });
+      expect(await kontakt(helfer, "d1")).toEqual({ firstName: "Ali", phone: "+491511111111" });
+      expect(await kontakt(leiter, "d1")).toBeNull();
+      expect(await kontakt(fremd, "d1")).toBeNull();
+    });
+
+    it("Eintrag am Job schlägt den Standard; null nimmt ihn zurück", async () => {
+      const r = await ap.ansprechpartnerSetzen("w1", "d1", { employeeId: "e2" }, "u1");
+      expect(r.ok && r.wert).toMatchObject({ eingetragen: "e2", standard: "e1", gilt: { employeeId: "e2" } });
+      expect(await kontakt(leiter, "d1")).toEqual({ firstName: "Ben", phone: "+491522222222" });
+      await ap.ansprechpartnerSetzen("w1", "d1", { employeeId: null }, "u1");
+      expect(await kontakt(leiter, "d1")).toBeNull();
+      expect(await kontakt(helfer, "d1")).toMatchObject({ firstName: "Ali" });
+    });
+
+    it("nur aktive mit Telefon: sonst abgelehnt, und ein inaktiv gewordener Standard zeigt keinen", async () => {
+      expect(await ap.ansprechpartnerSetzen("w1", "d1", { employeeId: "e4" }, "u1")).toEqual({ ok: false, code: "UNGUELTIG" });
+      expect(await ap.ansprechpartnerSetzen("w1", "d1", { employeeId: "gibtsnicht" }, "u1")).toEqual({ ok: false, code: "UNGUELTIG" });
+      expect(await ap.ansprechpartnerSetzen("w1", "d1", { employeeId: null, alsStandard: true }, "u1")).toEqual({ ok: false, code: "UNGUELTIG" });
+      await sql`UPDATE employees SET active = false WHERE id = 'e1'`;
+      expect(await kontakt(helfer, "d1")).toBeNull();
+      await sql`UPDATE employees SET active = true WHERE id = 'e1'`;
+    });
+  });
 });

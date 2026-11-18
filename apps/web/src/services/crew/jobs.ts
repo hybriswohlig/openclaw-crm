@@ -43,6 +43,7 @@ import type { DbExecutor } from "@/services/einsatz-personen";
 import { rechnerDatenAus } from "@/services/einsatz";
 import type { RechnerAnfrage } from "@/services/rechner/eingabe";
 import type { RechnerErgebnis } from "@/services/rechner/client";
+import { ansprechpartnerFuer } from "./ansprechpartner";
 import type { CrewKontext } from "./auth";
 
 const AUFTRAG_SLUGS = [
@@ -510,6 +511,7 @@ function jobBauen(k: CrewKontext, g: CrewGrund, d: Detail): CrewJob {
     address: status === "bestaetigt" ? adresseText(abholung) : null,
     fix: g.fix,
     briefing: null,
+    contact: null,
   };
 }
 
@@ -561,11 +563,18 @@ export async function ladeCrewJobsIntern(k: CrewKontext, o: CrewJobsOptionen = {
     out.push({ job, workerCount: g.workerCount, sicht: g.sicht });
   }
 
-  // Briefing nur für mein Team und nur, wenn es freigegeben ist.
+  // Briefing und Ansprechpartner nur für mein Team.
   const imTeam = bauen.filter((g) => g.meinTeam !== null).map((g) => g.dealId);
   if (imTeam.length > 0) {
-    const stand = await briefingStandFuer(ex, k.workspaceId, k.employee.id, imTeam);
-    for (const x of out) x.job.briefing = stand.get(x.job.id) ?? null;
+    const [stand, kontakte] = await Promise.all([
+      briefingStandFuer(ex, k.workspaceId, k.employee.id, imTeam),
+      ansprechpartnerFuer(ex, k.workspaceId, imTeam),
+    ]);
+    for (const x of out) {
+      x.job.briefing = stand.get(x.job.id) ?? null;
+      const c = kontakte.get(x.job.id);
+      x.job.contact = c && c.employeeId !== k.employee.id ? { firstName: c.firstName, phone: c.phone } : null;
+    }
   }
   out.sort(
     (x, y) =>

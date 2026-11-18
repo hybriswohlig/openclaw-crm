@@ -414,6 +414,13 @@
       "when": 1794096000000,
       "tag": "0068_crew_briefing_fotos",
       "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1794182400000,
+      "tag": "0069_crew_ansprechpartner",
+      "breakpoints": true
     }
   ]
 }

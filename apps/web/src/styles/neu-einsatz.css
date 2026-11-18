@@ -1766,3 +1766,14 @@
 [data-neu] .ez-briefing-knopf {
   margin-left: auto;
 }
+
+/* Crew-Portal: Ansprechpartner fürs Team */
+[data-neu] .ez-ansprech select {
+  min-height: 30px;
+  border: 1px solid var(--rim);
+  border-radius: 8px;
+  background: var(--fill-3);
+  color: var(--ink);
+  font: inherit;
+  padding: 2px 8px;
+}

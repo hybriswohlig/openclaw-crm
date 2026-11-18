@@ -107,6 +107,8 @@ export const CrewJob = z.object({
    * "Gelesen", then "gelesen". null: no briefing (yet) for me.
    */
   briefing: z.enum(["neu", "gelesen"]).nullable().default(null),
+  /** Only for confirmed team members: whom to call with questions (one per job). */
+  contact: z.object({ firstName: z.string(), phone: z.string() }).nullable().default(null),
 });
 export type CrewJob = z.infer<typeof CrewJob>;
 

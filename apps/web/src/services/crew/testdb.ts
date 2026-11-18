@@ -1,7 +1,7 @@
 /**
  * Nur für Tests: Wegwerf-Schema in EINSATZ_TEST_DATABASE_URL mit den Spalten,
  * die Crew-Dienste, Einsatz-Termin und Fotos lesen, plus die echten Migrationen
- * 0066 bis 0068. Die Tests binden `@/db` per `search_path` an dieses Schema.
+ * 0066 bis 0069. Die Tests binden `@/db` per `search_path` an dieses Schema.
  */
 import { readFileSync } from "node:fs";
 import type postgres from "postgres";
@@ -41,10 +41,12 @@ export async function crewTestSchemaAnlegen(sql: postgres.Sql, schema: string): 
       name text NOT NULL, quantity integer NOT NULL DEFAULT 1, dimensions_estimate text, heavy_flag boolean NOT NULL DEFAULT false,
       fragile_flag boolean NOT NULL DEFAULT false, disassembly_required boolean NOT NULL DEFAULT false, move_flag boolean NOT NULL DEFAULT true,
       notes text, sort_order integer NOT NULL DEFAULT 0, created_at timestamp NOT NULL DEFAULT now());
+    CREATE TABLE workspace_settings (workspace_id text NOT NULL, key text NOT NULL, value_plain text, value_encrypted bytea,
+      is_secret boolean NOT NULL DEFAULT false, updated_at timestamp NOT NULL DEFAULT now(), PRIMARY KEY (workspace_id, key));
     CREATE TABLE job_media (id text PRIMARY KEY, workspace_id text NOT NULL, deal_record_id text, content_type text NOT NULL,
       blob_pathname text NOT NULL DEFAULT '', size_bytes integer NOT NULL DEFAULT 0, created_at timestamp NOT NULL DEFAULT now());
   `);
-  for (const datei of ["0066_crew_portal.sql", "0067_crew_briefing.sql", "0068_crew_briefing_fotos.sql"]) {
+  for (const datei of ["0066_crew_portal.sql", "0067_crew_briefing.sql", "0068_crew_briefing_fotos.sql", "0069_crew_ansprechpartner.sql"]) {
     const mig = readFileSync(new URL(`../../db/migrations/${datei}`, import.meta.url), "utf8");
     for (const s of mig.split("--> statement-breakpoint").map((x) => x.trim()).filter(Boolean)) await sql.unsafe(s);
   }
