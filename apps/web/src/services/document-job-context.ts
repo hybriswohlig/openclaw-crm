@@ -27,6 +27,8 @@ import { preisQuelleAusAnnahme, type PreisQuelle } from "@/lib/ab-preise";
 import { vpsPreiseMitStunden, vpsStundenAusVersion, type VpsPreisQuelle } from "@/lib/angebot-vorbelegung";
 import { preisZahlungenCent } from "@/lib/preis-zahlungen";
 import { angebotsStandAus } from "./rechnungen";
+import { KV_FELDER_VPS_GEPRUEFT, type KvAenderung, type KvBasis } from "@/lib/kv-editor";
+import { vpsAnwenden, vpsBasis, vpsErwarteteBetraege } from "@/lib/kv-editor-anwenden";
 
 type ServiceType = ServiceArt;
 type InventoryOwner = "company" | "customer" | "none";
@@ -164,10 +166,38 @@ async function massgeblicheKalkulation(
   return ausVersion(laufend);
 }
 
+/** KV-Editor (Plan 2c): Änderungen auf das VPS-Paket und Lesen ohne Schreiben. */
+export interface DokumentKontextOptionen {
+  /**
+   * Änderungen, die nach dem Bau des Pakets angewendet werden (`vpsAnwenden`), oder eine Funktion
+   * der Basis vor den Änderungen (Mitwandern: `abgleichen(basis, …).liste`). Nur beim KV.
+   */
+  aenderungen?: readonly KvAenderung[] | ((basis: KvBasis) => readonly KvAenderung[]);
+  /** Editor-Entwurf: Leistungsart und „mit Entrümpelung“ nicht in die Quotation schreiben. */
+  nurLesen?: boolean;
+  /** Freigegebene VPS-Felder (Tests); sonst `KV_FELDER_VPS_GEPRUEFT`. */
+  gepruefte?: ReadonlySet<string>;
+}
+
+export interface DokumentKontext {
+  params: Record<string, unknown>;
+  kv: KvJobBezug | null;
+  re?: ReJobBezug | null;
+  /** Nur KV: Katalog des Pakets vor den Änderungen. */
+  kvBasis: KvBasis | null;
+  /** Nur KV: Beträge, die im VPS-PDF stehen müssen bzw. dürfen (`vpsErwarteteBetraege`). */
+  kvPreise: { erwartetCent: number[]; erlaubtCent: number[] } | null;
+  /** `_image_attachment_ids` vor den Änderungen. */
+  bildIds: string[];
+  /** Je `document_details.inventory[i]` die `deal_inventory_items.id`; null bei gespeichertem Inventar. */
+  inventarIds: (string | null)[];
+}
+
 export async function attachDocumentJobContext(
   workspaceId: string,
-  params: Record<string, unknown>
-): Promise<{ params: Record<string, unknown>; kv: KvJobBezug | null; re?: ReJobBezug | null }> {
+  params: Record<string, unknown>,
+  opts: DokumentKontextOptionen = {}
+): Promise<DokumentKontext> {
   const next: Record<string, unknown> = { ...params };
   delete next._document_context;
   // Keine Kalkulationsversion an den VPS: /jobs/{id}/result gibt nur das PDF zurück.
@@ -176,7 +206,10 @@ export async function attachDocumentJobContext(
 
   const dealRecordId =
     typeof next._deal_record_id === "string" ? next._deal_record_id : null;
-  if (!dealRecordId) return { params: next, kv: null };
+  const bildIds = Array.isArray(next._image_attachment_ids)
+    ? (next._image_attachment_ids as unknown[]).filter((x): x is string => typeof x === "string")
+    : [];
+  if (!dealRecordId) return { params: next, kv: null, kvBasis: null, kvPreise: null, bildIds, inventarIds: [] };
 
   if (!(await assertDealInWorkspace(workspaceId, dealRecordId))) {
     throw new Error("Auftrag gehört nicht zu diesem Workspace.");
@@ -236,7 +269,7 @@ export async function attachDocumentJobContext(
         angenommen: !!accepted,
       })
     : null;
-  if (quotation && neueArt) {
+  if (quotation && neueArt && !opts.nurLesen) {
     // Ohne updatedAt: das ist keine neue Angebotsfassung.
     await db.update(quotations).set({ serviceType: neueArt }).where(eq(quotations.id, quotation.id));
   }
@@ -244,6 +277,7 @@ export async function attachDocumentJobContext(
   // Beim KV ist die Leistung bewusst gewählt: danach überstimmt kein Textvorschlag sie mehr.
   if (
     quotation &&
+    !opts.nurLesen &&
     next.document_type === "KV" &&
     !accepted &&
     ((storedDetails.mitEntruempelung === true) !== mitEntruempelung || storedDetails.leistungBestaetigt !== true)
@@ -349,14 +383,15 @@ export async function attachDocumentJobContext(
   };
   // Am Angebot zählt die gewählte Art (Widerruf im Portal). Der VPS hat ein eigenes Entrümpelungs-Layout.
   const vpsArt = vpsLeistungsart(serviceType);
-  const details: QuotationDocumentDetails = {
+  const gespeichertesInventar = clientDetails.inventory || storedDetails.inventory;
+  let details: QuotationDocumentDetails = {
     ...storedDetails,
     ...snapshotDetails,
     ...clientDetails,
     serviceType: vpsArt,
     mitEntruempelung,
     reference,
-    inventory: clientDetails.inventory || storedDetails.inventory || inventoryRows,
+    inventory: gespeichertesInventar || inventoryRows,
     services: vpsLeistungen(vpsArt, services, defaultMoveServices),
     kitchen: clientDetails.kitchen || storedDetails.kitchen,
     cardAgreed:
@@ -398,9 +433,35 @@ export async function attachDocumentJobContext(
     }
   }
 
+  // KV-Editor (Spec 7.1, 7.6): Katalog des Pakets vor den Änderungen, dann die Änderungen. Umzugsgut
+  // nur mit Lead-ID; gespeichertes Inventar (Altbestand, MCP) bleibt ohne ID und damit lesend.
+  const inventarIds: (string | null)[] = gespeichertesInventar
+    ? gespeichertesInventar.map(() => null)
+    : mitnehmen.map((item) => item.id);
+  let kvBasis: KvBasis | null = null;
+  if (next.document_type === "KV") {
+    const auftrag = (next.auftrag && typeof next.auftrag === "object" ? next.auftrag : {}) as Record<string, unknown>;
+    const teile = { details, auftrag, inventarIds, bildIds };
+    kvBasis = vpsBasis(teile, opts.gepruefte ?? KV_FELDER_VPS_GEPRUEFT);
+    const liste = typeof opts.aenderungen === "function" ? opts.aenderungen(kvBasis) : (opts.aenderungen ?? []);
+    if (liste.length > 0) {
+      const angewendet = vpsAnwenden(teile, liste);
+      details = angewendet.details;
+      next.auftrag = angewendet.auftrag;
+      next._image_attachment_ids = angewendet.bildIds;
+    }
+  }
+
   next.document_details = details;
   next.service_type = vpsArt;
   next._document_context = { paidCents, totalCents };
+  const kvPreise =
+    next.document_type === "KV"
+      ? vpsErwarteteBetraege((next.preise && typeof next.preise === "object" ? next.preise : {}) as Record<string, unknown>, {
+          gesamtCent: totalCents ?? null,
+          bezahltCent: paidCents,
+        })
+      : null;
   const kv: KvJobBezug | null =
     next.document_type === "KV"
       ? {
@@ -417,5 +478,5 @@ export async function attachDocumentJobContext(
           firma: String(next.firma || "kottke"),
         }
       : null;
-  return { params: next, kv, re };
+  return { params: next, kv, re, kvBasis, kvPreise, bildIds, inventarIds };
 }

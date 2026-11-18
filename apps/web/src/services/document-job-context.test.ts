@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-const jobMocks = vi.hoisted(() => ({ getQuotation: vi.fn(), zeilen: new Map<unknown, unknown[]>() }));
+const jobMocks = vi.hoisted(() => ({ getQuotation: vi.fn(), zeilen: new Map<unknown, unknown[]>(), updates: 0 }));
 
 // Kette für attachDocumentJobContext: der Deal gehört zum Workspace; sonst die
 // Zeilen aus `jobMocks.zeilen` je Tabelle (z. B. kva_confirmations für die AB), leer ohne Eintrag.
@@ -19,7 +19,15 @@ vi.mock("@/db", async () => {
       Promise.resolve(tabelle === records ? [{ id: "deal_1" }] : jobMocks.zeilen.get(tabelle) ?? []).then(ok, fehler);
     return k;
   };
-  return { db: { select: () => kette(), update: () => kette() } };
+  return {
+    db: {
+      select: () => kette(),
+      update: () => {
+        jobMocks.updates++;
+        return kette();
+      },
+    },
+  };
 });
 vi.mock("@/services/quotations", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/services/quotations")>()),
@@ -321,7 +329,121 @@ describe("attachDocumentJobContext: Kalkulationsversion für den VPS-Weg (Review
 
   it("ohne Deal: Parameter unverändert, kein Bezug", async () => {
     const r = await attachDocumentJobContext("ws_1", { document_type: "KV", _calculation_version_id: "x" });
-    expect(r).toEqual({ params: { document_type: "KV" }, kv: null });
+    expect(r).toEqual({ params: { document_type: "KV" }, kv: null, kvBasis: null, kvPreise: null, bildIds: [], inventarIds: [] });
+  });
+
+  describe("KV-Editor (Plan 2c)", () => {
+    const inventar = [
+      { id: "inv_1", category: "Schlafzimmer", name: "Kleiderschrank", quantity: 1, moveFlag: true, dismantlingOwner: "company", assemblyOwner: "company", notes: "", sortOrder: 0 },
+      { id: "inv_2", category: "Flur", name: "Kommode", quantity: 1, moveFlag: true, dismantlingOwner: "none", assemblyOwner: "none", notes: "", sortOrder: 1 },
+    ];
+    const kv = (extra: Record<string, unknown> = {}) => ({
+      _deal_record_id: "deal_1",
+      document_type: "KV",
+      firma: "kottke",
+      auftrag: { volumen: "20 Kubikmeter", besonderheiten: "Auszug 2. Stock" },
+      document_details: { services: { transport: { owner: "company", note: "" }, packing: { owner: "customer" } } },
+      _image_attachment_ids: ["att_1", "att_2"],
+      ...extra,
+    });
+    const aenderung = (schluessel: string, wert: string | boolean, vorher: string | boolean = "") => ({
+      schluessel,
+      wert,
+      vorher,
+      quelle: "hand" as const,
+      von: "usr_1",
+      am: "2026-11-18T10:00:00.000Z",
+    });
+    const alle = new Set(["leistungen:{key}:notiz", "umzugsgut:{inventarId}:notiz", "bilder:{attachmentId}:zeigen", "vereinbarungen:text:text"]);
+
+    async function mitInventar<T>(f: () => Promise<T>): Promise<T> {
+      const { dealInventoryItems } = await import("@/db/schema/inventory");
+      jobMocks.zeilen.set(dealInventoryItems, inventar);
+      try {
+        return await f();
+      } finally {
+        jobMocks.zeilen.delete(dealInventoryItems);
+      }
+    }
+
+    it("ohne Änderungen ist das Paket identisch zu vorher; Basis mit Lead-IDs, Fotos und Beträgen", async () => {
+      jobMocks.getQuotation.mockResolvedValue({ ...quotation("ver_2"), depositRequiredCents: 20000 });
+      const vorher = await mitInventar(() => attachDocumentJobContext("ws_1", kv()));
+      const leer = await mitInventar(() => attachDocumentJobContext("ws_1", kv(), { aenderungen: [], gepruefte: alle }));
+      expect(leer.params).toEqual(vorher.params);
+      expect(leer.inventarIds).toEqual(["inv_1", "inv_2"]);
+      expect(leer.bildIds).toEqual(["att_1", "att_2"]);
+      expect(leer.kvBasis?.felder.map((f) => f.schluessel)).toEqual([
+        "leistungen:transport:notiz",
+        "leistungen:packing:notiz",
+        "umzugsgut:inv_1:notiz",
+        "umzugsgut:inv_2:notiz",
+        "bilder:att_1:zeigen",
+        "bilder:att_2:zeigen",
+        "vereinbarungen:text:text",
+      ]);
+      // Posten 1500 + 220, Gesamt 1720, Anzahlung 200 aus der Quotation.
+      expect(leer.kvPreise).toEqual({ erwartetCent: [20000, 22000, 150000, 172000], erlaubtCent: [0, 152000, 172000, 20000].sort((a, b) => a - b) });
+    });
+
+    it("Notiz, Vereinbarung und ausgeblendetes Foto landen im Paket; Preise bleiben aus der Quotation", async () => {
+      jobMocks.getQuotation.mockResolvedValue(quotation("ver_2"));
+      const r = await mitInventar(() =>
+        attachDocumentJobContext(
+          "ws_1",
+          // Widersprüchliche Preise aus dem Aufruf: die Posten kommen trotzdem aus der Quotation.
+          kv({ preise: { modell: "pauschale", pauschale_positionen: [{ titel: "Rabatt", betrag: 1 }] } }),
+          {
+            aenderungen: [
+              aenderung("leistungen:transport:notiz", "Mit Koffer-Lkw"),
+              aenderung("umzugsgut:inv_2:notiz", "Schublade klemmt"),
+              aenderung("vereinbarungen:text:text", "Klingel defekt", "Auszug 2. Stock"),
+              aenderung("bilder:att_2:zeigen", false, true),
+            ],
+          }
+        )
+      );
+      const d = r.params.document_details as { services: Record<string, { note?: string }>; inventory: { name: string; note: string }[] };
+      expect(d.services.transport.note).toBe("Mit Koffer-Lkw");
+      expect(d.inventory.find((z) => z.name === "Kommode")?.note).toBe("Schublade klemmt");
+      expect((r.params.auftrag as { besonderheiten: string }).besonderheiten).toBe("Klingel defekt");
+      expect(r.params._image_attachment_ids).toEqual(["att_1"]);
+      expect((r.params.preise as { pauschale_positionen: unknown }).pauschale_positionen).toEqual([
+        { titel: "Umzug mit Team und Fahrzeug", betrag: 1500 },
+        { titel: "Halteverbotszone", betrag: 220 },
+      ]);
+      // Basis und Fotos vor den Änderungen.
+      expect(r.bildIds).toEqual(["att_1", "att_2"]);
+    });
+
+    it("Änderungen als Funktion der Basis (Mitwandern); gespeichertes Inventar bleibt ohne ID", async () => {
+      jobMocks.getQuotation.mockResolvedValue({
+        ...quotation("ver_2"),
+        documentDetails: { inventory: [{ room: "Flur", name: "Kommode", quantity: 1, dismantling: "none", assembly: "none", note: "" }] },
+      });
+      let gesehen: unknown = null;
+      const r = await mitInventar(() =>
+        attachDocumentJobContext("ws_1", kv(), {
+          gepruefte: alle,
+          aenderungen: (basis) => {
+            gesehen = basis;
+            return [];
+          },
+        })
+      );
+      expect(gesehen).toEqual(r.kvBasis);
+      expect(r.inventarIds).toEqual([null]);
+      expect(r.kvBasis?.felder.some((f) => f.schluessel.startsWith("umzugsgut:"))).toBe(false);
+    });
+
+    it("nurLesen schreibt nichts in die Quotation", async () => {
+      jobMocks.getQuotation.mockResolvedValue({ ...quotation("ver_2"), serviceType: "clearance" });
+      jobMocks.updates = 0;
+      await attachDocumentJobContext("ws_1", kv({ service_type: "move" }), { nurLesen: true });
+      expect(jobMocks.updates).toBe(0);
+      await attachDocumentJobContext("ws_1", kv({ service_type: "move" }));
+      expect(jobMocks.updates).toBeGreaterThan(0);
+    });
   });
 
   const stundenAngebot = (transporter: number) => ({
