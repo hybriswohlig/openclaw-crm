@@ -37,7 +37,7 @@ export const FELD_TEXT: Record<Exclude<Feld, "id">, string> = {
 
 // ─── Schreiben ───────────────────────────────────────────────────────────────
 
-function zelle(x: string): string {
+export function csvZelle(x: string): string {
   // Excel würde „=…“, „+…“ als Formel lesen: als Text markieren.
   const sicher = /^[=+\-@]/.test(x) && !/^\+\d/.test(x) ? `'${x}` : x;
   return /[;"\n\r]/.test(sicher) ? `"${sicher.replace(/"/g, '""')}"` : sicher;
@@ -59,7 +59,7 @@ export function telefonFuerExcel(t: string | null | undefined): string {
 
 /** Vorlage: Kopf plus eine Zeile je aktiver Person mit dem, was schon da ist. */
 export function vorlageCsv(personen: EinsatzPerson[]): string {
-  const zeilen = [SPALTEN.map((s) => zelle(s.kopf)).join(";")];
+  const zeilen = [SPALTEN.map((s) => csvZelle(s.kopf)).join(";")];
   for (const p of personen.filter((x) => x.aktiv)) {
     const werte: Record<Feld, string> = {
       id: p.id,
@@ -73,7 +73,7 @@ export function vorlageCsv(personen: EinsatzPerson[]): string {
       kannSprinter: jaNein(p.kannSprinter),
       eigenerPkw: jaNein(p.eigenerPkw),
     };
-    zeilen.push(SPALTEN.map((s) => zelle(werte[s.feld])).join(";"));
+    zeilen.push(SPALTEN.map((s) => csvZelle(werte[s.feld])).join(";"));
   }
   return "﻿" + zeilen.join("\r\n") + "\r\n";
 }
@@ -119,7 +119,7 @@ export function csvLesen(text: string): string[][] {
   return zeilen.filter((z) => z.some((x) => x.trim() !== ""));
 }
 
-const norm = (x: string) =>
+export const csvNorm = (x: string) =>
   x
     .toLowerCase()
     .replace(/ä/g, "ae")
@@ -130,7 +130,7 @@ const norm = (x: string) =>
 
 /** Spalte aus dem Kopf erkennen, auch wenn jemand die Überschrift etwas ändert. */
 function feldAusKopf(kopf: string): Feld | null {
-  const k = norm(kopf);
+  const k = csvNorm(kopf);
   if (k === "" ) return null;
   if (k.startsWith("id")) return "id";
   if (k.startsWith("name") || k === "vorname" || k === "mitarbeiter") return "name";
@@ -147,7 +147,7 @@ function feldAusKopf(kopf: string): Feld | null {
 
 const SPRACH_NAMEN: Record<string, CrewLocale> = Object.fromEntries([
   ...CREW_LOCALES.map((l) => [l, l] as const),
-  ...CREW_LOCALES.map((l) => [norm(CREW_LOCALE_TEXT[l]), l] as const),
+  ...CREW_LOCALES.map((l) => [csvNorm(CREW_LOCALE_TEXT[l]), l] as const),
   ["english", "en"],
   ["tuerkce", "tr"],
   ["arabic", "ar"],
@@ -178,7 +178,7 @@ export const FEHLER_TEXT: Record<ZellFehler, string> = {
 };
 
 function jaNeinAus(x: string): boolean | "fehler" {
-  const k = norm(x);
+  const k = csvNorm(x);
   if (["ja", "j", "yes", "y", "x", "1", "true", "wahr"].includes(k)) return true;
   if (["nein", "n", "no", "0", "false", "falsch", "keiner"].includes(k)) return false;
   return "fehler";
@@ -239,7 +239,7 @@ export function importPlan(tabelle: string[][], personen: EinsatzPerson[]): { ze
   const nachId = new Map(personen.map((p) => [p.id, p]));
   const nachName = new Map<string, EinsatzPerson[]>();
   for (const p of personen) {
-    const k = norm(p.name);
+    const k = csvNorm(p.name);
     nachName.set(k, [...(nachName.get(k) ?? []), p]);
   }
   // Wem gehört welche Nummer (für Doppelte, auch innerhalb der Datei)?
@@ -265,7 +265,7 @@ export function importPlan(tabelle: string[][], personen: EinsatzPerson[]): { ze
       person = nachId.get(w.id) ?? null;
       if (!person) fehler.push({ feld: "ID", text: FEHLER_TEXT.UNBEKANNTE_ID });
     } else if (w.name) {
-      const treffer = nachName.get(norm(w.name)) ?? [];
+      const treffer = nachName.get(csvNorm(w.name)) ?? [];
       if (treffer.length === 1) person = treffer[0]!;
     }
 
@@ -275,7 +275,7 @@ export function importPlan(tabelle: string[][], personen: EinsatzPerson[]): { ze
       else e.telefon = telefonReparieren(w.telefon);
     }
     if (w.sprache !== undefined) {
-      const l = SPRACH_NAMEN[norm(w.sprache)];
+      const l = SPRACH_NAMEN[csvNorm(w.sprache)];
       if (l) e.sprache = l;
       else fehler.push({ feld: "Sprache", text: FEHLER_TEXT.SPRACHE });
     }

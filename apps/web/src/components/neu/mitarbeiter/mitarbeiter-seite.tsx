@@ -9,6 +9,7 @@ import { seitentitel } from "@/components/neu/nav-config";
 import { berlinDateString } from "@/lib/berlin-date";
 import { ortText, tageZwischen, type EinsatzPerson, type KapazitaetTag } from "@/lib/einsatz";
 import { kapazitaetLaden, personenLaden } from "./mitarbeiter-api";
+import { AuftraegeImport } from "./auftraege-import";
 import { MitarbeiterImport } from "./mitarbeiter-import";
 import { PersonPanel } from "./person-panel";
 
@@ -134,6 +135,7 @@ export function MitarbeiterSeite({ transporter }: { transporter?: React.ReactNod
               <h2 className="ma-panel-titel">Personen</h2>
               <span className="ma-kopf-aktionen">
                 <MitarbeiterImport onFertig={() => void laden()} />
+                <AuftraegeImport onFertig={() => void laden()} />
                 <GlassButton type="button" size="sm" onClick={() => setGewaehlt("neu")}>
                   + Person
                 </GlassButton>

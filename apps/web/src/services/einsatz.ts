@@ -151,7 +151,7 @@ export async function massgeblicheVersion(ws: string, deal: string, ex: DbExecut
   return (rows.find((r) => r.status === "gesperrt") ?? rows.find((r) => r.status !== "gesperrt") ?? null) as VersionRoh | null;
 }
 
-async function zuteilungenLesen(ws: string, deal: string, ex: DbExecutor = db): Promise<EinsatzZuteilung[]> {
+export async function zuteilungenLesen(ws: string, deal: string, ex: DbExecutor = db): Promise<EinsatzZuteilung[]> {
   const rows = await ex
     .select({
       id: dealEmployees.id,
