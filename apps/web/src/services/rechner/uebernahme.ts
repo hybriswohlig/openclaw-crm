@@ -92,6 +92,15 @@ export function kuechenAngaben(
   };
 }
 
+/** Leistung des Angebots aus der Auftragsart der Kalkulation; ohne Auftragsart keine Angabe. */
+function angebotsLeistung(anfrage: RechnerAnfrage): QuotationDocumentDetails["serviceType"] | null {
+  const art = text(anfrage, "auftragsart");
+  if (art === "kuechenmontage") return "kitchen_installation";
+  if (art === "entruempelung") return "clearance";
+  if (art === "umzug" || art === "transport") return "move";
+  return null;
+}
+
 export function angebotsUebernahme(
   kalkulation: { result: RechnerErgebnis | null; request: RechnerAnfrage } | null,
   vorhandenesAngebot: { notes: string | null; isVariable: boolean; validUntil?: string | null } | null,
@@ -198,6 +207,7 @@ export function angebotsUebernahme(
       })),
       // Ohne serviceType: die Auftragsart steuert quotations.service_type (Küche bleibt Küche).
       // Küchenmontage aus der Kalkulation (Inhaber 19.11.): Leistung und Küchenblock fürs KV mitgeben.
+      // Die Leistung der Kalkulation gilt fürs Angebot (Review 19.11.: zurück von Küche auf Umzug).
       documentDetails: kuechenAngaben(kalkulation.request, ergebnis)
         ? {
             services: kv.leistungen,
@@ -206,7 +216,11 @@ export function angebotsUebernahme(
             leistungBestaetigt: true,
             kitchen: kuechenAngaben(kalkulation.request, ergebnis)!,
           }
-        : { services: kv.leistungen, validUntil: gueltig.datum },
+        : {
+            services: kv.leistungen,
+            validUntil: gueltig.datum,
+            ...(angebotsLeistung(kalkulation.request) ? { serviceType: angebotsLeistung(kalkulation.request)! } : {}),
+          },
       validUntil: gueltig.datum,
       isVariable: false,
       notes: vorhandenesAngebot?.notes ?? null,

@@ -3,7 +3,7 @@
  * und Oberschränke, Einbauort statt Be-/Entladen, KV-Posten und Küchenblock fürs Angebot.
  */
 import { describe, expect, it } from "vitest";
-import { rechnerAnfrageAus, type LeadDaten } from "@/services/rechner/eingabe";
+import { kuecheBereinigen, rechnerAnfrageAus, type LeadDaten } from "@/services/rechner/eingabe";
 import { kuechenTitel } from "@/services/rechner/kv-posten";
 import { kuechenAngaben } from "@/services/rechner/uebernahme";
 import { kuecheZusammen } from "@/services/document-job-context";
@@ -51,24 +51,32 @@ function ue(key: string, wert: Uebersteuerung["wert"], zeit = "2026-11-19T10:00:
 const ERGEBNIS = { kueche: { meter: 3.2, meterOben: 1.8 } } as unknown as RechnerErgebnis;
 
 describe("Küchenmontage: Rechner-Anfrage", () => {
-  it("ein Ort: Von-Seite ist der Einbauort, keine Zielseite, Standard Aufbau und Hochtragen", () => {
-    const a = rechnerAnfrageAus(lead({ auftragsart: "kuechenmontage" }));
+  it("ein Ort: Von-Seite ist der Einbauort, keine Zielseite, kein Umzugsgut, Standard Aufbau und Hochtragen", () => {
+    const basis = rechnerAnfrageAus(
+      lead({ auftragsart: "kuechenmontage", kartons: 20, inventar: [{ name: "Sofa", menge: 1, groessenklasse: null, volumenCbm: null, mitnehmen: true }] })
+    );
+    // Die Basis behält Ziel und Umzugsgut (für „zurück auf Umzug“), an den Rechner gehen sie nicht.
+    expect(basis.positionen_freitext).toBeDefined();
+    const a = kuecheBereinigen({ ...basis });
+    expect(a.positionen_freitext).toBeUndefined();
+    expect(a.umzugskartons).toBeUndefined();
     expect(a.auftragsart).toBe("kuechenmontage");
     expect(a.von_adresse).toBe("Hauptstr. 1, 71032 Böblingen");
     expect(a.von_etage).toBe("3");
-    expect(Object.keys(a).filter((k) => k.startsWith("nach_"))).toEqual([]);
+    expect(a.nach_vorhanden).toBeUndefined();
+    expect(a.nach_halteverbot).toBeUndefined();
     expect(a.kueche_montage).toBe("on");
     expect(a.kueche_hochtragen).toBe("on");
     expect(a.kueche_demontage).toBeUndefined();
   });
 
   it("nur Einzugsadresse im Lead: sie wird zum Einbauort", () => {
-    const a = rechnerAnfrageAus(lead({ auftragsart: "kuechenmontage", von: null, etageVon: null, tragestreckeVonM: null }));
+    const a = kuecheBereinigen(rechnerAnfrageAus(lead({ auftragsart: "kuechenmontage", von: null, etageVon: null, tragestreckeVonM: null })));
     expect(a.von_adresse).toBe("Marktplatz 2, 70173 Stuttgart");
     expect(a.von_etage).toBe("1");
     expect(a.von_tragestrecke).toBe("5");
     expect(a.von_halteverbot).toBe("on");
-    expect(Object.keys(a).filter((k) => k.startsWith("nach_"))).toEqual([]);
+    expect(a.nach_vorhanden).toBeUndefined();
   });
 
   it("Umzug bleibt unverändert (keine Küchenfelder)", () => {
@@ -94,8 +102,9 @@ describe("Küchenmontage: Übersteuerungen", () => {
     expect(a.kueche_demontage).toBe("on");
     expect(a.kueche_montage).toBe("on");
     expect(a.kueche_hochtragen).toBe("on");
-    // Entladen gilt bei Küchenmontage nicht.
-    expect(Object.keys(a).filter((k) => k.startsWith("nach_"))).toEqual([]);
+    // Entladen gilt bei Küchenmontage nicht; die Zielseite ist aus.
+    expect(a.nach_vorhanden).toBeUndefined();
+    expect(a.nach_etage).not.toBe("4");
   });
 
   it("Hochtragen und Aufbau lassen sich abschalten", () => {
@@ -105,13 +114,27 @@ describe("Küchenmontage: Übersteuerungen", () => {
     expect(a.kueche_montage).toBeUndefined();
   });
 
-  it("zurück auf Umzug: Küchen-Standards weg, Zielseite an", () => {
-    const basis = rechnerAnfrageAus(lead({ auftragsart: "kuechenmontage" }));
+  it("zurück auf Umzug: Küchen-Standards weg, Ziel und Umzugsgut aus dem Lead wieder da", () => {
+    const basis = rechnerAnfrageAus(
+      lead({ auftragsart: "kuechenmontage", inventar: [{ name: "Sofa", menge: 1, groessenklasse: null, volumenCbm: null, mitnehmen: true }] })
+    );
     const a = anfrageMitUebersteuerungen(basis, [ue("leistung", "umzug")], heute);
     expect(a.auftragsart).toBe("umzug");
     expect(a.kueche_montage).toBeUndefined();
     expect(a.kueche_hochtragen).toBeUndefined();
     expect(a.nach_vorhanden).toBe("on");
+    expect(a.nach_adresse).toBe("Marktplatz 2, 70173 Stuttgart");
+    expect(a.nach_etage).toBe("1");
+    expect(a.nach_halteverbot).toBe("on");
+    expect(a.positionen_freitext).toBeDefined();
+  });
+
+  it("Entrümpelung schickt keine Küchenfelder", () => {
+    const basis = rechnerAnfrageAus(lead({ auftragsart: "umzug" }));
+    const a = anfrageMitUebersteuerungen(basis, [ue("kueche.meter", 3), ue("kueche.abbau", true), ue("leistung", "entruempelung")], heute);
+    expect(a.auftragsart).toBe("entruempelung");
+    expect(a.kueche_meter).toBeUndefined();
+    expect(a.kueche_demontage).toBeUndefined();
   });
 
   it("Prüfung: Meter 0 bis 50, Schalter ja/nein, nur bekannte Leistungen", () => {
@@ -164,7 +187,7 @@ describe("Küchenmontage: KV", () => {
   });
 
   it("Küchenblock fürs Angebot: Einbauort, Maße, wer was macht", () => {
-    const a = rechnerAnfrageAus(lead({ auftragsart: "kuechenmontage", zugangVon: "Kein Aufzug" }));
+    const a = kuecheBereinigen(rechnerAnfrageAus(lead({ auftragsart: "kuechenmontage", zugangVon: "Kein Aufzug" })));
     a.kueche_demontage = "on";
     const k = kuechenAngaben(a, ERGEBNIS)!;
     expect(k.address).toBe("Hauptstr. 1, 71032 Böblingen");

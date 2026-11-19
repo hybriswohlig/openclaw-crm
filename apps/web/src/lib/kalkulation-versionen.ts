@@ -20,6 +20,7 @@ import type {
 import type { BuchungsAnteil } from "./einsatz";
 import { paketOhneHebelSperrt, PLAN5_FEHLER_TEXT, standardWahl, wahlPreis } from "@/lib/angebot-wahl";
 import type { LeadDaten, RechnerAnfrage } from "@/services/rechner/eingabe";
+import { kuecheBereinigen } from "@/services/rechner/kueche-bereinigen";
 import type { KostenPosten, RechnerErgebnis } from "@/services/rechner/client";
 import { kvBausteine, type HebelArt, type KvPosten } from "@/services/rechner/kv-posten";
 import { MARGE_HART_MAX_PROZENT, MARGE_HART_MIN_PROZENT, margeErlaubt } from "@/services/rechner/marge";
@@ -554,13 +555,14 @@ function feldText(w: RechnerAnfrage[string] | undefined): string | null {
 }
 
 export function leistungUmstellen(a: RechnerAnfrage, leistung: string): void {
-  const nachFelder = Object.keys(a).filter((k) => k.startsWith("nach_"));
   if (leistung === "kuechenmontage") {
+    // Nur Einzugsadresse: sie wird zum Einbauort. Die Zielseite bleibt (ohne nach_vorhanden).
     if (!feldText(a.von_adresse) && feldText(a.nach_adresse)) {
       for (const k of Object.keys(a).filter((k) => k.startsWith("von_"))) delete a[k];
-      for (const k of nachFelder) if (k !== "nach_vorhanden") a[`von_${k.slice("nach_".length)}`] = a[k];
+      for (const k of Object.keys(a).filter((k) => k.startsWith("nach_"))) {
+        if (k !== "nach_vorhanden") a[`von_${k.slice("nach_".length)}`] = a[k];
+      }
     }
-    for (const k of nachFelder) delete a[k];
     a.kueche_montage = "on";
     a.kueche_hochtragen = "on";
   } else {
@@ -711,7 +713,7 @@ export function anfrageMitUebersteuerungen(
 
   if (opts.paketHebel && Object.keys(opts.paketHebel).length > 0) a.paket_hebel = JSON.stringify(opts.paketHebel);
   a.heute = opts.referenceDate;
-  return a;
+  return kuecheBereinigen(a);
 }
 
 function autorText(u: Uebersteuerung): string {

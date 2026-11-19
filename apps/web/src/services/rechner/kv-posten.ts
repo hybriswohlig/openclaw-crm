@@ -383,7 +383,8 @@ export function kvBausteine(input: {
   // „Kunde ohne Minuten“) oder ein Paket ohne den Montage-Hebel. Dann übernimmt der Kunde die Montage.
   const hebelAusMontage = hebelAusEnthaelt(anfrage, "montage");
   const paketOhneMontage = input.hebelNur !== undefined && !input.hebelNur.includes("montage");
-  if (montageMoebel.length > 0 && montagePm > 0 && !hebelAusMontage) {
+  // Küchenmontage: die Minuten sind die der Küche, kein Möbel-Montageposten (Review 19.11.).
+  if (!istKueche && montageMoebel.length > 0 && montagePm > 0 && !hebelAusMontage) {
     kandidaten.push({
       art: "montage",
       posten: {

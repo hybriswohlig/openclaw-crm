@@ -11,7 +11,7 @@
  * Schreibt nie ins Angebot; das macht nur die Übernahme per Knopf.
  */
 import type { RechnerAntwort, RechnerErgebnis } from "./client";
-import { eingabeHash, rechnerAnfrageAus, type LeadDaten, type RechnerAnfrage } from "./eingabe";
+import { eingabeHash, rechnerAnfrageAus, type LeadDaten, type RechnerAnfrage, kuecheBereinigen } from "./eingabe";
 import { heuteBerlin } from "./quelle";
 
 /**
@@ -98,7 +98,7 @@ async function rechne(
   if (!lead) return { status: "fehler", kalkulation: null };
 
   // heute aus der eingespielten Uhr, nicht aus der Systemzeit.
-  const anfrage = rechnerAnfrageAus(lead, { heute: heuteBerlin(jetzt()) });
+  const anfrage = kuecheBereinigen(rechnerAnfrageAus(lead, { heute: heuteBerlin(jetzt()) }));
   const hash = eingabeHash(anfrage);
   const vorher = await speicher.lesen(dealRecordId);
 

@@ -77,34 +77,23 @@ const TREPPENHAUS: Record<string, "normal" | "eng" | "wendel"> = { normal: "norm
 /**
  * Küchenmontage (Inhaber 19.11.): es gibt nur einen Ort, den Einbauort. Der Rechner liest ihn
  * auf der Von-Seite (Etage, Aufzug, Tragweg fürs Hochtragen). Steht im Lead nur die
- * Einzugsadresse, wird sie zur Von-Seite; die Zielseite bleibt immer aus.
+ * Einzugsadresse, wird sie zur Von-Seite. Die Zielseite bleibt in der Anfrage stehen (ohne
+ * nach_vorhanden liest der Rechner sie nicht), damit „zurück auf Umzug“ sie wieder hat.
  */
 export function einbauortAlsVon(lead: LeadDaten): LeadDaten {
-  const ohneZiel = {
-    nach: null,
-    etageNach: null,
-    zugangNach: null,
-    treppenhausNach: null,
-    tragestreckeNachM: null,
-    halteverbotNach: false,
-    einzugOffen: false,
-  };
-  const chatVon = lead.chatAdressen?.von ?? null;
-  if (lead.von || chatVon || !lead.nach) {
-    return { ...lead, ...ohneZiel, chatAdressen: lead.chatAdressen ? { ...lead.chatAdressen, nach: null, quelleNach: null } : lead.chatAdressen };
-  }
+  if (lead.von || lead.chatAdressen?.von || !lead.nach) return lead;
   return {
     ...lead,
-    ...ohneZiel,
     von: lead.nach,
     etageVon: lead.etageNach,
     zugangVon: lead.zugangNach,
     treppenhausVon: lead.treppenhausNach ?? null,
     tragestreckeVonM: lead.tragestreckeNachM,
     halteverbot: lead.halteverbotNach ?? false,
-    chatAdressen: lead.chatAdressen ? { ...lead.chatAdressen, nach: null, quelleNach: null } : lead.chatAdressen,
   };
 }
+
+export { kuecheBereinigen } from "./kueche-bereinigen";
 
 export function rechnerAnfrageAus(eingang: LeadDaten, opts: { heute?: string } = {}): RechnerAnfrage {
   const kueche = eingang.auftragsart === "kuechenmontage";
@@ -151,7 +140,6 @@ export function rechnerAnfrageAus(eingang: LeadDaten, opts: { heute?: string } =
   if (kueche) {
     a.kueche_montage = "on";
     a.kueche_hochtragen = "on";
-    delete a.nach_vorhanden;
   }
   // heute gehört in die Anfrage (Eilregel, Wochentag). Der Hash ignoriert es; dass täglich
   // neu gerechnet wird, regelt ensureDealCalculation über den Vergleich von request.heute.
@@ -192,6 +180,8 @@ export function rechnerAnfrageAus(eingang: LeadDaten, opts: { heute?: string } =
       };
     });
   }
+  // Kein kuecheBereinigen hier: die Basis behält Ziel und Umzugsgut, damit „zurück auf Umzug“
+  // sie wieder hat. Bereinigt wird am Ende von anfrageMitUebersteuerungen (und in kalkulation.ts).
   return a;
 }
 

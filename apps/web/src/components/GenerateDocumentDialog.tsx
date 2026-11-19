@@ -264,8 +264,9 @@ export function GenerateDocumentDialog({
   const [remarks, setRemarks] = useState("");
   const [previewHtml, setPreviewHtml] = useState<string | null>(null);
   const [previewing, setPreviewing] = useState(false);
+  // Einbauort wie in der Kalkulation (Review 19.11.): Auszugsadresse, sonst Einzugsadresse.
   const [kitchenAddress, setKitchenAddress] = useState(
-    deal.auftrag.strecke_nach ?? ""
+    deal.auftrag.strecke_von || deal.auftrag.strecke_nach || ""
   );
   const [cardAgreed, setCardAgreed] = useState(false);
 
@@ -490,7 +491,7 @@ export function GenerateDocumentDialog({
             ...(serviceType === "kitchen_installation"
               ? {
                   kitchen: {
-                    address: kitchenAddress || deal.auftrag.strecke_nach,
+                    address: kitchenAddress || deal.auftrag.strecke_von || deal.auftrag.strecke_nach,
                     date: deal.auftrag.datum,
                     notes: deal.auftrag.besonderheiten,
                     services: {
