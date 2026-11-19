@@ -91,6 +91,8 @@ export async function ladeLeadDaten(workspaceId: string, dealRecordId: string): 
     leadType: typeof payload?.leadType === "string" ? payload.leadType : null,
     mitEntruempelung: details?.mitEntruempelung ?? null,
     bestaetigt: details?.leistungBestaetigt ?? null,
+    // In der Akte gewählte Leistung (Deal-Feld „leistung“), solange das Angebot nichts festlegt.
+    akte: typeof dv.leistung === "string" ? dv.leistung : null,
     text: anfrageText.join("\n") || null,
   });
   const von = ortText(dv.move_from_address);

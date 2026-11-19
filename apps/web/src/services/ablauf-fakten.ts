@@ -84,6 +84,8 @@ interface DealZeile {
   stufe_titel?: string | null;
   besichtigung_am: unknown;
   unterschrift_aktiv: boolean | null;
+  /** In der Akte gewählte Leistung (Deal-Feld „leistung“). */
+  leistung_akte?: string | null;
 }
 
 function dealLesen(ws: string, deal: string) {
@@ -99,6 +101,7 @@ function dealLesen(ws: string, deal: string) {
       ) AS quelle,
       ${attributWert("first_reply_at", "timestamp_value")} AS erste_antwort_am,
       ${attributWert("move_date", "date_value")} AS umzugsdatum,
+      ${attributWert("leistung", "text_value")} AS leistung_akte,
       ${attributWert("move_completed_at", "timestamp_value")} AS durchgefuehrt_am,
       ${attributWert("rechnung_faellig_am", "date_value")} AS rechnung_faellig_am,
       ${statusFeld("review_request_status", "title")} AS bewertung_status,
@@ -207,6 +210,7 @@ interface AngebotZeile {
   deposit_required_cents: unknown;
   service_type: string | null;
   mit_entruempelung: unknown;
+  bestaetigt?: unknown;
   kv_version: unknown;
   kv_gesendet_am: unknown;
   ohne_version: boolean | null;
@@ -223,6 +227,7 @@ function angebotLesen(ws: string, deal: string) {
       q.deposit_required_cents AS deposit_required_cents,
       q.service_type AS service_type,
       q.document_details -> 'mitEntruempelung' AS mit_entruempelung,
+      q.document_details -> 'leistungBestaetigt' AS bestaetigt,
       cv.version AS kv_version,
       cv.sent_at::text AS kv_gesendet_am,
       q.calculation_version_id IS NULL AS ohne_version,
@@ -245,10 +250,13 @@ function angebotLesen(ws: string, deal: string) {
 
 const LEISTUNGEN: readonly AblaufFakten["leistung"][] = ["move", "kitchen_installation", "clearance", "clearance_move"];
 
-function leistungAus(a: AngebotZeile | undefined): AblaufFakten["leistung"] {
+function leistungAus(a: AngebotZeile | undefined, akte: string | null | undefined): AblaufFakten["leistung"] {
+  const ja = (x: unknown) => x === true || x === "true";
+  // Ein Umzug, den niemand gewählt hat, ist nur der Spalten-Default: dann gilt die Wahl in der Akte.
+  const offen = !a?.service_type || (a.service_type === "move" && !ja(a.mit_entruempelung) && !ja(a.bestaetigt));
+  if (offen && akte && (LEISTUNGEN as readonly string[]).includes(akte)) return akte as AblaufFakten["leistung"];
   if (!a?.service_type) return "move";
-  const mitEntruempelung = a.mit_entruempelung === true || a.mit_entruempelung === "true";
-  const l = portalLeistung(a.service_type as "move" | "kitchen_installation" | "clearance", mitEntruempelung);
+  const l = portalLeistung(a.service_type as "move" | "kitchen_installation" | "clearance", ja(a.mit_entruempelung));
   return LEISTUNGEN.includes(l) ? l : "move";
 }
 
@@ -396,7 +404,7 @@ export async function ladeAblaufGrundlage(ws: string, deal: string): Promise<Abl
     zugang: zugangText(alsZahl(text("von_etage")?.replace(",", ".")), text("von_aufzug")),
     halteverbot: halteverbotText(text("von_halteverbot") === "on", text("nach_halteverbot") === "on"),
     besichtigungAm: besichtigungAus(d.besichtigung_am),
-    leistung: leistungAus(a),
+    leistung: leistungAus(a, d.leistung_akte),
     kalkulation,
     kv,
     unterschriftAktiv: d.unterschrift_aktiv === true,

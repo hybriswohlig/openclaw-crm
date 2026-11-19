@@ -19,6 +19,7 @@ import {
 } from "@/components/glassyui/glass-dialog";
 import { vorbelegungAusAngebot, type Angebot } from "@/lib/angebot-vorbelegung";
 import type { LeadContext } from "@/lib/deal-doc-data";
+import type { PortalLeistung } from "@openclaw-crm/customer-portal-core";
 import type { KvHinweisDaten, Vorpruefung } from "@/lib/kv-vorpruefung";
 import { apiAufruf } from "./api";
 import type { DokumentArt } from "./akte-dock";
@@ -29,7 +30,7 @@ type Zustand =
   | { art: "laden" }
   | { art: "fehlt" }
   | { art: "preis_fehlt" }
-  | { art: "angaben"; pruefung: Vorpruefung }
+  | { art: "angaben"; pruefung: Vorpruefung; leistung?: PortalLeistung }
   | { art: "fehler"; meldung: string }
   | { art: "bereit"; deal: DealData; prefill: PrefilledPreise | undefined };
 
@@ -81,7 +82,7 @@ export function DokumentDialog({
       const start = dokumentStart(dealId, a.data?.leadContext ?? null, a.data?.kvHinweise ?? null, art);
       if (start.art === "firma_fehlt") return setZustand({ art: "fehlt" });
       if (start.art === "preis_fehlt") return setZustand({ art: "preis_fehlt" });
-      if (start.art === "angaben") return setZustand({ art: "angaben", pruefung: start.pruefung });
+      if (start.art === "angaben") return setZustand({ art: "angaben", pruefung: start.pruefung, leistung: a.data?.kvHinweise?.leistungsart });
       setZustand({ art: "bereit", deal: start.deal, prefill: vorbelegungAusAngebot(q.ok ? (q.data ?? null) : null, start.deal.firma) });
     },
     [dealId, art]
@@ -118,6 +119,7 @@ export function DokumentDialog({
         dealId={dealId}
         art={art}
         pruefung={zustand.pruefung}
+        leistung={zustand.leistung}
         portalZiel={portalZiel}
         onSchliessen={onSchliessen}
         onWeiter={() => {

@@ -12,7 +12,8 @@ import { dealInventoryItems } from "@/db/schema/inventory";
 import { inboxConversations } from "@/db/schema/inbox";
 import { getQuotation } from "@/services/quotations";
 import { fotoStand } from "@/services/inventar-fotos";
-import { leistungsartVorschlag, type KvHinweisDaten } from "@/lib/kv-vorpruefung";
+import type { KvHinweisDaten } from "@/lib/kv-vorpruefung";
+import { leistungDesDeals } from "@/services/deal-leistung";
 import { festpreisAlsPauschale } from "@/lib/festpreis-posten";
 
 export const dynamic = "force-dynamic";
@@ -168,29 +169,10 @@ async function loadKvHinweise(workspaceId: string, dealRecordId: string): Promis
     .where(and(eq(inboxConversations.workspaceId, workspaceId), eq(inboxConversations.dealRecordId, dealRecordId)))
     .orderBy(desc(inboxConversations.lastMessageAt))
     .limit(1);
-  // Anfrageart aus dem Portal-Import (z. B. ImmoScout „entruempelung“).
-  const [payloadWert] = await db
-    .select({ json: recordValues.jsonValue })
-    .from(recordValues)
-    .innerJoin(attributes, eq(recordValues.attributeId, attributes.id))
-    .innerJoin(objects, eq(attributes.objectId, objects.id))
-    .where(
-      and(
-        eq(recordValues.recordId, dealRecordId),
-        eq(attributes.slug, "moving_lead_payload"),
-        eq(objects.workspaceId, workspaceId)
-      )
-    )
-    .limit(1);
-  const leadType = (payloadWert?.json as { leadType?: unknown } | null)?.leadType;
+  // Leistung wie überall (Angebot, Wahl in der Akte, Anfrage): services/deal-leistung.
+  const { leistung } = await leistungDesDeals(workspaceId, dealRecordId, q);
   return {
-    leistungsart: leistungsartVorschlag({
-      gespeichert: q?.serviceType ?? null,
-      leadType: typeof leadType === "string" ? leadType : null,
-      mitEntruempelung: q?.documentDetails?.mitEntruempelung ?? null,
-      bestaetigt: q?.documentDetails?.leistungBestaetigt ?? null,
-      text: q ? [q.summary, ...q.lineItems.map((l) => l.description)].filter(Boolean).join("\n") : null,
-    }),
+    leistungsart: leistung,
     umzugsgutAnzahl: Number(inv?.n ?? 0),
     ...(await fotoStand(dealRecordId)
       .then((s) => ({ fotosOffen: s.offen, fotosGescheitert: s.gescheitert }))

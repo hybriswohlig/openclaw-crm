@@ -4,6 +4,8 @@ import "@/styles/neu-akte-kunde.css";
 
 import { useEffect, useId, useRef, useState } from "react";
 import { GlassButton } from "@/components/glassyui/glass-button";
+import type { PortalLeistung } from "@openclaw-crm/customer-portal-core";
+import { AKTE_LEISTUNGEN } from "@/lib/akte-leistung";
 import type { AdressTeile, DealKunde, KundeEingabe, KundeVorschlag } from "@/lib/deal-kunde";
 import { feldLeer, vorschlagEinsetzen, vorschlagHinweis, type KundeEntwurf, type KundeFeld } from "@/lib/kunde-entwurf";
 import { apiAufruf, jsonAufruf } from "./api";
@@ -285,6 +287,69 @@ export function PersonFrage({
           </GlassButton>
         ))}
       </div>
+    </div>
+  );
+}
+
+/** Antwort von GET/PUT …/leistung. */
+export interface LeistungStand {
+  /** Wirksame Leistung (Angebot, sonst Wahl in der Akte, sonst Anfrage). */
+  leistung: PortalLeistung;
+  hatAngebot: boolean;
+  akte: PortalLeistung | null;
+}
+
+/** PUT …/leistung; schreibt das Deal-Feld und, falls es eins gibt, die Leistung des Angebots. */
+export async function leistungSpeichern(
+  dealId: string,
+  leistung: PortalLeistung
+): Promise<{ ok: true; stand: LeistungStand } | { ok: false; text: string }> {
+  const r = await apiAufruf<LeistungStand>(`/api/v1/deals/${encodeURIComponent(dealId)}/leistung`, jsonAufruf("PUT", { leistung }));
+  if (!r.ok) return { ok: false, text: r.message };
+  window.dispatchEvent(new CustomEvent(KUNDE_GEAENDERT_EVENT, { detail: dealId }));
+  return { ok: true, stand: r.data };
+}
+
+/**
+ * Auswahl „Leistung“ (Umzug, Entrümpelung + Umzug, Entrümpelung, Küchenmontage).
+ * Nach einem Wechsel der Hinweis: eine bestehende Kalkulation rechnet mit ihrer
+ * eigenen Leistung weiter, bis sie dort umgestellt wird.
+ */
+export function LeistungAuswahl({
+  wert,
+  gespeichert,
+  gesperrt = false,
+  onAendern,
+}: {
+  wert: PortalLeistung;
+  gespeichert: PortalLeistung;
+  gesperrt?: boolean;
+  onAendern: (l: PortalLeistung) => void;
+}) {
+  const id = useId();
+  return (
+    <div className="kunde-leistung">
+      <label className="akte-dialog-feld" htmlFor={`${id}-leistung`}>
+        <span className="kunde-feld-kopf">Leistung</span>
+        <select
+          id={`${id}-leistung`}
+          className="lg-input"
+          value={wert}
+          disabled={gesperrt}
+          onChange={(e) => onAendern(e.target.value as PortalLeistung)}
+        >
+          {AKTE_LEISTUNGEN.map((l) => (
+            <option key={l.wert} value={l.wert}>
+              {l.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      {wert !== gespeichert ? (
+        <p className="kunde-hinweis" role="status">
+          Gibt es schon eine Kalkulation, rechnet sie mit ihrer bisherigen Leistung weiter. Bitte dort umstellen und neu rechnen.
+        </p>
+      ) : null}
     </div>
   );
 }

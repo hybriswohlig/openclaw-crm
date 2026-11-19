@@ -33,6 +33,13 @@ export interface KvHinweisDaten {
   leistungsart?: PortalLeistung;
 }
 
+const PORTAL_LEISTUNGEN: readonly PortalLeistung[] = ["move", "clearance", "clearance_move", "kitchen_installation"];
+
+/** true für move, clearance, clearance_move und kitchen_installation. */
+export function istPortalLeistung(x: unknown): x is PortalLeistung {
+  return typeof x === "string" && (PORTAL_LEISTUNGEN as readonly string[]).includes(x);
+}
+
 /**
  * Leistung im KV-Dialog vorbelegen: gespeicherte Küche oder Entrümpelung
  * zuerst, sonst eine Entrümpelungs-Anfrage als Entrümpelung, sonst Umzug.
@@ -40,8 +47,9 @@ export interface KvHinweisDaten {
  */
 /**
  * Vorbelegung der Leistung im KV-Dialog. Reihenfolge: gespeicherte Küche oder
- * Entrümpelung, gespeicherter Umzug mit Entrümpelung, Entrümpelungs-Anfrage,
- * dann der Angebotstext (z. B. „IKEA-Küchenmontage“), sonst Umzug. „move“ ist
+ * Entrümpelung, gespeicherter Umzug mit Entrümpelung, bestätigter Umzug, die in
+ * der Akte gewählte Leistung, Entrümpelungs-Anfrage, dann der Angebotstext
+ * (z. B. „IKEA-Küchenmontage“), sonst Umzug. „move“ ist
  * auch der Spalten-Default, deshalb zählt ein gespeicherter Umzug allein nicht.
  */
 export function leistungsartVorschlag(input: {
@@ -50,11 +58,14 @@ export function leistungsartVorschlag(input: {
   mitEntruempelung?: boolean | null;
   /** documentDetails.leistungBestaetigt: ein gespeicherter Umzug ist dann bewusst gewählt. */
   bestaetigt?: boolean | null;
+  /** In der Akte gewählte Leistung (Deal-Feld `leistung`): gilt, solange das Angebot nichts anderes festlegt. */
+  akte?: string | null;
   text?: string | null;
 }): PortalLeistung {
   if (input.gespeichert === "kitchen_installation" || input.gespeichert === "clearance") return input.gespeichert;
   if (input.gespeichert === "move" && input.mitEntruempelung === true) return "clearance_move";
   if (input.gespeichert === "move" && input.bestaetigt === true) return "move";
+  if (istPortalLeistung(input.akte)) return input.akte;
   if (input.leadType?.toLowerCase() === "entruempelung") return "clearance";
   return leistungAusText(input.text) ?? "move";
 }

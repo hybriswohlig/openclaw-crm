@@ -231,6 +231,9 @@ export const STANDARD_OBJECTS: StandardObject[] = [
       { slug: "floors_to", title: "Stockwerk (Ziel)", type: "number", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
       { slug: "wohnflaeche_qm", title: "Wohnfläche (m²)", type: "number", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
       { slug: "zimmer", title: "Zimmer", type: "number", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
+      // Leistung aus der Akte („Kunde und Adressen“), solange es noch kein Angebot gibt (move, clearance,
+      // clearance_move, kitchen_installation). Mit Angebot gilt quotations.serviceType; die Akte schreibt beides.
+      { slug: "leistung", title: "Leistung (Akte)", type: "text", isSystem: true, isRequired: false, isUnique: false, isMultiselect: false },
       {
         slug: "elevator_from",
         title: "Zugang Abholung",

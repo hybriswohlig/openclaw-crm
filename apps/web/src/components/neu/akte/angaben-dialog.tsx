@@ -10,12 +10,14 @@ import {
   GlassDialogDescription,
   GlassDialogTitle,
 } from "@/components/glassyui/glass-dialog";
+import type { PortalLeistung } from "@openclaw-crm/customer-portal-core";
 import { gleicheAdresse } from "@/lib/adresse";
+import { kundeAnsicht } from "@/lib/akte-leistung";
 import { ortAusTeilen, type DealKunde, type KundeEingabe } from "@/lib/deal-kunde";
 import { aenderungen, entwurfAus, feldAusPflicht, feldLeer, type KundeEntwurf, type KundeFeld } from "@/lib/kunde-entwurf";
 import { EINZUG_GLEICH_TEXT, type DokumentArt as VorpruefungArt, type Vorpruefung } from "@/lib/kv-vorpruefung";
 import { apiAufruf } from "./api";
-import { AusDemChatKnopf, KundeFelder, PersonFrage, kundeSpeichern, type PersonKandidat } from "./kunde-felder";
+import { AusDemChatKnopf, KundeFelder, LeistungAuswahl, PersonFrage, kundeSpeichern, leistungSpeichern, type PersonKandidat } from "./kunde-felder";
 
 const DOK: Record<VorpruefungArt, { name: string; knopf: string }> = {
   KV: { name: "den Kostenvoranschlag", knopf: "KV" },
@@ -33,6 +35,7 @@ export function AngabenDialog({
   dealId,
   art,
   pruefung,
+  leistung,
   portalZiel,
   onWeiter,
   onSchliessen,
@@ -40,6 +43,8 @@ export function AngabenDialog({
   dealId: string;
   art: VorpruefungArt;
   pruefung: Vorpruefung;
+  /** Leistung, nach der geprüft wurde. Beim KV und der AB hier umstellbar (falsch erkannt, etwa Küche statt Umzug). */
+  leistung?: PortalLeistung;
   portalZiel: HTMLElement | undefined;
   /** Nach dem Speichern: neu prüfen und das Dokument öffnen. */
   onWeiter: () => void;
@@ -89,6 +94,19 @@ export function AngabenDialog({
     onWeiter();
   }
 
+  /** Leistung umstellen: speichern und neu prüfen (andere Leistung, andere Pflichtfelder). */
+  async function leistungWechseln(neu: PortalLeistung) {
+    if (laeuftRef.current || neu === leistung) return;
+    laeuftRef.current = true;
+    setSpeichert(true);
+    setFehler(null);
+    const r = await leistungSpeichern(dealId, neu);
+    laeuftRef.current = false;
+    setSpeichert(false);
+    if (!r.ok) return setFehler(r.text);
+    onWeiter();
+  }
+
   async function speichern(e: React.FormEvent) {
     e.preventDefault();
     if (!bereit || speichert) return;
@@ -103,6 +121,9 @@ export function AngabenDialog({
           Ohne diese Angaben entsteht {DOK[art].name} nicht. Trag sie hier ein; sie werden am Lead gespeichert, danach geht es direkt weiter.
         </GlassDialogDescription>
         <form onSubmit={(e) => void speichern(e)}>
+          {leistung && art !== "RE" ? (
+            <LeistungAuswahl wert={leistung} gespeichert={leistung} gesperrt={laden || speichert} onAendern={(l) => void leistungWechseln(l)} />
+          ) : null}
           {laden ? <p className="kunde-hinweis">Lädt die Kundendaten …</p> : null}
           {einzugGleich || gruende.length > 0 ? (
             <p className="kunde-hinweis" role="status">
@@ -111,6 +132,7 @@ export function AngabenDialog({
           ) : null}
           <KundeFelder
             felder={felder}
+            labels={kundeAnsicht(leistung).labels}
             entwurf={entwurf}
             pflicht={felder}
             vorgeschlagen={vorgeschlagen}

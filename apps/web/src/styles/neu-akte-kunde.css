@@ -251,3 +251,12 @@
     scroll-margin-bottom: calc(env(safe-area-inset-bottom) + 170px);
   }
 }
+
+/* Leistung über den Kundenfeldern (Akte und „Es fehlen noch Angaben“). */
+[data-neu] .kunde-leistung {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 320px;
+  margin: 0 0 12px;
+}
