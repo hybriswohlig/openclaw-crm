@@ -506,8 +506,8 @@ describe("attachDocumentJobContext: Kalkulationsversion für den VPS-Weg (Review
     // Transporter 25, Team 3 × 35 = 105, Zeilen 7,5 × 25 und 7,5 × 105, Schätzung 975.
     expect(kvPreise?.erwartetCent).toEqual(expect.arrayContaining([2_500, 10_500, 18_750, 78_750, 97_500]));
     expect(kvPreise?.erwartetCent).not.toContain(3_500);
-    // Mindestbetrag 3 × 130 €.
-    expect(kvPreise?.erlaubtCent).toContain(39_000);
+    // Kein Mindestbetrag in Euro (die Vorlage druckt ihn nicht, Review Grok V2).
+    expect(kvPreise?.erlaubtCent).not.toContain(39_000);
   });
 
   it("Stunden-KV mit zwei Transportern: der Auftrag scheitert mit Meldung (K1)", async () => {

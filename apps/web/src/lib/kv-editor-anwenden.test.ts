@@ -1152,12 +1152,12 @@ describe("V2: Stunden-KV, Preisprüfung am echten Druck", () => {
   };
   const betraege = () => vpsErwarteteBetraege(preise, { gesamtCent: 42800, bezahltCent: 0 });
 
-  it("erwartet Teamsatz und Zeilen statt des Helfersatzes, erlaubt den Mindestbetrag", () => {
+  it("erwartet Teamsatz und Zeilen statt des Helfersatzes, ohne Mindestbetrag", () => {
     expect(betraege()).toEqual({
       // Transportersatz 29, Teamsatz 2 × 39, Anzahlung, Zeile Transporter 4 × 29, Zeile Team 4 × 78, Gesamt.
       erwartetCent: [2900, 7800, 10000, 11600, 31200, 42800],
-      // 0, bezahlt 0, Rest nach Anzahlung 328, Mindestbetrag 3 × (78 + 29) = 321, Gesamt.
-      erlaubtCent: [0, 10000, 32100, 32800, 42800],
+      // 0, bezahlt 0, Rest nach Anzahlung 328, Gesamt (kein Mindestbetrag in Euro im Druck).
+      erlaubtCent: [0, 10000, 32800, 42800],
     });
   });
 
@@ -1178,7 +1178,7 @@ describe("V2: Stunden-KV, Preisprüfung am echten Druck", () => {
       { gesamtCent: 97500, bezahltCent: 0 }
     );
     expect(aus.erwartetCent).toEqual([2500, 10500, 18750, 78750, 97500]);
-    expect(aus.erlaubtCent).toEqual([0, 39000, 97500]);
+    expect(aus.erlaubtCent).toEqual([0, 97500]);
     const unter = vpsErwarteteBetraege(
       { modell: "stundensatz", helfer_anzahl: 1, stunden_geschaetzt: 2, mindest_stunden: 3, stundensatz_helfer_eur: 40, stundensatz_transporter_eur: 20 },
       { gesamtCent: null, bezahltCent: 0 }

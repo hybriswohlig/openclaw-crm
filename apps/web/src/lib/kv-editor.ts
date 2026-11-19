@@ -842,9 +842,10 @@ export interface KvEditorKern {
    */
   pushPruefung(e: PushPruefEingabe): PushPruefErgebnis;
   /**
-   * Erwartet: alle Beträge aus `pauschale_positionen[].betrag`, `pauschale_betrag`,
-   * `stundensatz_helfer_eur`, `stundensatz_transporter_eur`, `anzahlung_betrag_eur` (Euro → Cent) und
-   * `gesamtCent`. Erlaubt: 0, `bezahltCent`, `gesamtCent − bezahltCent`, `gesamtCent − anzahlung`,
+   * Erwartet: alle Beträge aus `pauschale_positionen[].betrag`, `pauschale_betrag`, `anzahlung_betrag_eur`
+   * (Euro → Cent) und `gesamtCent`. Bei `modell === "stundensatz"` statt der Rohsätze (V2, vps-felder-2.md):
+   * Teamsatz = Helfersatz × Helfer, Transportersatz, und je Zeile max(Schätzung, Mindeststunden) × Teamsatz
+   * bzw. × Transportersatz; den Helfersatz allein druckt die Vorlage nicht. Erlaubt: 0, `bezahltCent`, `gesamtCent − bezahltCent`, `gesamtCent − anzahlung`,
    * `anzahlung − bezahltCent` (nur ≥ 0).
    */
   vpsErwarteteBetraege(

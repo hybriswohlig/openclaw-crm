@@ -521,7 +521,7 @@ function zahl(w: unknown): number | null {
  * Stunden-KV (V2, vps-felder-2.md): Die Vorlage druckt nicht den Helfersatz, sondern den Teamsatz
  * (Helfersatz × Helfer) und je Zeile Stunden × Satz: „Umzugsteam (2 Helfer) 4 Std. 78,00 € 312,00 €“,
  * „Transporter 4 Std. 29,00 € 116,00 €“. Stunden: die Schätzung, mindestens die Mindeststunden.
- * Der Mindestbetrag (Mindeststunden × Team und Transporter) darf zusätzlich stehen.
+ * Einen Mindestbetrag in Euro druckt die Vorlage nicht; er ist darum weder erwartet noch erlaubt.
  */
 function stundenBetraege(preise: Record<string, unknown>): { erwartet: number[]; erlaubt: number[] } {
   const helfer = Math.max(1, Math.round(zahl(preise.helfer_anzahl) ?? 1));
@@ -538,9 +538,8 @@ function stundenBetraege(preise: Record<string, unknown>): { erwartet: number[];
     if (team !== null) erwartet.push(Math.round(stunden * team));
     if (satzTransporter !== null) erwartet.push(Math.round(stunden * satzTransporter));
   }
-  if (mindest > 0 && (team !== null || satzTransporter !== null)) {
-    erlaubt.push(Math.round(mindest * ((team ?? 0) + (satzTransporter ?? 0))));
-  }
+  // Kein Mindestbetrag in `erlaubt`: die Vorlage druckt nur „Mindestabrechnung: N Stunden“, keinen Eurobetrag
+  // (Review Grok V2). Ein zusätzlich gedruckter Betrag bleibt damit fremd.
   return { erwartet, erlaubt };
 }
 
