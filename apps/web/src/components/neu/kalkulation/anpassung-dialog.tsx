@@ -11,6 +11,7 @@ import {
 } from "@/components/glassyui/glass-dialog";
 import { GlassSwitch } from "@/components/glassyui/glass-switch";
 import type { AnpassungAnsicht, GrundlageFeld } from "@/lib/kalkulations-ansicht";
+import { LEISTUNG_WAHL } from "@/lib/leistung-wahl";
 import type { UebersteuerungsArt } from "@/lib/kalkulation-versionen";
 import type { AnpassungStart } from "./anpassung-start";
 import { textAus } from "./eingabe-felder";
@@ -178,6 +179,7 @@ export function AnpassungDialog({
         if (!feld) return { ok: false, meldung: "Bitte ein Feld wählen." };
         if (feld.typ === "ja_nein") return { ok: true, wert: feldSchalter };
         if (feld.typ === "aufzug") return { ok: true, wert: feldText || "keiner" };
+        if (feld.typ === "leistung") return { ok: true, wert: feldText || "umzug" };
         if (feld.typ === "datum") {
           if (!/^\d{4}-\d{2}-\d{2}$/.test(feldText)) return { ok: false, meldung: `${feld.label}: bitte ein Datum wählen.` };
           return { ok: true, wert: feldText };
@@ -329,6 +331,17 @@ export function AnpassungDialog({
                 <label className="kalk-dialog-schalter">
                   <span>{feld.label}</span>
                   <GlassSwitch size="sm" checked={feldSchalter} onCheckedChange={setFeldSchalter} />
+                </label>
+              ) : feld?.typ === "leistung" ? (
+                <label className="akte-dialog-feld kalk-dialog-feld" htmlFor={`${id}-wert`}>
+                  Neuer Wert
+                  <select id={`${id}-wert`} className="lg-input" value={feldText || "umzug"} onChange={(e) => setFeldText(e.target.value)}>
+                    {LEISTUNG_WAHL.map((l) => (
+                      <option key={l.wert} value={l.wert}>
+                        {l.label}
+                      </option>
+                    ))}
+                  </select>
                 </label>
               ) : feld?.typ === "aufzug" ? (
                 <label className="akte-dialog-feld kalk-dialog-feld" htmlFor={`${id}-wert`}>

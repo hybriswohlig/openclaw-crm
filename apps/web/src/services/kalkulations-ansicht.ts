@@ -264,14 +264,18 @@ export async function ladeKalkulationsAnsicht(
     }),
   ]);
 
+  // Die Leistung der Version (Übersteuerung „leistung“) gewinnt über die aus dem Lead.
+  const artAnfrage = v.rechnerRequest?.auftragsart;
+  const art = (typeof artAnfrage === "string" && artAnfrage in ART_WORT ? artAnfrage : lead.auftragsart) as Auftragsart | null | undefined;
   return ansichtAus(v, {
     kvEditor,
     alle: alle.map((x) => ({ version: x.version, status: x.status, priceCents: x.priceCents, sentAt: x.sentAt })),
     namen,
     deal: {
       name: kopf.name?.trim() || "Ohne Namen",
-      art: lead.auftragsart ? ART_WORT[lead.auftragsart] : "",
-      strecke: streckeAus(ortAus(lead.von), ortAus(lead.nach)),
+      art: art ? ART_WORT[art] ?? "" : "",
+      // Küchenmontage: nur der Einbauort (Von-Seite der Anfrage), keine Strecke.
+      strecke: art === "kuechenmontage" ? streckeAus(ortAus(lead.von ?? lead.nach), null) : streckeAus(ortAus(lead.von), ortAus(lead.nach)),
       termin: lead.umzugsdatum,
       aktenLink: `/app/leads/${deal}`,
     },

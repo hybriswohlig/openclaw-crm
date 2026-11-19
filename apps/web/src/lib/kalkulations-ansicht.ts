@@ -65,7 +65,7 @@ import {
 import type { AnnahmenKasten, PositionOhneKatalog } from "./kalkulation-p15";
 import { inventarListe, type InventarListe } from "./kalkulation-inventar";
 
-export type GrundlageFeldTyp = "zahl" | "ganzzahl" | "aufzug" | "ja_nein" | "datum";
+export type GrundlageFeldTyp = "zahl" | "ganzzahl" | "aufzug" | "ja_nein" | "datum" | "leistung";
 
 export interface GrundlageFeld {
   key: GrundlageKey;
@@ -517,6 +517,20 @@ const GRUNDLAGE_LABEL: Record<GrundlageKey, string> = {
   anfahrt_team: "Anfahrt Team",
   station: "Station",
   fahrzeugklasse: "Fahrzeugklasse",
+  leistung: "Leistung",
+  "kueche.meter": "Küchenzeile (Unterschränke) in m",
+  "kueche.meter_oben": "Oberschränke in m",
+  "kueche.abbau": "Alte Küche abbauen",
+  "kueche.aufbau": "Küche aufbauen",
+  "kueche.hochtragen": "Zum Einbauort hochtragen",
+  "kueche.mitnehmen": "Küche mitnehmen",
+};
+
+export const LEISTUNG_TEXT: Record<string, string> = {
+  umzug: "Umzug",
+  kuechenmontage: "Küchenmontage",
+  entruempelung: "Entrümpelung",
+  transport: "Transport",
 };
 
 /** Anzeigewert eines Grundlage-Feldes („2. OG“, „kein Aufzug“, „25 m“, „ja“). */
@@ -584,6 +598,18 @@ function grundlageWertText(key: GrundlageKey, wert: unknown): string {
     case "station":
     case "fahrzeugklasse":
       return String(wert);
+    case "leistung":
+      return LEISTUNG_TEXT[String(wert)] ?? String(wert);
+    case "kueche.meter":
+    case "kueche.meter_oben": {
+      const n = zahl(wert);
+      return n === null ? String(wert) : `${KOMMA1.format(n)} m`;
+    }
+    case "kueche.abbau":
+    case "kueche.aufbau":
+    case "kueche.hochtragen":
+    case "kueche.mitnehmen":
+      return wert === true ? "ja" : "nein";
   }
 }
 
@@ -671,6 +697,73 @@ function seitenZeile(
       feld(tragwegKey, "Tragweg in m", "zahl", k),
     ],
   };
+}
+
+/**
+ * Küche (Inhaber 19.11.): Zeile „Leistung“ ganz oben (Umzug, Küchenmontage, Entrümpelung umstellbar)
+ * und eine Zeile „Küche“ mit Metern Unter- und Oberschränke. Bei Küchenmontage gibt es nur den
+ * Einbauort: keine Entladen-, Volumen-, Karton- oder Einpackzeile, Halteverbot nur am Einbauort.
+ */
+function leistungUndKueche(zeilen: GrundlageAnsichtZeile[], k: GrundlageKontext): void {
+  const leistung = text(k.wert("leistung")) ?? "umzug";
+  const istKueche = leistung === "kuechenmontage";
+  zeilen.unshift({
+    key: "leistung",
+    label: "Leistung",
+    wert: LEISTUNG_TEXT[leistung] ?? leistung,
+    herkunft: [k.herkunft("leistung")],
+    warum: istKueche ? "Preis nach Küchenmetern, ein Ort (Einbauort)" : null,
+    bearbeitet: k.bearbeitet(["leistung"]),
+    felder: [feld("leistung", "Leistung", "leistung", k)],
+  });
+  if (leistung === "entruempelung") return;
+
+  const meter = zahl(k.wert("kueche.meter"));
+  const oben = zahl(k.wert("kueche.meter_oben"));
+  const ja = (key: GrundlageKey) => k.wert(key) === true;
+  const mitnehmen = ja("kueche.mitnehmen");
+  const metertext = [
+    meter !== null && meter > 0 ? `${KOMMA1.format(meter)} m Zeile` : null,
+    oben !== null && oben > 0 ? `${KOMMA1.format(oben)} m Oberschränke` : null,
+  ].filter(Boolean);
+  const arbeiten = [
+    ja("kueche.abbau") ? "Abbau" : null,
+    mitnehmen && !istKueche ? "Transport" : null,
+    ja("kueche.aufbau") ? "Aufbau" : null,
+    istKueche && ja("kueche.hochtragen") ? "Hochtragen" : null,
+  ].filter(Boolean);
+  const schluessel: GrundlageKey[] = istKueche
+    ? ["kueche.meter", "kueche.meter_oben", "kueche.abbau", "kueche.aufbau", "kueche.hochtragen"]
+    : ["kueche.mitnehmen", "kueche.meter", "kueche.meter_oben", "kueche.abbau", "kueche.aufbau"];
+  const gebucht = istKueche || mitnehmen || ja("kueche.abbau") || ja("kueche.aufbau");
+  const kuecheZeile: GrundlageAnsichtZeile = {
+    key: "kueche",
+    label: "Küche",
+    wert: !gebucht ? "keine" : metertext.length > 0 ? metertext.join(" + ") : "Meter fehlen",
+    herkunft: eindeutig(schluessel.map((key) => k.herkunft(key))),
+    warum: gebucht ? (metertext.length === 0 ? "Ohne Meter rechnet der Rechner keine Küche." : arbeiten.join(", ") || null) : null,
+    bearbeitet: k.bearbeitet(schluessel),
+    felder: schluessel.map((key) =>
+      feld(key, GRUNDLAGE_LABEL[key], key === "kueche.meter" || key === "kueche.meter_oben" ? "zahl" : "ja_nein", k)
+    ),
+  };
+  if (!istKueche) {
+    // Umzug: Küche nach der Montage (gehört zu Abbau und Aufbau).
+    const nachMontage = zeilen.findIndex((z) => z.key === "montage");
+    zeilen.splice(nachMontage >= 0 ? nachMontage + 1 : zeilen.length, 0, kuecheZeile);
+    return;
+  }
+  // Küchenmontage: Einbauort statt Beladen, alles zum Ziel und zum Umzugsgut weg.
+  const weg = new Set(["volumen", "wohnung", "entladen", "umzugskartons", "einpacken", "montage"]);
+  for (let i = zeilen.length - 1; i >= 0; i--) if (weg.has(zeilen[i].key)) zeilen.splice(i, 1);
+  const ort = zeilen.find((z) => z.key === "beladen");
+  if (ort) ort.label = ort.label.replace(/^Beladen/, "Einbauort");
+  const hv = zeilen.find((z) => z.key === "halteverbot");
+  if (hv) {
+    hv.wert = k.wert("halteverbot.beladen") === true ? "am Einbauort" : "keins";
+    hv.felder = hv.felder.filter((f) => f.key === "halteverbot.beladen").map((f) => ({ ...f, label: "am Einbauort" }));
+  }
+  zeilen.splice(1, 0, kuecheZeile);
 }
 
 function grundlageAnsicht(v: VersionsZeile, rest: AnsichtRest): GrundlageAnsicht {
@@ -816,6 +909,7 @@ function grundlageAnsicht(v: VersionsZeile, rest: AnsichtRest): GrundlageAnsicht
       felder: [feld("termin", "Termin", "datum", k)],
     },
   ];
+  leistungUndKueche(zeilen, k);
   // Plan 12a (E7): „Anfahrt Team“ steht nur da, wenn sie aus dem Einsatz übernommen wurde.
   const anfahrtHerkunft = k.herkunft("anfahrt_team").art;
   if (anfahrtHerkunft === "MANUELL" || anfahrtHerkunft === "BOT") {

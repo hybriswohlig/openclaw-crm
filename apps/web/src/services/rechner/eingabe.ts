@@ -74,7 +74,41 @@ const GROESSENKLASSEN = new Set(["klein", "mittel", "gross", "sperrig"]);
 
 const TREPPENHAUS: Record<string, "normal" | "eng" | "wendel"> = { normal: "normal", eng: "eng", wendeltreppe: "wendel" };
 
-export function rechnerAnfrageAus(lead: LeadDaten, opts: { heute?: string } = {}): RechnerAnfrage {
+/**
+ * Küchenmontage (Inhaber 19.11.): es gibt nur einen Ort, den Einbauort. Der Rechner liest ihn
+ * auf der Von-Seite (Etage, Aufzug, Tragweg fürs Hochtragen). Steht im Lead nur die
+ * Einzugsadresse, wird sie zur Von-Seite; die Zielseite bleibt immer aus.
+ */
+export function einbauortAlsVon(lead: LeadDaten): LeadDaten {
+  const ohneZiel = {
+    nach: null,
+    etageNach: null,
+    zugangNach: null,
+    treppenhausNach: null,
+    tragestreckeNachM: null,
+    halteverbotNach: false,
+    einzugOffen: false,
+  };
+  const chatVon = lead.chatAdressen?.von ?? null;
+  if (lead.von || chatVon || !lead.nach) {
+    return { ...lead, ...ohneZiel, chatAdressen: lead.chatAdressen ? { ...lead.chatAdressen, nach: null, quelleNach: null } : lead.chatAdressen };
+  }
+  return {
+    ...lead,
+    ...ohneZiel,
+    von: lead.nach,
+    etageVon: lead.etageNach,
+    zugangVon: lead.zugangNach,
+    treppenhausVon: lead.treppenhausNach ?? null,
+    tragestreckeVonM: lead.tragestreckeNachM,
+    halteverbot: lead.halteverbotNach ?? false,
+    chatAdressen: lead.chatAdressen ? { ...lead.chatAdressen, nach: null, quelleNach: null } : lead.chatAdressen,
+  };
+}
+
+export function rechnerAnfrageAus(eingang: LeadDaten, opts: { heute?: string } = {}): RechnerAnfrage {
+  const kueche = eingang.auftragsart === "kuechenmontage";
+  const lead = kueche ? einbauortAlsVon(eingang) : eingang;
   const a: RechnerAnfrage = {};
   const setze = (feld: string, wert: string | number | null | undefined) => {
     if (wert !== null && wert !== undefined && wert !== "") a[feld] = String(wert);
@@ -112,6 +146,13 @@ export function rechnerAnfrageAus(lead: LeadDaten, opts: { heute?: string } = {}
   setze("marke", lead.marke);
   setze("quelle", lead.quelle);
   setze("auftragsart", lead.auftragsart);
+  // Küchenmontage: Standard ist Aufbau der Küche und Hochtragen zum Einbauort (Etage/Aufzug der
+  // Von-Seite). Meter trägt der Mensch in der Kalkulation ein; Abbau der alten Küche nur auf Wunsch.
+  if (kueche) {
+    a.kueche_montage = "on";
+    a.kueche_hochtragen = "on";
+    delete a.nach_vorhanden;
+  }
   // heute gehört in die Anfrage (Eilregel, Wochentag). Der Hash ignoriert es; dass täglich
   // neu gerechnet wird, regelt ensureDealCalculation über den Vergleich von request.heute.
   setze("heute", opts.heute);

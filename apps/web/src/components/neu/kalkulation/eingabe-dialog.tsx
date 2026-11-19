@@ -11,6 +11,7 @@ import {
 } from "@/components/glassyui/glass-dialog";
 import { GlassSwitch } from "@/components/glassyui/glass-switch";
 import type { GrundlageAnsichtZeile } from "@/lib/kalkulations-ansicht";
+import { LEISTUNG_WAHL } from "@/lib/leistung-wahl";
 import { eingabenAus, geaenderteFelder } from "./eingabe-felder";
 import type { KalkKontext } from "./kalk-seite";
 
@@ -81,6 +82,20 @@ export function EingabeDialog({
                 <label key={f.key} className="kalk-dialog-schalter">
                   <span>{f.label}</span>
                   <GlassSwitch size="sm" checked={eingaben.schalter[f.key] ?? false} onCheckedChange={(an) => setzeSchalter(f.key, an)} />
+                </label>
+              );
+            }
+            if (f.typ === "leistung") {
+              return (
+                <label key={f.key} className="akte-dialog-feld kalk-dialog-feld" htmlFor={feldId}>
+                  {f.label}
+                  <select id={feldId} className="lg-input" value={eingaben.texte[f.key] || "umzug"} onChange={(e) => setzeText(f.key, e.target.value)}>
+                    {LEISTUNG_WAHL.map((l) => (
+                      <option key={l.wert} value={l.wert}>
+                        {l.label}
+                      </option>
+                    ))}
+                  </select>
                 </label>
               );
             }

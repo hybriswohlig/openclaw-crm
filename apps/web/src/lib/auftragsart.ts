@@ -8,7 +8,9 @@ import { leistungsartVorschlag } from "./kv-vorpruefung";
 
 export type Auftragsart = "umzug" | "entruempelung" | "transport" | "kuechenmontage";
 
-export function auftragsartAus(input: { gespeichert: string | null; leadType: string | null }): Auftragsart {
+export function auftragsartAus(input: Parameters<typeof leistungsartVorschlag>[0]): Auftragsart {
+  // Lead-Typ „Küche“/„Kuechenmontage“ aus Portalen und Formularen (ohne gespeichertes Angebot).
+  if (!input.gespeichert && /k(?:ü|ue)che/i.test(input.leadType ?? "")) return "kuechenmontage";
   const art = leistungsartVorschlag(input);
   if (art === "clearance") return "entruempelung";
   if (art === "kitchen_installation") return "kuechenmontage";

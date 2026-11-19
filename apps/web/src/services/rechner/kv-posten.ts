@@ -274,6 +274,23 @@ function zerlegteMoebel(e: Pick<RechnerErgebnis, "positionen" | "positionenDetai
  * Mit "ohne …" fällt der Hebel weg; ist `festpreisIstEndpreis` gesetzt (der
  * Inhaber hat den Preis vorgegeben), bleibt der Preis, sonst sinkt er um den Hebel.
  */
+const METER = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 2 });
+
+/**
+ * Titel des Küchenpostens: „Küchenmontage: Aufbau (3,2 m Küchenzeile, 1,8 m Oberschränke)“
+ * bei Küchenmontage, „Küche: Abbau und Aufbau (…)“ beim Umzug.
+ */
+export function kuechenTitel(anfrage: RechnerAnfrage, meter: number | null, meterOben: number | null, istKueche: boolean): string {
+  const abbau = an(anfrage, "kueche_demontage");
+  const aufbau = an(anfrage, "kueche_montage");
+  const arbeit = abbau && aufbau ? "Abbau und Aufbau" : abbau ? "Abbau" : aufbau ? "Aufbau" : "Abbau und Aufbau";
+  const teile = [
+    meter ? `${METER.format(meter)} m Küchenzeile` : null,
+    meterOben ? `${METER.format(meterOben)} m Oberschränke` : null,
+  ].filter(Boolean);
+  return `${istKueche ? "Küchenmontage" : "Küche"}: ${arbeit}${teile.length ? ` (${teile.join(", ")})` : ""}`;
+}
+
 export function kvBausteine(input: {
   festpreis: number;
   ergebnis: Pick<RechnerErgebnis, "preis" | "kosten" | "zeiten" | "team" | "positionen" | "positionenDetails" | "fahrzeugoptionen" | "empfehlungOptionId">;
@@ -289,6 +306,7 @@ export function kvBausteine(input: {
   zusammenklappen?: "nie" | "kern_min";
 }): KvBausteine {
   const { ergebnis: e, anfrage } = input;
+  const istKueche = anfrage.auftragsart === "kuechenmontage";
   const opt = input.optionen ?? {};
   const listenPosten = e.preis?.posten ?? [];
   const arbeitssatz = zeile(listenPosten, ["verkauf.arbeitsstunden"], (b) => /^Arbeitsstunden/.test(b))?.satz ?? ARBEITSSATZ_STANDARD;
@@ -396,11 +414,14 @@ export function kvBausteine(input: {
       posten: { description: `Einpackservice (${kartons} Kartons)`, quantity: 1, unitRate: auf10(((zeiten.packen ?? 0) / 60) * arbeitssatz) },
     });
   }
+  // Küche (Inhaber 19.11.): Unterschränke/Zeile und Oberschränke je Meter, ein Posten mit beiden Metern.
   const kueche = zeile(listenPosten, ["verkauf.kueche"], (b) => b === "Küche Demontage/Montage");
-  if (kueche && kueche.betrag > 0) {
+  const kuecheOben = zeile(listenPosten, ["verkauf.kueche_oben"], (b) => b === "Küche Oberschränke Demontage/Montage");
+  const kuecheBetrag = (kueche?.betrag ?? 0) + (kuecheOben?.betrag ?? 0);
+  if (kuecheBetrag > 0) {
     kandidaten.push({
       art: "kueche",
-      posten: { description: `Küche: Abbau und Aufbau${kueche.menge ? ` (${kueche.menge} m)` : ""}`, quantity: 1, unitRate: auf10(kueche.betrag) },
+      posten: { description: kuechenTitel(anfrage, kueche?.menge ?? null, kuecheOben?.menge ?? null, istKueche), quantity: 1, unitRate: auf10(kuecheBetrag) },
     });
   }
 
@@ -438,7 +459,9 @@ export function kvBausteine(input: {
   const option = e.fahrzeugoptionen?.find((o) => o.id === e.empfehlungOptionId) ?? null;
   const team = option?.teamgroesse ?? e.team?.groesse ?? null;
   const fahrzeug = option && /lkw/i.test(option.name) ? "LKW" : "Transporter";
-  const kernText = `Umzugsteam${team ? ` (${team} Personen)` : ""} & ${fahrzeug}, inkl. Anfahrt, aller Kilometer, Möbelschutz und Tragewege`;
+  const kernText = istKueche
+    ? `Montageteam${team ? ` (${team} Monteure)` : ""}, inkl. Anfahrt, Werkzeug und Kleinmaterial${an(anfrage, "kueche_hochtragen") ? ", Tragen zum Einbauort" : ""}`
+    : `Umzugsteam${team ? ` (${team} Personen)` : ""} & ${fahrzeug}, inkl. Anfahrt, aller Kilometer, Möbelschutz und Tragewege`;
   let kernPosten: KvPosten = { description: kernText, quantity: 1, unitRate: kern };
   if (klappen !== "nie" && kern < summe * KERN_MIN_ANTEIL) {
     // Hebel zu groß im Verhältnis: ein Posten mit allem, damit kein Teil billiger wirkt als der Rest.
@@ -469,6 +492,18 @@ export function kvBausteine(input: {
     // „Den Abbau übernehmen Sie selbst“, obwohl wir Betten und Schränke abbauen).
     leistungen.dismantling = ownerLeistung(abbauFirma, besitzer.dismantleCustomer, "Den Abbau übernehmen Sie selbst.");
     leistungen.assembly = ownerLeistung(aufbauFirma, besitzer.assembleCustomer, "Den Aufbau übernehmen Sie selbst.");
+  }
+
+  if (istKueche) {
+    // Küchenmontage: kein Umzugsgut, keine Kartons, kein Ziel. Was wir an der Küche tun, steht im
+    // Küchenblock des KV (documentDetails.kitchen, siehe kuechenAngaben in uebernahme.ts).
+    leistungen.transport = { owner: "none" };
+    leistungen.dismantling = { owner: "none" };
+    leistungen.assembly = { owner: "none" };
+    leistungen.parkingDestination = { owner: "none" };
+    leistungen.packing = { owner: "none" };
+    leistungen.unpacking = { owner: "none" };
+    leistungen.materials = { owner: "none" };
   }
 
   // Kern ≤ 0 ist kein Posten. Beim bisherigen Zusammenklappen steht er schon als Summe im einen Posten.

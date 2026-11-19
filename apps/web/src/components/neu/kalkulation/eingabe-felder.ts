@@ -25,7 +25,7 @@ export type FelderErgebnis = { ok: true; liste: GeaendertesFeld[] } | { ok: fals
 /** Anzeigewert eines Felds als Text fürs Formular („2“, „keiner“, „2026-11-21“; leer ohne Wert). */
 export function textAus(f: Pick<GrundlageFeld, "typ" | "wert">): string {
   const w = f.wert;
-  if (w === null || w === undefined) return f.typ === "aufzug" ? "keiner" : "";
+  if (w === null || w === undefined) return f.typ === "aufzug" ? "keiner" : f.typ === "leistung" ? "umzug" : "";
   if (typeof w === "number") return String(w).replace(".", ",");
   if (typeof w === "boolean") return w ? "ja" : "nein";
   return String(w);
@@ -59,6 +59,11 @@ export function geaenderteFelder(felder: GrundlageFeld[], eingaben: FeldEingaben
       case "ja_nein": {
         neu = eingaben.schalter[f.key] ?? false;
         if ((f.wert === true) === neu) continue;
+        break;
+      }
+      case "leistung": {
+        neu = (eingaben.texte[f.key] ?? "").trim() || "umzug";
+        if ((f.wert ?? "umzug") === neu) continue;
         break;
       }
       case "aufzug": {

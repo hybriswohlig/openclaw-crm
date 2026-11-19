@@ -77,14 +77,21 @@ export async function ladeLeadDaten(workspaceId: string, dealRecordId: string): 
   // Dieselben zwei Quellen wie der Auftrag-Tab: gespeicherte KV-Leistung
   // (quotations.serviceType) und leadType aus moving_lead_payload.
   const [kv] = await db
-    .select({ serviceType: quotations.serviceType })
+    .select({ serviceType: quotations.serviceType, summary: quotations.summary, documentDetails: quotations.documentDetails })
     .from(quotations)
     .where(eq(quotations.dealRecordId, dealRecordId))
     .limit(1);
 
+  // Wie der Auftrag-Tab (leistungsartVorschlag): Küche aus dem Angebot, aus dem Lead-Typ oder aus dem
+  // Anfragetext (Kontaktformular). Die Übersteuerung „leistung“ in der Kalkulation gewinnt darüber.
+  const details = (kv?.documentDetails ?? null) as { mitEntruempelung?: boolean; leistungBestaetigt?: boolean } | null;
+  const anfrageText = [kv?.summary, ...leadTexte(dv.moving_lead_payload)].filter((t): t is string => typeof t === "string" && t.trim() !== "");
   const auftragsart = auftragsartAus({
     gespeichert: kv?.serviceType ?? null,
     leadType: typeof payload?.leadType === "string" ? payload.leadType : null,
+    mitEntruempelung: details?.mitEntruempelung ?? null,
+    bestaetigt: details?.leistungBestaetigt ?? null,
+    text: anfrageText.join("\n") || null,
   });
   const von = ortText(dv.move_from_address);
   const nach = ortText(dv.move_to_address);
@@ -121,4 +128,13 @@ export async function ladeLeadDaten(workspaceId: string, dealRecordId: string): 
     quelle: leadQuelle({ payloadSource: typeof payload?.source === "string" ? payload.source : null, konversationen }),
     auftragsart,
   };
+}
+
+/** Freitexte aus dem Portal-Import (Nachricht, Beschreibung, Leistung), für die Leistungserkennung. */
+function leadTexte(payload: unknown): string[] {
+  if (!payload || typeof payload !== "object") return [];
+  const p = payload as Record<string, unknown>;
+  return ["message", "nachricht", "description", "beschreibung", "notes", "service", "leistung", "leadType"]
+    .map((k) => p[k])
+    .filter((v): v is string => typeof v === "string");
 }

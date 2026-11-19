@@ -41,6 +41,57 @@ function text(anfrage: RechnerAnfrage, feld: string): string | null {
   return typeof wert === "string" && wert !== "" ? wert : null;
 }
 
+const METER = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 2 });
+
+function etageWort(etage: string | null): string | null {
+  if (etage === null) return null;
+  const n = Number(etage.replace(",", "."));
+  if (!Number.isFinite(n)) return etage;
+  return n === 0 ? "Erdgeschoss" : n === 0.5 ? "Hochparterre" : n < 0 ? `${Math.abs(n)}. UG` : `${METER.format(n)}. OG`;
+}
+
+/**
+ * Küchenblock des KV (VPS-Vorlage „kitchen_installation“) aus der Kalkulation: Einbauort mit
+ * Etage/Aufzug, Maße (Küchenzeile, Oberschränke) und wer was macht. Null, wenn keine Küchenmontage.
+ */
+export function kuechenAngaben(
+  anfrage: RechnerAnfrage,
+  ergebnis: RechnerErgebnis
+): NonNullable<QuotationDocumentDetails["kitchen"]> | null {
+  if (text(anfrage, "auftragsart") !== "kuechenmontage") return null;
+  const an = (feld: string) => anfrage[feld] === "on";
+  const k = (ergebnis as { kueche?: { meter?: number | null; meterOben?: number | null } }).kueche ?? null;
+  const meter = k?.meter ?? (Number(text(anfrage, "kueche_meter")?.replace(",", ".")) || null);
+  const oben = k?.meterOben ?? (Number(text(anfrage, "kueche_meter_oben")?.replace(",", ".")) || null);
+  const aufzug = text(anfrage, "von_aufzug");
+  const details = [etageWort(text(anfrage, "von_etage")), aufzug ? AUFZUG_TEXT[aufzug] ?? aufzug : null].filter(Boolean).join(" · ");
+  const masse = [meter ? `Küchenzeile ${METER.format(meter)} m` : null, oben ? `Oberschränke ${METER.format(oben)} m` : null].filter(Boolean);
+  const arbeit = [
+    an("kueche_demontage") ? "Abbau der bisherigen Küche" : null,
+    an("kueche_hochtragen") ? "Tragen der Küchenteile zum Einbauort" : null,
+    an("kueche_montage") ? "Aufbau, Ausrichten und Montage der Schränke" : null,
+  ].filter((t): t is string => !!t);
+  const wer = (ja: boolean, note?: string) => (ja ? { owner: "company" as const, ...(note ? { note } : {}) } : { owner: "none" as const });
+  return {
+    ...(text(anfrage, "von_adresse") ? { address: text(anfrage, "von_adresse")! } : {}),
+    ...(details ? { details } : {}),
+    ...(masse.length ? { dimensions: `${masse.join(", ")} (laufende Meter)` } : {}),
+    ...(arbeit.length ? { companyWork: `${arbeit.join(", ")}.` } : {}),
+    excluded: "Keine Elektro-, Wasser- oder Gasanschlüsse, keine Fliesen-, Maler- oder Sanitärarbeiten.",
+    services: {
+      oldKitchenDismantling: wer(an("kueche_demontage")),
+      delivery: wer(an("kueche_hochtragen"), "Tragen der Küchenteile zum Einbauort."),
+      installation: wer(an("kueche_montage"), masse.length ? `${masse.join(", ")}.` : undefined),
+      worktop: { owner: "none" },
+      appliances: { owner: "none" },
+      connections: { owner: "none" },
+      packagingRemoval: { owner: "none" },
+      disposal: { owner: "none" },
+    },
+    components: [],
+  };
+}
+
 export function angebotsUebernahme(
   kalkulation: { result: RechnerErgebnis | null; request: RechnerAnfrage } | null,
   vorhandenesAngebot: { notes: string | null; isVariable: boolean; validUntil?: string | null } | null,
@@ -146,7 +197,16 @@ export function angebotsUebernahme(
         sortOrder: i,
       })),
       // Ohne serviceType: die Auftragsart steuert quotations.service_type (Küche bleibt Küche).
-      documentDetails: { services: kv.leistungen, validUntil: gueltig.datum },
+      // Küchenmontage aus der Kalkulation (Inhaber 19.11.): Leistung und Küchenblock fürs KV mitgeben.
+      documentDetails: kuechenAngaben(kalkulation.request, ergebnis)
+        ? {
+            services: kv.leistungen,
+            validUntil: gueltig.datum,
+            serviceType: "kitchen_installation",
+            leistungBestaetigt: true,
+            kitchen: kuechenAngaben(kalkulation.request, ergebnis)!,
+          }
+        : { services: kv.leistungen, validUntil: gueltig.datum },
       validUntil: gueltig.datum,
       isVariable: false,
       notes: vorhandenesAngebot?.notes ?? null,

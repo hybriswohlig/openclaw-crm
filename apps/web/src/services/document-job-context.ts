@@ -393,7 +393,7 @@ export async function attachDocumentJobContext(
     reference,
     inventory: gespeichertesInventar || inventoryRows,
     services: vpsLeistungen(vpsArt, services, defaultMoveServices),
-    kitchen: clientDetails.kitchen || storedDetails.kitchen,
+    kitchen: kuecheZusammen(clientDetails.kitchen, storedDetails.kitchen),
     cardAgreed:
       clientDetails.cardAgreed ??
       storedDetails.cardAgreed ??
@@ -480,3 +480,27 @@ export async function attachDocumentJobContext(
       : null;
   return { params: next, kv, re, kvBasis, kvPreise, bildIds, inventarIds };
 }
+
+/**
+ * Küchenblock: der KV-Dialog schickt Adresse, Termin und Standard-Leistungen; die Kalkulation hat
+ * Maße, Etage und wer was macht ins Angebot geschrieben (Inhaber 19.11.). Adresse, Termin und
+ * Notizen aus dem Dialog gewinnen, das Übrige aus dem Angebot, wenn es dort steht.
+ */
+export function kuecheZusammen(
+  dialog: QuotationDocumentDetails["kitchen"],
+  gespeichert: QuotationDocumentDetails["kitchen"]
+): QuotationDocumentDetails["kitchen"] {
+  if (!dialog) return gespeichert;
+  if (!gespeichert) return dialog;
+  return {
+    ...dialog,
+    ...gespeichert,
+    address: dialog.address || gespeichert.address,
+    date: dialog.date || gespeichert.date,
+    notes: dialog.notes || gespeichert.notes,
+    time: dialog.time || gespeichert.time,
+    services: gespeichert.services ?? dialog.services,
+    components: gespeichert.components?.length ? gespeichert.components : dialog.components,
+  };
+}
+

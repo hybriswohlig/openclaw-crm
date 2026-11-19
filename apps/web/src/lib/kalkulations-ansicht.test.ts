@@ -75,7 +75,7 @@ describe("ansichtAus: Grundlage", () => {
   const a = ansichtAus(weberVersion(), rest());
 
   it("Zeilen in der Reihenfolge des Mockups", () => {
-    expect(a.grundlage.zeilen.map((z) => z.key)).toEqual(["volumen", "wohnung", "beladen", "entladen", "halteverbot", "umzugskartons", "einpacken", "montage", "team", "fahrt", "termin"]);
+    expect(a.grundlage.zeilen.map((z) => z.key)).toEqual(["leistung", "volumen", "wohnung", "beladen", "entladen", "halteverbot", "umzugskartons", "einpacken", "montage", "kueche", "team", "fahrt", "termin"]);
     expect(a.grundlage.adressen).toEqual({ beladen: "Rotebühlstr. 112, 70178 Stuttgart", entladen: "Plochinger Str. 8, 73730 Esslingen" });
   });
 
@@ -551,5 +551,47 @@ describe("ansichtAus: verwaiste Zeilen-Anpassung", () => {
     const a = ansichtAus(weberVersion({ status: "gesperrt", overrides: [zeilenAnpassung(MIETE_ALT, 100)] }), rest());
     expect(a.verwaist).toHaveLength(1);
     expect(a.version.sperrGrund).toBe("v2 ist gesperrt. Änderungen landen in einem neuen Entwurf.");
+  });
+});
+
+describe("ansichtAus: Küchenmontage (Inhaber 19.11.)", () => {
+  const kuecheU = (key: string, wert: Uebersteuerung["wert"]): Uebersteuerung => ({
+    id: `k-${key}`,
+    art: "eingabe",
+    key,
+    rechnerwert: null,
+    wert,
+    grund: "Küche statt Umzug",
+    autor: { userId: DARIO, quelle: "mensch" },
+    zeit: "2026-11-06T07:00:00.000Z",
+    fotoRef: null,
+  });
+
+  it("ein Ort: Leistung, Küche mit Metern, Einbauort; ohne Entladen, Volumen, Kartons", () => {
+    const a = ansichtAus(
+      weberVersion({ overrides: [kuecheU("leistung", "kuechenmontage"), kuecheU("kueche.meter", 3.2), kuecheU("kueche.meter_oben", 1.8)] }),
+      rest()
+    );
+    const keys = a.grundlage.zeilen.map((z) => z.key);
+    expect(keys.slice(0, 2)).toEqual(["leistung", "kueche"]);
+    for (const weg of ["volumen", "wohnung", "entladen", "umzugskartons", "einpacken", "montage"]) expect(keys).not.toContain(weg);
+    expect(zeile(a, "leistung").wert).toBe("Küchenmontage");
+    expect(zeile(a, "kueche").wert).toBe("3,2 m Zeile + 1,8 m Oberschränke");
+    expect(zeile(a, "kueche").warum).toBe("Aufbau, Hochtragen");
+    expect(zeile(a, "kueche").felder.map((f) => f.key)).toEqual([
+      "kueche.meter",
+      "kueche.meter_oben",
+      "kueche.abbau",
+      "kueche.aufbau",
+      "kueche.hochtragen",
+    ]);
+    expect(zeile(a, "beladen").label).toMatch(/^Einbauort/);
+    expect(zeile(a, "halteverbot").felder.map((f) => f.key)).toEqual(["halteverbot.beladen"]);
+  });
+
+  it("Umzug: Küche als eigene Zeile nach der Montage, ohne Buchung „keine“", () => {
+    const a = ansichtAus(weberVersion(), rest());
+    expect(zeile(a, "kueche").wert).toBe("keine");
+    expect(zeile(a, "leistung").wert).toBe("Umzug");
   });
 });

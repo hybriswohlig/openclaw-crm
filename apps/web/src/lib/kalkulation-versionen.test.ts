@@ -311,6 +311,13 @@ describe("grundlageAus", () => {
       "anfahrt_team",
       "station",
       "fahrzeugklasse",
+      "leistung",
+      "kueche.meter",
+      "kueche.meter_oben",
+      "kueche.abbau",
+      "kueche.aufbau",
+      "kueche.hochtragen",
+      "kueche.mitnehmen",
     ]);
   });
 

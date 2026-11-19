@@ -492,6 +492,8 @@ export async function angebotAusVersionSchreiben(
         validUntil: eingabe.validUntil,
         calculationAssumptions: annahmenZusammenfuehren(existing.calculationAssumptions, eingabe.calculationAssumptions),
         documentDetails: details({ ...((existing.documentDetails ?? {}) as QuotationDocumentDetails), ...eingabe.documentDetails }),
+        // Küchenmontage aus der Kalkulation setzt die Leistung des Angebots (sonst bleibt sie).
+        ...(eingabe.documentDetails.serviceType === "kitchen_installation" ? { serviceType: "kitchen_installation" } : {}),
         calculationVersionId,
         updatedAt: new Date(),
       })
@@ -514,7 +516,11 @@ export async function angebotAusVersionSchreiben(
         validUntil: eingabe.validUntil,
         calculationAssumptions: eingabe.calculationAssumptions,
         documentDetails: mitLeistung(details(eingabe.documentDetails), leistung),
-        ...(leistung ? { serviceType: leistung.serviceType } : {}),
+        ...(eingabe.documentDetails.serviceType === "kitchen_installation"
+          ? { serviceType: "kitchen_installation" }
+          : leistung
+            ? { serviceType: leistung.serviceType }
+            : {}),
         calculationVersionId,
       })
       .returning({ id: quotations.id });

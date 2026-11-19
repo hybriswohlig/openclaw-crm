@@ -63,7 +63,22 @@ export const GRUNDLAGE_FELDER = {
   station: "mietstation",
   /** Plan 12b: feste Fahrzeugklasse (Rechner-ID aus `GET /api/fahrzeuge`), Übersteuerung aus dem Einsatz. */
   fahrzeugklasse: "fahrzeugklasse",
+  /** Küche (Inhaber 19.11.): Leistung der Kalkulation, gewinnt über Angebot und Lead. */
+  leistung: "auftragsart",
+  /** Küche: laufende Meter Küchenzeile (Unterschränke) und Oberschränke. */
+  "kueche.meter": "kueche_meter",
+  "kueche.meter_oben": "kueche_meter_oben",
+  /** Küche: alte Küche abbauen, neue aufbauen, Teile zum Einbauort hochtragen, beim Umzug mitnehmen. */
+  "kueche.abbau": "kueche_demontage",
+  "kueche.aufbau": "kueche_montage",
+  "kueche.hochtragen": "kueche_hochtragen",
+  "kueche.mitnehmen": "kueche_mitnehmen",
 } as const;
+
+/** Schalter der Küche: true = "on", false = Feld entfernt. */
+export const KUECHE_SCHALTER = ["kueche.abbau", "kueche.aufbau", "kueche.hochtragen", "kueche.mitnehmen"] as const;
+/** Leistungen, die die Kalkulation kennt (Rechner-Auftragsart). */
+export const LEISTUNGEN = ["umzug", "kuechenmontage", "entruempelung"] as const;
 
 export type GrundlageKey = keyof typeof GRUNDLAGE_FELDER;
 
@@ -247,6 +262,23 @@ function pruefeEingabe(key: GrundlageKey, wert: unknown): number | string | bool
     case "halteverbot.entladen":
       if (typeof wert !== "boolean") throw new UebersteuerungFehler("Halteverbot muss ja oder nein sein");
       return wert;
+    case "kueche.abbau":
+    case "kueche.aufbau":
+    case "kueche.hochtragen":
+    case "kueche.mitnehmen":
+      if (typeof wert !== "boolean") throw new UebersteuerungFehler("Küche: ja oder nein");
+      return wert;
+    case "kueche.meter":
+    case "kueche.meter_oben": {
+      const n = zahl(wert);
+      if (n === null || n < 0 || n > 50) throw new UebersteuerungFehler("Küchenmeter zwischen 0 und 50");
+      return Math.round(n * 100) / 100;
+    }
+    case "leistung": {
+      const s = typeof wert === "string" ? wert.trim() : "";
+      if (!(LEISTUNGEN as readonly string[]).includes(s)) throw new UebersteuerungFehler("Leistung muss Umzug, Küchenmontage oder Entrümpelung sein");
+      return s;
+    }
     case "umzugskartons":
     case "einpacken": {
       const n = zahl(wert);
@@ -512,6 +544,33 @@ function wirksamFuer(liste: Uebersteuerung[], art: UebersteuerungsArt, key: stri
  * Basis-Anfrage plus Übersteuerungen → Anfrage an den Rechner. Die Basis bleibt
  * unverändert. `heute` wird immer das Bezugsdatum der Version.
  */
+/**
+ * Stellt eine Rechner-Anfrage auf eine andere Leistung um (Übersteuerung „leistung“).
+ * Küchenmontage: ein Ort (Einbauort auf der Von-Seite, sonst die Zielseite dorthin), keine
+ * Zielseite, Standard Aufbau und Hochtragen. Zurück zu Umzug: Küchen-Standards weg, Zielseite an.
+ */
+function feldText(w: RechnerAnfrage[string] | undefined): string | null {
+  return typeof w === "string" && w !== "" ? w : null;
+}
+
+export function leistungUmstellen(a: RechnerAnfrage, leistung: string): void {
+  const nachFelder = Object.keys(a).filter((k) => k.startsWith("nach_"));
+  if (leistung === "kuechenmontage") {
+    if (!feldText(a.von_adresse) && feldText(a.nach_adresse)) {
+      for (const k of Object.keys(a).filter((k) => k.startsWith("von_"))) delete a[k];
+      for (const k of nachFelder) if (k !== "nach_vorhanden") a[`von_${k.slice("nach_".length)}`] = a[k];
+    }
+    for (const k of nachFelder) delete a[k];
+    a.kueche_montage = "on";
+    a.kueche_hochtragen = "on";
+  } else {
+    delete a.kueche_montage;
+    delete a.kueche_hochtragen;
+    if (leistung === "umzug") a.nach_vorhanden = "on";
+  }
+  a.auftragsart = leistung;
+}
+
 export function anfrageMitUebersteuerungen(
   basis: RechnerAnfrage,
   liste: Uebersteuerung[],
@@ -530,6 +589,12 @@ export function anfrageMitUebersteuerungen(
   const positionen = new Map<string, PositionWert>();
   let montage: MontageWert["positionen"] | null = null;
 
+  // Leistung zuerst: sie stellt die Anfrage um, die übrigen Eingaben gelten danach.
+  const leistung = wirksamFuer(liste, "eingabe", "leistung");
+  if (leistung && typeof leistung.wert === "string" && leistung.wert !== feldText(a.auftragsart)) {
+    leistungUmstellen(a, leistung.wert);
+  }
+
   for (const u of wirksame(liste).values()) {
     if (u.art === "zeile") zeilenArt = true;
     if (u.art === "zeitposten") zeitpostenArt = true;
@@ -542,7 +607,10 @@ export function anfrageMitUebersteuerungen(
         const key = eingabeSchluessel(u.key);
         if (!istGrundlageKey(key)) break;
         const feld = GRUNDLAGE_FELDER[key];
-        if (key === "halteverbot.beladen" || key === "halteverbot.entladen") {
+        if (key === "leistung") break;
+        // Küchenmontage hat keine Zielseite: Angaben zum Entladen gelten dort nicht.
+        if (feldText(a.auftragsart) === "kuechenmontage" && (key.startsWith("entladen.") || key === "halteverbot.entladen")) break;
+        if (key === "halteverbot.beladen" || key === "halteverbot.entladen" || (KUECHE_SCHALTER as readonly string[]).includes(key)) {
           if (u.wert === true) a[feld] = "on";
           else delete a[feld];
         } else if (key === "einpacken") {
@@ -672,6 +740,9 @@ export function grundlageAus(lead: LeadDaten, ergebnis: RechnerErgebnis | null, 
   // Dieselbe Zuordnung wie rechnerAnfrageAus: "Erdgeschoss" ohne Etage ergibt Etage 0.
   const zv = zugangAusTitel(lead.zugangVon);
   const zn = zugangAusTitel(lead.zugangNach);
+  // Küche: Standard aus der (ggf. übersteuerten) Leistung, wie rechnerAnfrageAus/leistungUmstellen.
+  const leistungU = wirksamFuer(liste, "eingabe", "leistung");
+  const istKueche = (typeof leistungU?.wert === "string" ? leistungU.wert : lead.auftragsart) === "kuechenmontage";
 
   const basis: Record<GrundlageKey, { wert: string | number | boolean | null; herkunft: Herkunft }> = {
     volumen: { wert: ergebnis?.volumen?.nettoCbm ?? null, herkunft: volumenHerkunft(lead) },
@@ -706,6 +777,13 @@ export function grundlageAus(lead: LeadDaten, ergebnis: RechnerErgebnis | null, 
     anfahrt_team: { wert: null, herkunft: "STANDARD" },
     station: { wert: null, herkunft: "STANDARD" },
     fahrzeugklasse: { wert: null, herkunft: "STANDARD" },
+    leistung: { wert: lead.auftragsart ?? "umzug", herkunft: "REGEL" },
+    "kueche.meter": { wert: null, herkunft: "STANDARD" },
+    "kueche.meter_oben": { wert: null, herkunft: "STANDARD" },
+    "kueche.abbau": { wert: false, herkunft: "STANDARD" },
+    "kueche.aufbau": { wert: istKueche, herkunft: istKueche ? "REGEL" : "STANDARD" },
+    "kueche.hochtragen": { wert: istKueche, herkunft: istKueche ? "REGEL" : "STANDARD" },
+    "kueche.mitnehmen": { wert: false, herkunft: "STANDARD" },
   };
 
   return GRUNDLAGE_KEYS.map((key) => {
@@ -762,7 +840,10 @@ export function rechnerwertFuer(
       key = eingabeSchluessel(key);
       if (!istGrundlageKey(key)) return null;
       const feld = GRUNDLAGE_FELDER[key];
-      if (key === "halteverbot.beladen" || key === "halteverbot.entladen") return text(feld) === "on";
+      if (key === "halteverbot.beladen" || key === "halteverbot.entladen" || (KUECHE_SCHALTER as readonly string[]).includes(key)) {
+        return text(feld) === "on";
+      }
+      if (key === "leistung") return text(feld) ?? "umzug";
       if (key === "hebel.montage" || key === "hebel.kueche") {
         const aus = text(feld);
         return !(aus ? (JSON.parse(aus) as string[]).includes(key.slice("hebel.".length)) : false);
