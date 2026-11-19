@@ -555,7 +555,7 @@ describe("PDF", () => {
 });
 
 describe("Chat", () => {
-  it("exportiert maxDuration 120", () => {
-    expect(maxDuration).toBe(120);
+  it("exportiert maxDuration 300", () => {
+    expect(maxDuration).toBe(300);
   });
 });

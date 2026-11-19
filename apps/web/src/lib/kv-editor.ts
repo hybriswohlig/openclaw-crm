@@ -453,8 +453,13 @@ export const KV_ANREDE_VPS: "sie" | "du" = "sie";
 
 /** Abfrage eines druckenden Stands im Browser. */
 export const KV_EDITOR_POLL_MS = 5_000;
-/** Eigene Zeitgrenze der KI-Anfrage (Route `maxDuration = 120`). */
-export const KV_KI_ZEITGRENZE_MS = 100_000;
+/**
+ * Eigene Zeitgrenze der KI-Anfrage (Route `maxDuration = 300`). Die KI läuft über crm-tools auf dem
+ * VPS (30 bis 90 s, mit Fallback Grok → Claude länger); 100 s rissen zu oft (Inhaber 19.11.).
+ * Die KI-Sperre ist eine offene Transaktion; Neon beendet sie nach 300 s (idle_in_transaction),
+ * also 240 s für die KI und Luft für Laden und Speichern davor und danach.
+ */
+export const KV_KI_ZEITGRENZE_MS = 240_000;
 /** Höchstzahl Änderungen je KI-Antwort; der Rest fällt weg. */
 export const KV_KI_MAX_AENDERUNGEN = 30;
 /** So viele frühere Chat-Beiträge gehen in den Prompt. */

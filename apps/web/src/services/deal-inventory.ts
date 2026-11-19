@@ -518,9 +518,8 @@ export async function fotoItemsUebernehmen(
         confidence: "mittel" as const,
         source: "foto" as const,
         needsPhoto: false,
-        notes: [item.notes?.trim(), "Auf Foto erkannt, im Chat nicht erwähnt"]
-          .filter(Boolean)
-          .join(" — "),
+        // Herkunft steht in `source = foto`; kein Arbeitskommentar in der Notiz (Inhaber 19.11.).
+        notes: item.notes?.trim() || null,
         sortOrder: sortOrder++,
       });
     }

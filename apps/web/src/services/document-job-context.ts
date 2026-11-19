@@ -29,6 +29,7 @@ import { preisZahlungenCent } from "@/lib/preis-zahlungen";
 import { angebotsStandAus } from "./rechnungen";
 import { kvFelderVpsGeprueft, type KvAenderung, type KvBasis } from "@/lib/kv-editor";
 import { vpsAnwenden, vpsBasis, vpsErwarteteBetraege } from "@/lib/kv-editor-anwenden";
+import { kundenNotiz } from "@/lib/inventar-notiz";
 
 type ServiceType = ServiceArt;
 type InventoryOwner = "company" | "customer" | "none";
@@ -368,7 +369,8 @@ export async function attachDocumentJobContext(
     quantity: item.quantity,
     dismantling: zustaendig[i]?.dismantling ?? asInventoryOwner(item.dismantlingOwner),
     assembly: zustaendig[i]?.assembly ?? asInventoryOwner(item.assemblyOwner),
-    note: item.notes || "",
+    // Nur Team-Notizen, nie KI-Arbeitskommentare (Inhaber 19.11.).
+    note: kundenNotiz(item),
   }));
 
   const defaultMoveServices = {

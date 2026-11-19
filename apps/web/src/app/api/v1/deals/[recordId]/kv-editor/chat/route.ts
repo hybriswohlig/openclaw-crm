@@ -4,8 +4,8 @@ import { chatSchema, kvKoerper, kvRoute, type KvParams } from "@/lib/kv-editor-r
 import { kvChat, kvChatVerlauf } from "@/services/kv-editor";
 
 export const dynamic = "force-dynamic";
-/** KI bis 100 s (Zeitgrenze im Dienst), dazu Laden und Prüfen. */
-export const maxDuration = 120;
+/** KI bis 240 s (Zeitgrenze im Dienst), dazu Laden und Prüfen. */
+export const maxDuration = 300;
 
 /** GET → `KvChatBeitrag[]`, älteste zuerst, höchstens 200. */
 export async function GET(req: NextRequest, { params }: KvParams) {
