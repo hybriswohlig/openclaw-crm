@@ -7,6 +7,8 @@ import {
   anpassungBezeichnung,
   anpassungenFehler,
   anpassungenSumme,
+  nachlassZuHoch,
+  nachlassZuHochText,
   prozentBetragCent,
   GELD_FEHLER_TEXT,
   GRUND_MIN_ZEICHEN,
@@ -209,6 +211,9 @@ export function rechnungSchritt(
   }
   const fehler = anpassungenFehler(gueltig, basis);
   if (fehler) return { betragFest, grundNoetig, weiter: false, hinweis: GELD_FEHLER_TEXT[fehler], ...stand };
+  // Review Grok 1: nie unter Anzahlung oder schon Gezahltes (der Server prüft dasselbe).
+  const zuHoch = nachlassZuHoch({ bruttoCent: gesamtCent, anpassungen: gueltig, anzahlungCent: v.anzahlungCent, bezahltCent: v.bezahltCent });
+  if (zuHoch) return { betragFest, grundNoetig, weiter: false, hinweis: nachlassZuHochText(zuHoch), ...stand };
   if (grundNoetig && !grundReicht(eingabe.grund)) {
     return { betragFest, grundNoetig, weiter: false, hinweis: `Grund mit mindestens ${GRUND_MIN_ZEICHEN} Zeichen.`, ...stand };
   }

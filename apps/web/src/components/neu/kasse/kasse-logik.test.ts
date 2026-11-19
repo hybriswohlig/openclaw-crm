@@ -133,6 +133,14 @@ describe("kasse-logik", () => {
     ).toMatchObject({ weiter: true, basisCent: 100000, gesamtCent: 95000 });
     // ohne Zeilen wie bisher
     expect(rechnungSchritt(vorschlag(), { betragCent: null, grund: "" })).toMatchObject({ weiter: true, gesamtCent: 90000, anpassungen: [] });
+    // Review Grok 1: Nachlass unter Anzahlung oder Gezahltes sperrt „Weiter“ mit Betrag im Hinweis
+    const angezahlt = rechnungSchritt(vorschlag({ anzahlungCent: 40000, bezahltCent: 50000 }), {
+      betragCent: null,
+      grund: "Am Telefon zugesagt",
+      anpassungen: [{ art: "nachlass", bezeichnung: "Nachlass", modus: "euro", wert: "600" }],
+    });
+    expect(angezahlt).toMatchObject({ weiter: false, gesamtCent: 30000 });
+    expect(angezahlt.hinweis?.replace(/\u00a0/g, " ")).toMatch(/Nachlass zu hoch: Es sind schon 500,00 € angezahlt bzw. bezahlt/);
   });
 
   it("Geld-Fehlercode wird zum Teamtext", () => {

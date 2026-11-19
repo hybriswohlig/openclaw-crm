@@ -4,6 +4,8 @@ import {
   anpassungenFuerVps,
   anpassungenSumme,
   anpassungZeilen,
+  nachlassZuHoch,
+  nachlassZuHochText,
   offenAus,
   prozentBetragCent,
   rechnungsPruefung,
@@ -114,6 +116,24 @@ describe("rechnungsPruefung mit Nachlass und Aufschlag", () => {
     const passend = { ...stunden, eingabe: { ...stunden.eingabe!, bruttoCent: 128104, anpassungen: [aufschlag(4654, { prozent: 3.77 })] } };
     expect(rechnungsPruefung(passend)).toEqual({ ok: true, bruttoCent: 128104, abweichungGrund: "Keller zusätzlich" });
     expect(rechnungsPruefung({ ...passend, eingabe: { ...passend.eingabe, abweichungGrund: null } })).toEqual({ ok: false, code: "GRUND_FEHLT" });
+  });
+
+  it("Review Grok 1: Nachlass nie unter Anzahlung oder schon Gezahltes, Aufschlag allein nie gesperrt", () => {
+    expect(rechnungsPruefung({ ...basis, anzahlungCent: 85000 })).toEqual({ ok: false, code: "NACHLASS_ZU_HOCH" });
+    expect(rechnungsPruefung({ ...basis, bezahltCent: 81001 })).toEqual({ ok: false, code: "NACHLASS_ZU_HOCH" });
+    expect(rechnungsPruefung({ ...basis, anzahlungCent: 81000, bezahltCent: 81000 })).toMatchObject({ ok: true });
+    expect(nachlassZuHoch({ bruttoCent: 30000, anpassungen: [nachlass(60000)], anzahlungCent: 40000, bezahltCent: 0 })).toEqual({ grenzeCent: 40000, art: "anzahlung" });
+    expect(nachlassZuHoch({ bruttoCent: 30000, anpassungen: [nachlass(60000)], anzahlungCent: 40000, bezahltCent: 50000 })).toEqual({ grenzeCent: 50000, art: "bezahlt" });
+    expect(nachlassZuHoch({ bruttoCent: 30000, anpassungen: [aufschlag(100)], anzahlungCent: 40000, bezahltCent: 50000 })).toBeNull();
+    expect(nachlassZuHochText({ grenzeCent: 50000, art: "bezahlt" }).replace(/\u00a0/g, " ")).toBe(
+      "Nachlass zu hoch: Es sind schon 500,00 € angezahlt bzw. bezahlt. Bitte erst die Zahlung klären."
+    );
+    // Stunden ebenso
+    const st: RechnungsPruefungEingabe = {
+      ...basis, istStunden: true, pdfBetragCent: null, annahmeCent: null, festpreisCent: null, bezahltCent: 30000,
+      eingabe: { bruttoCent: 21250, abweichungGrund: "Zugesagt", anpassungen: [nachlass(40000)] },
+    };
+    expect(rechnungsPruefung(st)).toEqual({ ok: false, code: "NACHLASS_ZU_HOCH" });
   });
 
   it("ohne Zeilen alles wie bisher", () => {

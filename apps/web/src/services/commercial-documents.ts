@@ -56,7 +56,7 @@ import { applyInvoiceDueDate } from "@/services/rechnung-faellig";
 import { ladeSteuernummer } from "@/services/company-settings";
 import {
   angebotsStandAus,
-  anpassungVermerken,
+  anpassungVormerken,
   nachRechnung,
   rechnungPruefenUndReservieren,
   rechnungStellen,
@@ -1070,6 +1070,8 @@ async function storeRechnungCrm(input: {
       },
       tx
     );
+    // Vermerk „angepasst“ in derselben Transaktion; `rechnungStellen` macht ihn gültig.
+    await anpassungVormerken(tx, input.workspaceId, input.dealRecordId, zeile, anpassungen, input.updatedBy ?? null);
     await rechnungStellen(tx, zeile.id, document.id);
     return { document, fileName, zeile: { ...zeile, status: "gestellt" as const, dealDocumentId: document.id } };
   });
@@ -1079,7 +1081,6 @@ async function storeRechnungCrm(input: {
     "invoice"
   );
   await nachRechnung(input.workspaceId, input.dealRecordId, input.updatedBy ?? null);
-  await anpassungVermerken(input.workspaceId, input.dealRecordId, ergebnis.zeile, anpassungen, input.updatedBy ?? null);
   return {
     document: ergebnis.document,
     templateVersion: TEMPLATE_VERSION,

@@ -323,6 +323,8 @@ describe.skipIf(!url)("Rechnung als Datensatz (DB, Plan 9 Task A)", { timeout: 3
     ]);
     const [row] = await sql`select brutto_cent, abweichung_grund from deal_invoices where id = ${ok.rechnung!.id}`;
     expect(row).toMatchObject({ brutto_cent: 85550, abweichung_grund: "Am Telefon zugesagt" });
+    const evs = await sql`select event_type from activity_events where payload->>'invoiceId' = ${ok.rechnung!.id}`;
+    expect(evs.map((x) => x.event_type)).toEqual(["invoice.angepasst"]);
     const { offenAus } = await import("@/lib/geld");
     expect(offenAus({ rechnung: { status: "gestellt", bruttoCent: row.brutto_cent }, annahmeCent: 90000, festpreis: "900.00", istStunden: false, zahlungen: [] }).restCent).toBe(85550);
 
@@ -338,6 +340,87 @@ describe.skipIf(!url)("Rechnung als Datensatz (DB, Plan 9 Task A)", { timeout: 3
       ["Leistung nach Aufwand", 61250],
       ["Mehraufwand Kellerräumung", 4550],
     ]);
+  });
+
+  it("Review Grok 1: Nachlass nie unter Anzahlung oder schon Gezahltes (Festpreis und Stunden), Vorschlag kennt die Grenze", async () => {
+    const nachlass = (betragCent: number) => ({ art: "nachlass" as const, bezeichnung: "Nachlass wie vereinbart", betragCent });
+    const grund = "Am Telefon zugesagt";
+    await sql`update quotations set deposit_required_cents = 40000 where deal_record_id = ${deal}`;
+    const [vorher] = await sql`select coalesce(max(last_number), 0)::int as n from beleg_number_counters where operating_company_id = ${firma} and kind = 'invoice'`;
+    // Anzahlung 400 € vereinbart, nichts bezahlt: Nachlass auf 300 € abgelehnt
+    await expect(
+      docs.storeCommercialDocument({ workspaceId: ws, dealRecordId: deal, kind: "RE", now: jetzt, rechnung: { bruttoCent: 30000, abweichungGrund: grund, anpassungen: [nachlass(60000)] } })
+    ).rejects.toMatchObject({ code: "NACHLASS_ZU_HOCH", message: expect.stringMatching(/400,00\s€ als Anzahlung vereinbart/) });
+    const v = await r.rechnungsVorschlag(ws, deal, jetzt);
+    expect(v).toMatchObject({ anzahlungCent: 40000, bezahltCent: 0 });
+    // 500 € bezahlt (Kaution zählt nicht): Grenze 500 €
+    await sql`insert into payments (id, workspace_id, deal_record_id, amount, date, tax_treatment) values (${randomUUID()}, ${ws}, ${deal}, '500.00', '2026-11-01', 'standard'), (${randomUUID()}, ${ws}, ${deal}, '300.00', '2026-11-01', 'nicht_steuerbar')`;
+    await expect(
+      docs.storeCommercialDocument({ workspaceId: ws, dealRecordId: deal, kind: "RE", now: jetzt, rechnung: { bruttoCent: 45000, abweichungGrund: grund, anpassungen: [nachlass(45000)] } })
+    ).rejects.toMatchObject({ code: "NACHLASS_ZU_HOCH", message: expect.stringMatching(/500,00\s€ angezahlt bzw. bezahlt/) });
+    expect(await r.aktiveRechnung(ws, deal)).toBeNull();
+    const [mitte] = await sql`select coalesce(max(last_number), 0)::int as n from beleg_number_counters where operating_company_id = ${firma} and kind = 'invoice'`;
+    expect(mitte.n).toBe(vorher.n);
+    // genau auf der Grenze geht es
+    const ok = await docs.storeCommercialDocument({ workspaceId: ws, dealRecordId: deal, kind: "RE", now: jetzt, rechnung: { bruttoCent: 50000, abweichungGrund: grund, anpassungen: [nachlass(40000)] } });
+    expect(ok.rechnung).toMatchObject({ bruttoCent: 50000 });
+
+    // Stunden-KV: 300 € bezahlt, 612,50 € minus 400 € Nachlass = 212,50 € → abgelehnt
+    const stunden = await neuerDeal({ stunden: true, festpreis: null });
+    stand.deal = stunden;
+    await sql`insert into payments (id, workspace_id, deal_record_id, amount, date, tax_treatment) values (${randomUUID()}, ${ws}, ${stunden}, '300.00', '2026-11-01', 'standard')`;
+    await expect(
+      docs.storeCommercialDocument({ workspaceId: ws, dealRecordId: stunden, kind: "RE", now: jetzt, rechnung: { bruttoCent: 21250, abweichungGrund: grund, anpassungen: [nachlass(40000)] } })
+    ).rejects.toMatchObject({ code: "NACHLASS_ZU_HOCH" });
+  });
+
+  it("Review Grok 2: Vermerk „angepasst“ erst mit dem Stellen; VPS-Fehler, Ablauf und Storno des Entwurfs lassen keinen zurück", async () => {
+    const ablage = await import("./kv-job-ablage");
+    const jobs = await import("./render-jobs");
+    const anpassungen = [{ art: "nachlass" as const, bezeichnung: "Nachlass wie vereinbart", betragCent: 9000 }];
+    const vermerke = async (invoiceId: string) =>
+      sql`select event_type from activity_events where payload->>'invoiceId' = ${invoiceId} and event_type in ('invoice.anpassung_vorgemerkt', 'invoice.angepasst')`;
+    const neu = async (d: string) => {
+      const z = await db.transaction(async (tx) => {
+        const zeile = await r.rechnungPruefenUndReservieren(tx, {
+          ws, deal: d, herkunft: "vps", pdfBetragCent: 81000,
+          eingabe: { bruttoCent: 81000, abweichungGrund: "Am Telefon zugesagt", anpassungen },
+          durchAgent: false, userId: "u1", jetzt,
+        });
+        await r.anpassungVormerken(tx, ws, d, zeile, anpassungen, "u1");
+        return zeile;
+      });
+      const job = `job-${randomUUID()}`;
+      await jobs.jobAnlegen({ vpsJobId: job, workspaceId: ws, dealRecordId: d, documentType: "invoice", calculationVersionId: null, priceCents: z.bruttoCent, createdBy: "u1", invoiceId: z.id });
+      const res = await jobs.jobReservieren(ws, job, new Date());
+      return { z, job: { ...res!, claimedAt: res!.claimedAt! } };
+    };
+    // Ablage: Vormerkung wird zum Ereignis
+    const a = await neu(deal);
+    expect((await vermerke(a.z.id)).map((x) => x.event_type)).toEqual(["invoice.anpassung_vorgemerkt"]);
+    await ablage.ablegenUnterSperre(a.job, {
+      fileName: "RE.pdf", mimeType: "application/pdf", fileSize: 9,
+      fileContent: Buffer.from("%PDF-1.4\n").toString("base64"), documentType: "invoice",
+    });
+    const [ev] = await sql`select event_type, payload from activity_events where payload->>'invoiceId' = ${a.z.id}`;
+    expect(ev).toMatchObject({ event_type: "invoice.angepasst", payload: { bruttoCent: 81000, zeilen: [{ bezeichnung: "Nachlass wie vereinbart", cent: -9000 }] } });
+    // VPS-Fehler
+    const b = await neu(await neuerDeal({ annahmeCent: 90000 }));
+    await ablage.abschliessenMitAnspruch(ws, b.job.vpsJobId, b.job.claimedAt, { status: "fehler", fehler: "CRM-Gesamtbetrag stimmt nicht" });
+    expect(await vermerke(b.z.id)).toHaveLength(0);
+    // Ablauf
+    const c = await neu(await neuerDeal({ annahmeCent: 90000 }));
+    await sql`update document_render_jobs set created_at = now() - interval '2 days' where vps_job_id = ${c.job.vpsJobId}`;
+    await jobs.jobsAbgelaufenMarkieren(new Date());
+    expect(await vermerke(c.z.id)).toHaveLength(0);
+    // direkt verworfen (Start scheitert) und Storno des Entwurfs
+    const d = await neu(await neuerDeal({ annahmeCent: 90000 }));
+    await r.rechnungVerwerfen(ws, d.z.id, "VPS nicht erreichbar");
+    expect(await vermerke(d.z.id)).toHaveLength(0);
+    const e2 = await neuerDeal({ annahmeCent: 90000 });
+    const e = await neu(e2);
+    await r.rechnungStornieren(ws, e2, e.z.id, "Doch anders", "u1");
+    expect(await vermerke(e.z.id)).toHaveLength(0);
   });
 
   it("Vorschlag: Annahme, Abweichung, Fälligkeit, Sperrgrund", async () => {

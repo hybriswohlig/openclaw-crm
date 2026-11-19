@@ -10,7 +10,9 @@
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { dealInvoices, paymentReminders, type DealInvoiceRow } from "@/db/schema/deal-invoices";
-import { belegNumberCounters } from "@/db/schema/financial";
+import { belegNumberCounters, payments } from "@/db/schema/financial";
+import { activityEvents } from "@/db/schema/activity";
+import { ANPASSUNG_GESTELLT, ANPASSUNG_VORGEMERKT, vormerkungenLoeschen } from "./rechnung-vormerkung";
 import { attributes, objects } from "@/db/schema/objects";
 import { recordValues } from "@/db/schema/records";
 import { quotations } from "@/db/schema/quotations";
@@ -18,6 +20,9 @@ import { employeeTimeEntries } from "@/db/schema/employee-portal";
 import { agentDrafts } from "@/db/schema/agent";
 import {
   anpassungZeilen,
+  bezahltCentAus,
+  nachlassZuHoch,
+  nachlassZuHochText,
   berlinTag,
   faelligAm,
   GeldFehler,
@@ -50,6 +55,7 @@ import {
 } from "./deal-documents";
 
 export type Tx = DbExecutor;
+export { anpassungVormerken, vormerkungenLoeschen } from "./rechnung-vormerkung";
 
 const AKTIV = ["entwurf", "gestellt"] as const;
 
@@ -153,6 +159,9 @@ interface GeldStand {
   festpreisCent: number | null;
   annahmeCent: number | null;
   stunden: StundenAngebot | null;
+  /** Vereinbarte Anzahlung und auf den Preis Gezahltes: Untergrenze eines Nachlasses (Review Grok 1). */
+  anzahlungCent: number | null;
+  bezahltCent: number;
 }
 
 function centAusEuro(t: string | null | undefined): number | null {
@@ -204,18 +213,23 @@ async function dealWerte(ex: DbExecutor, ws: string, deal: string): Promise<{ fi
 }
 
 async function geldStand(ex: DbExecutor, ws: string, deal: string): Promise<GeldStand> {
-  const [werte, [q], annahme] = await Promise.all([
+  const [werte, [q], annahme, zahlungen] = await Promise.all([
     dealWerte(ex, ws, deal),
     ex
       .select({
         isVariable: quotations.isVariable,
         fixedPrice: quotations.fixedPrice,
         documentDetails: quotations.documentDetails,
+        depositRequiredCents: quotations.depositRequiredCents,
       })
       .from(quotations)
       .where(eq(quotations.dealRecordId, deal))
       .limit(1),
     ladeAktiveAnnahme(deal, ex),
+    ex
+      .select({ amount: payments.amount, taxTreatment: payments.taxTreatment })
+      .from(payments)
+      .where(and(eq(payments.workspaceId, ws), eq(payments.dealRecordId, deal))),
   ]);
   return {
     ...werte,
@@ -223,6 +237,9 @@ async function geldStand(ex: DbExecutor, ws: string, deal: string): Promise<Geld
     festpreisCent: centAusEuro(q?.fixedPrice ?? null),
     annahmeCent: annahme && annahme.workspaceId === ws ? annahme.confirmedTotalCents ?? null : null,
     stunden: q?.isVariable ? stundenAusDetails(q.documentDetails) : null,
+    anzahlungCent: q?.depositRequiredCents ?? null,
+    // Wie `offenAus`: ohne Kaution und durchlaufende Posten, Gegenbuchungen zählen negativ mit.
+    bezahltCent: bezahltCentAus(zahlungen),
   };
 }
 
@@ -280,8 +297,21 @@ export async function rechnungPruefenUndReservieren(
     pdfBetragCent: e.pdfBetragCent,
     eingabe: e.eingabe,
     durchAgent: e.durchAgent,
+    anzahlungCent: stand.anzahlungCent,
+    bezahltCent: stand.bezahltCent,
   });
-  if (!pruefung.ok) throw new GeldFehler(pruefung.code);
+  if (!pruefung.ok) {
+    if (pruefung.code === "NACHLASS_ZU_HOCH") {
+      const grenze = nachlassZuHoch({
+        bruttoCent: e.eingabe?.bruttoCent ?? e.pdfBetragCent ?? 0,
+        anpassungen: e.eingabe?.anpassungen,
+        anzahlungCent: stand.anzahlungCent,
+        bezahltCent: stand.bezahltCent,
+      });
+      throw new GeldFehler("NACHLASS_ZU_HOCH", grenze ? nachlassZuHochText(grenze) : undefined);
+    }
+    throw new GeldFehler(pruefung.code);
+  }
 
   const regel = await ladeZahlungsregel(e.ws, stand.firmaId, tx);
   const rechnungstag = berlinTag(e.jetzt);
@@ -330,7 +360,7 @@ export async function rechnungPruefenUndReservieren(
   }
 }
 
-/** `entwurf` → `gestellt` mit verknüpftem PDF. */
+/** `entwurf` → `gestellt` mit verknüpftem PDF; ein vorgemerkter Vermerk „angepasst“ wird in derselben Transaktion gültig. */
 export async function rechnungStellen(tx: Tx, id: string, dealDocumentId: string): Promise<void> {
   const rows = await tx
     .update(dealInvoices)
@@ -339,6 +369,10 @@ export async function rechnungStellen(tx: Tx, id: string, dealDocumentId: string
     .returning({ id: dealInvoices.id });
   // Fix-Welle I4: keine Zeile geändert heißt, der Entwurf ist storniert oder verworfen.
   if (rows.length === 0) throw new RechnungNichtStellbar(id);
+  await tx
+    .update(activityEvents)
+    .set({ eventType: ANPASSUNG_GESTELLT, createdAt: new Date() })
+    .where(and(eq(activityEvents.eventType, ANPASSUNG_VORGEMERKT), sql`${activityEvents.payload}->>'invoiceId' = ${id}`));
 }
 
 /** Der Rechnungsdatensatz ist nicht mehr `entwurf`: das PDF darf nicht als Rechnung abgelegt werden. */
@@ -357,10 +391,12 @@ export async function rechnungStatus(ex: DbExecutor, id: string): Promise<Rechnu
 
 /** Nie gestellt (VPS-Fehler, verworfen): die Nummer bleibt dokumentiert. */
 export async function rechnungVerwerfen(ws: string, id: string, grund: string, ex: DbExecutor = db): Promise<void> {
-  await ex
+  const rows = await ex
     .update(dealInvoices)
     .set({ status: "verworfen", verworfenGrund: grund.slice(0, 500), updatedAt: new Date() })
-    .where(and(eq(dealInvoices.workspaceId, ws), eq(dealInvoices.id, id), eq(dealInvoices.status, "entwurf")));
+    .where(and(eq(dealInvoices.workspaceId, ws), eq(dealInvoices.id, id), eq(dealInvoices.status, "entwurf")))
+    .returning({ id: dealInvoices.id });
+  await vormerkungenLoeschen(ex, rows.map((r) => r.id));
 }
 
 /**
@@ -398,6 +434,8 @@ export async function rechnungStornieren(
       .where(and(eq(paymentReminders.invoiceId, id), eq(paymentReminders.status, "entwurf")))
       .returning({ draftId: paymentReminders.draftId });
     await entwuerfeSchliessen(tx, ws, offen.map((o) => o.draftId));
+    // Storno eines Entwurfs (VPS-Job läuft noch): keine Vormerkung „angepasst“ zurücklassen.
+    if (vorher.status === "entwurf") await vormerkungenLoeschen(tx, [id]);
     return zeileAus(row);
   });
   if (!ergebnis) throw Object.assign(new Error("Rechnung nicht gefunden."), { status: 404 });
@@ -458,34 +496,6 @@ export async function nachRechnung(ws: string, deal: string, userId: string | nu
   }
 }
 
-/**
- * Rechnung anpassen: Nachlass und Aufschlag als Ereignis in der Akte (wer, Zeilen, Grund). Der Betrag steht in
- * `brutto_cent`, der Grund in `abweichung_grund`, die Zeilen im PDF; das Ereignis macht sie im Verlauf lesbar.
- */
-export async function anpassungVermerken(
-  ws: string,
-  deal: string,
-  zeile: Pick<RechnungZeile, "id" | "nummer" | "bruttoCent" | "abweichungGrund">,
-  anpassungen: readonly RechnungAnpassung[] | null | undefined,
-  userId: string | null
-): Promise<void> {
-  if (!anpassungen || anpassungen.length === 0) return;
-  await emitEvent({
-    workspaceId: ws,
-    recordId: deal,
-    objectSlug: "deals",
-    eventType: "invoice.angepasst",
-    payload: {
-      invoiceId: zeile.id,
-      nummer: zeile.nummer,
-      bruttoCent: zeile.bruttoCent,
-      grund: zeile.abweichungGrund,
-      zeilen: anpassungZeilen(anpassungen).map((z) => ({ bezeichnung: z.titel, cent: z.cent })),
-    },
-    actorId: userId,
-  }).catch(() => {});
-}
-
 // ─── Vorschlag für den Rechnungsschritt ─────────────────────────────────────
 
 /** `GET …/invoices/vorschlag` (Entscheidung 17). */
@@ -535,6 +545,8 @@ export async function rechnungsVorschlag(ws: string, deal: string, jetzt: Date =
     faelligAm: faellig,
     aktiveRechnung: aktiv ? kurzAus(aktiv, erinnerung) : null,
     sperrgrund: !stand.firmaId ? "FIRMA_FEHLT" : aktiv ? "AKTIVE_RECHNUNG" : null,
+    anzahlungCent: stand.anzahlungCent,
+    bezahltCent: stand.bezahltCent,
   };
 }
 

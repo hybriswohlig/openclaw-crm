@@ -175,6 +175,31 @@ export function anpassungenFehler(liste: readonly RechnungAnpassung[], basisCent
   return null;
 }
 
+/**
+ * Review Grok 1: Ein Nachlass darf den Rechnungsbetrag nicht unter die vereinbarte Anzahlung oder unter das schon
+ * Gezahlte drücken (sonst Quittung, Rest 0 und „Bezahlt“, ohne dass die Überzahlung irgendwo steht). Gutschriften
+ * gibt es hier nicht. Nur mit Nachlass; ein reiner Aufschlag senkt nichts.
+ */
+export function nachlassZuHoch(e: {
+  bruttoCent: number;
+  anpassungen: readonly Pick<RechnungAnpassung, "art">[] | null | undefined;
+  anzahlungCent: number | null | undefined;
+  bezahltCent: number | null | undefined;
+}): { grenzeCent: number; art: "bezahlt" | "anzahlung" } | null {
+  if (!(e.anpassungen ?? []).some((a) => a.art === "nachlass")) return null;
+  const anzahlung = Math.max(0, e.anzahlungCent ?? 0);
+  const bezahlt = Math.max(0, e.bezahltCent ?? 0);
+  const grenzeCent = Math.max(anzahlung, bezahlt);
+  if (e.bruttoCent >= grenzeCent) return null;
+  return { grenzeCent, art: bezahlt >= anzahlung ? "bezahlt" : "anzahlung" };
+}
+
+/** Teamtext zu `nachlassZuHoch` mit dem Betrag. */
+export function nachlassZuHochText(g: { grenzeCent: number; art: "bezahlt" | "anzahlung" }): string {
+  const was = g.art === "bezahlt" ? "angezahlt bzw. bezahlt" : "als Anzahlung vereinbart";
+  return `Nachlass zu hoch: Es sind schon ${euro(g.grenzeCent)} ${was}. Bitte erst die Zahlung klären.`;
+}
+
 /** Zeilen für die Renderer, in fester Reihenfolge: erst der Nachlass, dann der Aufschlag. */
 export function anpassungZeilen(liste: readonly RechnungAnpassung[] | null | undefined): Array<{ titel: string; cent: number }> {
   return [...(liste ?? [])]
@@ -207,7 +232,8 @@ export type GeldFehlerCode =
   | "SCHON_STORNIERT"
   | "NUR_KORREKTUR"
   | "GRUND_FEHLT"
-  | "ANPASSUNG_UNGUELTIG";
+  | "ANPASSUNG_UNGUELTIG"
+  | "NACHLASS_ZU_HOCH";
 
 /** HTTP-Status je Code: 409 Zustand, 400 Eingabe, 403 Recht. */
 export const GELD_FEHLER_STATUS: Record<GeldFehlerCode, 400 | 403 | 409> = {
@@ -223,6 +249,7 @@ export const GELD_FEHLER_STATUS: Record<GeldFehlerCode, 400 | 403 | 409> = {
   NUR_KORREKTUR: 409,
   GRUND_FEHLT: 400,
   ANPASSUNG_UNGUELTIG: 400,
+  NACHLASS_ZU_HOCH: 409,
 };
 
 /** Texte für das Team (nicht für Kunden). */
@@ -241,6 +268,8 @@ export const GELD_FEHLER_TEXT: Record<GeldFehlerCode, string> = {
   GRUND_FEHLT: "Bitte einen Grund angeben.",
   ANPASSUNG_UNGUELTIG:
     "Nachlass oder Aufschlag passt nicht: je höchstens eine Zeile, Bezeichnung mit 3 bis 80 Zeichen, Betrag über 0, Rechnungsbetrag danach über 0.",
+  NACHLASS_ZU_HOCH:
+    "Nachlass zu hoch: Es ist schon mehr angezahlt oder bezahlt, als die Rechnung dann betrüge. Bitte erst die Zahlung klären.",
 };
 
 export class GeldFehler extends Error {
@@ -415,7 +444,7 @@ export interface OffenEingabe {
   zahlungen: { amount: string | number | null; taxTreatment: string | null }[];
 }
 
-function bezahltCentAus(zahlungen: OffenEingabe["zahlungen"]): number {
+export function bezahltCentAus(zahlungen: OffenEingabe["zahlungen"]): number {
   // Wie preisZahlungenCent: Kaution, durchlaufende Posten, Erstattung zählen nicht.
   return zahlungen.reduce((s, z) => {
     if (z.taxTreatment === "nicht_steuerbar") return s;
@@ -467,6 +496,10 @@ export interface RechnungsPruefungEingabe {
   pdfBetragCent: number | null;
   eingabe: RechnungEingabe | null;
   durchAgent: boolean;
+  /** Vereinbarte Anzahlung (`quotations.deposit_required_cents`); nur für die Nachlass-Grenze. */
+  anzahlungCent?: number | null;
+  /** Auf den Preis gebuchte Zahlungen (ohne Kaution), Gegenbuchungen eingerechnet; nur für die Nachlass-Grenze. */
+  bezahltCent?: number | null;
 }
 
 export type RechnungsPruefung =
@@ -488,6 +521,9 @@ export function rechnungsPruefung(e: RechnungsPruefungEingabe): RechnungsPruefun
     if (!mitAnpassung) return null;
     const fehler = anpassungenFehler(anpassungen, betrag - anpassungenSumme(anpassungen));
     if (fehler) return { ok: false, code: fehler };
+    if (nachlassZuHoch({ bruttoCent: betrag, anpassungen, anzahlungCent: e.anzahlungCent, bezahltCent: e.bezahltCent })) {
+      return { ok: false, code: "NACHLASS_ZU_HOCH" };
+    }
     if (!grund) return { ok: false, code: "GRUND_FEHLT" };
     return { ok: true, bruttoCent: betrag, abweichungGrund: grund };
   };
@@ -599,6 +635,9 @@ export interface RechnungsVorschlag {
   aktiveRechnung: RechnungKurz | null;
   /** Gesetzt, wenn ohne Eingriff keine Rechnung möglich ist (`FIRMA_FEHLT`, `AKTIVE_RECHNUNG`). */
   sperrgrund: GeldFehlerCode | null;
+  /** Vereinbarte Anzahlung und schon Gezahltes: Untergrenze für einen Nachlass (Review Grok 1). */
+  anzahlungCent?: number | null;
+  bezahltCent?: number | null;
 }
 
 // ─── Abschluss und bezahlt_am ───────────────────────────────────────────────

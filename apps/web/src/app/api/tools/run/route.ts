@@ -20,10 +20,11 @@ import { abgleichen } from "@/lib/kv-editor-anwenden";
 import type { AbgleichErgebnis, KvGrundlageVps, KvPreisPruefung } from "@/lib/kv-editor";
 import type { QuotationDocumentDetails } from "@/db/schema/quotations";
 import { fotosLaden, vpsJobStarten } from "@/services/vps-dokument-start";
+import { dealBlocksInRepoCrmRenderer } from "@/lib/kottke-crm-renderer-deal";
 import { type ReJobBezug } from "@/services/document-job-context";
 import { angebotSperren, quotationLesen } from "@/services/quotations";
 import {
-  anpassungVermerken,
+  anpassungVormerken,
   angebotsStandAus,
   rechnungPruefenUndReservieren,
   rechnungsVorschlag,
@@ -251,7 +252,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: f.message, code: f.code }, { status: f.status });
     }
     // Nachlass und Aufschlag druckt nur die Kottke-Rechnung (document-html); Ceylan über die CRM-Vorlage.
-    if (anpassungen.length > 0 && bezug.firma !== "kottke") {
+    // Review Grok (Minor): die Firma kommt aus der Betriebsgesellschaft des Auftrags, nicht aus dem Paket.
+    // Zusätzlich muss das Paket „kottke“ tragen, denn danach wählt der VPS die Vorlage.
+    if (
+      anpassungen.length > 0 &&
+      (params.firma !== "kottke" || !(await dealBlocksInRepoCrmRenderer(ctx.workspaceId, registerDeal)))
+    ) {
       return NextResponse.json({ error: ANPASSUNG_NUR_CRM_TEXT, code: "ANPASSUNG_NUR_CRM" }, { status: 400 });
     }
     try {
@@ -261,7 +267,7 @@ export async function POST(req: NextRequest) {
         if (!stand || angebotsStandAus(stand) !== bezug.angebotsStand) {
           throw new GeldFehler("RECHNUNG_PDF_ANDERS", "Das Angebot hat sich gerade geändert. Bitte die Rechnung neu erstellen.");
         }
-        return rechnungPruefenUndReservieren(tx, {
+        const zeile = await rechnungPruefenUndReservieren(tx, {
           ws: ctx.workspaceId,
           deal: registerDeal,
           herkunft: "vps",
@@ -277,6 +283,10 @@ export async function POST(req: NextRequest) {
           userId: ctx.userId,
           jetzt: new Date(),
         });
+        // Review Grok 2: nur vorgemerkt; zu `invoice.angepasst` wird es erst bei der Ablage (`rechnungStellen`),
+        // beim Verwerfen verschwindet es.
+        await anpassungVormerken(tx, ctx.workspaceId, registerDeal, zeile, anpassungen, ctx.userId);
+        return zeile;
       });
     } catch (err) {
       if (err instanceof GeldFehler) {
@@ -400,10 +410,6 @@ export async function POST(req: NextRequest) {
         { status: 500 }
       );
     }
-  }
-  // Erst nach Start und Register: ein gescheiterter Start hinterlässt keinen Vermerk „angepasst“.
-  if (rechnung && vps.ok && registerDeal && anpassungen.length > 0) {
-    await anpassungVermerken(ctx.workspaceId, registerDeal, rechnung, anpassungen, ctx.userId);
   }
   return NextResponse.json(data);
 }

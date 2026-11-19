@@ -7,6 +7,7 @@ import { and, asc, desc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { documentRenderJobs, type DocumentRenderJobRow } from "@/db/schema/document-render-jobs";
 import { dealInvoices } from "@/db/schema/deal-invoices";
+import { vormerkungenLoeschen } from "./rechnung-vormerkung";
 import { kvStaende } from "@/db/schema/kv-editor";
 import {
   RENDER_JOB_ABLAUF_MS,
@@ -54,10 +55,13 @@ type Ex = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
 export async function rechnungenDerJobsVerwerfen(ex: Ex, invoiceIds: (string | null | undefined)[], grund: string): Promise<void> {
   const ids = invoiceIds.filter((x): x is string => !!x);
   if (ids.length === 0) return;
-  await ex
+  const rows = await ex
     .update(dealInvoices)
     .set({ status: "verworfen", verworfenGrund: grund.slice(0, 500), updatedAt: new Date() })
-    .where(and(inArray(dealInvoices.id, ids), eq(dealInvoices.status, "entwurf")));
+    .where(and(inArray(dealInvoices.id, ids), eq(dealInvoices.status, "entwurf")))
+    .returning({ id: dealInvoices.id });
+  // Rechnung anpassen (Review Grok 2): nie gestellt, also auch kein Vermerk „angepasst“.
+  await vormerkungenLoeschen(ex, rows.map((r) => r.id));
 }
 
 /**

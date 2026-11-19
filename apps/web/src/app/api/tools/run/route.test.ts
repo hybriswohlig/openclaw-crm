@@ -17,6 +17,7 @@ const m = vi.hoisted(() => {
     verwerfen: vi.fn(),
     vorschlag: vi.fn(),
     vermerken: vi.fn(async () => {}),
+    dealKottke: vi.fn(async () => true),
     sperren: vi.fn(),
     lesen: vi.fn(),
     dbUpdate: vi.fn(),
@@ -43,7 +44,7 @@ vi.mock("@/services/rechnungen", () => ({
   rechnungPruefenUndReservieren: m.reservieren,
   rechnungVerwerfen: m.verwerfen,
   rechnungsVorschlag: m.vorschlag,
-  anpassungVermerken: m.vermerken,
+  anpassungVormerken: m.vermerken,
 }));
 vi.mock("@/services/deal-photos", () => ({ findDealInternalPhotosByIds: vi.fn(async () => []) }));
 vi.mock("@/services/doc-customer-name", () => ({
@@ -59,6 +60,7 @@ vi.mock("@/services/document-job-context", () => ({
   assertDealInWorkspace: m.assertDealInWorkspace,
 }));
 vi.mock("@/services/render-jobs", () => ({ jobAnlegen: m.jobAnlegen }));
+vi.mock("@/lib/kottke-crm-renderer-deal", () => ({ dealBlocksInRepoCrmRenderer: m.dealKottke }));
 vi.mock("@/services/kv-editor-haken", () => ({
   kvEditorBeimNeuenKv: m.beimNeuenKv,
   kvEditorStandZumNeuenKv: m.standZumNeuenKv,
@@ -115,6 +117,7 @@ beforeEach(() => {
   m.verwerfen.mockResolvedValue(undefined);
   m.vorschlag.mockResolvedValue(null);
   m.leadAuszug.mockImplementation(() => null);
+  m.dealKottke.mockResolvedValue(true);
 });
 
 describe("POST /api/tools/run: Job-Register", () => {
@@ -395,6 +398,7 @@ describe("POST /api/tools/run: Rechnung anpassen (Nachlass, Aufschlag)", () => {
 
   it("Kottke: PDF-Betrag mit Zeilen geprüft, Zeilen und Gesamtbetrag an den VPS", async () => {
     const res = await run("rechnungen-und-auftragsbestaetigungen", {
+      firma: "kottke",
       document_type: "RE",
       _deal_record_id: "deal_1",
       _rechnung: { bruttoCent: 85550, abweichungGrund: "Am Telefon zugesagt", anpassungen: [aufschlag, nachlass] },
@@ -417,23 +421,38 @@ describe("POST /api/tools/run: Rechnung anpassen (Nachlass, Aufschlag)", () => {
     });
     expect((p._document_context as { totalCents: number }).totalCents).toBe(85550);
     expect(m.jobAnlegen).toHaveBeenCalledWith(expect.objectContaining({ priceCents: 85550, invoiceId: "inv_1" }));
-    expect(m.vermerken).toHaveBeenCalledWith(WS, "deal_1", expect.objectContaining({ id: "inv_1" }), [aufschlag, nachlass], "usr_1");
+    // Review Grok 2: nur vorgemerkt, in der Transaktion der Reservierung; gültig erst bei der Ablage.
+    expect(m.vermerken).toHaveBeenCalledWith({ tx: true }, WS, "deal_1", expect.objectContaining({ id: "inv_1" }), [aufschlag, nachlass], "usr_1");
   });
 
-  it("VPS-Fehler beim Start: Rechnung verworfen, kein Vermerk „angepasst“", async () => {
-    fetchMock.mockImplementation(async () => new Response(JSON.stringify({ detail: "kaputt" }), { status: 502 }));
+  it("Review Grok (Minor): Ceylan-Auftrag mit firma „kottke“ im Paket: trotzdem 400, nichts reserviert", async () => {
+    m.dealKottke.mockResolvedValue(false);
+    const res = await run("rechnungen-und-auftragsbestaetigungen", {
+      firma: "kottke",
+      document_type: "RE",
+      _deal_record_id: "deal_1",
+      _rechnung: { bruttoCent: 81000, abweichungGrund: "Am Telefon zugesagt", anpassungen: [nachlass] },
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json()).code).toBe("ANPASSUNG_NUR_CRM");
+    expect(m.dealKottke).toHaveBeenCalledWith(WS, "deal_1");
+    expect(m.reservieren).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("Kottke-Auftrag ohne firma im Paket: 400 (der VPS wählt die Vorlage nach firma)", async () => {
     const res = await run("rechnungen-und-auftragsbestaetigungen", {
       document_type: "RE",
       _deal_record_id: "deal_1",
       _rechnung: { bruttoCent: 81000, abweichungGrund: "Am Telefon zugesagt", anpassungen: [nachlass] },
     });
-    expect(res.status).toBe(502);
-    expect(m.verwerfen).toHaveBeenCalled();
-    expect(m.vermerken).not.toHaveBeenCalled();
+    expect(res.status).toBe(400);
+    expect(m.reservieren).not.toHaveBeenCalled();
   });
 
   it("Stunden-KV: Zeile „nach Aufwand“ ohne die Anpassung, Gesamtbetrag mit", async () => {
     await run("rechnungen-und-auftragsbestaetigungen", {
+      firma: "kottke",
       document_type: "RE",
       _deal_record_id: "deal_1",
       _stunden: true,
