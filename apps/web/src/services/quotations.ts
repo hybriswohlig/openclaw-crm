@@ -481,6 +481,8 @@ export async function angebotAusVersionSchreiben(
   const details = (basis: QuotationDocumentDetails): QuotationDocumentDetails =>
     stunden ? { ...basis, stunden: stunden.angebot } : ohneStunden(basis);
 
+  // Leistung der Kalkulation; documentDetails kann fehlen (ältere Aufrufer, Tests).
+  const versionsLeistung = eingabe.documentDetails?.serviceType;
   const [existing] = await tx.select().from(quotations).where(eq(quotations.dealRecordId, dealRecordId)).limit(1);
   let quotationId: string;
   if (existing) {
@@ -493,8 +495,8 @@ export async function angebotAusVersionSchreiben(
         calculationAssumptions: annahmenZusammenfuehren(existing.calculationAssumptions, eingabe.calculationAssumptions),
         documentDetails: details({ ...((existing.documentDetails ?? {}) as QuotationDocumentDetails), ...eingabe.documentDetails }),
         // Die Leistung der Kalkulation setzt die Leistung des Angebots (Küche hin und zurück).
-        ...(eingabe.documentDetails.serviceType && eingabe.documentDetails.serviceType !== existing.serviceType
-          ? { serviceType: eingabe.documentDetails.serviceType }
+        ...(versionsLeistung && versionsLeistung !== existing.serviceType
+          ? { serviceType: versionsLeistung }
           : {}),
         calculationVersionId,
         updatedAt: new Date(),
@@ -518,8 +520,8 @@ export async function angebotAusVersionSchreiben(
         validUntil: eingabe.validUntil,
         calculationAssumptions: eingabe.calculationAssumptions,
         documentDetails: mitLeistung(details(eingabe.documentDetails), leistung),
-        ...(eingabe.documentDetails.serviceType === "kitchen_installation" || (eingabe.documentDetails.serviceType && !leistung)
-          ? { serviceType: eingabe.documentDetails.serviceType }
+        ...(versionsLeistung === "kitchen_installation" || (versionsLeistung && !leistung)
+          ? { serviceType: versionsLeistung }
           : leistung
             ? { serviceType: leistung.serviceType }
             : {}),
