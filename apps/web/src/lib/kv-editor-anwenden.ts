@@ -11,6 +11,7 @@ import { BETRAG } from "@/lib/ohne-preisangaben";
 import {
   KV_FELDER_CRM,
   KV_FELDER_VPS,
+  KV_LEISTUNGEN_ENTRUEMPELUNG,
   KV_LEISTUNGEN_KUECHE,
   KV_LEISTUNGEN_UMZUG,
   KV_ZUSTAENDIG,
@@ -64,12 +65,31 @@ function feldAus(d: KvFeldDef, ziel: string, basis: KvWert, extra?: { gruppe?: s
 // VPS
 // ════════════════════════════════════════════════════════════════════════
 
-/** Katalog aus dem VPS-Paket, Reihenfolge von `KV_FELDER_VPS`, nur freigeschaltete Schlüssel. */
+/** Beschriftungen, die beim Entrümpelungs-KV anders heißen als im Druck des Umzugs (V2). */
+const LABEL_ENTRUEMPELUNG: Record<string, string> = {
+  "uebersicht:auszug:details": "Einsatzort, Hinweis",
+  "uebersicht:umzugsgut:text": "Umfang",
+};
+
+/**
+ * Katalog aus dem VPS-Paket, Reihenfolge von `KV_FELDER_VPS`, nur freigeschaltete Schlüssel. Die übrigen
+ * Schlüssel des Pakets stehen in `nichtFreigegeben` (Mitwandern: `nicht_erlaubt`). Beschriftungen und
+ * Leistungsnamen nach `details.serviceType`; welche Felder frei sind, entscheidet `gepruefte`
+ * (Aufrufer: `kvFelderVpsGeprueft(details.serviceType)`).
+ */
 export function vpsBasis(p: VpsPaketTeile, gepruefte: ReadonlySet<string>): KvBasis {
   const d = p.details;
+  const entruempelung = d.serviceType === "clearance";
+  const leistungName = entruempelung ? KV_LEISTUNGEN_ENTRUEMPELUNG : KV_LEISTUNGEN_UMZUG;
   const felder: KvFeld[] = [];
+  const nichtFreigegeben: string[] = [];
   const dazu = (f: KvFeld) => {
-    if (feldFreigeschaltet("vps", f.schluessel, gepruefte)) felder.push(f);
+    if (!feldFreigeschaltet("vps", f.schluessel, gepruefte)) {
+      nichtFreigegeben.push(f.schluessel);
+      return;
+    }
+    const label = entruempelung ? LABEL_ENTRUEMPELUNG[f.schluessel] : undefined;
+    felder.push(label ? { ...f, label } : f);
   };
   for (const def of KV_FELDER_VPS) {
     const ziel = "fest" in def.ziel ? def.ziel.fest : null;
@@ -89,7 +109,7 @@ export function vpsBasis(p: VpsPaketTeile, gepruefte: ReadonlySet<string>): KvBa
       case "leistungen":
         for (const [key, l] of Object.entries(d.services ?? {})) {
           const basis = def.feld === "notiz" ? text(l.note) : l.owner;
-          dazu(feldAus(def, key, basis, { gruppe: KV_LEISTUNGEN_UMZUG[key] ?? key }));
+          dazu(feldAus(def, key, basis, { gruppe: leistungName[key] ?? key }));
         }
         break;
       case "umzugsgut":
@@ -128,7 +148,7 @@ export function vpsBasis(p: VpsPaketTeile, gepruefte: ReadonlySet<string>): KvBa
         break;
     }
   }
-  return { renderer: "vps", felder };
+  return nichtFreigegeben.length > 0 ? { renderer: "vps", felder, nichtFreigegeben } : { renderer: "vps", felder };
 }
 
 function leistungSetzen(services: Leistungen | undefined, key: string, feld: string, wert: KvWert): void {
@@ -373,8 +393,10 @@ export function listeFortschreiben(
 
 type Bewertung = { liste: KvAenderung } | { konflikt: Pick<KvKonflikt, "art" | "basisJetzt"> };
 
-function bewerte(felder: Map<string, KvFeld>, a: KvAenderung): Bewertung {
+function bewerte(felder: Map<string, KvFeld>, gesperrt: ReadonlySet<string>, a: KvAenderung): Bewertung {
   const f = felder.get(a.schluessel);
+  // Ziel da, aber für diese Leistungsart nicht freigegeben (V2, Entrümpelung): nicht still verlieren.
+  if (!f && gesperrt.has(a.schluessel)) return { konflikt: { art: "nicht_erlaubt", basisJetzt: null } };
   if (!f) return { konflikt: { art: "ziel_fehlt", basisJetzt: null } };
   if (f.art === "zustaendig" && a.wert === "company" && !f.firmaWaehlbar) {
     return { konflikt: { art: "nicht_erlaubt", basisJetzt: f.basis } };
@@ -387,10 +409,11 @@ function bewerte(felder: Map<string, KvFeld>, a: KvAenderung): Bewertung {
 /** Liste und offene Konflikte der Quelle gegen den neuen Katalog (Spec 7.6 Schritt 2). */
 export function abgleichen(basis: KvBasis, aenderungen: readonly KvAenderung[], offen: readonly KvKonflikt[]): AbgleichErgebnis {
   const felder = new Map(basis.felder.map((f) => [f.schluessel, f]));
+  const gesperrt = new Set(basis.nichtFreigegeben ?? []);
   const liste: KvAenderung[] = [];
   const konflikte: KvKonflikt[] = [];
   const nehmen = (a: KvAenderung) => {
-    const b = bewerte(felder, a);
+    const b = bewerte(felder, gesperrt, a);
     if ("liste" in b) liste.push(b.liste);
     else konflikte.push({ aenderung: { ...a }, art: b.konflikt.art, basisJetzt: b.konflikt.basisJetzt, status: "offen" });
   };
@@ -488,26 +511,67 @@ function cent(w: unknown): number | null {
 
 const sortiert = (xs: Iterable<number>) => [...new Set(xs)].sort((x, y) => x - y);
 
+/** Nicht negative endliche Zahl (auch als Text), sonst null. */
+function zahl(w: unknown): number | null {
+  const n = typeof w === "number" ? w : typeof w === "string" && w.trim() !== "" ? Number(w) : NaN;
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
+/**
+ * Stunden-KV (V2, vps-felder-2.md): Die Vorlage druckt nicht den Helfersatz, sondern den Teamsatz
+ * (Helfersatz × Helfer) und je Zeile Stunden × Satz: „Umzugsteam (2 Helfer) 4 Std. 78,00 € 312,00 €“,
+ * „Transporter 4 Std. 29,00 € 116,00 €“. Stunden: die Schätzung, mindestens die Mindeststunden.
+ * Der Mindestbetrag (Mindeststunden × Team und Transporter) darf zusätzlich stehen.
+ */
+function stundenBetraege(preise: Record<string, unknown>): { erwartet: number[]; erlaubt: number[] } {
+  const helfer = Math.max(1, Math.round(zahl(preise.helfer_anzahl) ?? 1));
+  const satzHelfer = cent(preise.stundensatz_helfer_eur);
+  const satzTransporter = cent(preise.stundensatz_transporter_eur);
+  const mindest = zahl(preise.mindest_stunden) ?? 0;
+  const stunden = Math.max(zahl(preise.stunden_geschaetzt) ?? 0, mindest);
+  const erwartet: number[] = [];
+  const erlaubt: number[] = [];
+  const team = satzHelfer !== null ? satzHelfer * helfer : null;
+  if (team !== null) erwartet.push(team);
+  if (satzTransporter !== null) erwartet.push(satzTransporter);
+  if (stunden > 0) {
+    if (team !== null) erwartet.push(Math.round(stunden * team));
+    if (satzTransporter !== null) erwartet.push(Math.round(stunden * satzTransporter));
+  }
+  if (mindest > 0 && (team !== null || satzTransporter !== null)) {
+    erlaubt.push(Math.round(mindest * ((team ?? 0) + (satzTransporter ?? 0))));
+  }
+  return { erwartet, erlaubt };
+}
+
 /** Beträge, die im VPS-PDF stehen müssen (erwartet) und zusätzlich stehen dürfen (erlaubt). */
 export function vpsErwarteteBetraege(
   preise: Record<string, unknown>,
   e: { gesamtCent: number | null; bezahltCent: number }
 ): { erwartetCent: number[]; erlaubtCent: number[] } {
   const erwartet: number[] = [];
+  const erlaubt = [0, e.bezahltCent];
   const posten = Array.isArray(preise.pauschale_positionen) ? preise.pauschale_positionen : [];
   for (const p of posten) {
     const c = p && typeof p === "object" ? cent((p as { betrag?: unknown }).betrag) : null;
     if (c !== null) erwartet.push(c);
   }
-  for (const k of ["pauschale_betrag", "stundensatz_helfer_eur", "stundensatz_transporter_eur"]) {
-    const c = cent(preise[k]);
-    if (c !== null) erwartet.push(c);
+  if (preise.modell === "stundensatz") {
+    const s = stundenBetraege(preise);
+    erwartet.push(...s.erwartet);
+    erlaubt.push(...s.erlaubt);
+  } else {
+    for (const k of ["stundensatz_helfer_eur", "stundensatz_transporter_eur"]) {
+      const c = cent(preise[k]);
+      if (c !== null) erwartet.push(c);
+    }
   }
+  const pauschale = cent(preise.pauschale_betrag);
+  if (pauschale !== null) erwartet.push(pauschale);
   const anzahlung = cent(preise.anzahlung_betrag_eur);
   if (anzahlung !== null) erwartet.push(anzahlung);
   if (e.gesamtCent !== null) erwartet.push(e.gesamtCent);
 
-  const erlaubt = [0, e.bezahltCent];
   const wennNichtNegativ = (x: number) => {
     if (x >= 0) erlaubt.push(x);
   };

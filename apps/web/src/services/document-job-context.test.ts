@@ -436,6 +436,26 @@ describe("attachDocumentJobContext: Kalkulationsversion für den VPS-Weg (Review
       expect(r.kvBasis?.felder.some((f) => f.schluessel.startsWith("umzugsgut:"))).toBe(false);
     });
 
+    it("V2: ohne eigene Freigabe wählt die Leistungsart den Katalog (Entrümpelung ohne Ziel und Montage)", async () => {
+      jobMocks.getQuotation.mockResolvedValue({ ...quotation("ver_2"), serviceType: "clearance" });
+      const e = await mitInventar(() => attachDocumentJobContext("ws_1", kv({ service_type: "clearance" }), { nurLesen: true }));
+      expect((e.params.document_details as { serviceType?: string }).serviceType).toBe("clearance");
+      const s = e.kvBasis?.felder.map((f) => f.schluessel) ?? [];
+      expect(s).toContain("uebersicht:auszug:details");
+      expect(s).toContain("umzugsgut:inv_1:notiz");
+      expect(s).not.toContain("uebersicht:einzug:details");
+      expect(s.some((x) => x.endsWith(":demontage") || x.endsWith(":montage") || x.startsWith("leistungen:"))).toBe(false);
+      expect(e.kvBasis?.felder.find((f) => f.schluessel === "uebersicht:auszug:details")?.label).toBe("Einsatzort, Hinweis");
+      expect(e.kvBasis?.nichtFreigegeben).toEqual(expect.arrayContaining(["uebersicht:einzug:details", "umzugsgut:inv_1:montage"]));
+
+      jobMocks.getQuotation.mockResolvedValue({ ...quotation("ver_2"), serviceType: "move" });
+      const u = await mitInventar(() => attachDocumentJobContext("ws_1", kv({ service_type: "move" }), { nurLesen: true }));
+      const su = u.kvBasis?.felder.map((f) => f.schluessel) ?? [];
+      expect(su).toContain("uebersicht:einzug:details");
+      expect(su).toContain("umzugsgut:inv_1:montage");
+      expect(su).toContain("leistungen:transport:zustaendig");
+    });
+
     it("nurLesen schreibt nichts in die Quotation", async () => {
       jobMocks.getQuotation.mockResolvedValue({ ...quotation("ver_2"), serviceType: "clearance" });
       jobMocks.updates = 0;
@@ -477,6 +497,17 @@ describe("attachDocumentJobContext: Kalkulationsversion für den VPS-Weg (Review
     // Nicht die Summe der Stundensätze (3 × 35 + 25 = 130 €).
     expect(params._document_context).toEqual({ paidCents: 0, totalCents: 97_500 });
     expect(kv).toEqual({ calculationVersionId: "ver_2", priceCents: 97_500 });
+  });
+
+  it("V2: Stunden-KV erwartet im Druck Teamsatz und Zeilen, nicht den Helfersatz", async () => {
+    jobMocks.zeilen.clear();
+    jobMocks.getQuotation.mockResolvedValue(stundenAngebot(1));
+    const { kvPreise } = await attachDocumentJobContext("ws_1", { _deal_record_id: "deal_1", document_type: "KV", firma: "kottke" });
+    // Transporter 25, Team 3 × 35 = 105, Zeilen 7,5 × 25 und 7,5 × 105, Schätzung 975.
+    expect(kvPreise?.erwartetCent).toEqual(expect.arrayContaining([2_500, 10_500, 18_750, 78_750, 97_500]));
+    expect(kvPreise?.erwartetCent).not.toContain(3_500);
+    // Mindestbetrag 3 × 130 €.
+    expect(kvPreise?.erlaubtCent).toContain(39_000);
   });
 
   it("Stunden-KV mit zwei Transportern: der Auftrag scheitert mit Meldung (K1)", async () => {

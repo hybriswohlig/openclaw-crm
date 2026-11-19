@@ -20,7 +20,6 @@ import { kvStaende, type KvStandRow } from "@/db/schema/kv-editor";
 import {
   KV_CHAT_EVENT,
   KV_EDITOR_TEXT,
-  KV_FELDER_VPS_GEPRUEFT,
   type KiAntwort,
   type KonflikteAntwort,
   type KonflikteEingabe,
@@ -111,12 +110,18 @@ type ListeAus = (basis: KvBasis) => readonly KvAenderung[];
 
 export interface KvEditorOptionen {
   jetzt?: () => Date;
-  /** Freigegebene VPS-Felder (sonst `KV_FELDER_VPS_GEPRUEFT`). */
+  /** Freigegebene VPS-Felder (Tests); sonst je Leistungsart `kvFelderVpsGeprueft(details.serviceType)`. */
   gepruefte?: ReadonlySet<string>;
   dealKopf?: (ws: string, deal: string) => Promise<KvDealKopf>;
   /** Grundlage eines rekonstruierten VPS-Ausgangs-Stands (Spec 7.4). */
   ausgangGrundlageVps?: (ws: string, deal: string) => Promise<KvGrundlageVps>;
-  vpsPaket?: (ws: string, deal: string, grundlage: KvGrundlageVps, aenderungen: ListeAus, gepruefte: ReadonlySet<string>) => Promise<KvVpsPaket>;
+  vpsPaket?: (
+    ws: string,
+    deal: string,
+    grundlage: KvGrundlageVps,
+    aenderungen: ListeAus,
+    gepruefte: ReadonlySet<string> | undefined
+  ) => Promise<KvVpsPaket>;
   /** Startet den VPS-Job (Fotos laden, Skill starten), gibt die Job-ID zurück; wirft `VPS_FEHLER`. */
   vpsStarten?: (ws: string, deal: string, userId: string, params: Record<string, unknown>) => Promise<string>;
   crmBasis?: (ws: string, deal: string, grundlage: KvGrundlageCrm) => Promise<{ basis: KvBasis; anrede: "sie" | "du" }>;
@@ -131,12 +136,15 @@ export interface KvEditorOptionen {
   ki?: Partial<Omit<KvKiQuellen, "stand">>;
 }
 
-type Q = Required<Omit<KvEditorOptionen, "ki">> & { ki: KvEditorOptionen["ki"] };
+type Q = Required<Omit<KvEditorOptionen, "ki" | "gepruefte">> & {
+  ki: KvEditorOptionen["ki"];
+  gepruefte: KvEditorOptionen["gepruefte"];
+};
 
 function mitStandard(o: KvEditorOptionen = {}): Q {
   return {
     jetzt: () => new Date(),
-    gepruefte: KV_FELDER_VPS_GEPRUEFT,
+    gepruefte: undefined,
     dealKopf: dealKopfStandard,
     ausgangGrundlageVps: ausgangGrundlageVpsStandard,
     vpsPaket: vpsPaketStandard,
@@ -963,7 +971,7 @@ async function vpsPaketStandard(
   deal: string,
   grundlage: KvGrundlageVps,
   aenderungen: ListeAus,
-  gepruefte: ReadonlySet<string>
+  gepruefte: ReadonlySet<string> | undefined
 ): Promise<KvVpsPaket> {
   const { kvEingabeAusDeal } = await import("./kv-eingabe-aus-deal");
   const { rewriteKundeParamsFromDeal } = await import("./doc-customer-name");

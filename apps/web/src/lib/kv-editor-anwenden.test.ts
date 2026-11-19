@@ -13,6 +13,7 @@ import {
   type KvWert,
   type PushPruefEingabe,
   type VpsPaketTeile,
+  kvFelderVpsGeprueft,
 } from "./kv-editor";
 import rohJson from "./__fixtures__/kv-paket-umzug.json";
 import {
@@ -1059,5 +1060,129 @@ describe("vpsPreisPruefung", () => {
       fremd: [10000],
     });
     expect(vpsPreisPruefung(`${preis}\nWir bringen 4 Euro-Paletten mit.`, betreage()).preis).toBe("ok");
+  });
+});
+
+describe("V2: Freigabe je Leistungsart (Entrümpelung)", () => {
+  function entruempelung(): VpsPaketTeile {
+    const p = teile();
+    p.details.serviceType = "clearance";
+    return p;
+  }
+
+  it("bietet bei clearance kein Ziel, keine Demontage oder Montage und keine Leistungen an", () => {
+    const p = entruempelung();
+    const basis = vpsBasis(p, kvFelderVpsGeprueft(p.details.serviceType));
+    const s = basis.felder.map((f) => f.schluessel);
+    expect(s).not.toContain("uebersicht:einzug:details");
+    expect(s.some((x) => x.endsWith(":demontage") || x.endsWith(":montage"))).toBe(false);
+    expect(s.some((x) => x.startsWith("leistungen:"))).toBe(false);
+    expect(s).toContain("uebersicht:auszug:details");
+    expect(s).toContain("umzugsgut:inv-sofa:notiz");
+    expect(s).toContain("vereinbarungen:text:text");
+    // Die ausgelassenen Schlüssel des Pakets stehen für das Mitwandern bereit.
+    expect(basis.nichtFreigegeben).toEqual(
+      expect.arrayContaining(["uebersicht:einzug:details", "umzugsgut:inv-sofa:demontage", "umzugsgut:inv-sofa:montage", "leistungen:transport:zustaendig"])
+    );
+  });
+
+  it("beschriftet bei clearance Einsatzort und Umfang, beim Umzug wie bisher", () => {
+    const label = (b: KvBasis, s: string) => b.felder.find((f) => f.schluessel === s)?.label;
+    const p = entruempelung();
+    const e = vpsBasis(p, kvFelderVpsGeprueft("clearance"));
+    expect(label(e, "uebersicht:auszug:details")).toBe("Einsatzort, Hinweis");
+    expect(label(e, "uebersicht:umzugsgut:text")).toBe("Umfang");
+    const u = vpsBasis(teile(), kvFelderVpsGeprueft("move"));
+    expect(label(u, "uebersicht:auszug:details")).toBe("Auszug, Hinweis");
+    expect(label(u, "uebersicht:einzug:details")).toBe("Einzug, Hinweis");
+    expect(label(u, "uebersicht:umzugsgut:text")).toBe("Umzugsgut");
+    // Mit allen Mustern hat der Umzug keine ausgelassenen Schlüssel.
+    expect(vpsBasis(teile(), ALLE_MUSTER).nichtFreigegeben).toBeUndefined();
+  });
+
+  it("Umzug bietet die V2-Notizen an (Auspacken, Halteverbot Einzug)", () => {
+    const s = vpsBasis(teile(), kvFelderVpsGeprueft("move")).felder.map((f) => f.schluessel);
+    expect(s).toContain("leistungen:unpacking:notiz");
+    expect(s).toContain("leistungen:parkingDestination:notiz");
+  });
+
+  it("gespeicherte Änderungen an nicht freigegebenen Schlüsseln wandern als nicht_erlaubt mit", () => {
+    const umzug = vpsBasis(teile(), kvFelderVpsGeprueft("move"));
+    const einzug = aend("uebersicht:einzug:details", "Schlüssel beim Nachbarn", umzug.felder.find((f) => f.schluessel === "uebersicht:einzug:details")!.basis);
+    const montage = aend("umzugsgut:inv-kleiderschrank:montage", "customer", "company");
+    const notiz = aend("umzugsgut:inv-sofa:notiz", "Sofa vorher zerlegen", "Auf Foto erkannt, im Chat nicht erwähnt");
+    const weg = aend("umzugsgut:inv-weg:raum", "Keller", "Flur");
+    const offenAlt: KvKonflikt = {
+      aenderung: aend("umzugsgut:inv-bett:demontage", "customer", "company"),
+      art: "basis_geaendert",
+      basisJetzt: "none",
+      status: "offen",
+    };
+
+    // Der Deal wechselt auf Entrümpelung: der nächste Stand gleicht gegen den neuen Katalog ab.
+    const p = entruempelung();
+    const neu = vpsBasis(p, kvFelderVpsGeprueft(p.details.serviceType));
+    const aus = abgleichen(neu, [einzug, montage, notiz, weg], [offenAlt]);
+    expect(aus.liste).toEqual([notiz]);
+    expect(aus.konflikte).toEqual([
+      { aenderung: einzug, art: "nicht_erlaubt", basisJetzt: null, status: "offen" },
+      { aenderung: montage, art: "nicht_erlaubt", basisJetzt: null, status: "offen" },
+      { aenderung: weg, art: "ziel_fehlt", basisJetzt: null, status: "offen" },
+      { aenderung: offenAlt.aenderung, art: "nicht_erlaubt", basisJetzt: null, status: "offen" },
+    ]);
+    // Angewendet wird nur die Liste: Ziel und Montage bleiben im Paket unverändert.
+    const angewendet = vpsAnwenden(p, aus.liste);
+    expect(angewendet.details.to).toEqual(p.details.to);
+    expect(angewendet.details.inventory?.[0]).toEqual(p.details.inventory?.[0]);
+  });
+});
+
+describe("V2: Stunden-KV, Preisprüfung am echten Druck", () => {
+  // Anonymisierter Druck aus der VPS-Feldprüfung V2 (stunden-1, erfundener Kunde „Test Feldpruefung“).
+  const STUNDEN = readFileSync(new URL("./__fixtures__/kv-text-stunden.txt", import.meta.url), "utf8");
+  const preise = {
+    modell: "stundensatz",
+    helfer_anzahl: 2,
+    stunden_geschaetzt: 4,
+    mindest_stunden: 3,
+    stundensatz_helfer_eur: 39,
+    stundensatz_transporter_eur: 29,
+    anzahlung_betrag_eur: 100,
+    anzahlung_zahlungsweg: "bank_transfer",
+  };
+  const betraege = () => vpsErwarteteBetraege(preise, { gesamtCent: 42800, bezahltCent: 0 });
+
+  it("erwartet Teamsatz und Zeilen statt des Helfersatzes, erlaubt den Mindestbetrag", () => {
+    expect(betraege()).toEqual({
+      // Transportersatz 29, Teamsatz 2 × 39, Anzahlung, Zeile Transporter 4 × 29, Zeile Team 4 × 78, Gesamt.
+      erwartetCent: [2900, 7800, 10000, 11600, 31200, 42800],
+      // 0, bezahlt 0, Rest nach Anzahlung 328, Mindestbetrag 3 × (78 + 29) = 321, Gesamt.
+      erlaubtCent: [0, 10000, 32100, 32800, 42800],
+    });
+  });
+
+  it("der echte Druck ergibt ok", () => {
+    expect(STUNDEN).toContain("Umzugsteam (2 Helfer)");
+    expect(STUNDEN).toContain("Vertragsunterlagen");
+    expect(vpsPreisPruefung(STUNDEN, betraege())).toEqual({ preis: "ok", fehlt: [], fremd: [] });
+  });
+
+  it("ein anderer Satz im Druck bleibt eine Abweichung", () => {
+    const text = STUNDEN.replace("78,00 €", "80,00 €").replace("312,00 €", "320,00 €");
+    expect(vpsPreisPruefung(text, betraege())).toEqual({ preis: "abweichung", fehlt: [7800, 31200], fremd: [8000, 32000] });
+  });
+
+  it("Stunden unter dem Minimum zählen mit den Mindeststunden; halbe Stunden runden auf Cent", () => {
+    const aus = vpsErwarteteBetraege(
+      { modell: "stundensatz", helfer_anzahl: 3, stunden_geschaetzt: 7.5, mindest_stunden: 3, stundensatz_helfer_eur: 35, stundensatz_transporter_eur: 25 },
+      { gesamtCent: 97500, bezahltCent: 0 }
+    );
+    expect(aus.erwartetCent).toEqual([2500, 10500, 18750, 78750, 97500]);
+    expect(aus.erlaubtCent).toEqual([0, 39000, 97500]);
+    const unter = vpsErwarteteBetraege(
+      { modell: "stundensatz", helfer_anzahl: 1, stunden_geschaetzt: 2, mindest_stunden: 3, stundensatz_helfer_eur: 40, stundensatz_transporter_eur: 20 },
+      { gesamtCent: null, bezahltCent: 0 }
+    );
+    expect(unter.erwartetCent).toEqual([2000, 4000, 6000, 12000]);
   });
 });

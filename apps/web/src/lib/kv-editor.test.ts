@@ -8,6 +8,7 @@ import {
   KV_FELDER_CRM,
   KV_FELDER_VPS,
   KV_FELDER_VPS_GEPRUEFT,
+  KV_FELDER_VPS_GEPRUEFT_ENTRUEMPELUNG,
   KV_KI_LAEUFT_TEXT,
   KV_KUECHE_TEXTFELDER,
   KV_NUR_ADMIN_TEXT,
@@ -15,6 +16,7 @@ import {
   KV_PREIS_ABWEICHUNG_TEXT,
   feldDefFuer,
   feldFreigeschaltet,
+  kvFelderVpsGeprueft,
   kvSchluessel,
   kvVerworfenPushText,
   schluesselTeile,
@@ -79,7 +81,7 @@ describe("Vertrag KV-Editor: Felderliste", () => {
     expect(feldDefFuer("crm", "preise:pauschale_betrag:text")).toBeNull();
   });
 
-  it("VPS-Felder nach V1: freigegebene Schlüssel und Muster mit Platzhaltern, die fünf ungeprüften Notizen aus", () => {
+  it("VPS-Felder nach V1 und V2: freigegebene Schlüssel und Muster mit Platzhaltern", () => {
     const an = [
       "uebersicht:termin:zeit",
       "uebersicht:umzugsgut:text",
@@ -98,14 +100,16 @@ describe("Vertrag KV-Editor: Felderliste", () => {
       "kueche:time:text",
       "kueche-leistung:worktop:notiz",
       "kueche-leistung:delivery:zustaendig",
-    ];
-    for (const s of an) expect(feldFreigeschaltet("vps", s), s).toBe(true);
-    const aus = [
+      // V2: Notiz wörtlich gedruckt, wenn die Leistung aktiv ist.
       "leistungen:unpacking:notiz",
       "leistungen:parkingDestination:notiz",
       "kueche-leistung:delivery:notiz",
       "kueche-leistung:connections:notiz",
       "kueche-leistung:disposal:notiz",
+    ];
+    for (const s of an) expect(feldFreigeschaltet("vps", s), s).toBe(true);
+    const aus = [
+      "leistungen:clearing:notiz",
       "kueche:companyWork:text",
       "uebersicht:termin:datum",
     ];
@@ -113,6 +117,40 @@ describe("Vertrag KV-Editor: Felderliste", () => {
     // Jeder Eintrag der Liste ist ein konkreter Schlüssel oder das Muster einer Felddefinition.
     const muster = new Set(KV_FELDER_VPS.map((d) => d.muster));
     for (const s of KV_FELDER_VPS_GEPRUEFT) expect(muster.has(s) || feldDefFuer("vps", s) !== null, s).toBe(true);
+  });
+
+  it("V2: Entrümpelung hat eine eigene Freigabe ohne Ziel, Demontage, Montage und Leistungen", () => {
+    expect(kvFelderVpsGeprueft("clearance")).toBe(KV_FELDER_VPS_GEPRUEFT_ENTRUEMPELUNG);
+    for (const art of ["move", "kitchen_installation", undefined, null, ""]) {
+      expect(kvFelderVpsGeprueft(art)).toBe(KV_FELDER_VPS_GEPRUEFT);
+    }
+    const g = KV_FELDER_VPS_GEPRUEFT_ENTRUEMPELUNG;
+    const an = [
+      "uebersicht:termin:zeit",
+      "uebersicht:auszug:details",
+      "uebersicht:umzugsgut:text",
+      "umzugsgut:inv_1:bezeichnung",
+      "umzugsgut:inv_1:raum",
+      "umzugsgut:inv_1:notiz",
+      "bilder:att_1:zeigen",
+      "vereinbarungen:text:text",
+    ];
+    for (const s of an) expect(feldFreigeschaltet("vps", s, g), s).toBe(true);
+    const aus = [
+      "uebersicht:einzug:details",
+      "umzugsgut:inv_1:demontage",
+      "umzugsgut:inv_1:montage",
+      "leistungen:transport:zustaendig",
+      "leistungen:clearing:notiz",
+      "leistungen:transport:notiz",
+      "kueche:details:text",
+    ];
+    for (const s of aus) expect(feldFreigeschaltet("vps", s, g), s).toBe(false);
+    const muster = new Set(KV_FELDER_VPS.map((d) => d.muster));
+    for (const s of g) {
+      expect(muster.has(s) || feldDefFuer("vps", s) !== null, s).toBe(true);
+      expect(KV_FELDER_VPS_GEPRUEFT.has(s), s).toBe(true);
+    }
   });
 
   it("Freigabe je Schlüssel oder je Muster; CRM immer", () => {

@@ -160,6 +160,11 @@ describe("fehlerText", () => {
     expect(fehlerText("ANDERS", "Serverfehler")).toBe("Serverfehler");
   });
 
+  it("nicht_erlaubt: ohne Basis fehlt die Freigabe der Leistungsart, mit Basis der Preis (V2)", () => {
+    expect(konfliktText({ art: "nicht_erlaubt", basisJetzt: null } as never)).toBe("Dieses Feld druckt der KV bei dieser Leistungsart nicht.");
+    expect(konfliktText({ art: "nicht_erlaubt", basisJetzt: "customer" } as never)).toBe("Im Preis nicht mehr enthalten. Über die Kalkulation ändern.");
+  });
+
   it("keine Gedankenstriche in den Texten", () => {
     for (const t of [fehlerText("AKTUELL_GEAENDERT", "", { aktuellStandNummer: 6, gepushtVon: "Nuri" }), konfliktText({ art: "ziel_fehlt" } as never)]) {
       expect(t).not.toMatch(/[–—]/);

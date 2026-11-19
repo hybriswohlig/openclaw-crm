@@ -75,8 +75,14 @@ export interface KvFeld {
 
 export interface KvBasis {
   renderer: KvRenderer;
-  /** Nur geprüfte Felder (VPS: `KV_FELDER_VPS_GEPRUEFT`), in KV-Reihenfolge. */
+  /** Nur geprüfte Felder (VPS: `kvFelderVpsGeprueft(art)`), in KV-Reihenfolge. */
   felder: KvFeld[];
+  /**
+   * VPS: Schlüssel, die das Paket hat, die für diese Leistungsart aber nicht freigegeben sind (V2,
+   * Entrümpelung). Eine gespeicherte Änderung daran wird beim Mitwandern `nicht_erlaubt`, nicht
+   * `ziel_fehlt`. Fehlt, wenn leer.
+   */
+  nichtFreigegeben?: string[];
 }
 
 export interface KvAenderung {
@@ -98,7 +104,7 @@ export type KvKonfliktStatus = "offen" | "uebernommen" | "verworfen";
 export interface KvKonflikt {
   aenderung: KvAenderung;
   art: KvKonfliktArt;
-  /** Basiswert im neuen KV; null bei `ziel_fehlt`. */
+  /** Basiswert im neuen KV; null bei `ziel_fehlt` und bei `nicht_erlaubt` wegen fehlender Freigabe. */
   basisJetzt: KvWert | null;
   status: KvKonfliktStatus;
   entschiedenVon?: string;
@@ -583,6 +589,16 @@ export const KV_LEISTUNGEN_UMZUG: Record<string, string> = {
   materials: "Packmaterial",
 };
 
+/** Leistungsschlüssel der VPS-Vorlage bei Entrümpelung (document-html data.js `clearanceLabels`). */
+export const KV_LEISTUNGEN_ENTRUEMPELUNG: Record<string, string> = {
+  clearing: "Räumung und Heraustragen",
+  transport: "Abtransport",
+  disposal: "Fachgerechte Entsorgung",
+  dismantling: "Demontage vor Ort",
+  sweeping: "Besenreine Übergabe",
+  parkingPickup: "Halteverbot am Einsatzort",
+};
+
 /** Leistungsschlüssel im VPS-Paket (Küche). */
 export const KV_LEISTUNGEN_KUECHE: Record<string, string> = {
   installation: "Küchenmontage",
@@ -631,8 +647,9 @@ export const KV_FELDER_CRM: readonly KvFeldDef[] = [
  * erscheinen in Formular und KI-Katalog; ungeprüfte bleiben im Code, sind aber aus.
  *
  * V1 (18.11., Koordinator ausgewertet): der VPS druckt Textfelder wörtlich, Preise in allen Normaldrucken ok.
- * Aus bleiben die Notizen, die im Test nicht erschienen (Leistung „nicht vorgesehen“):
- * `leistungen:unpacking|parkingDestination:notiz`, `kueche-leistung:delivery|connections|disposal:notiz`.
+ * V2 (19.11., vps-felder-2.md): auch die Notizen von Auspacken, Halteverbot Einzug, Lieferung, Anschlüsse und
+ * Entsorgung (Küche) stehen wörtlich im Druck, wenn die Leistung aktiv ist.
+ * Gilt für Umzug und Küche; Entrümpelung siehe `KV_FELDER_VPS_GEPRUEFT_ENTRUEMPELUNG`.
  */
 export const KV_FELDER_VPS_GEPRUEFT: ReadonlySet<string> = new Set<string>([
   "uebersicht:termin:zeit",
@@ -645,6 +662,8 @@ export const KV_FELDER_VPS_GEPRUEFT: ReadonlySet<string> = new Set<string>([
   "leistungen:assembly:notiz",
   "leistungen:parkingPickup:notiz",
   "leistungen:materials:notiz",
+  "leistungen:unpacking:notiz",
+  "leistungen:parkingDestination:notiz",
   "leistungen:{key}:zustaendig",
   "umzugsgut:{inventarId}:bezeichnung",
   "umzugsgut:{inventarId}:raum",
@@ -659,8 +678,32 @@ export const KV_FELDER_VPS_GEPRUEFT: ReadonlySet<string> = new Set<string>([
   "kueche-leistung:worktop:notiz",
   "kueche-leistung:appliances:notiz",
   "kueche-leistung:packagingRemoval:notiz",
+  "kueche-leistung:delivery:notiz",
+  "kueche-leistung:connections:notiz",
+  "kueche-leistung:disposal:notiz",
   "kueche-leistung:{key}:zustaendig",
 ]);
+
+/**
+ * VPS-Feldprüfung V2 (vps-felder-2.md): Entrümpelung (serviceType "clearance") druckt kein Ziel und keine
+ * Demontage oder Montage je Gegenstand. Die Leistungsnotizen bleiben aus: das CRM schickt bei clearance keine
+ * `services` (`vpsLeistungen`), die Vorlage setzt ihre Leistungen selbst.
+ */
+export const KV_FELDER_VPS_GEPRUEFT_ENTRUEMPELUNG: ReadonlySet<string> = new Set<string>([
+  "uebersicht:termin:zeit",
+  "uebersicht:auszug:details",
+  "uebersicht:umzugsgut:text",
+  "umzugsgut:{inventarId}:bezeichnung",
+  "umzugsgut:{inventarId}:raum",
+  "umzugsgut:{inventarId}:notiz",
+  "bilder:{attachmentId}:zeigen",
+  "vereinbarungen:text:text",
+]);
+
+/** Freigabe je VPS-Leistungsart (`document_details.serviceType`). */
+export function kvFelderVpsGeprueft(art: string | null | undefined): ReadonlySet<string> {
+  return art === "clearance" ? KV_FELDER_VPS_GEPRUEFT_ENTRUEMPELUNG : KV_FELDER_VPS_GEPRUEFT;
+}
 
 export function kvFelderVon(renderer: KvRenderer): readonly KvFeldDef[] {
   return renderer === "vps" ? KV_FELDER_VPS : KV_FELDER_CRM;

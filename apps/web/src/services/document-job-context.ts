@@ -27,7 +27,7 @@ import { preisQuelleAusAnnahme, type PreisQuelle } from "@/lib/ab-preise";
 import { vpsPreiseMitStunden, vpsStundenAusVersion, type VpsPreisQuelle } from "@/lib/angebot-vorbelegung";
 import { preisZahlungenCent } from "@/lib/preis-zahlungen";
 import { angebotsStandAus } from "./rechnungen";
-import { KV_FELDER_VPS_GEPRUEFT, type KvAenderung, type KvBasis } from "@/lib/kv-editor";
+import { kvFelderVpsGeprueft, type KvAenderung, type KvBasis } from "@/lib/kv-editor";
 import { vpsAnwenden, vpsBasis, vpsErwarteteBetraege } from "@/lib/kv-editor-anwenden";
 
 type ServiceType = ServiceArt;
@@ -175,7 +175,7 @@ export interface DokumentKontextOptionen {
   aenderungen?: readonly KvAenderung[] | ((basis: KvBasis) => readonly KvAenderung[]);
   /** Editor-Entwurf: Leistungsart und „mit Entrümpelung“ nicht in die Quotation schreiben. */
   nurLesen?: boolean;
-  /** Freigegebene VPS-Felder (Tests); sonst `KV_FELDER_VPS_GEPRUEFT`. */
+  /** Freigegebene VPS-Felder (Tests); sonst `kvFelderVpsGeprueft(details.serviceType)`. */
   gepruefte?: ReadonlySet<string>;
 }
 
@@ -442,7 +442,7 @@ export async function attachDocumentJobContext(
   if (next.document_type === "KV") {
     const auftrag = (next.auftrag && typeof next.auftrag === "object" ? next.auftrag : {}) as Record<string, unknown>;
     const teile = { details, auftrag, inventarIds, bildIds };
-    kvBasis = vpsBasis(teile, opts.gepruefte ?? KV_FELDER_VPS_GEPRUEFT);
+    kvBasis = vpsBasis(teile, opts.gepruefte ?? kvFelderVpsGeprueft(details.serviceType));
     const liste = typeof opts.aenderungen === "function" ? opts.aenderungen(kvBasis) : (opts.aenderungen ?? []);
     if (liste.length > 0) {
       const angewendet = vpsAnwenden(teile, liste);

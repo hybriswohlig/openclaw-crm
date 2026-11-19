@@ -192,6 +192,9 @@ export function konfliktText(k: KvKonflikt): string {
     case "ziel_fehlt":
       return "Diese Zeile gibt es im neuen KV nicht mehr.";
     case "nicht_erlaubt":
-      return "Im Preis nicht mehr enthalten. Über die Kalkulation ändern.";
+      // Ohne Basis: Feld für diese Leistungsart nicht freigegeben (V2, Entrümpelung).
+      return k.basisJetzt === null
+        ? "Dieses Feld druckt der KV bei dieser Leistungsart nicht."
+        : "Im Preis nicht mehr enthalten. Über die Kalkulation ändern.";
   }
 }
