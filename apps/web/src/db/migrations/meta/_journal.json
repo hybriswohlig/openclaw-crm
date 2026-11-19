@@ -435,6 +435,13 @@
       "when": 1794355200000,
       "tag": "0071_kv_editor",
       "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1794441600000,
+      "tag": "0072_mitarbeiter_strasse_fuehrerschein",
+      "breakpoints": true
     }
   ]
 }

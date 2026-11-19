@@ -31,6 +31,14 @@ export function stammdatenAus(body: unknown): StammdatenEingabe | null {
     if (o.wohnort !== null && typeof o.wohnort !== "string") return null;
     e.wohnort = o.wohnort;
   }
+  if ("strasse" in o) {
+    if (o.strasse !== null && typeof o.strasse !== "string") return null;
+    e.strasse = o.strasse;
+  }
+  if ("fuehrerschein" in o) {
+    if (o.fuehrerschein !== null && typeof o.fuehrerschein !== "string") return null;
+    e.fuehrerschein = o.fuehrerschein;
+  }
   if ("kannSprinter" in o) {
     if (typeof o.kannSprinter !== "boolean") return null;
     e.kannSprinter = o.kannSprinter;

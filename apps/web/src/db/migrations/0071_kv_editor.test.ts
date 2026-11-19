@@ -57,6 +57,8 @@ describe("Migration 0071 KV-Editor (Text)", () => {
     const e70 = journal.entries.find((e: { idx: number }) => e.idx === 70);
     expect(e71).toMatchObject({ tag: "0071_kv_editor", version: "7", when: 1794355200000, breakpoints: true });
     expect(e71.when).toBeGreaterThan(e70.when);
-    expect(journal.entries.at(-1)).toBe(e71);
+    // Spätere Migrationen dürfen folgen, aber nur mit höherer Nummer.
+    const nachher = journal.entries.slice(journal.entries.indexOf(e71) + 1);
+    expect(nachher.every((e: { idx: number }) => e.idx > 71)).toBe(true);
   });
 });

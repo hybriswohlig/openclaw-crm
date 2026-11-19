@@ -87,7 +87,7 @@ describe.skipIf(!url)("Team bestätigen (DB)", { timeout: 20_000 }, () => {
     const nachher = await zeilen(dealA);
     expect(nachher.find((r) => r.employee_id === y)).toMatchObject({ role: "lead", planned_work_minutes: 240 });
     expect(nachher.find((r) => r.employee_id === x)).toMatchObject({ role: "helper" });
-    expect(await svc.einsatzBestaetigen(ws, dealA, { team: [] }, "u2")).toEqual({ ok: true, team: [] });
+    expect(await svc.einsatzBestaetigen(ws, dealA, { team: [] }, "u2")).toEqual({ ok: true, team: [], neu: [] });
     expect(await zeilen(dealA)).toHaveLength(0);
   });
 

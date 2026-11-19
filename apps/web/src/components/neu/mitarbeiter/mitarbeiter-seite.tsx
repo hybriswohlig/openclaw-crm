@@ -9,6 +9,8 @@ import { seitentitel } from "@/components/neu/nav-config";
 import { berlinDateString } from "@/lib/berlin-date";
 import { ortText, tageZwischen, type EinsatzPerson, type KapazitaetTag } from "@/lib/einsatz";
 import { kapazitaetLaden, personenLaden } from "./mitarbeiter-api";
+import { AuftraegeImport } from "./auftraege-import";
+import { MitarbeiterImport } from "./mitarbeiter-import";
 import { PersonPanel } from "./person-panel";
 
 type Zustand = { art: "laden" } | { art: "fehler"; meldung: string } | { art: "fertig"; personen: EinsatzPerson[] };
@@ -131,9 +133,13 @@ export function MitarbeiterSeite({ transporter }: { transporter?: React.ReactNod
           <GlassPanel variant="panel" className="ma-liste-panel">
             <div className="ma-abschnitt-kopf">
               <h2 className="ma-panel-titel">Personen</h2>
-              <GlassButton type="button" size="sm" onClick={() => setGewaehlt("neu")}>
-                + Person
-              </GlassButton>
+              <span className="ma-kopf-aktionen">
+                <MitarbeiterImport onFertig={() => void laden()} />
+                <AuftraegeImport onFertig={() => void laden()} />
+                <GlassButton type="button" size="sm" onClick={() => setGewaehlt("neu")}>
+                  + Person
+                </GlassButton>
+              </span>
             </div>
             {zustand.art === "laden" ? <p className="ma-leer">Mitarbeiter werden geladen …</p> : null}
             {zustand.art === "fehler" ? <p className="ma-fehler">Mitarbeiter konnten nicht geladen werden. {zustand.meldung}</p> : null}
