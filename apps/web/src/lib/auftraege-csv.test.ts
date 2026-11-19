@@ -66,6 +66,7 @@ describe("Auftrags-Tabelle", () => {
     expect(personZumNamen("Nuri", P)).toEqual({ ok: P[0] });
     expect(personZumNamen("Beri", P)).toEqual({ ok: P[3] });
     expect(personZumNamen("Ali", P)).toMatchObject({ fehler: expect.stringContaining("Ali Kaya, Ali Demir") });
+    expect(personZumNamen("Emir (Probe)", P)).toEqual({ ok: P[4] });
     expect(personZumNamen("Hans", P)).toMatchObject({ fehler: expect.stringContaining("kennen wir nicht") });
   });
 
@@ -101,13 +102,16 @@ describe("Auftrags-Tabelle", () => {
   });
 
   it("doppelt am Tag: neu dazu, aber am selben Tag schon auf einem anderen Auftrag (nach dem Import)", () => {
-    // Berisha steht am 22.11. auf d1; d2 (22.–23.11.) will ihn auch.
+    // Berisha steht am 22.11. auf d1; d2 (22.–23.11.) will ihn auch: bewusst, also Hinweis und trotzdem.
     const r1 = plan(["d2;;;;;;Berisha;"]);
-    expect(r1.zeilen[0]).toMatchObject({ art: "fehler" });
-    expect(r1.zeilen[0]!.fehler[0]).toContain("Berisha Erijan ist am selben Tag schon bei Meier");
+    expect(r1.zeilen[0]).toMatchObject({ art: "aendern", fehler: [], trotzdem: ["b"] });
+    expect(r1.zeilen[0]!.hinweise[0]).toBe("Berisha Erijan ist am selben Tag auch bei Meier.");
     // Wechselt er in derselben Datei von d1 nach d2, ist das in Ordnung.
     const r2 = plan(["d1;;;;;;Nuri;", "d2;;;;;;Berisha;"]);
-    expect(r2.zeilen.map((x) => x.art)).toEqual(["aendern", "aendern"]);
+    expect(r2.zeilen.map((x) => [x.art, x.hinweise])).toEqual([
+      ["aendern", []],
+      ["aendern", []],
+    ]);
   });
 
   it("Kopf fehlt: nichts gelesen", () => {

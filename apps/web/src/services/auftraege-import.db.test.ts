@@ -109,13 +109,16 @@ describe.skipIf(!url)("Auftrags-Tabelle (DB)", { timeout: 20_000 }, () => {
     expect((await team(dealB)).map((t) => [t.name, t.role])).toEqual([["Yusuf", "lead"]]);
   });
 
-  it("Konflikt aus der Datenbank wird Fehler der Zeile, der Rest wird gespeichert", async () => {
-    // Zoe soll auf Bruno, Xaver (heute auf Anna, am selben Tag) auch; Anna bleibt unverändert.
+  it("doppelt am Tag ist ein Hinweis: Xaver bleibt auf Anna und kommt zusätzlich auf Bruno", async () => {
     const csv = [KOPF, `${dealB};;;;;;Zoe;Xaver`].join("\r\n");
     const r = await svc.auftraegeImport(ws, csv, true, "u1");
-    expect(r.zeilen[0]).toMatchObject({ art: "fehler" });
-    expect(r.zeilen[0]!.fehler[0]).toContain("Xaver Kaya ist am selben Tag schon bei Anna");
-    expect(await team(dealB)).toHaveLength(0);
+    expect(r.zeilen[0]).toMatchObject({ art: "aendern", fehler: [] });
+    expect(r.zeilen[0]!.hinweise[0]).toContain("Xaver Kaya ist am selben Tag auch bei Anna");
+    expect((await team(dealB)).map((t) => [t.name, t.role])).toEqual([
+      ["Zoe", "lead"],
+      ["Xaver Kaya", "helper"],
+    ]);
+    expect((await team(dealA)).map((t) => t.name)).toEqual(["Xaver Kaya", "Yusuf"]);
   });
 
   it("„-“ leert das Team; Wiederholen ändert nichts mehr", async () => {

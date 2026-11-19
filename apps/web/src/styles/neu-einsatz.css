@@ -1846,6 +1846,10 @@
   color: var(--gold-ink);
 }
 
+[data-neu] .ma-import-hinweis {
+  color: var(--ink-2);
+}
+
 [data-neu] .ma-import-fuss {
   display: flex;
   justify-content: flex-end;

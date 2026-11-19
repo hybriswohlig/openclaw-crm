@@ -75,7 +75,7 @@ export async function anstehendeAuftraege(ws: string, jetzt: Date = new Date()):
  * heutigen Team aus Personen entfernen und hinzufügen (Minuten verteilen sich
  * neu, von Hand gesetzte bleiben), dann die Leitung setzen.
  */
-async function teamSetzen(ws: string, deal: string, wunsch: AnstehenderAuftrag["team"], autor: string) {
+async function teamSetzen(ws: string, deal: string, wunsch: AnstehenderAuftrag["team"], autor: string, trotzdem: string[] = []) {
   const [alt, v] = await Promise.all([zuteilungenLesen(ws, deal), massgeblicheVersion(ws, deal)]);
   const rechner = v ? rechnerDatenAus((v.rechnerRequest ?? null) as RechnerAnfrage | null, (v.rechnerResult ?? null) as RechnerErgebnis | null) : null;
   let s: Auswahl =
@@ -84,7 +84,9 @@ async function teamSetzen(ws: string, deal: string, wunsch: AnstehenderAuftrag["
   for (const w of wunsch) s = auswahlHinzufuegen(s, w.employeeId, rechner);
   const lead = wunsch.find((w) => w.role === "lead");
   if (lead) s = leitungSetzen(s, lead.employeeId);
-  return einsatzBestaetigen(ws, deal, teamBody(s), autor);
+  const body = teamBody(s);
+  const erlaubt = trotzdem.filter((id) => body.team.some((t) => t.employeeId === id));
+  return einsatzBestaetigen(ws, deal, erlaubt.length > 0 ? { team: body.team, bestaetigtAmTag: erlaubt } : { team: body.team }, autor);
 }
 
 export interface AuftraegeImportErgebnis {
@@ -117,7 +119,7 @@ export async function auftraegeImport(ws: string, csv: string, uebernehmen: bool
   for (const z of aendern) {
     if (z.art !== "aendern") continue;
     try {
-      const r = await teamSetzen(ws, z.dealId!, z.team, autor);
+      const r = await teamSetzen(ws, z.dealId!, z.team, autor, z.trotzdem);
       if (r.ok) uebernommen++;
       else {
         z.art = "fehler";

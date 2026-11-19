@@ -96,6 +96,13 @@ export function AuftraegeImport({ onFertig }: { onFertig: () => void }) {
                         </li>
                       </ul>
                     ) : null}
+                    {x.hinweise.length > 0 ? (
+                      <ul className="ma-import-hinweis">
+                        {x.hinweise.map((f, i) => (
+                          <li key={i}>{f}</li>
+                        ))}
+                      </ul>
+                    ) : null}
                     {x.fehler.length > 0 ? (
                       <ul className="ma-import-fehler">
                         {x.fehler.map((f, i) => (

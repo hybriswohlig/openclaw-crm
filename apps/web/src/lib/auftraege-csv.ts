@@ -77,6 +77,10 @@ export interface TeamImportZeile {
   /** Gewünschtes Team (Leitung zuerst), nur bei `aendern`. */
   team: Array<{ employeeId: string; role: TeamRolle }>;
   fehler: string[];
+  /** Bewusst doppelt am Tag (wie „trotzdem einteilen“ im Einsatz-Dialog): wird eingeteilt, nur Hinweis. */
+  hinweise: string[];
+  /** Personen für `bestaetigtAmTag`. */
+  trotzdem: string[];
 }
 
 const LEER_MARKE = new Set(["-", "–", "—", "keiner", "keine", "niemand", "leer", "x"]);
@@ -98,9 +102,12 @@ type Treffer = { ok: EinsatzPerson } | { fehler: string };
  */
 export function personZumNamen(roh: string, personen: readonly EinsatzPerson[]): Treffer {
   const n = csvNorm(roh);
-  const ganz = personen.filter((p) => csvNorm(p.name) === n);
+  // Zusatz in Klammern („Andi Herrmann (Probe)“) zählt nur, wenn er auch im Namen steht.
+  const ohneKlammer = (x: string) => csvNorm(x.replace(/\([^)]*\)/g, ""));
+  const nk = ohneKlammer(roh);
   const stufen = [
-    ganz,
+    personen.filter((p) => csvNorm(p.name) === n),
+    personen.filter((p) => nk !== "" && ohneKlammer(p.name) === nk),
     personen.filter((p) => p.name.split(/\s+/).some((w) => csvNorm(w) === n)),
     personen.filter((p) => n.length >= 3 && csvNorm(p.name).startsWith(n)),
   ];
@@ -167,6 +174,8 @@ export function teamImportPlan(
       neu: [],
       team: [],
       fehler: [],
+      hinweise: [],
+      trotzdem: [],
     };
     zeilen.push(z);
     if (leitungRoh === "" && helferRoh === "") return; // nichts ändern
@@ -220,7 +229,8 @@ export function teamImportPlan(
     z.art = gleich ? "gleich" : "aendern";
   });
 
-  // Doppelt am Tag: wer neu dazukommt und am selben Tag schon auf einem anderen Auftrag steht (nach dem Import).
+  // Doppelt am Tag: wer neu dazukommt und am selben Tag auf einem anderen Auftrag steht (nach dem Import).
+  // Wer die Tabelle so ausfüllt, will das (zwei kurze Aufträge nacheinander): Hinweis, eingeteilt wird trotzdem.
   const nachher = (dealId: string) => {
     const z = zeilen.find((x) => x.dealId === dealId && x.art === "aendern");
     return z ? z.team.map((t) => t.employeeId) : (auftraege.find((x) => x.dealId === dealId)?.team ?? []).map((t) => t.employeeId);
@@ -232,9 +242,10 @@ export function teamImportPlan(
     for (const t of z.team) {
       if (bisher.has(t.employeeId)) continue;
       const andere = auftraege.filter((b) => b.dealId !== a.dealId && ueberlappt(a, b) && nachher(b.dealId).includes(t.employeeId));
-      if (andere.length > 0) z.fehler.push(`${name(t.employeeId)} ist am selben Tag schon bei ${andere.map((b) => b.titel).join(", ")} eingeteilt.`);
+      if (andere.length === 0) continue;
+      z.hinweise.push(`${name(t.employeeId)} ist am selben Tag auch bei ${andere.map((b) => b.titel).join(", ")}.`);
+      z.trotzdem.push(t.employeeId);
     }
-    if (z.fehler.length > 0) z.art = "fehler";
   }
   return { zeilen, kopfFehlt };
 }
