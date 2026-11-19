@@ -1,6 +1,6 @@
 /**
  * Stammdaten und Ausnahmen der Mitarbeiter für den Einsatz (Plan 12a).
- * PLZ und Ort verlassen diesen Dienst nur über `/api/v1/einsatz/*` und den
+ * PLZ, Ort und Straße verlassen diesen Dienst nur über `/api/v1/einsatz/*` und den
  * Einsatz-Dialog; nie über `listEmployees`, MCP, Portal oder Mitarbeiter-App.
  */
 import { and, asc, eq, gte, lte } from "drizzle-orm";
@@ -9,6 +9,7 @@ import { employeeAbsences, employees } from "@/db/schema";
 import { kuerzelAus } from "@/lib/akte";
 import {
   hourlyRateAusCent,
+  istFuehrerschein,
   SATZ_ARBEIT_CENT_VORGABE,
   SATZ_FAHRT_CENT_VORGABE,
   type Abwesenheit,
@@ -25,7 +26,7 @@ type PersonZeile = Pick<
   typeof employees.$inferSelect,
   "id" | "name" | "active" | "homePlz" | "homeTown" | "canDriveSprinter" | "ownCar" | "rateDriveCents" | "rateWorkCents"
 > &
-  Partial<Pick<typeof employees.$inferSelect, "phone" | "locale" | "photoConsentAt">>;
+  Partial<Pick<typeof employees.$inferSelect, "phone" | "locale" | "photoConsentAt" | "homeStreet" | "licenseClass">>;
 
 export function personAus(z: PersonZeile): EinsatzPerson {
   const name = z.name?.trim() || "Ohne Namen";
@@ -36,6 +37,8 @@ export function personAus(z: PersonZeile): EinsatzPerson {
     aktiv: z.active,
     plz: z.homePlz,
     wohnort: z.homeTown,
+    strasse: z.homeStreet ?? null,
+    fuehrerschein: istFuehrerschein(z.licenseClass) ? z.licenseClass : null,
     kannSprinter: z.canDriveSprinter,
     eigenerPkw: z.ownCar,
     satzFahrtCent: z.rateDriveCents,
@@ -52,6 +55,8 @@ export const PERSON_SPALTEN = {
   active: employees.active,
   homePlz: employees.homePlz,
   homeTown: employees.homeTown,
+  homeStreet: employees.homeStreet,
+  licenseClass: employees.licenseClass,
   canDriveSprinter: employees.canDriveSprinter,
   ownCar: employees.ownCar,
   rateDriveCents: employees.rateDriveCents,
@@ -141,6 +146,8 @@ export async function personAnlegen(ws: string, e: StammdatenEingabe, ex: DbExec
       name: (e.name ?? "").trim(),
       homePlz: wohnfeld(e.plz),
       homeTown: wohnfeld(e.wohnort),
+      homeStreet: wohnfeld(e.strasse),
+      licenseClass: istFuehrerschein(e.fuehrerschein) ? e.fuehrerschein : null,
       canDriveSprinter: e.kannSprinter ?? false,
       ownCar: e.eigenerPkw ?? false,
       rateDriveCents: e.satzFahrtCent ?? SATZ_FAHRT_CENT_VORGABE,
@@ -169,6 +176,8 @@ export async function personAendern(ws: string, id: string, e: StammdatenEingabe
     name?: string;
     homePlz?: string | null;
     homeTown?: string | null;
+    homeStreet?: string | null;
+    licenseClass?: string | null;
     canDriveSprinter?: boolean;
     ownCar?: boolean;
     rateDriveCents?: number;
@@ -184,6 +193,8 @@ export async function personAendern(ws: string, id: string, e: StammdatenEingabe
   if (e.name !== undefined) set.name = e.name.trim();
   if (e.plz !== undefined) set.homePlz = wohnfeld(e.plz);
   if (e.wohnort !== undefined) set.homeTown = wohnfeld(e.wohnort);
+  if (e.strasse !== undefined) set.homeStreet = wohnfeld(e.strasse);
+  if (e.fuehrerschein !== undefined) set.licenseClass = istFuehrerschein(e.fuehrerschein) ? e.fuehrerschein : null;
   if (e.kannSprinter !== undefined) set.canDriveSprinter = e.kannSprinter;
   if (e.eigenerPkw !== undefined) set.ownCar = e.eigenerPkw;
   if (e.satzFahrtCent !== undefined) set.rateDriveCents = e.satzFahrtCent;

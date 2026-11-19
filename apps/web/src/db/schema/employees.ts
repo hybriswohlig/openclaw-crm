@@ -27,6 +27,10 @@ export const employees = pgTable(
      */
     homePlz: text("home_plz"),
     homeTown: text("home_town"),
+    /** 0072: Straße und Hausnummer, optional; gleiche Regeln wie PLZ und Ort. */
+    homeStreet: text("home_street"),
+    /** 0072: Führerscheinklasse (`FUEHRERSCHEINE`), null = unbekannt. */
+    licenseClass: text("license_class"),
     canDriveSprinter: boolean("can_drive_sprinter").notNull().default(false),
     ownCar: boolean("own_car").notNull().default(false),
     rateDriveCents: integer("rate_drive_cents").notNull().default(1500),

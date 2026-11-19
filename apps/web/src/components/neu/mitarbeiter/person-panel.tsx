@@ -8,11 +8,13 @@ import { GlassSwitch } from "@/components/glassyui/glass-switch";
 import { tagKurz } from "@/lib/anzeige";
 import {
   ABWESENHEIT_TEXT,
+  FUEHRERSCHEINE,
   pruefeStammdaten,
   SATZ_ARBEIT_CENT_VORGABE,
   SATZ_FAHRT_CENT_VORGABE,
   type Abwesenheit,
   type EinsatzPerson,
+  type Fuehrerschein,
   type KapazitaetTag,
   type StammdatenEingabe,
   type StammdatenFehler,
@@ -32,12 +34,26 @@ const FEHLER_TEXT: Record<StammdatenFehler, string> = {
   SATZ_UNGUELTIG: "Sätze zwischen 1 und 200 Euro je Stunde.",
   TELEFON_UNGUELTIG: "Telefon: z. B. 0151 1234567 oder +49 151 1234567.",
   SPRACHE_UNGUELTIG: "Diese Sprache gibt es nicht.",
+  STRASSE_LANG: "Straße ist zu lang (höchstens 120 Zeichen).",
+  FUEHRERSCHEIN_UNGUELTIG: "Diese Führerscheinklasse gibt es nicht.",
+};
+
+const FUEHRERSCHEIN_TEXT: Record<Fuehrerschein, string> = {
+  keiner: "keiner",
+  B: "B (Auto, Sprinter bis 3,5 t)",
+  BE: "BE (Auto mit Anhänger)",
+  C1: "C1 (bis 7,5 t)",
+  C1E: "C1E (bis 7,5 t mit Anhänger)",
+  C: "C (LKW)",
+  CE: "CE (LKW mit Anhänger)",
 };
 
 interface Form {
   name: string;
   plz: string;
   wohnort: string;
+  strasse: string;
+  fuehrerschein: Fuehrerschein | "";
   kannSprinter: boolean;
   eigenerPkw: boolean;
   satzFahrt: string;
@@ -58,6 +74,8 @@ function formAus(p: EinsatzPerson | null): Form {
     name: p?.name ?? "",
     plz: p?.plz ?? "",
     wohnort: p?.wohnort ?? "",
+    strasse: p?.strasse ?? "",
+    fuehrerschein: p?.fuehrerschein ?? "",
     kannSprinter: p?.kannSprinter ?? false,
     eigenerPkw: p?.eigenerPkw ?? false,
     satzFahrt: euroFeld(p?.satzFahrtCent ?? SATZ_FAHRT_CENT_VORGABE),
@@ -73,6 +91,8 @@ function eingabeAus(f: Form): StammdatenEingabe {
     name: f.name.trim(),
     plz: f.plz.trim() === "" ? null : f.plz.trim(),
     wohnort: f.wohnort.trim() === "" ? null : f.wohnort.trim(),
+    strasse: f.strasse.trim() === "" ? null : f.strasse.trim(),
+    fuehrerschein: f.fuehrerschein === "" ? null : f.fuehrerschein,
     kannSprinter: f.kannSprinter,
     eigenerPkw: f.eigenerPkw,
     satzFahrtCent: centAus(f.satzFahrt),
@@ -181,7 +201,22 @@ export function PersonPanel({
           <span>Ort</span>
           <input type="text" maxLength={80} autoComplete="off" {...feld("wohnort")} />
         </label>
-        <p className="ma-hinweis ma-feld-breit">PLZ und Ort, keine Straße. Nur für euch, nie für Bots oder die Mitarbeiter-App.</p>
+        <label className="ma-feld ma-feld-breit">
+          <span>Straße (optional)</span>
+          <input type="text" maxLength={120} autoComplete="off" {...feld("strasse")} />
+        </label>
+        <p className="ma-hinweis ma-feld-breit">Adresse nur für euch, nie für Bots, das Crew-Portal oder die Mitarbeiter-App. Ort reicht, wenn die Straße fehlt.</p>
+        <label className="ma-feld ma-feld-breit">
+          <span>Führerschein</span>
+          <select value={form.fuehrerschein} onChange={(e) => setForm((f) => ({ ...f, fuehrerschein: e.target.value as Fuehrerschein | "" }))}>
+            <option value="">unbekannt</option>
+            {FUEHRERSCHEINE.map((k) => (
+              <option key={k} value={k}>
+                {FUEHRERSCHEIN_TEXT[k]}
+              </option>
+            ))}
+          </select>
+        </label>
         <div className="ma-schalter ma-feld-breit">
           <span className="ma-schalter-zeile">
             <GlassSwitch

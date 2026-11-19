@@ -58,9 +58,12 @@ export interface EinsatzPerson {
   name: string;
   kuerzel: string;
   aktiv: boolean;
-  /** PLZ und Ort, keine Straße (E4, Inhaber 07.11.). Nie an MCP, Portal oder Mitarbeiter-App. */
+  /** PLZ, Ort und (seit 19.11., optional) Straße. Nie an MCP, Portal oder Mitarbeiter-App. */
   plz: string | null;
   wohnort: string | null;
+  strasse?: string | null;
+  /** Führerscheinklasse (`FUEHRERSCHEINE`), null = unbekannt. */
+  fuehrerschein?: Fuehrerschein | null;
   kannSprinter: boolean;
   eigenerPkw: boolean;
   satzFahrtCent: number;
@@ -74,10 +77,18 @@ export interface EinsatzPerson {
 }
 
 /** Eingabe für Anlegen und Ändern (`PATCH`: alle Felder optional). */
+export const FUEHRERSCHEINE = ["keiner", "B", "BE", "C1", "C1E", "C", "CE"] as const;
+export type Fuehrerschein = (typeof FUEHRERSCHEINE)[number];
+export const istFuehrerschein = (x: unknown): x is Fuehrerschein => typeof x === "string" && (FUEHRERSCHEINE as readonly string[]).includes(x);
+
 export interface StammdatenEingabe {
   name?: string;
   plz?: string | null;
   wohnort?: string | null;
+  /** Leer oder null löscht. */
+  strasse?: string | null;
+  /** null löscht (unbekannt). */
+  fuehrerschein?: string | null;
   kannSprinter?: boolean;
   eigenerPkw?: boolean;
   satzFahrtCent?: number;
@@ -97,7 +108,9 @@ export type StammdatenFehler =
   | "PLZ_UNGUELTIG"
   | "SATZ_UNGUELTIG"
   | "TELEFON_UNGUELTIG"
-  | "SPRACHE_UNGUELTIG";
+  | "SPRACHE_UNGUELTIG"
+  | "STRASSE_LANG"
+  | "FUEHRERSCHEIN_UNGUELTIG";
 
 /** Deutsche PLZ, fünf Ziffern (auch mit führender 0). */
 export const PLZ_MUSTER = /^\d{5}$/;
@@ -118,6 +131,8 @@ export function pruefeStammdaten(e: StammdatenEingabe, neu: boolean): Stammdaten
     if (e.telefon.trim().length > 40 || telefonE164(e.telefon) === null) return "TELEFON_UNGUELTIG";
   }
   if (e.sprache !== undefined && !istCrewLocale(e.sprache)) return "SPRACHE_UNGUELTIG";
+  if (e.strasse !== undefined && e.strasse !== null && e.strasse.trim().length > 120) return "STRASSE_LANG";
+  if (e.fuehrerschein !== undefined && e.fuehrerschein !== null && !istFuehrerschein(e.fuehrerschein)) return "FUEHRERSCHEIN_UNGUELTIG";
   return null;
 }
 
