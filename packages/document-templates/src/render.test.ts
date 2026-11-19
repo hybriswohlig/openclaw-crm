@@ -770,3 +770,57 @@ describe("Rechnungsnummer und Steuernummer (kv-ab-re/7, Plan 9)", () => {
     expect(ohne.issuer.lines.join(" ")).not.toContain("Steuernummer");
   });
 });
+
+describe("Rechnung anpassen: Nachlass und Aufschlag als eigene Zeile (19.11.)", () => {
+  const ceylan = { ...deal, firma: "ceylan" as const, invoiceNumber: "RE-2026-0042" };
+  const posten = quotation({ fixedPrice: "900.00", lineItems: lines([["Umzug", 1, "900.00"]]), depositRequiredCents: null });
+  const zeilen = [
+    { title: "Nachlass wie vereinbart", amountCents: -9000 },
+    { title: "Mehraufwand Kellerräumung", amountCents: 4550 },
+  ];
+
+  it("hängt die Zeilen an die Posten, Summe Rechnungsbetrag, Offen rechnet damit (Modell, HTML, PDF)", async () => {
+    const { model, html, text } = await rendered({ kind: "RE", deal: ceylan, quotation: posten, adjustments: zeilen, paidCents: 10000 });
+    const nb = (t: string) => t.replace(/\u00a0/g, " ");
+    expect(model.positions.map((p) => [p.title, p.quantityLabel, nb(p.unitRateLabel), p.amountCents])).toEqual([
+      ["Umzug", "1", "900,00 €", 90000],
+      ["Nachlass wie vereinbart", "", "", -9000],
+      ["Mehraufwand Kellerräumung", "1", "45,50 €", 4550],
+    ]);
+    expect(model.totalCents).toBe(85550);
+    expect(model.totalCaption).toBe("Rechnungsbetrag");
+    expect(nb(model.openLabel!)).toBe("755,50 €");
+    expect(html).toContain("Nachlass wie vereinbart");
+    expect(nb(html)).toContain("-90,00 €");
+    expect(nb(html)).toContain("855,50 €");
+    expect(text).toContain("Nachlass wie vereinbart");
+    expect(text).toContain("Mehraufwand Kellerr");
+    expect(text).toContain("855,50");
+  });
+
+  it("Festpreis ohne Posten: erst „Vereinbarter Preis“ mit dem Grundbetrag", () => {
+    const m = buildDocumentModel({ kind: "RE", deal: ceylan, quotation: quotation({ fixedPrice: "900.00" }), adjustments: zeilen.slice(0, 1) });
+    expect(m.positions.map((p) => [p.title, p.amountCents])).toEqual([
+      ["Vereinbarter Preis", 90000],
+      ["Nachlass wie vereinbart", -9000],
+    ]);
+    expect(m.totalCents).toBe(81000);
+  });
+
+  it("ohne Zeilen Zeichen für Zeichen wie bisher; KV und AB ignorieren Zeilen", () => {
+    for (const kind of ["RE", "KV", "AB"] as const) {
+      const ohne = buildDocumentModel({ kind, deal: ceylan, quotation: posten });
+      expect(renderHtml(buildDocumentModel({ kind, deal: ceylan, quotation: posten, adjustments: [] }))).toBe(renderHtml(ohne));
+      if (kind !== "RE") {
+        expect(renderHtml(buildDocumentModel({ kind, deal: ceylan, quotation: posten, adjustments: zeilen }))).toBe(renderHtml(ohne));
+      }
+    }
+    expect(TEMPLATE_VERSION).toBe("kv-ab-re/9");
+  });
+
+  it("ungültige Zeilen oder Rechnungsbetrag ≤ 0 erzeugen kein PDF", () => {
+    expect(() => buildDocumentModel({ kind: "RE", deal: ceylan, quotation: posten, adjustments: [{ title: " ", amountCents: -1 }] })).toThrow(/Bezeichnung/);
+    expect(() => buildDocumentModel({ kind: "RE", deal: ceylan, quotation: posten, adjustments: [{ title: "X", amountCents: 0 }] })).toThrow(/Betrag/);
+    expect(() => buildDocumentModel({ kind: "RE", deal: ceylan, quotation: posten, adjustments: [{ title: "X", amountCents: -90000 }] })).toThrow(/über 0/);
+  });
+});

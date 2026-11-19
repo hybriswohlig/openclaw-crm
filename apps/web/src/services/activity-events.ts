@@ -49,6 +49,7 @@ export type ActivityEventType =
   | "payment.bar_erhalten"
   | "invoice.gestellt"
   | "invoice.storniert"
+  | "invoice.angepasst"
   | "customer.rated_crew"
   | "customer.date_offers_set"
   | "customer.date_selected"

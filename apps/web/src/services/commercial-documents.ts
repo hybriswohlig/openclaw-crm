@@ -56,11 +56,21 @@ import { applyInvoiceDueDate } from "@/services/rechnung-faellig";
 import { ladeSteuernummer } from "@/services/company-settings";
 import {
   angebotsStandAus,
+  anpassungVermerken,
   nachRechnung,
   rechnungPruefenUndReservieren,
   rechnungStellen,
 } from "@/services/rechnungen";
-import { GeldFehler, rechnungsDateiStamm, type RechnungEingabe, type RechnungZeile } from "@/lib/geld";
+import {
+  anpassungenFehler,
+  anpassungenSumme,
+  anpassungZeilen,
+  GeldFehler,
+  rechnungsDateiStamm,
+  type RechnungAnpassung,
+  type RechnungEingabe,
+  type RechnungZeile,
+} from "@/lib/geld";
 import { dealDokumentNachlauf } from "@/services/deal-documents";
 import { berlinCalendarDay } from "@/lib/invoice-due-date";
 import { anredeFuerOptOut, ladeGespeicherteAnrede } from "@/services/agent/agent-suppress";
@@ -534,6 +544,8 @@ async function ladeModellMitVersion(input: {
    * druckt ihn als eine Preiszeile; ohne Betrag wird keine Stunden-Rechnung gebaut.
    */
   stundenRechnungCent?: number | null;
+  /** Nur RE (Rechnung anpassen): Nachlass und Aufschlag als eigene Zeilen auf den Grundbetrag des Modells. */
+  anpassungen?: readonly RechnungAnpassung[] | null;
 }): Promise<{
   model: DocumentModel;
   calculationVersionId: string | null;
@@ -757,6 +769,16 @@ async function ladeModellMitVersion(input: {
     };
     let renderInput = renderEingabe;
     let model = buildDocumentModel(renderEingabe);
+    // Rechnung anpassen: Grundbetrag ist, was das Modell ohne Zeilen druckt; dann mit Zeilen neu.
+    if (kind === "RE" && input.anpassungen && input.anpassungen.length > 0) {
+      const fehler = anpassungenFehler(input.anpassungen, model.totalCents);
+      if (fehler) throw new GeldFehler(fehler);
+      renderInput = {
+        ...renderEingabe,
+        adjustments: anpassungZeilen(input.anpassungen).map((z) => ({ title: z.titel, amountCents: z.cent })),
+      };
+      model = buildDocumentModel(renderInput);
+    }
     // KV-Editor: Basis aus dem Modell ohne Änderungen, dann die Änderungen und das Modell neu.
     const kvBasis = kind === "KV" ? crmBasis(model, input.copy ?? {}) : null;
     if (kvBasis && input.aenderungen) {
@@ -814,8 +836,19 @@ export async function previewCommercialDocument(input: {
   copy?: DocumentCopy;
   /** Nur KV: Änderungen des KV-Editors. */
   aenderungen?: KvAenderungenEingabe;
+  /** Nur RE: Vorschau mit Betrag und Zeilen aus dem Rechnungsschritt (Stunden-KV, Nachlass, Aufschlag). */
+  rechnung?: RechnungEingabe | null;
 }): Promise<RenderedCommercialDocument> {
-  const { model, calculationVersionId, kvBasis } = await ladeModellMitVersion(input);
+  const re = input.kind === "RE" ? input.rechnung ?? null : null;
+  const { model, calculationVersionId, kvBasis } = await ladeModellMitVersion({
+    ...input,
+    ...(re
+      ? {
+          stundenRechnungCent: re.bruttoCent != null ? re.bruttoCent - anpassungenSumme(re.anpassungen) : null,
+          anpassungen: re.anpassungen ?? null,
+        }
+      : {}),
+  });
   const pdf = await renderPdf(model);
   return {
     model,
@@ -977,18 +1010,24 @@ async function storeRechnungCrm(input: {
   durchAgent?: boolean;
 }) {
   const jetzt = input.now ?? new Date();
+  const anpassungen = input.rechnung?.anpassungen ?? [];
   const eingabe: RechnungEingabe = {
     bruttoCent: input.rechnung?.bruttoCent ?? null,
     abweichungGrund: input.rechnung?.abweichungGrund ?? null,
     faelligAm: input.dueDate ?? input.rechnung?.faelligAm ?? null,
+    ...(anpassungen.length > 0 ? { anpassungen } : {}),
   };
+  // Rechnung anpassen: Bots nie, und zwar bevor irgendetwas gerendert wird.
+  if (anpassungen.length > 0 && input.durchAgent === true) throw new GeldFehler("NUR_MENSCH");
   const vorab = await ladeModellMitVersion({
     workspaceId: input.workspaceId,
     dealRecordId: input.dealRecordId,
     kind: "RE",
     copy: input.copy,
     now: jetzt,
-    stundenRechnungCent: eingabe.bruttoCent,
+    // Stunden-KV: der bestätigte Betrag ist der Rechnungsbetrag; die Zeile „nach Aufwand“ ist er ohne die Anpassungen.
+    stundenRechnungCent: eingabe.bruttoCent != null ? eingabe.bruttoCent - anpassungenSumme(anpassungen) : null,
+    anpassungen,
   });
   const stunden = vorab.istStunden;
 
@@ -1040,6 +1079,7 @@ async function storeRechnungCrm(input: {
     "invoice"
   );
   await nachRechnung(input.workspaceId, input.dealRecordId, input.updatedBy ?? null);
+  await anpassungVermerken(input.workspaceId, input.dealRecordId, ergebnis.zeile, anpassungen, input.updatedBy ?? null);
   return {
     document: ergebnis.document,
     templateVersion: TEMPLATE_VERSION,

@@ -25,8 +25,20 @@ import {
 } from "@/lib/kottke-crm-renderer";
 import type { VpsPreise } from "@/lib/angebot-vorbelegung";
 import { auftragFuerLeistung, fehltFuerLeistung, listenLink } from "@/lib/kv-vorpruefung";
+import { anpassungCent, type RechnungAnpassung } from "@/lib/geld";
 
 export type Firma = "kottke" | "ceylan";
+
+/** Rechnungsschritt der neuen Oberfläche: Rechnungsbetrag (mit Zeilen), Grund, Nachlass und Aufschlag. */
+export interface RechnungAusSchritt {
+  bruttoCent: number;
+  abweichungGrund?: string;
+  anpassungen?: RechnungAnpassung[];
+}
+
+function euroAnzeige(cent: number): string {
+  return new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" }).format(cent / 100);
+}
 export type DocumentType = "KV" | "AB" | "RE";
 /** Leistung im Dialog; „clearance_move“ wird als Umzug mit Entrümpelung gespeichert. */
 export type ServiceType = PortalLeistung;
@@ -172,8 +184,11 @@ interface Props {
   /** Sprungziele, die es in der aufrufenden Ansicht gibt. */
   ziele?: Array<"umzugsgut" | "preis">;
   onZiel?: (ziel: "umzugsgut" | "preis") => void;
-  /** Nur Rechnung (Plan 9): Betrag und Grund aus dem Rechnungsschritt der Akte, unverändert durchgereicht. */
-  rechnung?: { bruttoCent: number; abweichungGrund?: string };
+  /**
+   * Nur Rechnung (Plan 9): Betrag, Grund und Nachlass/Aufschlag aus dem Rechnungsschritt der Akte,
+   * unverändert durchgereicht.
+   */
+  rechnung?: RechnungAusSchritt;
   /** Oben im Formular, von der neuen Oberfläche (Pakete-Zeile beim KV, kv-danach). */
   kopfZusatz?: ReactNode;
 }
@@ -256,6 +271,10 @@ export function GenerateDocumentDialog({
 
   const { startDocumentJob } = useBackgroundJobs();
   const crmRendererChoice = showCrmRendererChoice(deal.firma);
+  // Rechnung anpassen: Nachlass/Aufschlag druckt bei Ceylan nur die CRM-Vorlage (das alte Ceylan-Programm
+  // auf dem Server kennt die Zeilen nicht). Kottke druckt sie auf dem Server.
+  const anpassungen = documentType === "RE" ? rechnung?.anpassungen ?? [] : [];
+  const nurCrmVorlage = anpassungen.length > 0 && crmRendererChoice;
   // Nur beim KV: AB und Rechnung rechnen mit Annahme bzw. eigenem Stand.
   const ausVersion = documentType === "KV" ? prefill?.ausVersion : undefined;
   const [versionsNummer, setVersionsNummer] = useState<number | null>(null);
@@ -270,6 +289,9 @@ export function GenerateDocumentDialog({
   useEffect(() => {
     if (open && vpsNichtDruckbar && crmRendererChoice) setUseCrmRenderer(true);
   }, [open, vpsNichtDruckbar, crmRendererChoice]);
+  useEffect(() => {
+    if (open && nurCrmVorlage) setUseCrmRenderer(true);
+  }, [open, nurCrmVorlage]);
 
   const versionId = ausVersion?.versionId ?? null;
   useEffect(() => {
@@ -315,7 +337,7 @@ export function GenerateDocumentDialog({
       return {
         ...ausVersion.preise,
         ...anzahlungBlock,
-        ...(isKottke ? {} : { stammkundenrabatt }),
+        ...(isKottke || documentType === "RE" ? {} : { stammkundenrabatt }),
         ...paymentExtra,
       };
     }
@@ -324,7 +346,8 @@ export function GenerateDocumentDialog({
         modell: "pauschale" as const,
         pauschale_betrag: pauschaleBetragCeylan,
         ...anzahlungBlock,
-        stammkundenrabatt,
+        // Bei der Rechnung gilt der Nachlass aus dem Rechnungsschritt (sonst wiche das PDF vom gespeicherten Betrag ab).
+        ...(documentType === "RE" ? {} : { stammkundenrabatt }),
         ...paymentExtra,
       };
     }
@@ -419,7 +442,7 @@ export function GenerateDocumentDialog({
         .filter(Boolean)
         .join(" ");
       const trimmedAnweisung = anweisung.trim();
-      if (useCrmRenderer && crmRendererChoice) {
+      if ((useCrmRenderer || nurCrmVorlage) && crmRendererChoice) {
         const res = await fetch(
           `/api/v1/deals/${deal.dealRecordId}/documents/render`,
           {
@@ -528,6 +551,7 @@ export function GenerateDocumentDialog({
             documentType,
             format,
             copy: copyPayload(),
+            ...(documentType === "RE" && rechnung ? { rechnung } : {}),
           }),
         }
       );
@@ -679,6 +703,29 @@ export function GenerateDocumentDialog({
           )}
           <h3 className="text-sm font-medium">Preise</h3>
 
+          {documentType === "RE" && rechnung && anpassungen.length > 0 && (
+            <div className="rounded-md bg-gray-50 px-3 py-2 text-sm dark:bg-gray-800">
+              <p className="font-medium">Aus dem Rechnungsschritt</p>
+              <ul className="mt-1 space-y-0.5">
+                {anpassungen.map((a) => (
+                  <li key={a.art} className="flex justify-between gap-3">
+                    <span>{a.bezeichnung}</span>
+                    <span className="tabular-nums">{euroAnzeige(anpassungCent(a))}</span>
+                  </li>
+                ))}
+                <li className="flex justify-between gap-3 font-medium">
+                  <span>Rechnungsbetrag</span>
+                  <span className="tabular-nums">{euroAnzeige(rechnung.bruttoCent)}</span>
+                </li>
+              </ul>
+              {nurCrmVorlage && (
+                <p className="mt-1 text-xs text-gray-600 dark:text-gray-300">
+                  Mit Nachlass oder Aufschlag speichert Ceylan über die CRM-Vorlage.
+                </p>
+              )}
+            </div>
+          )}
+
           {ausVersion && <VersionsPosten preise={ausVersion.preise} nummer={versionsNummer} />}
 
           {!ausVersion && isKottke && (
@@ -743,7 +790,7 @@ export function GenerateDocumentDialog({
                 onChange={setAnzahlungBetrag}
                 step={10}
               />
-              {!isKottke && (
+              {!isKottke && documentType !== "RE" && (
                 <label className="flex items-center gap-2 self-end pb-1 text-sm">
                   <input
                     type="checkbox"
@@ -901,9 +948,9 @@ export function GenerateDocumentDialog({
                 type="checkbox"
                 className="mt-1"
                 checked={crmRendererChoice && useCrmRenderer}
-                disabled={!crmRendererChoice}
+                disabled={!crmRendererChoice || nurCrmVorlage}
                 onChange={(e) => {
-                  if (!crmRendererChoice) return;
+                  if (!crmRendererChoice || nurCrmVorlage) return;
                   setUseCrmRenderer(e.target.checked);
                 }}
               />

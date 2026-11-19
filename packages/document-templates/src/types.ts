@@ -205,9 +205,20 @@ export interface RenderInput {
   choices?: OfferChoices | null;
   /** Booked payments in cents. Used on a Rechnung as the amount already paid. */
   paidCents?: number;
+  /**
+   * Nur RE: Nachlass (negativ) und Aufschlag (positiv) aus dem Rechnungsschritt, je als eigene Zeile nach den
+   * Posten. Der Rechnungsbetrag ist Grundbetrag plus Zeilen. KV und AB ignorieren das Feld.
+   */
+  adjustments?: InvoiceAdjustment[] | null;
   /** Deal and Auftrag signals. The quotation's serviceType is read from `quotation`. */
   service?: ServiceSignals;
   copy?: DocumentCopy;
+}
+
+/** Eine Anpassungszeile der Rechnung. Betrag in ganzen Cent, nie 0. */
+export interface InvoiceAdjustment {
+  title: string;
+  amountCents: number;
 }
 
 export interface PositionView {

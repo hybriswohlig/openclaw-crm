@@ -13,15 +13,97 @@ import {
   GlassDialogTitle,
 } from "@/components/glassyui/glass-dialog";
 import { euroText, tagKurz } from "@/lib/anzeige";
-import type { RechnungsVorschlag } from "@/lib/geld";
+import { anpassungCent, type AnpassungArt, type RechnungAnpassung, type RechnungsVorschlag } from "@/lib/geld";
 import { eurosToCents } from "@/lib/work-ui";
-import { geldFehlerText, rechnungBetrag, rechnungSchritt, rechnungZeile } from "@/components/neu/kasse/kasse-logik";
+import {
+  ANPASSUNG_BEISPIEL,
+  ANPASSUNG_TITEL,
+  anpassungAusEingabe,
+  geldFehlerText,
+  rechnungBetrag,
+  rechnungSchritt,
+  rechnungZeile,
+  type AnpassungEingabe,
+} from "@/components/neu/kasse/kasse-logik";
+import { GlassSegmentedControl, GlassSegmentedControlItem } from "@/components/glassyui/glass-segmented-control";
 import { apiAufruf, jsonAufruf } from "./api";
 import { StornoDialog } from "./storno-dialog";
 
 export interface RechnungsEingabe {
+  /** Rechnungsbetrag, mit Nachlass und Aufschlag. */
   bruttoCent: number;
   abweichungGrund?: string;
+  /** Nachlass und Aufschlag als eigene Zeilen (Rechnung anpassen). */
+  anpassungen?: RechnungAnpassung[];
+}
+
+const ARTEN: AnpassungArt[] = ["nachlass", "aufschlag"];
+
+/** Eine Zeile Nachlass oder Aufschlag: Bezeichnung, Wert, Umschalter Euro oder Prozent. */
+function AnpassungZeile({
+  zeile,
+  basisCent,
+  onAendern,
+  onEntfernen,
+}: {
+  zeile: AnpassungEingabe;
+  basisCent: number | null;
+  onAendern: (z: AnpassungEingabe) => void;
+  onEntfernen: () => void;
+}) {
+  const titel = ANPASSUNG_TITEL[zeile.art];
+  const fertig = anpassungAusEingabe(zeile, basisCent);
+  return (
+    <fieldset className="geld-anpassung" data-art={zeile.art}>
+      <legend className="geld-anpassung-kopf">
+        <span>{titel}</span>
+        <button type="button" className="akte-ablauf-knopf geld-knopf-klein" data-ton="grau" onClick={onEntfernen}>
+          Entfernen
+        </button>
+      </legend>
+      <div className="akte-dialog-zeile">
+        <label className="akte-dialog-feld">
+          Steht so auf der Rechnung
+          <input
+            className="lg-input"
+            type="text"
+            maxLength={80}
+            value={zeile.bezeichnung}
+            onChange={(e) => onAendern({ ...zeile, bezeichnung: e.target.value })}
+            placeholder={ANPASSUNG_BEISPIEL[zeile.art]}
+            autoComplete="off"
+          />
+        </label>
+        <div className="akte-dialog-feld">
+          <label htmlFor={`anpassung-${zeile.art}`}>{zeile.modus === "prozent" ? "Prozent" : "Betrag in Euro"}</label>
+          <div className="geld-anpassung-wert">
+            <input
+              id={`anpassung-${zeile.art}`}
+              className="lg-input"
+              type="text"
+              inputMode="decimal"
+              value={zeile.wert}
+              onChange={(e) => onAendern({ ...zeile, wert: e.target.value })}
+              placeholder={zeile.modus === "prozent" ? "10" : "0,00"}
+              autoComplete="off"
+            />
+            <GlassSegmentedControl
+              className="geld-anpassung-modus"
+              value={zeile.modus}
+              onValueChange={(m) => onAendern({ ...zeile, modus: m === "prozent" ? "prozent" : "euro", wert: "" })}
+              aria-label={`${titel} in Euro oder Prozent`}
+            >
+              <GlassSegmentedControlItem value="euro">€</GlassSegmentedControlItem>
+              <GlassSegmentedControlItem value="prozent">%</GlassSegmentedControlItem>
+            </GlassSegmentedControl>
+          </div>
+        </div>
+      </div>
+      {zeile.modus === "prozent" && fertig ? (
+        <p className="geld-anpassung-hilfe">= {euroText(anpassungCent(fertig))}</p>
+      ) : null}
+    </fieldset>
+  );
 }
 
 type Zustand = { art: "laden" } | { art: "fehler"; meldung: string } | { art: "bereit"; v: RechnungsVorschlag };
@@ -56,6 +138,7 @@ export function RechnungDialog({
   const [zustand, setZustand] = useState<Zustand>({ art: "laden" });
   const [betrag, setBetrag] = useState("");
   const [grund, setGrund] = useState("");
+  const [anpassungen, setAnpassungen] = useState<AnpassungEingabe[]>([]);
   const [storno, setStorno] = useState(false);
 
   const laden = useCallback(async () => {
@@ -93,7 +176,8 @@ export function RechnungDialog({
 
   const v = zustand.art === "bereit" ? zustand.v : null;
   const eingabeCent = eurosToCents(betrag);
-  const schritt = v ? rechnungSchritt(v, { betragCent: eingabeCent, grund }) : null;
+  const schritt = v ? rechnungSchritt(v, { betragCent: eingabeCent, grund, anpassungen }) : null;
+  const zeileAendern = (z: AnpassungEingabe) => setAnpassungen((liste) => liste.map((a) => (a.art === z.art ? z : a)));
 
   return (
     <GlassDialog open onOpenChange={(o) => !o && onSchliessen()}>
@@ -109,9 +193,12 @@ export function RechnungDialog({
           <form
             onSubmit={(e) => {
               e.preventDefault();
-              const cent = rechnungBetrag(v, eingabeCent);
-              if (!schritt.weiter || cent == null) return;
-              onWeiter({ bruttoCent: cent, ...(schritt.grundNoetig ? { abweichungGrund: grund.trim() } : {}) });
+              if (!schritt.weiter || schritt.gesamtCent == null) return;
+              onWeiter({
+                bruttoCent: schritt.gesamtCent,
+                ...(schritt.grundNoetig ? { abweichungGrund: grund.trim() } : {}),
+                ...(schritt.anpassungen.length > 0 ? { anpassungen: schritt.anpassungen } : {}),
+              });
             }}
           >
             <GlassDialogDescription className="akte-dialog-text">
@@ -166,19 +253,55 @@ export function RechnungDialog({
                   </p>
                 ) : null}
 
+                {anpassungen.map((z) => (
+                  <AnpassungZeile
+                    key={z.art}
+                    zeile={z}
+                    basisCent={schritt.basisCent}
+                    onAendern={zeileAendern}
+                    onEntfernen={() => setAnpassungen((liste) => liste.filter((a) => a.art !== z.art))}
+                  />
+                ))}
+                {anpassungen.length < ARTEN.length ? (
+                  <div className="geld-anpassung-knoepfe">
+                    {ARTEN.filter((art) => !anpassungen.some((a) => a.art === art)).map((art) => (
+                      <button
+                        key={art}
+                        type="button"
+                        className="akte-ablauf-knopf geld-knopf-klein"
+                        onClick={() => setAnpassungen((liste) => [...liste, { art, bezeichnung: "", modus: "euro", wert: "" }])}
+                      >
+                        {ANPASSUNG_TITEL[art]} eintragen
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+                {anpassungen.length > 0 && schritt.basisCent != null && schritt.gesamtCent != null ? (
+                  <p className="akte-dialog-info geld-anpassung-summe">
+                    Grundbetrag {euroText(schritt.basisCent)}
+                    {schritt.anpassungen.map((a) => ` · ${ANPASSUNG_TITEL[a.art]} ${euroText(anpassungCent(a))}`).join("")}
+                    {" · "}
+                    <b>Rechnungsbetrag {euroText(schritt.gesamtCent)}</b>
+                  </p>
+                ) : null}
+
                 {schritt.grundNoetig ? (
                   <>
-                    <p className="akte-dialog-sperre">
-                      Angenommen wurden {euroText(v.annahmeCent ?? 0)}, das Angebot steht heute bei {euroText(v.pdfBetragCent ?? 0)}.
-                    </p>
+                    {v.abweichung && !v.istStunden ? (
+                      <p className="akte-dialog-sperre">
+                        Angenommen wurden {euroText(v.annahmeCent ?? 0)}, das Angebot steht heute bei {euroText(v.pdfBetragCent ?? 0)}.
+                      </p>
+                    ) : null}
                     <label className="akte-dialog-feld">
-                      Warum weicht die Rechnung ab?
+                      {anpassungen.length > 0 ? "Warum? Nur intern, steht nicht auf der Rechnung" : "Warum weicht die Rechnung ab?"}
                       <textarea
                         className="lg-input lg-textarea"
                         rows={2}
                         value={grund}
                         onChange={(e) => setGrund(e.target.value)}
-                        placeholder="Zum Beispiel: eine Stunde mehr vor Ort"
+                        placeholder={
+                          anpassungen.length > 0 ? "Zum Beispiel: am Telefon 10 % Nachlass zugesagt" : "Zum Beispiel: eine Stunde mehr vor Ort"
+                        }
                         required
                       />
                     </label>

@@ -5,6 +5,8 @@ import {
   erinnerungText,
   geldFehlerText,
   kachelText,
+  anpassungAusEingabe,
+  prozentAusText,
   rechnungBetrag,
   rechnungSchritt,
   rechnungZeile,
@@ -83,6 +85,54 @@ describe("kasse-logik", () => {
     expect(rechnungSchritt(st, { betragCent: 61250, grund: "" })).toMatchObject({ weiter: true, betragFest: false });
     expect(rechnungBetrag(st, 61250)).toBe(61250);
     expect(rechnungSchritt(vorschlag({ sperrgrund: "AKTIVE_RECHNUNG" }), { betragCent: null, grund: "" })).toMatchObject({ weiter: false });
+  });
+
+  it("Rechnung anpassen: Zeile aus Euro oder Prozent, Gesamtbetrag, Grund Pflicht", () => {
+    expect(prozentAusText("10")).toBe(10);
+    expect(prozentAusText("7,5 %")).toBe(7.5);
+    expect(prozentAusText("0")).toBeNull();
+    expect(prozentAusText("120")).toBeNull();
+    expect(prozentAusText("1,234")).toBeNull();
+    expect(anpassungAusEingabe({ art: "nachlass", bezeichnung: "Nachlass", modus: "euro", wert: "90,00" }, 90000)).toEqual({
+      art: "nachlass",
+      bezeichnung: "Nachlass",
+      betragCent: 9000,
+    });
+    expect(anpassungAusEingabe({ art: "nachlass", bezeichnung: "Nachlass", modus: "prozent", wert: "10" }, 90000)).toEqual({
+      art: "nachlass",
+      bezeichnung: "Nachlass",
+      betragCent: 9000,
+      prozent: 10,
+    });
+    expect(anpassungAusEingabe({ art: "nachlass", bezeichnung: " ", modus: "euro", wert: "90" }, 90000)).toBeNull();
+    expect(anpassungAusEingabe({ art: "aufschlag", bezeichnung: "Keller", modus: "euro", wert: "-5" }, 90000)).toBeNull();
+
+    const zeilen = [
+      { art: "nachlass" as const, bezeichnung: "Nachlass wie vereinbart", modus: "prozent" as const, wert: "10" },
+      { art: "aufschlag" as const, bezeichnung: "Mehraufwand Kellerräumung", modus: "euro" as const, wert: "45,50" },
+    ];
+    const ohneGrund = rechnungSchritt(vorschlag(), { betragCent: null, grund: "", anpassungen: zeilen });
+    expect(ohneGrund).toMatchObject({ grundNoetig: true, weiter: false, basisCent: 90000, gesamtCent: 85550 });
+    const mitGrund = rechnungSchritt(vorschlag(), { betragCent: null, grund: "Am Telefon zugesagt", anpassungen: zeilen });
+    expect(mitGrund).toMatchObject({ weiter: true, gesamtCent: 85550 });
+    expect(mitGrund.anpassungen).toHaveLength(2);
+
+    const halb = rechnungSchritt(vorschlag(), { betragCent: null, grund: "Am Telefon zugesagt", anpassungen: [{ ...zeilen[1], wert: "" }] });
+    expect(halb).toMatchObject({ weiter: false, hinweis: expect.stringMatching(/Bezeichnung und Betrag/) });
+    const zuViel = rechnungSchritt(vorschlag(), {
+      betragCent: null,
+      grund: "Am Telefon zugesagt",
+      anpassungen: [{ art: "nachlass", bezeichnung: "Alles", modus: "euro", wert: "900" }],
+    });
+    expect(zuViel.weiter).toBe(false);
+
+    // Stunden-KV: Prozent auf den eingetragenen Betrag
+    const st = vorschlag({ istStunden: true, pdfBetragCent: null });
+    expect(
+      rechnungSchritt(st, { betragCent: 100000, grund: "Kunde wollte mehr", anpassungen: [{ ...zeilen[0], modus: "prozent", wert: "5" }] })
+    ).toMatchObject({ weiter: true, basisCent: 100000, gesamtCent: 95000 });
+    // ohne Zeilen wie bisher
+    expect(rechnungSchritt(vorschlag(), { betragCent: null, grund: "" })).toMatchObject({ weiter: true, gesamtCent: 90000, anpassungen: [] });
   });
 
   it("Geld-Fehlercode wird zum Teamtext", () => {

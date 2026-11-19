@@ -16,6 +16,7 @@ const m = vi.hoisted(() => {
     reservieren: vi.fn(),
     verwerfen: vi.fn(),
     vorschlag: vi.fn(),
+    vermerken: vi.fn(async () => {}),
     sperren: vi.fn(),
     lesen: vi.fn(),
     dbUpdate: vi.fn(),
@@ -42,6 +43,7 @@ vi.mock("@/services/rechnungen", () => ({
   rechnungPruefenUndReservieren: m.reservieren,
   rechnungVerwerfen: m.verwerfen,
   rechnungsVorschlag: m.vorschlag,
+  anpassungVermerken: m.vermerken,
 }));
 vi.mock("@/services/deal-photos", () => ({ findDealInternalPhotosByIds: vi.fn(async () => []) }));
 vi.mock("@/services/doc-customer-name", () => ({
@@ -378,6 +380,149 @@ describe("POST /api/tools/run: Rechnung (Plan 9)", () => {
       document_type: "RE",
       _deal_record_id: "deal_1",
       _rechnung: { bruttoCent: "viel" },
+    });
+    expect(res.status).toBe(400);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST /api/tools/run: Rechnung anpassen (Nachlass, Aufschlag)", () => {
+  function upstreamParams(): Record<string, unknown> {
+    return JSON.parse(String(fetchMock.mock.calls[0][1].body)).params;
+  }
+  const nachlass = { art: "nachlass", bezeichnung: "Nachlass wie vereinbart", betragCent: 9000 };
+  const aufschlag = { art: "aufschlag", bezeichnung: "Mehraufwand Kellerräumung", betragCent: 4550 };
+
+  it("Kottke: PDF-Betrag mit Zeilen geprüft, Zeilen und Gesamtbetrag an den VPS", async () => {
+    const res = await run("rechnungen-und-auftragsbestaetigungen", {
+      document_type: "RE",
+      _deal_record_id: "deal_1",
+      _rechnung: { bruttoCent: 85550, abweichungGrund: "Am Telefon zugesagt", anpassungen: [aufschlag, nachlass] },
+    });
+    expect(res.status).toBe(200);
+    expect(m.reservieren).toHaveBeenCalledWith(
+      { tx: true },
+      expect.objectContaining({
+        pdfBetragCent: 85550,
+        eingabe: expect.objectContaining({ bruttoCent: 85550, anpassungen: [aufschlag, nachlass] }),
+      })
+    );
+    const p = upstreamParams();
+    expect(p.preise).toEqual({
+      modell: "pauschale",
+      anpassungen: [
+        { titel: "Nachlass wie vereinbart", betrag: "-90.00" },
+        { titel: "Mehraufwand Kellerräumung", betrag: "45.50" },
+      ],
+    });
+    expect((p._document_context as { totalCents: number }).totalCents).toBe(85550);
+    expect(m.jobAnlegen).toHaveBeenCalledWith(expect.objectContaining({ priceCents: 85550, invoiceId: "inv_1" }));
+    expect(m.vermerken).toHaveBeenCalledWith(WS, "deal_1", expect.objectContaining({ id: "inv_1" }), [aufschlag, nachlass], "usr_1");
+  });
+
+  it("VPS-Fehler beim Start: Rechnung verworfen, kein Vermerk „angepasst“", async () => {
+    fetchMock.mockImplementation(async () => new Response(JSON.stringify({ detail: "kaputt" }), { status: 502 }));
+    const res = await run("rechnungen-und-auftragsbestaetigungen", {
+      document_type: "RE",
+      _deal_record_id: "deal_1",
+      _rechnung: { bruttoCent: 81000, abweichungGrund: "Am Telefon zugesagt", anpassungen: [nachlass] },
+    });
+    expect(res.status).toBe(502);
+    expect(m.verwerfen).toHaveBeenCalled();
+    expect(m.vermerken).not.toHaveBeenCalled();
+  });
+
+  it("Stunden-KV: Zeile „nach Aufwand“ ohne die Anpassung, Gesamtbetrag mit", async () => {
+    await run("rechnungen-und-auftragsbestaetigungen", {
+      document_type: "RE",
+      _deal_record_id: "deal_1",
+      _stunden: true,
+      _rechnung: { bruttoCent: 128000, abweichungGrund: "Keller zusätzlich", anpassungen: [aufschlag] },
+    });
+    expect(m.reservieren).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ pdfBetragCent: null }));
+    const p = upstreamParams();
+    expect(p.preise).toEqual({
+      modell: "pauschale",
+      pauschale_positionen: [{ titel: "Umzug nach Aufwand (laut Stundennachweis)", betrag: 1234.5 }],
+      anpassungen: [{ titel: "Mehraufwand Kellerräumung", betrag: "45.50" }],
+    });
+    expect((p._document_context as { totalCents: number }).totalCents).toBe(128000);
+  });
+
+  it("Ceylan: nur über die CRM-Vorlage, nichts reserviert, kein VPS", async () => {
+    m.attachDocumentJobContext.mockImplementationOnce(async (_ws: string, p: Record<string, unknown>) => ({
+      params: { ...p, preise: { modell: "pauschale" } },
+      kv: null,
+      kvBasis: null,
+      kvPreise: null,
+      bildIds: [],
+      inventarIds: [],
+      re: { istStunden: false, pdfBetragCent: 90000, angebotsStand: "stand-1", firma: "ceylan" },
+    }));
+    const res = await run("rechnungen-und-auftragsbestaetigungen", {
+      firma: "ceylan",
+      document_type: "RE",
+      _deal_record_id: "deal_1",
+      _rechnung: { bruttoCent: 81000, abweichungGrund: "Zugesagt", anpassungen: [nachlass] },
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json()).code).toBe("ANPASSUNG_NUR_CRM");
+    expect(m.reservieren).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("Zeilen aus dem Browser-Paket fliegen raus, beim KV wie bei der Rechnung", async () => {
+    m.attachDocumentJobContext.mockImplementation(async (_ws: string, p: Record<string, unknown>) => ({
+      params: { ...p },
+      kv: null,
+      kvBasis: null,
+      kvPreise: null,
+      bildIds: [],
+      inventarIds: [],
+      re: p.document_type === "RE" ? { istStunden: false, pdfBetragCent: 90000, angebotsStand: "stand-1", firma: "kottke" } : null,
+    }));
+    await run("rechnungen-und-auftragsbestaetigungen", {
+      document_type: "AB",
+      _deal_record_id: "deal_1",
+      preise: { modell: "pauschale", anpassungen: [{ titel: "Gratis", betrag: "-900" }] },
+    });
+    expect(upstreamParams().preise).toEqual({ modell: "pauschale" });
+    fetchMock.mockClear();
+    await run("rechnungen-und-auftragsbestaetigungen", {
+      document_type: "RE",
+      _deal_record_id: "deal_1",
+      preise: { modell: "pauschale", anpassungen: [{ titel: "Gratis", betrag: "-900" }] },
+    });
+    expect(upstreamParams().preise).toEqual({ modell: "pauschale" });
+  });
+
+  it("Stammkundenrabatt bei der Rechnung: 409 mit Hinweis auf den Nachlass, nichts reserviert", async () => {
+    m.attachDocumentJobContext.mockImplementation(async (_ws: string, p: Record<string, unknown>) => ({
+      params: { ...p },
+      kv: null,
+      kvBasis: null,
+      kvPreise: null,
+      bildIds: [],
+      inventarIds: [],
+      re: { istStunden: false, pdfBetragCent: 90000, angebotsStand: "stand-1", firma: "ceylan" },
+    }));
+    const res = await run("rechnungen-und-auftragsbestaetigungen", {
+      firma: "ceylan",
+      document_type: "RE",
+      _deal_record_id: "deal_1",
+      preise: { pauschale_betrag: 900, stammkundenrabatt: true },
+    });
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toMatch(/als Nachlass/);
+    expect(m.reservieren).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("ungültige Zeilen: 400 vor allem anderen", async () => {
+    const res = await run("rechnungen-und-auftragsbestaetigungen", {
+      document_type: "RE",
+      _deal_record_id: "deal_1",
+      _rechnung: { bruttoCent: 1, anpassungen: [{ art: "rabatt", bezeichnung: "x", betragCent: 1 }] },
     });
     expect(res.status).toBe(400);
     expect(fetchMock).not.toHaveBeenCalled();

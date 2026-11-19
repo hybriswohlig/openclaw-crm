@@ -104,6 +104,93 @@ export interface RechnungEingabe {
   abweichungGrund?: string | null;
   /** Ausdrückliches Fälligkeitsdatum (API, MCP); gewinnt gegen die Firmenregel. */
   faelligAm?: string | null;
+  /**
+   * Nachlass oder Aufschlag aus dem Rechnungsschritt (Rechnung anpassen, 19.11.): je eine eigene Zeile
+   * auf der Rechnung. `bruttoCent` ist dann der Rechnungsbetrag inklusive dieser Zeilen. Nur Menschen, nur mit Grund.
+   */
+  anpassungen?: RechnungAnpassung[] | null;
+}
+
+// ─── Rechnung anpassen: Nachlass und Aufschlag ──────────────────────────────
+
+export type AnpassungArt = "nachlass" | "aufschlag";
+
+/** Eine Zeile „Nachlass“ oder „Aufschlag“; Betrag immer positiv, das Vorzeichen folgt aus der Art. */
+export interface RechnungAnpassung {
+  art: AnpassungArt;
+  /** Steht so auf der Rechnung, z. B. „Nachlass wie vereinbart“. */
+  bezeichnung: string;
+  betragCent: number;
+  /** Nur bei Eingabe in Prozent: Satz auf den Grundbetrag, zur Prüfung des Betrags. */
+  prozent?: number | null;
+}
+
+export const ANPASSUNG_BEZEICHNUNG_MIN = 3;
+export const ANPASSUNG_BEZEICHNUNG_MAX = 80;
+
+/** Bezeichnung einzeilig und ohne doppelte Leerzeichen. */
+export function anpassungBezeichnung(text: string | null | undefined): string {
+  return (text ?? "").replace(/\s+/g, " ").trim();
+}
+
+/** Vorzeichenbehafteter Betrag einer Zeile: Nachlass negativ, Aufschlag positiv. */
+export function anpassungCent(a: Pick<RechnungAnpassung, "art" | "betragCent">): number {
+  return a.art === "nachlass" ? -a.betragCent : a.betragCent;
+}
+
+export function anpassungenSumme(liste: readonly Pick<RechnungAnpassung, "art" | "betragCent">[] | null | undefined): number {
+  return (liste ?? []).reduce((s, a) => s + anpassungCent(a), 0);
+}
+
+/** Prozent auf den Grundbetrag in Cent, kaufmännisch gerundet; Prozent mit höchstens zwei Nachkommastellen. */
+export function prozentBetragCent(basisCent: number, prozent: number): number {
+  return Math.round((basisCent * Math.round(prozent * 100)) / 10_000);
+}
+
+function prozentGueltig(p: number): boolean {
+  return Number.isFinite(p) && p > 0 && p <= 100 && Math.abs(p * 100 - Math.round(p * 100)) < 1e-9;
+}
+
+/**
+ * Prüft die Zeilen gegen den Grundbetrag (Betrag ohne Zeilen). Höchstens ein Nachlass und ein Aufschlag,
+ * Bezeichnung 3 bis 80 Zeichen, ganze Cent über 0, Prozent passend zum Betrag, Rechnungsbetrag danach über 0.
+ */
+export function anpassungenFehler(liste: readonly RechnungAnpassung[], basisCent: number): GeldFehlerCode | null {
+  if (liste.length === 0) return null;
+  if (liste.length > 2) return "ANPASSUNG_UNGUELTIG";
+  const arten = new Set<string>();
+  for (const a of liste) {
+    if (a.art !== "nachlass" && a.art !== "aufschlag") return "ANPASSUNG_UNGUELTIG";
+    if (arten.has(a.art)) return "ANPASSUNG_UNGUELTIG";
+    arten.add(a.art);
+    const b = anpassungBezeichnung(a.bezeichnung);
+    if (b.length < ANPASSUNG_BEZEICHNUNG_MIN || b.length > ANPASSUNG_BEZEICHNUNG_MAX) return "ANPASSUNG_UNGUELTIG";
+    if (!Number.isSafeInteger(a.betragCent) || a.betragCent <= 0) return "ANPASSUNG_UNGUELTIG";
+    if (a.prozent != null) {
+      if (!prozentGueltig(a.prozent) || prozentBetragCent(basisCent, a.prozent) !== a.betragCent) return "ANPASSUNG_UNGUELTIG";
+    }
+  }
+  if (!Number.isSafeInteger(basisCent) || basisCent <= 0) return "BETRAG_FEHLT";
+  if (basisCent + anpassungenSumme(liste) <= 0) return "BETRAG_FEHLT";
+  return null;
+}
+
+/** Zeilen für die Renderer, in fester Reihenfolge: erst der Nachlass, dann der Aufschlag. */
+export function anpassungZeilen(liste: readonly RechnungAnpassung[] | null | undefined): Array<{ titel: string; cent: number }> {
+  return [...(liste ?? [])]
+    .sort((a, b) => (a.art === b.art ? 0 : a.art === "nachlass" ? -1 : 1))
+    .map((a) => ({ titel: anpassungBezeichnung(a.bezeichnung), cent: anpassungCent(a) }));
+}
+
+/** Ceylan-Rechnung mit Nachlass oder Aufschlag: das alte Ceylan-Programm auf dem VPS druckt die Zeilen nicht. */
+export const ANPASSUNG_NUR_CRM_TEXT =
+  "Nachlass oder Aufschlag gehen bei Ceylan nur mit der CRM-Vorlage. Bitte „Mit CRM-Vorlage speichern“ anhaken.";
+export const STAMMKUNDENRABATT_RE_TEXT =
+  "Den Stammkundenrabatt bitte im Rechnungsschritt als Nachlass (3 %) eintragen, damit Rechnung und gespeicherter Betrag übereinstimmen.";
+
+/** `preise.anpassungen` für den VPS (`document-html`, nur Rechnung): Euro als Text mit Vorzeichen. */
+export function anpassungenFuerVps(liste: readonly RechnungAnpassung[] | null | undefined): Array<{ titel: string; betrag: string }> {
+  return anpassungZeilen(liste).map((z) => ({ titel: z.titel, betrag: (z.cent / 100).toFixed(2) }));
 }
 
 // ─── Fehler ─────────────────────────────────────────────────────────────────
@@ -119,7 +206,8 @@ export type GeldFehlerCode =
   | "NUR_STORNO"
   | "SCHON_STORNIERT"
   | "NUR_KORREKTUR"
-  | "GRUND_FEHLT";
+  | "GRUND_FEHLT"
+  | "ANPASSUNG_UNGUELTIG";
 
 /** HTTP-Status je Code: 409 Zustand, 400 Eingabe, 403 Recht. */
 export const GELD_FEHLER_STATUS: Record<GeldFehlerCode, 400 | 403 | 409> = {
@@ -134,6 +222,7 @@ export const GELD_FEHLER_STATUS: Record<GeldFehlerCode, 400 | 403 | 409> = {
   SCHON_STORNIERT: 409,
   NUR_KORREKTUR: 409,
   GRUND_FEHLT: 400,
+  ANPASSUNG_UNGUELTIG: 400,
 };
 
 /** Texte für das Team (nicht für Kunden). */
@@ -150,6 +239,8 @@ export const GELD_FEHLER_TEXT: Record<GeldFehlerCode, string> = {
   SCHON_STORNIERT: "Das ist schon storniert.",
   NUR_KORREKTUR: "Betrag und Kaution ändern sich nur über „Korrigieren“ (Storno und neue Zahlung).",
   GRUND_FEHLT: "Bitte einen Grund angeben.",
+  ANPASSUNG_UNGUELTIG:
+    "Nachlass oder Aufschlag passt nicht: je höchstens eine Zeile, Bezeichnung mit 3 bis 80 Zeichen, Betrag über 0, Rechnungsbetrag danach über 0.",
 };
 
 export class GeldFehler extends Error {
@@ -369,7 +460,10 @@ export interface RechnungsPruefungEingabe {
   istStunden: boolean;
   annahmeCent: number | null;
   festpreisCent: number | null;
-  /** Was das PDF druckt (CRM: `model.totalCents`, VPS: `quotationTotalCents`); Upload: null. */
+  /**
+   * Was das PDF druckt (CRM: `model.totalCents`, VPS: `quotationTotalCents`), mit Nachlass und Aufschlag
+   * inklusive dieser Zeilen; Upload: null.
+   */
   pdfBetragCent: number | null;
   eingabe: RechnungEingabe | null;
   durchAgent: boolean;
@@ -386,18 +480,33 @@ export function rechnungsPruefung(e: RechnungsPruefungEingabe): RechnungsPruefun
   const bestaetigt = e.eingabe?.bruttoCent ?? null;
   if (bestaetigt != null && (!Number.isInteger(bestaetigt) || bestaetigt < 0)) return { ok: false, code: "BETRAG_FEHLT" };
   const grund = grundGueltig(e.eingabe?.abweichungGrund);
+  // Rechnung anpassen: Zeilen nur von Menschen und nur mit Grund; Grundbetrag = Rechnungsbetrag minus Zeilen.
+  const anpassungen = e.eingabe?.anpassungen ?? [];
+  const mitAnpassung = anpassungen.length > 0;
+  if (mitAnpassung && e.durchAgent) return { ok: false, code: "NUR_MENSCH" };
+  const anpassungPruefen = (betrag: number): RechnungsPruefung | null => {
+    if (!mitAnpassung) return null;
+    const fehler = anpassungenFehler(anpassungen, betrag - anpassungenSumme(anpassungen));
+    if (fehler) return { ok: false, code: fehler };
+    if (!grund) return { ok: false, code: "GRUND_FEHLT" };
+    return { ok: true, bruttoCent: betrag, abweichungGrund: grund };
+  };
 
   if (e.istStunden) {
     if (e.durchAgent) return { ok: false, code: "NUR_MENSCH" };
     if (bestaetigt == null || bestaetigt <= 0) return { ok: false, code: "STUNDEN_BETRAG_FEHLT" };
-    return { ok: true, bruttoCent: bestaetigt, abweichungGrund: grund };
+    return anpassungPruefen(bestaetigt) ?? { ok: true, bruttoCent: bestaetigt, abweichungGrund: grund };
   }
 
   if (e.pdfBetragCent != null && bestaetigt != null && bestaetigt !== e.pdfBetragCent) {
     return { ok: false, code: "RECHNUNG_PDF_ANDERS" };
   }
+  // Zeilen gibt es nur mit gedrucktem Betrag (CRM-Vorlage, VPS); ein Hand-Upload kennt sie nicht.
+  if (mitAnpassung && e.pdfBetragCent == null) return { ok: false, code: "ANPASSUNG_UNGUELTIG" };
   const betrag = e.pdfBetragCent ?? bestaetigt ?? e.annahmeCent ?? e.festpreisCent;
   if (betrag == null || betrag <= 0) return { ok: false, code: "BETRAG_FEHLT" };
+  const mitZeilen = anpassungPruefen(betrag);
+  if (mitZeilen) return mitZeilen;
   if (e.annahmeCent != null && betrag !== e.annahmeCent) {
     if (e.durchAgent) return { ok: false, code: "NUR_MENSCH" };
     if (!grund) return { ok: false, code: "RECHNUNG_WEICHT_AB" };

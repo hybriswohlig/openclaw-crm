@@ -2,9 +2,9 @@ import { buildChoices } from "./choices";
 import { composeDocumentCopy, looksLikeCompanyName } from "./copy";
 import { issuerFor } from "./issuers";
 import { formatEur, formatGermanDate } from "./money";
-import { paymentMethodLabel, resolveDocumentPrices } from "./prices";
+import { MissingPriceError, paymentMethodLabel, resolveDocumentPrices, type ResolvedPrices } from "./prices";
 import { TEMPLATE_VERSION } from "./version";
-import type { DocKind, DocumentCopy, DocumentModel, RenderInput } from "./types";
+import type { DocKind, DocumentCopy, DocumentModel, PositionView, RenderInput } from "./types";
 
 const TAX_NOTE = "Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.";
 const TAX_RE = /Gemäß §\s*19 UStG wird keine Umsatzsteuer berechnet\.?/g;
@@ -23,6 +23,41 @@ function withoutPriceSentences(value: string | undefined): string | undefined {
     .filter((sentence) => sentence && !/€|\bEUR\b/i.test(sentence));
   const next = kept.join(" ").trim();
   return next || undefined;
+}
+
+/**
+ * Nur RE mit Nachlass oder Aufschlag: Posten wie bisher (ohne Posten eine Zeile „Vereinbarter Preis“ mit dem
+ * Grundbetrag), dann je Anpassung eine Zeile. Ohne Anpassung null: das Modell bleibt Zeichen für Zeichen gleich.
+ */
+function invoiceAdjustments(
+  input: RenderInput,
+  prices: ResolvedPrices
+): { positions: PositionView[]; totalCents: number } | null {
+  if (input.kind !== "RE" || !input.adjustments || input.adjustments.length === 0) return null;
+  const rows: PositionView[] = input.adjustments.map((a) => {
+    const title = a.title.replace(/\s+/g, " ").trim();
+    if (!title) throw new MissingPriceError("Anpassung ohne Bezeichnung.");
+    if (!Number.isSafeInteger(a.amountCents) || a.amountCents === 0) throw new MissingPriceError("Anpassung ohne Betrag.");
+    const amountLabel = formatEur(a.amountCents);
+    return a.amountCents < 0
+      ? { title, quantityLabel: "", unitRateLabel: "", amountLabel, amountCents: a.amountCents }
+      : { title, quantityLabel: "1", unitRateLabel: amountLabel, amountLabel, amountCents: a.amountCents };
+  });
+  const base: PositionView[] =
+    prices.positions.length > 0
+      ? prices.positions
+      : [
+          {
+            title: "Vereinbarter Preis",
+            quantityLabel: "1",
+            unitRateLabel: formatEur(prices.totalCents),
+            amountLabel: formatEur(prices.totalCents),
+            amountCents: prices.totalCents,
+          },
+        ];
+  const totalCents = rows.reduce((sum, r) => sum + r.amountCents, prices.totalCents);
+  if (totalCents <= 0) throw new MissingPriceError("Der Rechnungsbetrag nach Nachlass muss über 0 liegen.");
+  return { positions: [...base, ...rows], totalCents };
 }
 
 const TITLES: Record<DocKind, string> = {
@@ -51,7 +86,8 @@ export function buildDocumentModel(input: RenderInput): DocumentModel {
     remarks: cleanCopy(input.copy?.remarks),
   };
   const method = paymentMethodLabel(input.quotation.paymentMethodPreference);
-  const totalCents = prices.totalCents;
+  const adjusted = invoiceAdjustments(input, prices);
+  const totalCents = adjusted?.totalCents ?? prices.totalCents;
   const depositCents =
     input.quotation.depositRequiredCents != null &&
     input.quotation.depositRequiredCents > 0
@@ -139,11 +175,11 @@ export function buildDocumentModel(input: RenderInput): DocumentModel {
     summary,
     scopeLines,
     ...(choices ? { offerLabel: choices.offerLabel, choices: choices.view } : {}),
-    positions: prices.positions,
+    positions: adjusted?.positions ?? prices.positions,
     ...(prices.hourly ? { hourly: prices.hourly } : {}),
     totalCents,
     totalLabel: formatEur(totalCents),
-    totalCaption: prices.totalCaption,
+    totalCaption: adjusted ? "Rechnungsbetrag" : prices.totalCaption,
     variable: prices.variable,
     depositLabel: depositCents != null ? formatEur(depositCents) : undefined,
     remainderLabel: remainderCents != null ? formatEur(remainderCents) : undefined,

@@ -8,11 +8,15 @@ import {
   previewCommercialDocument,
   type RenderedCommercialDocument,
 } from "@/services/commercial-documents";
+import { GeldFehler } from "@/lib/geld";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
 
 function documentError(err: unknown) {
+  if (err instanceof GeldFehler) {
+    return NextResponse.json({ error: { code: err.code, message: err.message } }, { status: err.status });
+  }
   if (err instanceof CommercialDocumentError) {
     return NextResponse.json(
       { error: { code: err.code, message: err.message } },
@@ -108,12 +112,19 @@ export async function POST(
     );
   }
 
+  // Rechnung anpassen: Nachlass und Aufschlag nur von Menschen, auch in der Vorschau.
+  if (ctx.authMethod === "api_key" && (parsed.value.rechnung?.anpassungen?.length ?? 0) > 0) {
+    const f = new GeldFehler("NUR_MENSCH");
+    return NextResponse.json({ error: { code: f.code, message: f.message } }, { status: f.status });
+  }
+
   try {
     const rendered = await previewCommercialDocument({
       workspaceId: ctx.workspaceId,
       dealRecordId: recordId,
       kind: parsed.value.kind,
       copy: parsed.value.copy,
+      rechnung: parsed.value.rechnung ?? null,
     });
     return previewResponse(parsed.value.format, rendered);
   } catch (err) {

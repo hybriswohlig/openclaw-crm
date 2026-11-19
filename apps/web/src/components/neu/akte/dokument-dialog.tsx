@@ -4,7 +4,12 @@ import "@/styles/neu-akte-dock.css";
 
 import Link from "next/link";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { GenerateDocumentDialog, type DealData, type PrefilledPreise } from "@/components/GenerateDocumentDialog";
+import {
+  GenerateDocumentDialog,
+  type DealData,
+  type PrefilledPreise,
+  type RechnungAusSchritt,
+} from "@/components/GenerateDocumentDialog";
 import { GlassButton } from "@/components/glassyui/glass-button";
 import {
   GlassDialog,
@@ -58,8 +63,8 @@ export function DokumentDialog({
   altLink: string;
   portalZiel: HTMLElement | undefined;
   onSchliessen: () => void;
-  /** Nur RE (Plan 9): Betrag und Grund aus dem Rechnungsschritt. */
-  rechnung?: { bruttoCent: number; abweichungGrund?: string };
+  /** Nur RE (Plan 9): Betrag, Grund, Nachlass und Aufschlag aus dem Rechnungsschritt. */
+  rechnung?: RechnungAusSchritt;
   /** Oben im Dokumentdialog, etwa die Pakete-Zeile beim KV (kv-danach); bewusst hell wie der alte Dialog. */
   kopfZusatz?: ReactNode;
 }) {

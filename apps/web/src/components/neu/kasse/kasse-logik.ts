@@ -4,8 +4,14 @@
  */
 import { euroText, tagKurz } from "@/lib/anzeige";
 import {
+  anpassungBezeichnung,
+  anpassungenFehler,
+  anpassungenSumme,
+  prozentBetragCent,
   GELD_FEHLER_TEXT,
   GRUND_MIN_ZEICHEN,
+  type AnpassungArt,
+  type RechnungAnpassung,
   KASSE_SCHLANGEN,
   KASSE_TITEL,
   type ErinnerungStand,
@@ -17,6 +23,7 @@ import {
   type ZahlungZeileAkte,
 } from "@/lib/geld";
 import { ZAHLUNGSART_LABEL } from "@/lib/zahlungsart";
+import { eurosToCents } from "@/lib/work-ui";
 
 /** Leerer Zustand je Schlange: was es heißt, dass hier nichts steht. */
 export const KASSE_LEER: Record<KasseSchlange, string> = {
@@ -123,23 +130,89 @@ export function geldFehlerText(code: string | null, meldung: string): string {
   return code && code in GELD_FEHLER_TEXT ? GELD_FEHLER_TEXT[code as GeldFehlerCode] : meldung;
 }
 
+/** Eingabe einer Anpassungszeile im Rechnungsschritt, wie getippt. */
+export interface AnpassungEingabe {
+  art: AnpassungArt;
+  bezeichnung: string;
+  modus: "euro" | "prozent";
+  wert: string;
+}
+
+export const ANPASSUNG_TITEL: Record<AnpassungArt, string> = { nachlass: "Nachlass", aufschlag: "Aufschlag" };
+export const ANPASSUNG_BEISPIEL: Record<AnpassungArt, string> = {
+  nachlass: "Nachlass wie vereinbart",
+  aufschlag: "Mehraufwand Kellerräumung",
+};
+
+/** „10“ oder „7,5“ → Zahl; sonst null. */
+export function prozentAusText(text: string): number | null {
+  const t = text.trim().replace(/\s*%$/, "").replace(",", ".");
+  if (!/^\d{1,3}(\.\d{1,2})?$/.test(t)) return null;
+  const n = Number(t);
+  return n > 0 && n <= 100 ? n : null;
+}
+
+/** Getippte Zeile → Zeile für den Server (Prozent schon in Cent auf den Grundbetrag); null, solange etwas fehlt. */
+export function anpassungAusEingabe(z: AnpassungEingabe, basisCent: number | null): RechnungAnpassung | null {
+  const bezeichnung = anpassungBezeichnung(z.bezeichnung);
+  if (!bezeichnung) return null;
+  if (z.modus === "prozent") {
+    const prozent = prozentAusText(z.wert);
+    if (prozent == null || basisCent == null || basisCent <= 0) return null;
+    const betragCent = prozentBetragCent(basisCent, prozent);
+    return betragCent > 0 ? { art: z.art, bezeichnung, betragCent, prozent } : null;
+  }
+  const cent = eurosToCents(z.wert);
+  return cent != null && cent > 0 ? { art: z.art, bezeichnung, betragCent: cent } : null;
+}
+
+export interface RechnungSchrittStand {
+  betragFest: boolean;
+  grundNoetig: boolean;
+  weiter: boolean;
+  hinweis: string | null;
+  /** Betrag ohne Anpassungen (Festpreis: was das Angebot druckt; Stunden: Eingabe). */
+  basisCent: number | null;
+  /** Rechnungsbetrag mit Anpassungen; geht als `bruttoCent` an den Dokumentdialog. */
+  gesamtCent: number | null;
+  /** Gültige Zeilen für den Server (leer ohne Anpassung). */
+  anpassungen: RechnungAnpassung[];
+}
+
 /** Rechnungsschritt: was der Dialog zeigt und ob „Weiter“ geht. */
 export function rechnungSchritt(
   v: RechnungsVorschlag,
-  eingabe: { betragCent: number | null; grund: string }
-): { betragFest: boolean; grundNoetig: boolean; weiter: boolean; hinweis: string | null } {
-  if (v.sperrgrund) return { betragFest: true, grundNoetig: false, weiter: false, hinweis: GELD_FEHLER_TEXT[v.sperrgrund] };
-  if (v.istStunden) {
-    const ok = eingabe.betragCent != null && eingabe.betragCent > 0;
-    return { betragFest: false, grundNoetig: false, weiter: ok, hinweis: ok ? null : "Bitte den Rechnungsbetrag eintragen." };
+  eingabe: { betragCent: number | null; grund: string; anpassungen?: AnpassungEingabe[] }
+): RechnungSchrittStand {
+  const leer = { basisCent: null, gesamtCent: null, anpassungen: [] as RechnungAnpassung[] };
+  if (v.sperrgrund) return { betragFest: true, grundNoetig: false, weiter: false, hinweis: GELD_FEHLER_TEXT[v.sperrgrund], ...leer };
+  const basis = rechnungBetrag(v, eingabe.betragCent);
+  const betragFest = !v.istStunden;
+  if (basis == null || basis <= 0) {
+    return {
+      betragFest,
+      grundNoetig: false,
+      weiter: false,
+      hinweis: v.istStunden ? "Bitte den Rechnungsbetrag eintragen." : GELD_FEHLER_TEXT.BETRAG_FEHLT,
+      ...leer,
+    };
   }
-  const betrag = v.pdfBetragCent ?? v.annahmeCent;
-  if (betrag == null || betrag <= 0) return { betragFest: true, grundNoetig: false, weiter: false, hinweis: GELD_FEHLER_TEXT.BETRAG_FEHLT };
-  if (v.abweichung) {
-    const ok = grundReicht(eingabe.grund);
-    return { betragFest: true, grundNoetig: true, weiter: ok, hinweis: ok ? null : `Grund mit mindestens ${GRUND_MIN_ZEICHEN} Zeichen.` };
+  const zeilen = eingabe.anpassungen ?? [];
+  const anpassungen = zeilen.map((z) => anpassungAusEingabe(z, basis));
+  const mitAnpassung = zeilen.length > 0;
+  const grundNoetig = (!v.istStunden && v.abweichung) || mitAnpassung;
+  const gueltig = anpassungen.filter((a): a is RechnungAnpassung => a != null);
+  const gesamtCent = basis + anpassungenSumme(gueltig);
+  const stand = { basisCent: basis, gesamtCent, anpassungen: gueltig };
+  if (anpassungen.some((a) => a == null)) {
+    return { betragFest, grundNoetig, weiter: false, hinweis: "Bitte Bezeichnung und Betrag für Nachlass oder Aufschlag eintragen.", ...stand };
   }
-  return { betragFest: true, grundNoetig: false, weiter: true, hinweis: null };
+  const fehler = anpassungenFehler(gueltig, basis);
+  if (fehler) return { betragFest, grundNoetig, weiter: false, hinweis: GELD_FEHLER_TEXT[fehler], ...stand };
+  if (grundNoetig && !grundReicht(eingabe.grund)) {
+    return { betragFest, grundNoetig, weiter: false, hinweis: `Grund mit mindestens ${GRUND_MIN_ZEICHEN} Zeichen.`, ...stand };
+  }
+  return { betragFest, grundNoetig, weiter: true, hinweis: null, ...stand };
 }
 
 /** Betrag, der an den Dokumentdialog geht (Festpreis: was das PDF druckt). */

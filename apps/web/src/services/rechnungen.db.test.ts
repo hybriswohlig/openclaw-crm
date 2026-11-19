@@ -9,7 +9,13 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
  * postgres://postgres@127.0.0.1:54351/p9_geld). Nie gegen eine echte DB.
  */
 const url = process.env.GELD_TEST_DATABASE_URL;
-const stand = vi.hoisted(() => ({ deal: "", firma: "", renderFehler: false, ws: "" }));
+const stand = vi.hoisted(() => ({
+  deal: "",
+  firma: "",
+  renderFehler: false,
+  ws: "",
+  modell: null as null | { totalCents: number; totalCaption: string; positions: Array<{ title: string; amountCents: number }> },
+}));
 vi.mock("@/lib/api-utils", async (orig) => ({
   ...(await orig<typeof import("@/lib/api-utils")>()),
   getAuthContext: async () => ({ userId: "u1", workspaceId: stand.ws, workspaceRole: "admin", authMethod: "cookie" }),
@@ -44,6 +50,7 @@ vi.mock("@openclaw-crm/document-templates", async (orig) => {
     ...echt,
     renderPdf: async (m: Parameters<typeof echt.renderPdf>[0]) => {
       if (stand.renderFehler) throw new Error("Render kaputt");
+      stand.modell = m;
       return echt.renderPdf(m);
     },
   };
@@ -265,6 +272,72 @@ describe.skipIf(!url)("Rechnung als Datensatz (DB, Plan 9 Task A)", { timeout: 3
     await expect(
       docs.storeCommercialDocument({ workspaceId: ws, dealRecordId: stunden, kind: "RE", now: jetzt, rechnung: { bruttoCent: 61250 } })
     ).rejects.toMatchObject({ code: "AKTIVE_RECHNUNG" });
+  });
+
+  it("Rechnung anpassen: Nachlass und Aufschlag als Zeilen, gespeicherter Betrag = PDF-Betrag, Grund am Datensatz", async () => {
+    const nachlass = { art: "nachlass" as const, bezeichnung: "Nachlass wie vereinbart", betragCent: 9000, prozent: 10 };
+    const aufschlag = { art: "aufschlag" as const, bezeichnung: "Mehraufwand Kellerräumung", betragCent: 4550 };
+    const [vorher] = await sql`select coalesce(max(last_number), 0)::int as n from beleg_number_counters where operating_company_id = ${firma} and kind = 'invoice'`;
+
+    // Bot: nie, nichts gerendert, kein Zählerschritt
+    stand.modell = null;
+    await expect(
+      docs.storeCommercialDocument({
+        workspaceId: ws, dealRecordId: deal, kind: "RE", now: jetzt, durchAgent: true,
+        rechnung: { bruttoCent: 85550, abweichungGrund: "Am Telefon zugesagt", anpassungen: [nachlass, aufschlag] },
+      })
+    ).rejects.toMatchObject({ code: "NUR_MENSCH" });
+    expect(stand.modell).toBeNull();
+    // ohne Grund, und mit einem Betrag, der nicht dem PDF entspricht: nichts gespeichert
+    await expect(
+      docs.storeCommercialDocument({ workspaceId: ws, dealRecordId: deal, kind: "RE", now: jetzt, rechnung: { bruttoCent: 85550, anpassungen: [nachlass, aufschlag] } })
+    ).rejects.toMatchObject({ code: "GRUND_FEHLT" });
+    await expect(
+      docs.storeCommercialDocument({
+        workspaceId: ws, dealRecordId: deal, kind: "RE", now: jetzt,
+        rechnung: { bruttoCent: 90000, abweichungGrund: "Am Telefon zugesagt", anpassungen: [nachlass, aufschlag] },
+      })
+    ).rejects.toMatchObject({ code: "RECHNUNG_PDF_ANDERS" });
+    // Prozent passt nicht zum Grundbetrag des Angebots
+    await expect(
+      docs.storeCommercialDocument({
+        workspaceId: ws, dealRecordId: deal, kind: "RE", now: jetzt,
+        rechnung: { bruttoCent: 80000, abweichungGrund: "Am Telefon zugesagt", anpassungen: [{ ...nachlass, betragCent: 10000 }] },
+      })
+    ).rejects.toMatchObject({ code: "ANPASSUNG_UNGUELTIG" });
+    expect(await r.aktiveRechnung(ws, deal)).toBeNull();
+    const [mitte] = await sql`select coalesce(max(last_number), 0)::int as n from beleg_number_counters where operating_company_id = ${firma} and kind = 'invoice'`;
+    expect(mitte.n).toBe(vorher.n);
+
+    const ok = await docs.storeCommercialDocument({
+      workspaceId: ws, dealRecordId: deal, kind: "RE", now: jetzt,
+      rechnung: { bruttoCent: 85550, abweichungGrund: "Am Telefon zugesagt", anpassungen: [aufschlag, nachlass] },
+    });
+    expect(ok.rechnung).toMatchObject({ bruttoCent: 85550, abweichungGrund: "Am Telefon zugesagt", status: "gestellt" });
+    expect(stand.modell!.totalCents).toBe(85550);
+    expect(stand.modell!.totalCaption).toBe("Rechnungsbetrag");
+    expect(stand.modell!.positions.map((p) => [p.title, p.amountCents])).toEqual([
+      ["Umzug", 90000],
+      ["Nachlass wie vereinbart", -9000],
+      ["Mehraufwand Kellerräumung", 4550],
+    ]);
+    const [row] = await sql`select brutto_cent, abweichung_grund from deal_invoices where id = ${ok.rechnung!.id}`;
+    expect(row).toMatchObject({ brutto_cent: 85550, abweichung_grund: "Am Telefon zugesagt" });
+    const { offenAus } = await import("@/lib/geld");
+    expect(offenAus({ rechnung: { status: "gestellt", bruttoCent: row.brutto_cent }, annahmeCent: 90000, festpreis: "900.00", istStunden: false, zahlungen: [] }).restCent).toBe(85550);
+
+    // Stunden-KV: bestätigter Betrag mit Aufschlag, Zeile „nach Aufwand“ ohne
+    const stunden = await neuerDeal({ stunden: true, festpreis: null });
+    stand.deal = stunden;
+    const st = await docs.storeCommercialDocument({
+      workspaceId: ws, dealRecordId: stunden, kind: "RE", now: jetzt,
+      rechnung: { bruttoCent: 65800, abweichungGrund: "Keller zusätzlich", anpassungen: [aufschlag] },
+    });
+    expect(st.rechnung).toMatchObject({ bruttoCent: 65800 });
+    expect(stand.modell!.positions.map((p) => [p.title, p.amountCents])).toEqual([
+      ["Leistung nach Aufwand", 61250],
+      ["Mehraufwand Kellerräumung", 4550],
+    ]);
   });
 
   it("Vorschlag: Annahme, Abweichung, Fälligkeit, Sperrgrund", async () => {

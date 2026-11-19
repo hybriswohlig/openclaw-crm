@@ -17,6 +17,7 @@ import { quotations } from "@/db/schema/quotations";
 import { employeeTimeEntries } from "@/db/schema/employee-portal";
 import { agentDrafts } from "@/db/schema/agent";
 import {
+  anpassungZeilen,
   berlinTag,
   faelligAm,
   GeldFehler,
@@ -25,6 +26,7 @@ import {
   rechnungsPruefung,
   stundenVorschlag,
   type ErinnerungStand,
+  type RechnungAnpassung,
   type RechnungEingabe,
   type RechnungHerkunft,
   type RechnungKurz,
@@ -454,6 +456,34 @@ export async function nachRechnung(ws: string, deal: string, userId: string | nu
   } catch (err) {
     console.error("[nach-zahlung] nach Rechnung fehlgeschlagen:", err);
   }
+}
+
+/**
+ * Rechnung anpassen: Nachlass und Aufschlag als Ereignis in der Akte (wer, Zeilen, Grund). Der Betrag steht in
+ * `brutto_cent`, der Grund in `abweichung_grund`, die Zeilen im PDF; das Ereignis macht sie im Verlauf lesbar.
+ */
+export async function anpassungVermerken(
+  ws: string,
+  deal: string,
+  zeile: Pick<RechnungZeile, "id" | "nummer" | "bruttoCent" | "abweichungGrund">,
+  anpassungen: readonly RechnungAnpassung[] | null | undefined,
+  userId: string | null
+): Promise<void> {
+  if (!anpassungen || anpassungen.length === 0) return;
+  await emitEvent({
+    workspaceId: ws,
+    recordId: deal,
+    objectSlug: "deals",
+    eventType: "invoice.angepasst",
+    payload: {
+      invoiceId: zeile.id,
+      nummer: zeile.nummer,
+      bruttoCent: zeile.bruttoCent,
+      grund: zeile.abweichungGrund,
+      zeilen: anpassungZeilen(anpassungen).map((z) => ({ bezeichnung: z.titel, cent: z.cent })),
+    },
+    actorId: userId,
+  }).catch(() => {});
 }
 
 // ─── Vorschlag für den Rechnungsschritt ─────────────────────────────────────

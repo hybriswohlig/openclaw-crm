@@ -23,12 +23,21 @@ import { fotosLaden, vpsJobStarten } from "@/services/vps-dokument-start";
 import { type ReJobBezug } from "@/services/document-job-context";
 import { angebotSperren, quotationLesen } from "@/services/quotations";
 import {
+  anpassungVermerken,
   angebotsStandAus,
   rechnungPruefenUndReservieren,
   rechnungsVorschlag,
   rechnungVerwerfen,
 } from "@/services/rechnungen";
-import { GeldFehler, stundenPreiseFuerVps, type RechnungZeile } from "@/lib/geld";
+import {
+  ANPASSUNG_NUR_CRM_TEXT,
+  anpassungenFuerVps,
+  anpassungenSumme,
+  GeldFehler,
+  STAMMKUNDENRABATT_RE_TEXT,
+  stundenPreiseFuerVps,
+  type RechnungZeile,
+} from "@/lib/geld";
 import { parseRechnungEingabe } from "@/lib/commercial-document-request";
 import { angabenFehlenText, dokArtAus, fehlendeVpsAngaben } from "@/lib/dokument-angaben";
 
@@ -78,6 +87,18 @@ function grundlageAus(params: Record<string, unknown>): KvGrundlageVps {
     ...(details.kitchen ? { kitchen: structuredClone(details.kitchen) } : {}),
     bildIds,
   };
+}
+
+/**
+ * `preise.anpassungen` setzt nur der Server aus dem geprüften Rechnungsschritt; was der Browser schickt, fliegt raus.
+ * Ohne das Feld bleibt das Paket unverändert (KV und AB byte-gleich).
+ */
+function ohneBrowserAnpassungen(params: Record<string, unknown>): Record<string, unknown> {
+  const preise = params.preise;
+  if (!preise || typeof preise !== "object" || !("anpassungen" in preise)) return params;
+  const rest = { ...(preise as Record<string, unknown>) };
+  delete rest.anpassungen;
+  return { ...params, preise: rest };
 }
 
 interface RunBody {
@@ -174,7 +195,7 @@ export async function POST(req: NextRequest) {
             return abgleich.liste;
           },
         });
-        params = kontext.params;
+        params = ohneBrowserAnpassungen(kontext.params);
         kvBezug = kontext.kv;
         reBezug = kontext.re ?? null;
         if (grundlage && kvBezug) {
@@ -217,11 +238,22 @@ export async function POST(req: NextRequest) {
   // Plan 9, Entscheidung 6: Rechnung prüfen und mit Nummer reservieren, bevor der VPS startet.
   let rechnung: RechnungZeile | null = null;
   const istRechnung = registerTyp(body.skill, params) === "invoice";
+  const anpassungen = rechnungRoh.value?.anpassungen ?? [];
   if (istRechnung) {
     if (!registerDeal || !reBezug) {
       return NextResponse.json({ error: "Rechnung braucht einen Auftrag mit Angebot." }, { status: 400 });
     }
     const bezug = reBezug;
+    // Stammkundenrabatt druckt nur das alte Ceylan-Programm, ohne Abgleich mit dem gespeicherten Betrag:
+    // die Rechnung zeigte dann einen anderen Betrag als `brutto_cent` (RECHNUNG_PDF_ANDERS). Dafür gibt es den Nachlass.
+    if ((params.preise as Record<string, unknown> | undefined)?.stammkundenrabatt === true) {
+      const f = new GeldFehler("RECHNUNG_PDF_ANDERS", STAMMKUNDENRABATT_RE_TEXT);
+      return NextResponse.json({ error: f.message, code: f.code }, { status: f.status });
+    }
+    // Nachlass und Aufschlag druckt nur die Kottke-Rechnung (document-html); Ceylan über die CRM-Vorlage.
+    if (anpassungen.length > 0 && bezug.firma !== "kottke") {
+      return NextResponse.json({ error: ANPASSUNG_NUR_CRM_TEXT, code: "ANPASSUNG_NUR_CRM" }, { status: 400 });
+    }
     try {
       rechnung = await db.transaction(async (tx) => {
         await angebotSperren(tx, registerDeal);
@@ -233,11 +265,13 @@ export async function POST(req: NextRequest) {
           ws: ctx.workspaceId,
           deal: registerDeal,
           herkunft: "vps",
-          pdfBetragCent: bezug.pdfBetragCent,
+          // Was der VPS druckt: Angebotsbetrag plus Nachlass und Aufschlag (Stunden: der bestätigte Betrag).
+          pdfBetragCent: bezug.pdfBetragCent == null ? null : bezug.pdfBetragCent + anpassungenSumme(anpassungen),
           eingabe: {
             bruttoCent: rechnungRoh.value?.bruttoCent ?? null,
             abweichungGrund: rechnungRoh.value?.abweichungGrund ?? null,
             faelligAm: typeof params.rechnung_faellig_am === "string" ? params.rechnung_faellig_am : null,
+            ...(anpassungen.length > 0 ? { anpassungen } : {}),
           },
           durchAgent: ctx.authMethod === "api_key",
           userId: ctx.userId,
@@ -252,14 +286,24 @@ export async function POST(req: NextRequest) {
     }
     params.rechnungsnummer = rechnung.nummer;
     params.faellig_am = rechnung.faelligAm;
+    const summe = anpassungenSumme(anpassungen);
     if (bezug.istStunden && rechnung.bruttoCent != null) {
+      // Die Zeile „nach Aufwand“ ist der Stunden-Betrag ohne Nachlass und Aufschlag.
+      const stundenCent = rechnung.bruttoCent - summe;
       const vorschlag = await rechnungsVorschlag(ctx.workspaceId, registerDeal).catch(() => null);
       const grundlage =
-        vorschlag?.stunden && vorschlag.stunden.bruttoCent === rechnung.bruttoCent
+        vorschlag?.stunden && vorschlag.stunden.bruttoCent === stundenCent
           ? vorschlag.stunden.grundlage
           : "laut Stundennachweis";
       const prev = (params.preise && typeof params.preise === "object" ? params.preise : {}) as Record<string, unknown>;
-      params.preise = { ...prev, ...stundenPreiseFuerVps(bezug.firma, rechnung.bruttoCent, grundlage) };
+      params.preise = { ...prev, ...stundenPreiseFuerVps(bezug.firma, stundenCent, grundlage) };
+      const kontext = (params._document_context ?? {}) as Record<string, unknown>;
+      params._document_context = { ...kontext, totalCents: rechnung.bruttoCent };
+    }
+    if (anpassungen.length > 0 && rechnung.bruttoCent != null) {
+      // Der VPS hängt die Zeilen an und bricht ab, wenn seine Summe nicht `totalCents` ist.
+      const prev = (params.preise && typeof params.preise === "object" ? params.preise : {}) as Record<string, unknown>;
+      params.preise = { ...prev, anpassungen: anpassungenFuerVps(anpassungen) };
       const kontext = (params._document_context ?? {}) as Record<string, unknown>;
       params._document_context = { ...kontext, totalCents: rechnung.bruttoCent };
     }
@@ -356,6 +400,10 @@ export async function POST(req: NextRequest) {
         { status: 500 }
       );
     }
+  }
+  // Erst nach Start und Register: ein gescheiterter Start hinterlässt keinen Vermerk „angepasst“.
+  if (rechnung && vps.ok && registerDeal && anpassungen.length > 0) {
+    await anpassungVermerken(ctx.workspaceId, registerDeal, rechnung, anpassungen, ctx.userId);
   }
   return NextResponse.json(data);
 }

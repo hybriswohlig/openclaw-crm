@@ -39,6 +39,7 @@ export type {
   FirmaSlug,
   HourlyTerms,
   HourlyView,
+  InvoiceAdjustment,
   Letterhead,
   OfferChoices,
   PackageOptionPrice,
