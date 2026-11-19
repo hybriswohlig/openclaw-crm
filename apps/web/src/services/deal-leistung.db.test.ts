@@ -92,6 +92,7 @@ describe.skipIf(!url)("Leistung in der Akte (DB)", { timeout: 30_000 }, () => {
     expect((await dienst.leistungDesDeals(ws, deal.mit)).leistung).toBe("clearance_move");
     const [q] = await sql`select service_type from quotations where deal_record_id = ${deal.mit}`;
     expect(q.service_type).toBe("move");
+    expect((await dienst.leistungDesDeals(ws, deal.mit)).akte).toBe("clearance_move");
   });
 
   it("unbekannte Leistung und fremder Deal werden abgelehnt", async () => {

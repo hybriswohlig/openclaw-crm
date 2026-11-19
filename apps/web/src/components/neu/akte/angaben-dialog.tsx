@@ -15,7 +15,7 @@ import { gleicheAdresse } from "@/lib/adresse";
 import { kundeAnsicht } from "@/lib/akte-leistung";
 import { ortAusTeilen, type DealKunde, type KundeEingabe } from "@/lib/deal-kunde";
 import { aenderungen, entwurfAus, feldAusPflicht, feldLeer, type KundeEntwurf, type KundeFeld } from "@/lib/kunde-entwurf";
-import { EINZUG_GLEICH_TEXT, type DokumentArt as VorpruefungArt, type Vorpruefung } from "@/lib/kv-vorpruefung";
+import { EINZUG_GLEICH_TEXT, pflichtJeLeistung, type DokumentArt as VorpruefungArt, type Vorpruefung } from "@/lib/kv-vorpruefung";
 import { apiAufruf } from "./api";
 import { AusDemChatKnopf, KundeFelder, LeistungAuswahl, PersonFrage, kundeSpeichern, leistungSpeichern, type PersonKandidat } from "./kunde-felder";
 
@@ -50,7 +50,15 @@ export function AngabenDialog({
   onWeiter: () => void;
   onSchliessen: () => void;
 }) {
-  const felder: KundeFeld[] = pruefung.felder.filter((f) => f.fehlt).map((f) => feldAusPflicht(f.feld));
+  // Leistung erst beim Speichern schreiben (sonst wären die Eingaben im Formular weg, Review Grok 19.11.).
+  const [leistungWahl, setLeistungWahl] = useState<PortalLeistung | undefined>(leistung);
+  // Nur was die gewählte Leistung braucht: ohne Ziel (Küche, Entrümpelung) fällt der Einzug weg. Braucht
+  // die neue Leistung mehr, fragt die Prüfung nach dem Speichern nach.
+  const pflichtNeu = new Set(pflichtJeLeistung(leistungWahl).map(feldAusPflicht));
+  const felder: KundeFeld[] = pruefung.felder
+    .filter((f) => f.fehlt)
+    .map((f) => feldAusPflicht(f.feld))
+    .filter((f) => pflichtNeu.has(f));
   const [kunde, setKunde] = useState<DealKunde | null>(null);
   const [entwurf, setEntwurf] = useState<KundeEntwurf>(entwurfAus(null));
   const [vorgeschlagen, setVorgeschlagen] = useState<KundeFeld[]>([]);
@@ -85,25 +93,25 @@ export function AngabenDialog({
     laeuftRef.current = true;
     setSpeichert(true);
     setFehler(null);
+    if (leistungWahl && leistungWahl !== leistung) {
+      const l = await leistungSpeichern(dealId, leistungWahl);
+      if (!l.ok) {
+        laeuftRef.current = false;
+        setSpeichert(false);
+        return setFehler(l.text);
+      }
+    }
+    if (Object.keys(body).filter((k) => k !== "quelle").length === 0) {
+      laeuftRef.current = false;
+      setSpeichert(false);
+      return onWeiter();
+    }
     const r = await kundeSpeichern(dealId, body);
     laeuftRef.current = false;
     setSpeichert(false);
     if (r.art === "frage") return setFrage({ kandidaten: r.kandidaten, body });
     setFrage(null);
     if (r.art === "fehler") return setFehler(r.text);
-    onWeiter();
-  }
-
-  /** Leistung umstellen: speichern und neu prüfen (andere Leistung, andere Pflichtfelder). */
-  async function leistungWechseln(neu: PortalLeistung) {
-    if (laeuftRef.current || neu === leistung) return;
-    laeuftRef.current = true;
-    setSpeichert(true);
-    setFehler(null);
-    const r = await leistungSpeichern(dealId, neu);
-    laeuftRef.current = false;
-    setSpeichert(false);
-    if (!r.ok) return setFehler(r.text);
     onWeiter();
   }
 
@@ -122,7 +130,7 @@ export function AngabenDialog({
         </GlassDialogDescription>
         <form onSubmit={(e) => void speichern(e)}>
           {leistung && art !== "RE" ? (
-            <LeistungAuswahl wert={leistung} gespeichert={leistung} gesperrt={laden || speichert} onAendern={(l) => void leistungWechseln(l)} />
+            <LeistungAuswahl wert={leistungWahl ?? leistung} gespeichert={leistung} gesperrt={laden || speichert} onAendern={setLeistungWahl} />
           ) : null}
           {laden ? <p className="kunde-hinweis">Lädt die Kundendaten …</p> : null}
           {einzugGleich || gruende.length > 0 ? (
@@ -132,7 +140,7 @@ export function AngabenDialog({
           ) : null}
           <KundeFelder
             felder={felder}
-            labels={kundeAnsicht(leistung).labels}
+            labels={kundeAnsicht(leistungWahl).labels}
             entwurf={entwurf}
             pflicht={felder}
             vorgeschlagen={vorgeschlagen}

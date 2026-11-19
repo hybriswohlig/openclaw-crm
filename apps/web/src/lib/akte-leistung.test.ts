@@ -39,3 +39,12 @@ describe("leistungsartVorschlag mit der Wahl aus der Akte", () => {
     expect(istPortalLeistung("transport")).toBe(false);
   });
 });
+
+describe("Kalkulation und Kopfzeile folgen der Akte", () => {
+  it("Küchen-Lead ohne Angebot, in der Akte auf Umzug gestellt: Kalkulation rechnet Umzug", async () => {
+    const { auftragsartAus } = await import("./auftragsart");
+    expect(auftragsartAus({ gespeichert: null, leadType: "Kuechenmontage" })).toBe("kuechenmontage");
+    expect(auftragsartAus({ gespeichert: null, leadType: "Kuechenmontage", akte: "move" })).toBe("umzug");
+    expect(auftragsartAus({ gespeichert: null, leadType: null, akte: "clearance" })).toBe("entruempelung");
+  });
+});

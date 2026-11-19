@@ -32,7 +32,7 @@
  * Abfrage); jede weitere Abfrage filtert auf Workspace und Deal.
  */
 import { sql, type SQL } from "drizzle-orm";
-import { portalLeistung } from "@openclaw-crm/customer-portal-core";
+import { leistungsartVorschlag } from "@/lib/kv-vorpruefung";
 import { db } from "@/db";
 import { einsatzAus, halteverbotText, zugangText, type AblaufFakten } from "@/lib/ablauf";
 import { alsIso, alsJson, alsTag, alsZahl, zeilen } from "@/lib/db-werte";
@@ -71,7 +71,7 @@ function statusFeld(slug: string, feld: "title" | "stage_category"): SQL {
   )`;
 }
 
-interface DealZeile {
+export interface DealZeile {
   erstellt_am: unknown;
   quelle: string | null;
   erste_antwort_am: unknown;
@@ -86,6 +86,8 @@ interface DealZeile {
   unterschrift_aktiv: boolean | null;
   /** In der Akte gewählte Leistung (Deal-Feld „leistung“). */
   leistung_akte?: string | null;
+  /** Anfrageart aus dem Portal-Import (moving_lead_payload.leadType). */
+  lead_type?: string | null;
 }
 
 function dealLesen(ws: string, deal: string) {
@@ -102,6 +104,12 @@ function dealLesen(ws: string, deal: string) {
       ${attributWert("first_reply_at", "timestamp_value")} AS erste_antwort_am,
       ${attributWert("move_date", "date_value")} AS umzugsdatum,
       ${attributWert("leistung", "text_value")} AS leistung_akte,
+      (
+        SELECT v.json_value ->> 'leadType' FROM record_values v
+        INNER JOIN attributes a ON a.id = v.attribute_id AND a.object_id = r.object_id AND a.slug = 'moving_lead_payload'
+        WHERE v.record_id = r.id
+        LIMIT 1
+      ) AS lead_type,
       ${attributWert("move_completed_at", "timestamp_value")} AS durchgefuehrt_am,
       ${attributWert("rechnung_faellig_am", "date_value")} AS rechnung_faellig_am,
       ${statusFeld("review_request_status", "title")} AS bewertung_status,
@@ -203,7 +211,7 @@ function versionLesen(ws: string, deal: string) {
   `);
 }
 
-interface AngebotZeile {
+export interface AngebotZeile {
   festpreis: unknown;
   is_variable: boolean | null;
   gueltig_bis: unknown;
@@ -211,6 +219,7 @@ interface AngebotZeile {
   service_type: string | null;
   mit_entruempelung: unknown;
   bestaetigt?: unknown;
+  zusammenfassung?: string | null;
   kv_version: unknown;
   kv_gesendet_am: unknown;
   ohne_version: boolean | null;
@@ -228,6 +237,7 @@ function angebotLesen(ws: string, deal: string) {
       q.service_type AS service_type,
       q.document_details -> 'mitEntruempelung' AS mit_entruempelung,
       q.document_details -> 'leistungBestaetigt' AS bestaetigt,
+      q.summary AS zusammenfassung,
       cv.version AS kv_version,
       cv.sent_at::text AS kv_gesendet_am,
       q.calculation_version_id IS NULL AS ohne_version,
@@ -250,13 +260,20 @@ function angebotLesen(ws: string, deal: string) {
 
 const LEISTUNGEN: readonly AblaufFakten["leistung"][] = ["move", "kitchen_installation", "clearance", "clearance_move"];
 
-function leistungAus(a: AngebotZeile | undefined, akte: string | null | undefined): AblaufFakten["leistung"] {
+/**
+ * Leistung für Kopf und Ablauf: dieselbe Regel wie Vorprüfung, KV-Dialog und Kalkulation
+ * (leistungsartVorschlag mit Angebot, Wahl in der Akte, Anfrageart und Angebotstext).
+ */
+export function leistungAus(a: AngebotZeile | undefined, d: Pick<DealZeile, "leistung_akte" | "lead_type">): AblaufFakten["leistung"] {
   const ja = (x: unknown) => x === true || x === "true";
-  // Ein Umzug, den niemand gewählt hat, ist nur der Spalten-Default: dann gilt die Wahl in der Akte.
-  const offen = !a?.service_type || (a.service_type === "move" && !ja(a.mit_entruempelung) && !ja(a.bestaetigt));
-  if (offen && akte && (LEISTUNGEN as readonly string[]).includes(akte)) return akte as AblaufFakten["leistung"];
-  if (!a?.service_type) return "move";
-  const l = portalLeistung(a.service_type as "move" | "kitchen_installation" | "clearance", ja(a.mit_entruempelung));
+  const l = leistungsartVorschlag({
+    gespeichert: a?.service_type ?? null,
+    mitEntruempelung: ja(a?.mit_entruempelung),
+    bestaetigt: ja(a?.bestaetigt),
+    akte: d.leistung_akte ?? null,
+    leadType: d.lead_type ?? null,
+    text: a?.zusammenfassung ?? null,
+  });
   return LEISTUNGEN.includes(l) ? l : "move";
 }
 
@@ -404,7 +421,7 @@ export async function ladeAblaufGrundlage(ws: string, deal: string): Promise<Abl
     zugang: zugangText(alsZahl(text("von_etage")?.replace(",", ".")), text("von_aufzug")),
     halteverbot: halteverbotText(text("von_halteverbot") === "on", text("nach_halteverbot") === "on"),
     besichtigungAm: besichtigungAus(d.besichtigung_am),
-    leistung: leistungAus(a, d.leistung_akte),
+    leistung: leistungAus(a, d),
     kalkulation,
     kv,
     unterschriftAktiv: d.unterschrift_aktiv === true,

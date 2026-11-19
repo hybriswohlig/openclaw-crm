@@ -96,6 +96,6 @@ export async function setzeLeistung(ws: string, deal: string, leistung: unknown,
     // Angebot inzwischen gelöscht (QUOTATION_NOT_FOUND): dann gilt das Deal-Feld allein.
     if (!r.ok && r.code !== "QUOTATION_NOT_FOUND") throw new LeistungFehler("NOT_FOUND", "Deal nicht gefunden.");
   }
-  await updateRecord(deals.id, deal, { leistung }, userId);
+  if (!(await updateRecord(deals.id, deal, { leistung }, userId))) throw new LeistungFehler("NOT_FOUND", "Deal nicht gefunden.");
   return leistungDesDeals(ws, deal);
 }

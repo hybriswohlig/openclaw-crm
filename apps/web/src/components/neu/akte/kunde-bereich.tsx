@@ -55,10 +55,17 @@ export function KundeBereich({
 
   const bearbeitet = useRef(bearbeiten);
   bearbeitet.current = bearbeiten;
+  /** Während des Bearbeitens anderswo gespeichert (z. B. Leistung im Fenster „Es fehlen noch Angaben“): nach Abbrechen nachladen. */
+  const verpasst = useRef(false);
+  const nachladen = useRef<() => void>(() => {});
 
   useEffect(() => {
     let aktuell = true;
-    const laden = (still: boolean) => {
+    const laden = (still: boolean, erzwingen = false) => {
+      if (still && bearbeitet.current && !erzwingen) {
+        verpasst.current = true;
+        return;
+      }
       if (!still) {
         setKunde(null);
         setFehler(null);
@@ -68,17 +75,18 @@ export function KundeBereich({
         if (!r.ok) return setFehler(r.message);
         // Während des Bearbeitens nichts tauschen: Entwurf und Vergleichsstand müssen zusammenpassen,
         // sonst schriebe Speichern alte Formularwerte über das, was inzwischen gespeichert wurde.
-        if (still && bearbeitet.current) return;
+        if (still && bearbeitet.current && !erzwingen) return;
         setKunde(r.data);
         setEntwurf(entwurfAus(r.data));
       });
       void apiAufruf<LeistungStand>(`/api/v1/deals/${encodeURIComponent(dealId)}/leistung`).then((r) => {
-        if (!aktuell || !r.ok || (still && bearbeitet.current)) return;
+        if (!aktuell || !r.ok || (still && bearbeitet.current && !erzwingen)) return;
         setLeistung(r.data);
         setLeistungEntwurf(r.data.leistung);
       });
     };
     laden(false);
+    nachladen.current = () => laden(true, true);
     // Gespeichert im Fenster „Es fehlen noch Angaben“: hier still nachladen.
     const geaendert = (e: Event) => {
       const d = (e as CustomEvent<unknown>).detail;
@@ -104,6 +112,10 @@ export function KundeBereich({
     setVorgeschlagen([]);
     setFehler(null);
     setBearbeiten(false);
+    if (verpasst.current) {
+      verpasst.current = false;
+      nachladen.current();
+    }
   }
 
   /** Doppelklick, Enter während des Speicherns: nur ein Aufruf (sonst zwei neue Personen). */
@@ -131,7 +143,8 @@ export function KundeBereich({
   async function speichern(e: React.FormEvent) {
     e.preventDefault();
     if (laeuftRef.current) return;
-    const body = aenderungen(entwurf, kunde);
+    // Nur die Felder der gewählten Leistung (ein ausgeblendeter Einzug geht nicht mit).
+    const body = aenderungen(entwurf, kunde, kundeAnsicht(leistungEntwurf ?? leistung?.leistung).felder);
     // Erst die Leistung (sie bestimmt, welche Angaben der KV braucht), dann die Kundendaten.
     if (leistungEntwurf && leistung && leistungEntwurf !== leistung.leistung) {
       laeuftRef.current = true;
