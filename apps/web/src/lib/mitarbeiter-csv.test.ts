@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { EinsatzPerson } from "./einsatz";
-import { csvLesen, importPlan, telefonReparieren, vorlageCsv } from "./mitarbeiter-csv";
+import { csvLesen, importPlan, telefonFuerExcel, telefonReparieren, vorlageCsv } from "./mitarbeiter-csv";
 
 const person = (o: Partial<EinsatzPerson> & { id: string; name: string }): EinsatzPerson => ({
   kuerzel: "XX",
@@ -59,6 +59,11 @@ describe("Mitarbeiter-CSV", () => {
     expect(telefonReparieren("15112345678")).toBe("015112345678");
     expect(telefonReparieren("4915112345678")).toBe("+4915112345678");
     expect(telefonReparieren("'0151 123")).toBe("0151 123");
+    // Vorlage: Nummern mit Leerzeichen, damit Excel keine Zahl daraus macht; liest sich als dieselbe Nummer.
+    expect(telefonFuerExcel("+4917670722968")).toBe("+49 176 70722968");
+    expect(telefonFuerExcel("0151 1111111")).toBe("0151 1111111");
+    const mitPlus = [person({ id: "p1", name: "Plus", telefon: "+4917670722968" })];
+    expect(importPlan(csvLesen(vorlageCsv(mitPlus)), mitPlus).zeilen[0]!.art).toBe("gleich");
     const p = plan(["e1;;4,91511E+12;;;1067;Dresden;;;"]);
     expect(p.zeilen[0]!.art).toBe("fehler");
     expect(p.zeilen[0]!.fehler[0]!.text).toMatch(/Excel/);

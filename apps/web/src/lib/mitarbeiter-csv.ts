@@ -44,6 +44,19 @@ function zelle(x: string): string {
 }
 const jaNein = (b: boolean) => (b ? "ja" : "nein");
 
+/**
+ * Nummer so schreiben, dass Excel sie als Text lässt: „+4917670722968“ würde zur
+ * Zahl 4,9E+12. Mit Leerzeichen („+49 176 70722968“) bleibt sie Text.
+ */
+export function telefonFuerExcel(t: string | null | undefined): string {
+  const roh = (t ?? "").trim();
+  if (roh === "" || /\s/.test(roh)) return roh;
+  const e = telefonE164(roh);
+  if (e?.startsWith("+49")) return `+49 ${e.slice(3, 6)} ${e.slice(6)}`;
+  if (e) return `${e.slice(0, 3)} ${e.slice(3)}`;
+  return roh;
+}
+
 /** Vorlage: Kopf plus eine Zeile je aktiver Person mit dem, was schon da ist. */
 export function vorlageCsv(personen: EinsatzPerson[]): string {
   const zeilen = [SPALTEN.map((s) => zelle(s.kopf)).join(";")];
@@ -51,7 +64,7 @@ export function vorlageCsv(personen: EinsatzPerson[]): string {
     const werte: Record<Feld, string> = {
       id: p.id,
       name: p.name,
-      telefon: p.telefon ?? "",
+      telefon: telefonFuerExcel(p.telefon),
       sprache: p.sprache ?? "de",
       strasse: p.strasse ?? "",
       plz: p.plz ?? "",
