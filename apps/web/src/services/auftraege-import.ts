@@ -102,17 +102,14 @@ export async function auftraegeImport(ws: string, csv: string, uebernehmen: bool
   const aendern = plan.zeilen.filter((z) => z.art === "aendern");
   const altTeam = (deal: string) => auftraege.find((a) => a.dealId === deal)?.team ?? [];
 
-  // Erst wer den Auftrag wechselt, vom alten Auftrag nehmen; sonst meldet der neue „schon eingeteilt“.
-  const kommtHinzu = new Set(aendern.flatMap((z) => z.team.filter((t) => !altTeam(z.dealId!).some((a) => a.employeeId === t.employeeId)).map((t) => t.employeeId)));
+  // Wer in derselben Datei den Auftrag wechselt, darf am neuen kurz doppelt stehen (bestaetigtAmTag);
+  // so speichert jede Zeile für sich ganz oder gar nicht, nichts wird vorab vom alten Auftrag genommen.
+  const verlassen = new Set(
+    aendern.flatMap((z) => altTeam(z.dealId!).filter((t) => !z.team.some((n) => n.employeeId === t.employeeId)).map((t) => t.employeeId)),
+  );
   for (const z of aendern) {
-    const alt = altTeam(z.dealId!);
-    const wechselt = alt.filter((t) => kommtHinzu.has(t.employeeId) && !z.team.some((n) => n.employeeId === t.employeeId));
-    if (wechselt.length === 0) continue;
-    const r = await teamSetzen(ws, z.dealId!, alt.filter((t) => !wechselt.includes(t)), autor).catch(() => null);
-    if (!r?.ok) {
-      z.art = "fehler";
-      z.fehler.push(r ? (TEAM_FEHLER_TEXT[r.code] ?? "Nicht gespeichert.") : "Nicht gespeichert, bitte noch einmal versuchen.");
-    }
+    const neu = z.team.filter((t) => !altTeam(z.dealId!).some((a) => a.employeeId === t.employeeId));
+    for (const t of neu) if (verlassen.has(t.employeeId) && !z.trotzdem.includes(t.employeeId)) z.trotzdem.push(t.employeeId);
   }
 
   let uebernommen = 0;

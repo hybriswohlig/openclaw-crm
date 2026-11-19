@@ -39,7 +39,8 @@ export const FELD_TEXT: Record<Exclude<Feld, "id">, string> = {
 
 export function csvZelle(x: string): string {
   // Excel würde „=…“, „+…“ als Formel lesen: als Text markieren.
-  const sicher = /^[=+\-@]/.test(x) && !/^\+\d/.test(x) ? `'${x}` : x;
+  // Ausnahme nur für reine Telefonnummern („+49 176 …“), sonst wäre „+1+SUM(…)“ eine Formel.
+  const sicher = /^[=+\-@\t\r]/.test(x) && !/^\+[\d ]+$/.test(x) ? `'${x}` : x;
   return /[;"\n\r]/.test(sicher) ? `"${sicher.replace(/"/g, '""')}"` : sicher;
 }
 const jaNein = (b: boolean) => (b ? "ja" : "nein");
@@ -126,7 +127,8 @@ export const csvNorm = (x: string) =>
     .replace(/ö/g, "oe")
     .replace(/ü/g, "ue")
     .replace(/ß/g, "ss")
-    .replace(/[^a-z0-9]/g, "");
+    // Buchstaben aller Schriften (arabisch, kyrillisch …) bleiben, sonst würden solche Namen leer und gleich.
+    .replace(/[^\p{L}\p{N}]/gu, "");
 
 /** Spalte aus dem Kopf erkennen, auch wenn jemand die Überschrift etwas ändert. */
 function feldAusKopf(kopf: string): Feld | null {

@@ -71,6 +71,7 @@ describe.skipIf(!url)("Auftrags-Tabelle (DB)", { timeout: 20_000 }, () => {
   });
 
   beforeEach(async () => {
+    await sql`delete from employee_time_entries where workspace_id = ${ws}`;
     await sql`delete from deal_employees where deal_record_id in (${dealA}, ${dealB}, ${dealAlt}, ${dealOffen})`;
     await sql`insert into deal_employees (id, deal_record_id, employee_id, role, created_at) values (gen_random_uuid()::text, ${dealA}, ${x}, 'lead', now() - interval '1 minute'), (gen_random_uuid()::text, ${dealA}, ${y}, 'helper', now())`;
   });
@@ -119,6 +120,17 @@ describe.skipIf(!url)("Auftrags-Tabelle (DB)", { timeout: 20_000 }, () => {
       ["Xaver Kaya", "helper"],
     ]);
     expect((await team(dealA)).map((t) => t.name)).toEqual(["Xaver Kaya", "Yusuf"]);
+  });
+
+  it("Review: scheitert der alte Auftrag (Stempel), bleibt er ganz unverändert, nichts halb gespeichert", async () => {
+    // Anna soll nur noch Zoe haben (Xaver stempelt gerade, darf nicht raus), Yusuf wechselt zu Bruno.
+    await sql`insert into employee_time_entries (id, workspace_id, deal_record_id, employee_id, date, start_at) values (${randomUUID()}, ${ws}, ${dealA}, ${x}, ${TAG}, now())`;
+    const csv = [KOPF, `${dealA};;;;;;Zoe;`, `${dealB};;;;;;Yusuf;`].join("\r\n");
+    const r = await svc.auftraegeImport(ws, csv, true, "u1");
+    expect(r.zeilen.map((z) => z.art)).toEqual(["fehler", "aendern"]);
+    expect(r.zeilen[0]!.fehler[0]).toContain("eingestempelt");
+    expect((await team(dealA)).map((t) => t.name)).toEqual(["Xaver Kaya", "Yusuf"]);
+    expect((await team(dealB)).map((t) => t.name)).toEqual(["Yusuf"]);
   });
 
   it("„-“ leert das Team; Wiederholen ändert nichts mehr", async () => {

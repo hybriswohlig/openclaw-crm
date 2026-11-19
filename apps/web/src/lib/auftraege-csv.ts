@@ -100,8 +100,9 @@ type Treffer = { ok: EinsatzPerson } | { fehler: string };
  * („Nuri“ für „Nurullah Nuri“), dann der Anfang. Mehrdeutig oder unbekannt
  * ist ein Fehler, nie eine Vermutung.
  */
-export function personZumNamen(roh: string, personen: readonly EinsatzPerson[]): Treffer {
+export function personZumNamen(roh: string, personen: readonly EinsatzPerson[], imTeam: ReadonlySet<string> = new Set()): Treffer {
   const n = csvNorm(roh);
+  if (n === "") return { fehler: `„${roh}“ ist kein Name.` };
   // Zusatz in Klammern („Andi Herrmann (Probe)“) zählt nur, wenn er auch im Namen steht.
   const ohneKlammer = (x: string) => csvNorm(x.replace(/\([^)]*\)/g, ""));
   const nk = ohneKlammer(roh);
@@ -112,9 +113,11 @@ export function personZumNamen(roh: string, personen: readonly EinsatzPerson[]):
     personen.filter((p) => n.length >= 3 && csvNorm(p.name).startsWith(n)),
   ];
   for (const s of stufen) {
-    // Aktive zuerst: eine frühere Person gleichen Namens macht nichts mehrdeutig.
+    // Wer schon im Team ist, zuerst (sonst tauscht ein unveränderter Rundweg die Person still aus),
+    // dann Aktive: eine frühere Person gleichen Namens macht nichts mehrdeutig.
+    const drin = s.filter((p) => imTeam.has(p.id));
     const aktiv = s.filter((p) => p.aktiv);
-    const liste = aktiv.length > 0 ? aktiv : s;
+    const liste = drin.length > 0 ? drin : aktiv.length > 0 ? aktiv : s;
     if (liste.length === 1) return { ok: liste[0]! };
     if (liste.length > 1) return { fehler: `„${roh}“ passt auf mehrere: ${liste.map((p) => p.name).join(", ")}. Bitte den ganzen Namen schreiben.` };
   }
@@ -202,7 +205,7 @@ export function teamImportPlan(
       ...namenAus(leitungRoh).map((x) => [x, "lead"] as const),
       ...namenAus(helferRoh).map((x) => [x, "helper"] as const),
     ]) {
-      const t = personZumNamen(roh, personen);
+      const t = personZumNamen(roh, personen, bisher);
       if ("fehler" in t) {
         z.fehler.push(t.fehler);
         continue;

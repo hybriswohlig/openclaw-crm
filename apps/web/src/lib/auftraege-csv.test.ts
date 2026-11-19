@@ -114,6 +114,21 @@ describe("Auftrags-Tabelle", () => {
     ]);
   });
 
+  it("Review: andere Schriften treffen nie eine falsche Person; leer ist kein Name", () => {
+    const Q = [...P, person("iv", "Иван"), person("mo", "محمد")];
+    expect(personZumNamen("محمد", Q)).toEqual({ ok: Q[7] });
+    expect(personZumNamen("Иван", Q)).toEqual({ ok: Q[6] });
+    expect(personZumNamen("Пётр", Q)).toMatchObject({ fehler: expect.stringContaining("kennen wir nicht") });
+    expect(personZumNamen("!!", Q)).toMatchObject({ fehler: expect.stringContaining("kein Name") });
+  });
+
+  it("Review: wer schon im Team ist, gewinnt gegen einen aktiven Namensvetter (Rundweg tauscht niemanden)", () => {
+    const Q = [...P, person("otto2", "Otto")];
+    const r = teamImportPlan(csvLesen(auftraegeCsv(A, Q)), A, Q);
+    expect(r.zeilen.find((z) => z.dealId === "d3")).toMatchObject({ art: "gleich" });
+    expect(personZumNamen("Otto", Q)).toEqual({ ok: Q[6] });
+  });
+
   it("Kopf fehlt: nichts gelesen", () => {
     const r = teamImportPlan(csvLesen("ID;Name\r\nd1;x"), A, P);
     expect(r.kopfFehlt).toEqual(["Teamleitung", "Helfer"]);

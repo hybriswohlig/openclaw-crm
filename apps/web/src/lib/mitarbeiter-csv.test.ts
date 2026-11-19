@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { EinsatzPerson } from "./einsatz";
-import { csvLesen, importPlan, telefonFuerExcel, telefonReparieren, vorlageCsv } from "./mitarbeiter-csv";
+import { csvLesen, csvZelle, importPlan, telefonFuerExcel, telefonReparieren, vorlageCsv } from "./mitarbeiter-csv";
 
 const person = (o: Partial<EinsatzPerson> & { id: string; name: string }): EinsatzPerson => ({
   kuerzel: "XX",
@@ -93,5 +93,10 @@ describe("Mitarbeiter-CSV", () => {
   it("Formeln aus Excel werden in der Vorlage entschärft", () => {
     const csv = vorlageCsv([person({ id: "e9", name: "=HYPERLINK(1)" })]);
     expect(csv).toContain("e9;'=HYPERLINK(1);");
+  });
+  it("Review: Formel-Schutz, nur reine Telefonnummern dürfen mit + beginnen", () => {
+    expect(csvZelle("+49 176 70722968")).toBe("+49 176 70722968");
+    expect(csvZelle("+1+SUM(1,2)")).toBe("'+1+SUM(1,2)");
+    expect(csvZelle("=HYPERLINK(1)")).toBe("'=HYPERLINK(1)");
   });
 });
