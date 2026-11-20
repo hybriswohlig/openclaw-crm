@@ -170,6 +170,8 @@ describe.skipIf(!url)("Crew-Jobs, Antwort und Fotos (DB)", { timeout: 30_000 }, 
       expect(j.address).toBe("Mühlweg 7, 3. OG, 70173 Stuttgart");
       expect(j.isLead).toBe(true);
       expect(j.pay).toMatchObject({ workMinutes: 240, driveMinutes: 60 });
+      // Schnellschätzung im Auftrag (300 Min.) zählt nie als Lohn: ohne Plan und Kalkulation „Dauer noch offen“.
+      expect((await jobs.ladeCrewJobs(ich, { jetzt })).find((x) => x.id === "dA")!.pay).toBeNull();
       expect(j.crew).toEqual([{ firstName: "Ali", initials: "AK", role: "lead", isMe: true, color: expect.stringMatching(/^[0-9a-f]{6}$/) }]);
     });
 

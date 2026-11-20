@@ -63,8 +63,6 @@ const AUFTRAG_SLUGS = [
   "parking_halteverbot_to",
   "walking_distance_from_m",
   "walking_distance_to_m",
-  "load_unload_minutes",
-  "drive_minutes_total",
 ] as const;
 
 const DEAL_DETAIL_SLUGS = ["move_from_address", "move_to_address", "floors_from", "floors_to", "elevator_from", "elevator_to"] as const;
@@ -450,13 +448,15 @@ function jobBauen(k: CrewKontext, g: CrewGrund, d: Detail): CrewJob {
   const abholung = ortAus(dw.move_from_address);
   const lage = lageAus(abholung);
 
-  // Minuten: eingeteilt → geplante Minuten; sonst Auftrag; sonst Kalkulation je Person.
+  // Minuten: eingeteilt → geplante Minuten; sonst Kalkulation je Person; sonst „Dauer noch offen“.
+  // Nicht die Schnellschätzung im Auftrag (load_unload_minutes/drive_minutes_total): die rechnet
+  // 4 Min. je m³ für das ganze Team und Depot-Rundfahrt; Inhaber 20.11.: 20 Min. für 3-Zimmer-Umzug.
   const rechner = d.version ? rechnerDatenAus(d.version.anfrage, d.version.ergebnis) : null;
   const ausKalk = rechner
     ? planMinutenJePerson({ teamgroesse: need, fahrtMin: rechner.fahrtMin, personenH: rechner.personenH, personalStunden: rechner.personalStunden })
     : { fahrtMin: null, arbeitMin: null };
-  const arbeitMin = g.meinTeam?.plannedWorkMinutes ?? zahl(a.load_unload_minutes) ?? ausKalk.arbeitMin;
-  const fahrtMin = g.meinTeam?.plannedDriveMinutes ?? zahl(a.drive_minutes_total) ?? ausKalk.fahrtMin;
+  const arbeitMin = g.meinTeam?.plannedWorkMinutes ?? ausKalk.arbeitMin;
+  const fahrtMin = g.meinTeam?.plannedDriveMinutes ?? ausKalk.fahrtMin;
 
   // Sprinter: Transporter im Auftrag oder Fahrzeug in der Kalkulation, und niemand im Team darf ihn fahren.
   const fahrzeug = a.transporter?.o ?? null;
