@@ -71,9 +71,9 @@ export default function OperatingCompaniesSettingsPage() {
         return;
       }
       const recData = await recRes.json();
-      const rows: RecordRow[] = recData.data?.records ?? [];
-      setRecords(rows);
-      const seeded = Object.fromEntries(rows.map((row) => [row.id, letterheadFrom(row.values)]));
+      const companyRows: RecordRow[] = recData.data?.records ?? [];
+      setRecords(companyRows);
+      const seeded = Object.fromEntries(companyRows.map((row) => [row.id, letterheadFrom(row.values)]));
       setLetterhead(seeded);
       setLetterheadSaved(seeded);
 
