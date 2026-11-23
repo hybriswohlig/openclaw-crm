@@ -11,6 +11,7 @@
  */
 import type { TageAnbieten, TagesRasterZelle, TagesSlot } from "@/lib/angebot-wahl";
 import { tagKurz } from "@/lib/anzeige";
+import { WERTSTOFFHOF_GESCHLOSSEN } from "@/lib/feiertag-bw";
 import type { TagAnsicht } from "@/lib/kalkulations-ansicht";
 import { istTag, monatsRaster, tagPlus } from "@/lib/plan-heute";
 
@@ -67,6 +68,24 @@ export function istVergangen(datum: string, heute: string): boolean {
   return datum < heute;
 }
 
+/**
+ * Zusätzliche Sperre, nur für Entrümpelung: Sonntag und Feiertag in
+ * Baden-Württemberg. Ohne `gesperrt` bleibt das Verhalten für Umzug und
+ * Küchenmontage unverändert.
+ */
+export interface TerminGrenzen {
+  gesperrt?: (datum: string) => boolean;
+  hinweis?: string;
+}
+
+function tagGesperrt(datum: string, grenzen?: TerminGrenzen): boolean {
+  return grenzen?.gesperrt?.(datum) === true;
+}
+
+function sperrHinweis(grenzen?: TerminGrenzen): string {
+  return grenzen?.hinweis ?? WERTSTOFFHOF_GESCHLOSSEN;
+}
+
 /** Sortiert nach Datum (die Auswahl zeigt die Tage immer in Kalenderfolge). */
 function sortiert(auswahl: readonly AuswahlTag[]): AuswahlTag[] {
   return [...auswahl].sort((a, b) => a.datum.localeCompare(b.datum));
@@ -76,17 +95,19 @@ function sortiert(auswahl: readonly AuswahlTag[]): AuswahlTag[] {
  * Genau eine Empfehlung: die erste markierte bleibt, alle weiteren fallen;
  * ohne markierte wird der früheste Tag empfohlen. Leere Auswahl bleibt leer.
  */
-export function empfehlungNormalisieren(auswahl: readonly AuswahlTag[]): AuswahlTag[] {
+export function empfehlungNormalisieren(auswahl: readonly AuswahlTag[], grenzen?: TerminGrenzen): AuswahlTag[] {
   const liste = sortiert(auswahl);
   if (liste.length === 0) return liste;
-  const index = liste.findIndex((t) => t.empfohlen);
-  const ziel = index === -1 ? 0 : index;
+  const offen = (t: AuswahlTag) => !tagGesperrt(t.datum, grenzen);
+  const markiert = liste.findIndex((t) => t.empfohlen && offen(t));
+  const ziel = markiert !== -1 ? markiert : liste.findIndex(offen);
   return liste.map((t, i) => (t.empfohlen === (i === ziel) ? t : { ...t, empfohlen: i === ziel }));
 }
 
-/** Diesen Tag empfehlen (genau einer); unbekannter Tag ändert nichts. */
-export function alsEmpfohlen(auswahl: readonly AuswahlTag[], datum: string): AuswahlTag[] {
+/** Diesen Tag empfehlen (genau einer); unbekannter oder gesperrter Tag ändert nichts. */
+export function alsEmpfohlen(auswahl: readonly AuswahlTag[], datum: string, grenzen?: TerminGrenzen): AuswahlTag[] {
   if (!auswahl.some((t) => t.datum === datum)) return [...auswahl];
+  if (tagGesperrt(datum, grenzen)) return [...auswahl];
   return sortiert(auswahl).map((t) => ({ ...t, empfohlen: t.datum === datum }));
 }
 
@@ -97,19 +118,22 @@ export type UmschaltErgebnis = { auswahl: AuswahlTag[]; fehler: string | null };
  * rückt der früheste nach); sonst hinzufügen mit „ganztags“, außer der Tag ist
  * vergangen oder schon 10 Tage gewählt sind. Der erste Tag wird empfohlen.
  */
-export function tagUmschalten(auswahl: readonly AuswahlTag[], datum: string, heute: string): UmschaltErgebnis {
+export function tagUmschalten(auswahl: readonly AuswahlTag[], datum: string, heute: string, grenzen?: TerminGrenzen): UmschaltErgebnis {
   if (auswahl.some((t) => t.datum === datum)) {
-    return { auswahl: empfehlungNormalisieren(auswahl.filter((t) => t.datum !== datum)), fehler: null };
+    return { auswahl: empfehlungNormalisieren(auswahl.filter((t) => t.datum !== datum), grenzen), fehler: null };
   }
   if (!istTag(datum)) return { auswahl: [...auswahl], fehler: "Unbekannter Tag." };
   if (istVergangen(datum, heute)) {
     return { auswahl: [...auswahl], fehler: `${tagKurz(datum)} liegt in der Vergangenheit.` };
   }
+  if (tagGesperrt(datum, grenzen)) {
+    return { auswahl: [...auswahl], fehler: sperrHinweis(grenzen) };
+  }
   if (auswahl.length >= MAX_TAGE) {
     return { auswahl: [...auswahl], fehler: `Höchstens ${MAX_TAGE} Tage. Bitte zuerst einen Tag abwählen.` };
   }
   const neu: AuswahlTag = { datum, slots: [{ ...GANZTAGS }], note: "", empfohlen: auswahl.length === 0, anpassung: null };
-  return { auswahl: empfehlungNormalisieren([...auswahl, neu]), fehler: null };
+  return { auswahl: empfehlungNormalisieren([...auswahl, neu], grenzen), fehler: null };
 }
 
 /** Ein Zeitfenster der Schnellwahl an- oder abwählen (nach Label). */
@@ -268,7 +292,7 @@ export function zellenText(
  * ein Zeitfenster, Notiz ≤ 200 Zeichen, eine Anpassung mit gültigem Betrag
  * und Grund. Die Untergrenze (Selbstkosten, seit 18.11.) prüft der Dienst.
  */
-export function auswahlPruefen(auswahl: readonly AuswahlTag[], heute: string): string[] {
+export function auswahlPruefen(auswahl: readonly AuswahlTag[], heute: string, grenzen?: TerminGrenzen): string[] {
   const fehler: string[] = [];
   if (auswahl.length === 0) fehler.push("Bitte mindestens einen Tag wählen.");
   if (auswahl.length > MAX_TAGE) fehler.push(`Höchstens ${MAX_TAGE} Tage.`);
@@ -277,6 +301,7 @@ export function auswahlPruefen(auswahl: readonly AuswahlTag[], heute: string): s
   for (const t of sortiert(auswahl)) {
     const tag = tagKurz(t.datum);
     if (istVergangen(t.datum, heute)) fehler.push(`${tag} liegt in der Vergangenheit. Bitte abwählen.`);
+    if (tagGesperrt(t.datum, grenzen)) fehler.push(`${tag}: ${sperrHinweis(grenzen)}`);
     if (t.slots.length === 0) fehler.push(`${tag}: bitte ein Zeitfenster wählen.`);
     if (t.note.trim().length > MAX_NOTIZ) fehler.push(`${tag}: die Notiz hat mehr als ${MAX_NOTIZ} Zeichen.`);
     if (t.anpassung) {
@@ -340,9 +365,14 @@ function betragEingabe(cent: number): string {
  * vergangene Tage fallen weg, Slots, Notiz, Empfehlung und Anpassung bleiben.
  * Mit `paketSlug` die eigens gesetzte Anpassung dieses Pakets am Tag (wie `tageAnbietenAus`).
  */
-export function auswahlAusTagen(tage: readonly TagAnsicht[], heute: string, paketSlug: string | null = null): AuswahlTag[] {
+export function auswahlAusTagen(
+  tage: readonly TagAnsicht[],
+  heute: string,
+  paketSlug: string | null = null,
+  grenzen?: TerminGrenzen
+): AuswahlTag[] {
   const liste: AuswahlTag[] = tage
-    .filter((t) => istTag(t.datum) && !istVergangen(t.datum, heute))
+    .filter((t) => istTag(t.datum) && !istVergangen(t.datum, heute) && !tagGesperrt(t.datum, grenzen))
     .slice(0, MAX_TAGE)
     .map((t) => ({
       datum: t.datum,
@@ -351,5 +381,5 @@ export function auswahlAusTagen(tage: readonly TagAnsicht[], heute: string, pake
       empfohlen: t.empfohlen,
       anpassung: anpassungVon(paketSlug === null ? t.uebersteuert : t.paketUebersteuert?.[paketSlug] ?? null),
     }));
-  return empfehlungNormalisieren(liste);
+  return empfehlungNormalisieren(liste, grenzen);
 }

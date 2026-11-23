@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { wertstoffhofGeschlossen } from "@/lib/feiertag-bw";
 import type { TagAnsicht } from "@/lib/kalkulations-ansicht";
 import {
   alsEmpfohlen,
@@ -299,5 +300,50 @@ describe("Mit Paketen gilt der Dialog dem empfohlenen Paket am Tag (Integration 
     expect(a[0].anpassung).toEqual({ betrag: "1600", grund: "Freitag knapp" });
     // Ohne Paket liest der Dialog die Tagesanpassung (hier keine).
     expect(auswahlAusTagen([{ ...basis, datum: "2026-11-20", empfohlen: true, uebersteuert: null, slots: [], note: null }], HEUTE)[0].anpassung).toBeNull();
+  });
+});
+
+describe("Entrümpelung: keine Sonntage und keine Feiertage", () => {
+  const grenzen = { gesperrt: wertstoffhofGeschlossen };
+  const HEUTE_DEZ = "2026-12-01";
+
+  it("25.12. und Sonntag 27.12. lassen sich nicht wählen und nicht empfehlen", () => {
+    const weihnacht = tagUmschalten([], "2026-12-25", HEUTE_DEZ, grenzen);
+    expect(weihnacht.auswahl).toEqual([]);
+    expect(weihnacht.fehler).toMatch(/Wertstoffhöfe/);
+    const sonntag = tagUmschalten([], "2026-12-27", HEUTE_DEZ, grenzen);
+    expect(sonntag.auswahl).toEqual([]);
+    expect(sonntag.fehler).toMatch(/Wertstoffhöfe/);
+    const montag = tagUmschalten([], "2026-12-28", HEUTE_DEZ, grenzen);
+    expect(montag.fehler).toBeNull();
+    expect(montag.auswahl.map((t) => t.datum)).toEqual(["2026-12-28"]);
+    expect(montag.auswahl[0]!.empfohlen).toBe(true);
+  });
+
+  it("ohne Sperre bleiben Feiertag und Sonntag wählbar (Umzug)", () => {
+    const weihnacht = tagUmschalten([], "2026-12-25", HEUTE_DEZ);
+    expect(weihnacht.fehler).toBeNull();
+    expect(weihnacht.auswahl[0]!.empfohlen).toBe(true);
+  });
+
+  it("ein schon empfohlener geschlossener Tag wird nicht empfohlen, ein offener rückt nach", () => {
+    const auswahl = empfehlungNormalisieren(
+      [tag("2026-12-25", { empfohlen: true }), tag("2026-12-27", { empfohlen: false }), tag("2026-12-28")],
+      grenzen
+    );
+    expect(auswahl.find((t) => t.empfohlen)?.datum).toBe("2026-12-28");
+    expect(alsEmpfohlen(auswahl, "2026-12-25", grenzen).find((t) => t.empfohlen)?.datum).toBe("2026-12-28");
+    expect(auswahlPruefen([tag("2026-12-25", { empfohlen: true })], HEUTE_DEZ, grenzen).join(" ")).toMatch(/Wertstoffhöfe/);
+    const geladen = auswahlAusTagen(
+      [
+        { datum: "2026-12-25", text: "Fr 25.12.", slots: [], note: null, empfohlen: true, preisCent: 180000, rechnerPreisCent: 180000, feiertag: true, gruende: [], uebersteuert: null, paketPreiseCent: null },
+        { datum: "2026-12-28", text: "Mo 28.12.", slots: [], note: null, empfohlen: false, preisCent: 163000, rechnerPreisCent: 163000, feiertag: false, gruende: [], uebersteuert: null, paketPreiseCent: null },
+      ],
+      HEUTE_DEZ,
+      null,
+      grenzen
+    );
+    expect(geladen.map((t) => t.datum)).toEqual(["2026-12-28"]);
+    expect(geladen[0]!.empfohlen).toBe(true);
   });
 });

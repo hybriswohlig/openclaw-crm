@@ -18,14 +18,16 @@ export async function baueAngebotsEntwurf(
     const [angebot, hatPakete] = await Promise.all([getQuotation(dealRecordId), hatPaketoptionen(dealRecordId)]);
     const phrase = angebotsPhrase(e, angebot, hatPakete);
     if (!phrase) return null;
+    const anfrage = k.kalkulation.request as Record<string, unknown>;
     const text = preisEntwurfText({
       phrase,
-      leistungen: leistungenText(e, k.kalkulation.request as Record<string, unknown>),
+      leistungen: leistungenText(e, anfrage),
       frage: opts.frage,
       du: anredeAus(opts.verlauf) === "du",
+      auftragsart: typeof anfrage.auftragsart === "string" ? anfrage.auftragsart : undefined,
     });
     // Nennt der Entwurf den Angebotspreis statt des Rechnerpreises, steht das in der Freigabe vor dem Rechenweg.
-    const details = [angebotsHinweis(e, angebot, hatPakete), preisDetailsText(e, k.kalkulation.request as Record<string, unknown>)]
+    const details = [angebotsHinweis(e, angebot, hatPakete), preisDetailsText(e, anfrage)]
       .filter((t): t is string => !!t)
       .join("\n\n");
     return { text, phrase, details };

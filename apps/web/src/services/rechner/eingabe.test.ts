@@ -96,6 +96,8 @@ describe("rechnerAnfrageAus", () => {
   it("Hash ist unabhängig von der Schlüsselreihenfolge und ändert sich mit der Eingabe", () => {
     expect(eingabeHash({ a: "1", b: "2" })).toBe(eingabeHash({ b: "2", a: "1" }));
     expect(eingabeHash({ a: "1" })).not.toBe(eingabeHash({ a: "2" }));
+    expect(eingabeHash({ a: "1", fahrzeugklasse: "lang", fahrzeugklasse_auto: "1" })).toBe(eingabeHash({ a: "1" }));
+    expect(eingabeHash({ a: "1", fahrzeugklasse: "lang" })).not.toBe(eingabeHash({ a: "1" }));
   });
   it("'innerhalb X' ohne Zieladresse: Zielseite aktiv, der Rechner nimmt denselben Ort (Review Sol)", () => {
     expect(rechnerAnfrageAus({ ...leer, von: "innerhalb Böblingen" })).toMatchObject({ nach_vorhanden: "on" });

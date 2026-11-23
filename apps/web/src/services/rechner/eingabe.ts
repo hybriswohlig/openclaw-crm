@@ -231,12 +231,26 @@ function stabil(wert: unknown): unknown {
 }
 
 /**
+ * Die automatische Fahrzeugklasse einer Entrümpelung ist keine neue Eingabe.
+ * Sonst wirkt jeder Entwurf veraltet, sobald die zweite Rechner-Anfrage die
+ * Klasse setzt, und die Seite rechnet in einer Schleife.
+ */
+export function anfrageOhneFahrzeugAutomatik(anfrage: RechnerAnfrage): RechnerAnfrage {
+  if (anfrage.fahrzeugklasse_auto !== "1" && anfrage.fahrzeugklasse_auto !== "0") return anfrage;
+  const { fahrzeugklasse_auto: _auto, ...rest } = anfrage;
+  if (anfrage.fahrzeugklasse_auto !== "1") return rest;
+  const { fahrzeugklasse: _klasse, ...ohneKlasse } = rest;
+  return ohneKlasse;
+}
+
+/**
  * Fingerabdruck der Anfrage: gleiche Eingabe = gleicher Hash, unabhängig von der
  * Feldreihenfolge. `heute` zählt nicht mit: eine Version mit festem Datum soll
- * am nächsten Tag denselben Fingerabdruck haben.
+ * am nächsten Tag denselben Fingerabdruck haben. Die automatische
+ * Fahrzeugklasse einer Entrümpelung zählt ebenfalls nicht mit.
  */
 export function eingabeHash(anfrage: RechnerAnfrage): string {
-  const { heute: _heute, ...ohneHeute } = anfrage;
+  const { heute: _heute, ...ohneHeute } = anfrageOhneFahrzeugAutomatik(anfrage);
   return createHash("sha256").update(JSON.stringify(stabil(ohneHeute))).digest("hex");
 }
 

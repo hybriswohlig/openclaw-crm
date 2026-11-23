@@ -11,6 +11,7 @@
  * Schreibt nie ins Angebot; das macht nur die Übernahme per Knopf.
  */
 import type { RechnerAntwort, RechnerErgebnis } from "./client";
+import { naechsteFahrzeugAnfrage, fahrzeugWahlWeicht } from "./entruempelung-fahrzeug";
 import { eingabeHash, rechnerAnfrageAus, type LeadDaten, type RechnerAnfrage, kuecheBereinigen } from "./eingabe";
 import { heuteBerlin } from "./quelle";
 
@@ -107,7 +108,8 @@ async function rechne(
     const gleicherTag = vorher.request?.heute === anfrage.heute;
     // Ein Ergebnis ohne Echo des Rechners (Montage je Position) zählt wie eine geänderte Eingabe.
     const veraltet = vorher.result !== null && ergebnisVeraltet(vorher.result);
-    if (vorher.inputHash === hash && gleicherTag && vorher.error === null && !veraltet) return { status: "unveraendert", kalkulation: vorher };
+    const fahrzeugAlt = fahrzeugWahlWeicht(vorher.request, vorher.result);
+    if (vorher.inputHash === hash && gleicherTag && vorher.error === null && !veraltet && !fahrzeugAlt) return { status: "unveraendert", kalkulation: vorher };
     // Die Drossel gilt auch dann: ein alter Rechner ohne Echo darf nicht jeden Aufruf zahlen lassen.
     if (jetzt().getTime() - vorher.computedAt.getTime() < DROSSEL_MS) return { status: "gedrosselt", kalkulation: vorher };
   }
@@ -115,9 +117,24 @@ async function rechne(
   // Zeitpunkt des Starts: der Speicher lässt eine später begonnene Rechnung nicht von einer älteren überschreiben.
   const start = jetzt();
   const antwort = await rechner(anfrage);
+  let request = anfrage;
+  let result = antwort.ok ? antwort.ergebnis : vorher?.result ?? null;
+  if (antwort.ok) {
+    const wahl = naechsteFahrzeugAnfrage(anfrage, antwort.ergebnis);
+    if (wahl) {
+      const erneut: RechnerAnfrage = { ...anfrage, fahrzeugklasse: wahl.klasseId };
+      const zweite = await rechner(erneut);
+      if (zweite.ok) {
+        request = { ...erneut, fahrzeugklasse_auto: "1" };
+        result = zweite.ergebnis;
+      } else {
+        request = { ...anfrage, fahrzeugklasse_auto: "0" };
+      }
+    }
+  }
   const zeile: KalkulationsZeile = antwort.ok
-    ? { dealRecordId, workspaceId, inputHash: hash, request: anfrage, result: antwort.ergebnis, error: null, computedAt: start }
-    : { dealRecordId, workspaceId, inputHash: hash, request: anfrage, result: vorher?.result ?? null, error: antwort.fehler, computedAt: start };
+    ? { dealRecordId, workspaceId, inputHash: hash, request, result, error: null, computedAt: start }
+    : { dealRecordId, workspaceId, inputHash: hash, request: anfrage, result, error: antwort.fehler, computedAt: start };
   await speicher.speichern(zeile);
   return { status: antwort.ok ? "neu" : "fehler", kalkulation: zeile };
 }

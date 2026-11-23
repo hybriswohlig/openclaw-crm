@@ -47,6 +47,15 @@ describe("leistungenText", () => {
   it("ohne Details: nur das Grundsätzliche", () => {
     expect(leistungenText({}, {})).toBe("Transporter mit Team, Anfahrt und alle Kilometer");
   });
+  it("Entrümpelung: Räumung ohne Möbelschutz und ohne Aufbau", () => {
+    const t = leistungenText(
+      { team: { groesse: 3 }, positionen: [{ name: "Kleiderschrank", menge: 1, volumenCbm: 1, zerlegt: true }] },
+      { auftragsart: "entruempelung" }
+    );
+    expect(t).toBe("Team mit 3 Personen und Fahrzeug, Anfahrt und Tragewege, Demontage von Kleiderschrank");
+    expect(t).not.toContain("Umzug");
+    expect(t).not.toContain("Aufbau");
+  });
 });
 
 describe("preisEntwurfText", () => {

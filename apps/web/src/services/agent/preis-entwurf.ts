@@ -125,30 +125,37 @@ export function leistungenText(
 ): string {
   const teile: string[] = [];
   const team = e.team?.groesse;
-  teile.push(team ? `Team mit ${team} Personen und Transporter` : "Transporter mit Team");
-  teile.push("Anfahrt und alle Kilometer");
+  const entruempelung = anfrage.auftragsart === "entruempelung";
+  teile.push(
+    entruempelung
+      ? team ? `Team mit ${team} Personen und Fahrzeug` : "Fahrzeug mit Team"
+      : team ? `Team mit ${team} Personen und Transporter` : "Transporter mit Team"
+  );
+  teile.push(entruempelung ? "Anfahrt und Tragewege" : "Anfahrt und alle Kilometer");
   const ausBesitz = firmenMontage(anfrage);
+  const arbeit = entruempelung ? "Demontage" : "Abbau und Aufbau";
   if (ausBesitz.explicit) {
-    if (ausBesitz.company.length > 0) teile.push(`Abbau und Aufbau von ${aufzaehlen(ausBesitz.company)}`);
+    if (ausBesitz.company.length > 0) teile.push(`${arbeit} von ${aufzaehlen(ausBesitz.company)}`);
   } else {
     const zerlegt = (e.positionen ?? []).filter((p) => p.zerlegt).map((p) => p.name);
-    if (zerlegt.length > 0) teile.push(`Abbau und Aufbau von ${aufzaehlen(zerlegt)}`);
+    if (zerlegt.length > 0) teile.push(`${arbeit} von ${aufzaehlen(zerlegt)}`);
   }
   if (anfrage.von_halteverbot === "on" || anfrage.nach_halteverbot === "on") teile.push("Halteverbotszone");
   return teile.join(", ");
 }
 
-export function preisEntwurfText(input: { phrase: string; leistungen: string; frage: string | null; du: boolean }): string {
+export function preisEntwurfText(input: { phrase: string; leistungen: string; frage: string | null; du: boolean; auftragsart?: string }): string {
   const { phrase, leistungen, frage, du } = input;
+  const sache = input.auftragsart === "entruempelung" ? (du ? "deine Entrümpelung" : "Ihre Entrümpelung") : du ? "dein Umzug" : "Ihr Umzug";
   const zeilen = du
     ? [
         "Hallo, danke für deine Angaben!",
-        `Nach aktuellem Stand liegt dein Umzug bei ${phrase} (${PREIS_ZUSATZ}).`,
+        `Nach aktuellem Stand liegt ${sache} bei ${phrase} (${PREIS_ZUSATZ}).`,
         `Enthalten sind: ${leistungen}.`,
       ]
     : [
         "Guten Tag, vielen Dank für Ihre Angaben.",
-        `Nach aktuellem Stand liegt Ihr Umzug bei ${phrase} (${PREIS_ZUSATZ}).`,
+        `Nach aktuellem Stand liegt ${sache} bei ${phrase} (${PREIS_ZUSATZ}).`,
         `Enthalten sind: ${leistungen}.`,
       ];
   if (frage) zeilen.push("", frage);
@@ -218,7 +225,8 @@ export function preisDetailsText(e: RechnerErgebnis, anfrage: Record<string, unk
   ].filter(Boolean);
   if (teile.length > 0) z.push(`• ${teile.join(", ")}`);
   if (e.volumen?.nettoCbm) {
-    z.push(`• Umzugsgut ${Z(e.volumen.nettoCbm, 1)} m³${e.volumen.gewichtKg ? `, ${Z(e.volumen.gewichtKg)} kg` : ""}`);
+    const gut = anfrage.auftragsart === "entruempelung" ? "Räumgut" : "Umzugsgut";
+    z.push(`• ${gut} ${Z(e.volumen.nettoCbm, 1)} m³${e.volumen.gewichtKg ? `, ${Z(e.volumen.gewichtKg)} kg` : ""}`);
   }
 
   if (e.kosten?.selbstkosten != null) {

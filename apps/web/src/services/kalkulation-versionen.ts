@@ -67,7 +67,9 @@ import { meldeKorrektur, rufeRechner, type RechnerAntwort, type RechnerErgebnis 
 import { adressenZumSperren } from "@/lib/kalkulation-annahmen";
 import { ADRESSE_CHAT_TEXT, ADRESSE_FEHLT_TEXT } from "@/lib/kalkulation-p15";
 import { eingabeHash, mitEinsatzFeldern, mitPlan5Feldern, rechnerAnfrageAus, type LeadDaten, type RechnerAnfrage } from "@/services/rechner/eingabe";
+import { fahrzeugWahlWeicht, naechsteFahrzeugAnfrage } from "@/services/rechner/entruempelung-fahrzeug";
 import { ergebnisVeraltet, type KalkulationsZeile } from "@/services/rechner/kalkulation";
+import { wertstoffhofSperre } from "@/lib/feiertag-bw";
 import { kvGueltigBis, type HebelArt, type KvPosten } from "@/services/rechner/kv-posten";
 import { MARGE_HART_MIN_PROZENT, preisBeiMarge } from "@/services/rechner/marge";
 import { heuteBerlin } from "@/services/rechner/quelle";
@@ -429,6 +431,32 @@ function tageKonfigAus(tage: readonly Tagespreis[] | null | undefined): TagKonfi
   return (tage ?? []).map((t) => ({ datum: t.datum, slots: t.slots ?? [], note: t.note ?? null, empfohlen: t.empfohlen === true }));
 }
 
+function auftragsartAus(lead: LeadDaten, liste: Uebersteuerung[]): string | null | undefined {
+  const u = [...wirksameUebersteuerungen(liste)].reverse().find((x) => x.art === "eingabe" && x.key === "leistung" && typeof x.wert === "string");
+  return typeof u?.wert === "string" ? u.wert : lead.auftragsart;
+}
+
+/**
+ * Zweite Rechner-Anfrage, wenn die empfohlene Klasse für die Entrümpelung zu
+ * klein ist. Die Klasse geht an den Rechner, der Marker `fahrzeugklasse_auto`
+ * nur in die gespeicherte Anfrage (der Rechner kennt das Feld nicht).
+ * Schlägt der zweite Aufruf fehl, bleibt das erste Ergebnis; der Marker "0"
+ * verhindert eine Schleife.
+ */
+async function mitEntruempelungFahrzeug(
+  anfrage: RechnerAnfrage,
+  ergebnis: RechnerErgebnis,
+  rechner: (a: RechnerAnfrage) => Promise<RechnerAntwort>
+): Promise<{ anfrage: RechnerAnfrage; ergebnis: RechnerErgebnis }> {
+  const wahl = naechsteFahrzeugAnfrage(anfrage, ergebnis);
+  if (!wahl) return { anfrage, ergebnis };
+  const { fahrzeugklasse_auto: _auto, ...ohne } = anfrage;
+  const erneut: RechnerAnfrage = { ...ohne, fahrzeugklasse: wahl.klasseId };
+  const antwort = await rechner(erneut);
+  if (!antwort.ok) return { anfrage: { ...ohne, fahrzeugklasse_auto: "0" }, ergebnis };
+  return { anfrage: { ...erneut, fahrzeugklasse_auto: "1" }, ergebnis: antwort.ergebnis };
+}
+
 /** Anfrage an den Rechner: Lead, Übersteuerungen, Paket-Hebel und Plan-5b-Schalter (ohne Schalter wie vorher). */
 function anfrageFuer(
   basis: RechnerAnfrage,
@@ -486,7 +514,7 @@ async function neuBerechnen(
   const referenceDate = opts.referenceDate ?? heuteBerlin(d.jetzt());
   const k = opts.kontext;
   const tage = opts.tage ?? [];
-  const anfrage = opts.gerechnet?.anfrage ?? anfrageFuer(rechnerAnfrageAus(lead), liste, referenceDate, k, tage.map((t) => t.datum));
+  let anfrage = opts.gerechnet?.anfrage ?? anfrageFuer(rechnerAnfrageAus(lead), liste, referenceDate, k, tage.map((t) => t.datum));
 
   let ergebnis: RechnerErgebnis | null = opts.gerechnet?.ergebnis ?? null;
   const w = opts.wiederverwenden;
@@ -519,6 +547,9 @@ async function neuBerechnen(
     if (!antwort.ok) return { error: antwort.fehler };
     ergebnis = antwort.ergebnis;
   }
+  const fahrzeug = await mitEntruempelungFahrzeug(anfrage, ergebnis, (a) => d.rechner(a));
+  anfrage = fahrzeug.anfrage;
+  ergebnis = fahrzeug.ergebnis;
 
   const festpreis = ergebnis.preis?.festpreis;
   const felder: Partial<VersionsZeile> = {
@@ -626,7 +657,11 @@ export function entwurfVeraltet(
   einsatz: EinsatzPreisKontext | null = null
 ): boolean {
   if (v.status !== "entwurf") return false;
-  return anfrageVeraltet(v, basis, heute, paketHebel, schalter, einsatz) || ergebnisVeraltet(v.rechnerResult);
+  return (
+    anfrageVeraltet(v, basis, heute, paketHebel, schalter, einsatz) ||
+    ergebnisVeraltet(v.rechnerResult) ||
+    fahrzeugWahlWeicht(v.rechnerRequest, v.rechnerResult)
+  );
 }
 
 async function leadOderFehler(ws: string, deal: string, d: Abh): Promise<LeadDaten> {
@@ -1679,13 +1714,18 @@ export async function tageSetzen(
 
   const ziel = angefragt.status === "entwurf" ? angefragt : (await entwurfAnlegen(ws, deal, autor, d)).version;
   pruefeTagespreisSchalter(k, ziel);
+  const gesperrt = wertstoffhofSperre(auftragsartAus(lead, ziel.overrides), geprueft.tage);
+  if (gesperrt) throw new UebersteuerungFehler(gesperrt);
   const konfig: TagKonfig[] = geprueft.tage;
-  const anfrage = anfrageFuer(rechnerAnfrageAus(lead), ziel.overrides, heute, k, konfig.map((t) => t.datum));
+  let anfrage = anfrageFuer(rechnerAnfrageAus(lead), ziel.overrides, heute, k, konfig.map((t) => t.datum));
   const antwort = await d.rechner(anfrage);
   if (!antwort.ok) throw new VersionsFehler("RECHNER_FEHLER", antwort.fehler);
+  const fahrzeug = await mitEntruempelungFahrzeug(anfrage, antwort.ergebnis, (a) => d.rechner(a));
+  anfrage = fahrzeug.anfrage;
+  const ergebnis = fahrzeug.ergebnis;
   for (const u of geprueft.uebersteuerungen) {
     const key = u.paketSlug === null ? u.datum : `${u.datum}:${u.paketSlug}`;
-    pruefeUntergrenze("tagespreis", key, { betrag: u.betrag }, antwort.ergebnis);
+    pruefeUntergrenze("tagespreis", key, { betrag: u.betrag }, ergebnis);
   }
 
   // Anpassungen angleichen: neue oder geänderte anhängen, nicht mehr gewünschte aufheben.
@@ -1703,7 +1743,7 @@ export async function tageSetzen(
     key,
     rechnerwert:
       ziel.overrides.find((x) => x.art === "tagespreis" && x.key === key)?.rechnerwert ??
-      rechnerwertFuer("tagespreis", key, anfrage, antwort.ergebnis),
+      rechnerwertFuer("tagespreis", key, anfrage, ergebnis),
     wert,
     grund,
     autor: { userId: autor.userId, quelle: autor.quelle },
@@ -1721,9 +1761,9 @@ export async function tageSetzen(
   // Geprüft vor dem Anhängen, damit ein abgelehnter Stand keine Anpassung hinterlässt.
   const probe = [...ziel.overrides, ...neue];
   pruefeUntergrenzeJeTag(
-    abgeleitetePreise(antwort.ergebnis, probe, konfig, k.schalter).dayPrices ?? [],
+    abgeleitetePreise(ergebnis, probe, konfig, k.schalter).dayPrices ?? [],
     probe,
-    antwort.ergebnis,
+    ergebnis,
     (t) => new UebersteuerungFehler(t)
   );
 
@@ -1743,7 +1783,7 @@ export async function tageSetzen(
     tage: konfig,
     referenceDate: heute,
     // Tagespreis-Anpassungen gehen nicht an den Rechner: die Antwort oben gilt.
-    gerechnet: { anfrage, ergebnis: antwort.ergebnis },
+    gerechnet: { anfrage, ergebnis },
   });
   return d.speicher.aktualisieren(ziel.id, berechnet);
 }
