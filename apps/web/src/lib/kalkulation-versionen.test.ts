@@ -241,6 +241,19 @@ describe("anfrageMitUebersteuerungen", () => {
     expect(zeilen.find((z) => z.key === "hebel.kueche")).toMatchObject({ wert: false, herkunft: "STANDARD" });
     expect(grundlageAus(lead({ auftragsart: "umzug" }), null, []).find((z) => z.key === "hebel.montage")?.wert).toBe(true);
     expect(grundlageAus(lead(), null, []).find((z) => z.key === "hebel.kueche")?.wert).toBe(true);
+    expect(zeilen.find((z) => z.key === "hebel.sondermuell")).toMatchObject({ wert: false, herkunft: "STANDARD" });
+    expect(zeilen.find((z) => z.key === "preis.elektro")).toMatchObject({ wert: null, herkunft: "STANDARD" });
+    const mit = anfrageMitUebersteuerungen(
+      { auftragsart: "entruempelung" },
+      [ue("eingabe", "hebel.keller", true), ue("eingabe", "boden.qm", 12), ue("eingabe", "hebel.elektro", false)],
+      ref
+    );
+    expect(mit.z_keller).toBe("on");
+    expect(mit.z_boden_qm).toBe("12");
+    expect(mit).not.toHaveProperty("z_elektro");
+    const umzug = anfrageMitUebersteuerungen({ auftragsart: "umzug" }, [ue("eingabe", "hebel.keller", true)], ref);
+    expect(umzug.z_keller).toBe("on");
+    expect(umzug).not.toHaveProperty("hebel_aus");
   });
 
   it("verändert die Basis nicht", () => {
@@ -331,6 +344,30 @@ describe("grundlageAus", () => {
       "kueche.aufbau",
       "kueche.hochtragen",
       "kueche.mitnehmen",
+      "hebel.sondermuell",
+      "hebel.sondermuell_pauschale",
+      "hebel.elektro",
+      "hebel.keller",
+      "hebel.dachboden",
+      "hebel.garage",
+      "hebel.trageweg",
+      "hebel.besenrein",
+      "hebel.boden",
+      "hebel.wertanrechnung",
+      "sondermuell.stueck",
+      "elektro.stueck",
+      "trageweg.stockwerke",
+      "besenrein.qm",
+      "boden.qm",
+      "wertanrechnung.betrag",
+      "preis.sondermuell",
+      "preis.sondermuell_pauschale",
+      "preis.elektro",
+      "preis.bereich",
+      "preis.trageweg",
+      "preis.besenrein",
+      "preis.besenrein_qm",
+      "preis.boden",
     ]);
   });
 

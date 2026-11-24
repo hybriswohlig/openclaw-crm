@@ -22,6 +22,13 @@ import { paketOhneHebelSperrt, PLAN5_FEHLER_TEXT, standardWahl, wahlPreis } from
 import type { LeadDaten, RechnerAnfrage } from "@/services/rechner/eingabe";
 import { kuecheBereinigen } from "@/services/rechner/kueche-bereinigen";
 import type { KostenPosten, RechnerErgebnis } from "@/services/rechner/client";
+import {
+  istZuschlagKey,
+  istZuschlagSchalter,
+  pruefeZuschlagWert,
+  ZUSCHLAG_REQUEST,
+  type ZuschlagKey,
+} from "@/lib/entruempelung-zuschlaege";
 import { kvBausteine, type HebelArt, type KvPosten } from "@/services/rechner/kv-posten";
 import { MARGE_HART_MAX_PROZENT, MARGE_HART_MIN_PROZENT, margeErlaubt } from "@/services/rechner/marge";
 import { zugangAusTitel } from "@/services/rechner/zugang";
@@ -74,6 +81,7 @@ export const GRUNDLAGE_FELDER = {
   "kueche.aufbau": "kueche_montage",
   "kueche.hochtragen": "kueche_hochtragen",
   "kueche.mitnehmen": "kueche_mitnehmen",
+  ...ZUSCHLAG_REQUEST,
 } as const;
 
 /** Schalter der Küche: true = "on", false = Feld entfernt. */
@@ -340,6 +348,14 @@ function pruefeEingabe(key: GrundlageKey, wert: unknown): number | string | bool
         throw new UebersteuerungFehler(key === "station" ? "Station: Rechner-ID fehlt" : "Fahrzeugklasse: Rechner-ID fehlt");
       }
       return t;
+    }
+    default: {
+      if (!istZuschlagKey(key)) throw new UebersteuerungFehler("Unbekanntes Feld");
+      try {
+        return pruefeZuschlagWert(key, wert);
+      } catch (e) {
+        throw new UebersteuerungFehler(e instanceof Error ? e.message : "Ungültiger Wert");
+      }
     }
   }
 }
@@ -630,6 +646,9 @@ export function anfrageMitUebersteuerungen(
           const hebel = key === "hebel.montage" ? "montage" : "kueche";
           if (u.wert === false) hebelAus.add(hebel);
           else hebelAus.delete(hebel);
+        } else if (istZuschlagSchalter(key)) {
+          if (u.wert === true) a[feld] = "on";
+          else delete a[feld];
         } else if (typeof u.wert !== "object") {
           a[feld] = String(u.wert);
         }
@@ -723,6 +742,14 @@ export function anfrageMitUebersteuerungen(
   return kuecheBereinigen(a);
 }
 
+function zuschlagStandard(): Record<ZuschlagKey, { wert: false | null; herkunft: "STANDARD" }> {
+  const aus = {} as Record<ZuschlagKey, { wert: false | null; herkunft: "STANDARD" }>;
+  for (const key of Object.keys(ZUSCHLAG_REQUEST) as ZuschlagKey[]) {
+    aus[key] = { wert: istZuschlagSchalter(key) ? false : null, herkunft: "STANDARD" };
+  }
+  return aus;
+}
+
 function autorText(u: Uebersteuerung): string {
   return u.autor.userId ?? u.autor.quelle;
 }
@@ -795,6 +822,7 @@ export function grundlageAus(lead: LeadDaten, ergebnis: RechnerErgebnis | null, 
     "kueche.aufbau": { wert: istKueche, herkunft: istKueche ? "REGEL" : "STANDARD" },
     "kueche.hochtragen": { wert: istKueche, herkunft: istKueche ? "REGEL" : "STANDARD" },
     "kueche.mitnehmen": { wert: false, herkunft: "STANDARD" },
+    ...zuschlagStandard(),
   };
 
   return GRUNDLAGE_KEYS.map((key) => {

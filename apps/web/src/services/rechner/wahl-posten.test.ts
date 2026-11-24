@@ -181,6 +181,48 @@ describe("postenJeWahl", () => {
   });
 });
 
+describe("postenJeWahl Entrümpelung", () => {
+  const raeumung = {
+    ...ergebnis,
+    preis: { festpreis: 1630, posten: [{ key: "verkauf.entsorgung", bezeichnung: "Entsorgung", menge: 4, einheit: "m³", satz: 65, betrag: 260 }] },
+  } as RechnerErgebnis;
+  const anfrageRaeumung = { auftragsart: "entruempelung", von_etage: "1", von_aufzug: "keiner" };
+
+  it("zieht die Wertanrechnung einmal ab und hält die Posten auf dem neuen Preis", () => {
+    const v = version();
+    v.priceCents = 163000;
+    v.packagePrices = [];
+    v.dayPrices = [];
+    const aus = postenJeWahl({
+      ergebnis: raeumung,
+      anfrage: { ...anfrageRaeumung, z_wertanrechnung: "on", z_wertanrechnung_betrag: "40", z_elektro: "on", z_elektro_stueck: "2" },
+      version: v,
+      paketHebel,
+      einPosten: false,
+    });
+    expect(aus.priceCents).toBe(159000);
+    expect(aus.kvItems.some((p) => p.description.startsWith("Elektrogeräte"))).toBe(true);
+    expect(aus.kvItems.find((p) => p.description.startsWith("Wertanrechnung"))?.unitRate).toBe(-40);
+    expect(postenCent(aus.kvItems)).toBe(159000);
+  });
+
+  it("lässt einen Umzug mit denselben Feldern unverändert", () => {
+    const v = version();
+    v.packagePrices = [];
+    v.dayPrices = [];
+    const aus = postenJeWahl({
+      ergebnis,
+      anfrage: { ...anfrage, z_wertanrechnung: "on", z_wertanrechnung_betrag: "40", z_elektro: "on", z_elektro_stueck: "2" },
+      version: v,
+      paketHebel,
+      einPosten: false,
+    });
+    expect(aus.priceCents).toBe(inCent(2260));
+    expect(aus.kvItems.some((p) => /Elektrogeräte|Wertanrechnung/.test(p.description))).toBe(false);
+    expect(postenCent(aus.kvItems)).toBe(inCent(2260));
+  });
+});
+
 describe("stundenPosten", () => {
   const stunden: RechnerStunden = {
     helfer: 3,

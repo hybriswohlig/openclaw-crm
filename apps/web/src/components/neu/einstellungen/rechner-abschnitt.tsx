@@ -11,6 +11,7 @@ import type {
   RechnerStammdatenAntwort,
   TarifAnsicht,
 } from "@/lib/einstellungen-uebersicht";
+import { entruempelungPreisZeilen } from "@/lib/entruempelung-zuschlaege";
 import { datumText, euroText } from "./einstellungen-logik";
 import { TEXT } from "./texte";
 
@@ -119,6 +120,22 @@ export function RechnerAbschnitt({ firmen, rechnerUrl }: { firmen: FirmaEinstell
           ) : null}
         </p>
       </div>
+
+      <GlassPanel variant="panel" className="einst-karte">
+        <h3>Entrümpelung, interne Planwerte</h3>
+        <p className="einst-satz">
+          Diese Sätze gelten für neue Entrümpelungen, solange der Auftrag keinen eigenen Einzelpreis setzt. Sie stehen in
+          ENTRUEMPELUNG_PREISE und sind interne Planwerte, keine abgelesenen Marktpreise. Pro Auftrag überschreibt sie der Rechner.
+        </p>
+        <dl className="einst-werte">
+          {entruempelungPreisZeilen().map(([k, v]) => (
+            <div key={k}>
+              <dt>{k}</dt>
+              <dd>{v}</dd>
+            </div>
+          ))}
+        </dl>
+      </GlassPanel>
 
       {z.art === "wartet" || z.art === "laden" ? (
         <span className="lg-skeleton einst-skelett" aria-label={TEXT.rechnerLaden} />

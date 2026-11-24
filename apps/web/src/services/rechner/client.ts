@@ -6,6 +6,7 @@
  * mitreißt. Der Schlüssel erscheint in keiner Fehlermeldung.
  */
 import type { RechnerPaketpreisPlan5, RechnerStunden, RechnerTagespreis } from "@/lib/angebot-wahl";
+import { anfrageOhneZuschlagFelder } from "@/lib/entruempelung-zuschlaege";
 import type { RechnerAnfrage } from "./eingabe";
 import type { HebelArt } from "./kv-posten";
 import type { Marke } from "./quelle";
@@ -194,7 +195,7 @@ export async function rufeRechner(
     r = await abruf(url, {
       method: "POST",
       headers: { "content-type": "application/json", authorization: `Bearer ${schluessel}` },
-      body: JSON.stringify(anfrage),
+      body: JSON.stringify(anfrageOhneZuschlagFelder(anfrage)),
       signal: AbortSignal.timeout(ZEITLIMIT_MS),
     });
   } catch (e) {

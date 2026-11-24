@@ -40,6 +40,21 @@ describe("rufeRechner", () => {
     expect(JSON.parse(String(gesehen!.init.body))).toEqual({ zimmer: "3" });
   });
 
+  it("schickt Zuschlag-Felder nicht an den Rechner", async () => {
+    let gesehen: { init: RequestInit } | null = null;
+    await rufeRechner(
+      { zimmer: "3", z_keller: "on", z_boden_qm: "12", von_etage: "2" },
+      {
+        konfig,
+        abruf: async (_url, init) => {
+          gesehen = { init: init! };
+          return new Response("{}", { status: 200 });
+        },
+      }
+    );
+    expect(JSON.parse(String(gesehen!.init.body))).toEqual({ zimmer: "3", von_etage: "2" });
+  });
+
   it("falscher Schlüssel (401): verständlicher Fehler, der Schlüssel selbst taucht nicht auf", async () => {
     const r = await rufeRechner({}, { konfig, abruf: antwort(401, { fehler: "API-Schlüssel fehlt oder ist ungültig." }) });
     expect(r.ok).toBe(false);

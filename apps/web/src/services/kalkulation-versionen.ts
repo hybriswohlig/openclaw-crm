@@ -74,6 +74,7 @@ import { kvGueltigBis, type HebelArt, type KvPosten } from "@/services/rechner/k
 import { MARGE_HART_MIN_PROZENT, preisBeiMarge } from "@/services/rechner/marge";
 import { heuteBerlin } from "@/services/rechner/quelle";
 import { angebotsUebernahme } from "@/services/rechner/uebernahme";
+import { rohVorGutschrift } from "@/lib/entruempelung-zuschlaege";
 import { postenJeWahl, stundenPosten } from "@/services/rechner/wahl-posten";
 
 export { PAKETE_TEXT, STUNDEN_TEXT } from "@/lib/kalkulation-versionen";
@@ -1467,7 +1468,9 @@ export function plan5Preise(
 
   const packagePrices = k.schalter.angebotAusKalkulation ? v.packagePrices ?? [] : [];
   const dayPrices = k.schalter.tagespreise ? v.dayPrices ?? [] : [];
-  const hauptPosten = k.schalter.angebotAusKalkulation ? hauptPostenAus(e, anfrage, hauptCent / 100, einPosten) : hauptKv;
+  // Die Gutschrift steckt schon in hauptCent. Die Posten rechnen sie einmal vom Rohpreis ab.
+  const rohCent = Math.round(rohVorGutschrift(hauptCent / 100, anfrage, e.preis?.festpreis ?? hauptCent / 100) * 100);
+  const hauptPosten = k.schalter.angebotAusKalkulation ? hauptPostenAus(e, anfrage, rohCent / 100, einPosten) : hauptKv;
   // Der Hash hängt nur an Preisen: vor dem Verteilen der Posten gebildet, wie auf der Seite.
   const hash = preisHash(
     kundenPreiseOhnePosten({ schalter: k.schalter, pricingMode: "fest", hauptCent, packagePrices, dayPrices, stundenCent: null, empfohlenesPaket: empf })
@@ -1477,7 +1480,7 @@ export function plan5Preise(
   const gefuellt = postenJeWahl({
     ergebnis: e,
     anfrage,
-    version: { pricingMode: "fest", priceCents: hauptCent, kvItems: hauptPosten, packagePrices, dayPrices },
+    version: { pricingMode: "fest", priceCents: rohCent, kvItems: hauptPosten, packagePrices, dayPrices },
     paketHebel,
     einPosten,
   });
