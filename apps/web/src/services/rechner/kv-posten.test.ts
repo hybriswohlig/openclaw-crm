@@ -599,6 +599,87 @@ describe("kvBausteine Entrümpelung", () => {
     expect(kueche?.description).not.toMatch(/Aufbau|Montage \(/);
   });
 
+  it("optionale Zuschläge sind eigene Positionen und die Summe bleibt der Festpreis", () => {
+    const k = kvBausteine({
+      festpreis,
+      ergebnis: basis,
+      anfrage: {
+        ...anfrageRaeumung,
+        z_sondermuell: "on",
+        z_sondermuell_stueck: "1",
+        z_elektro: "on",
+        z_elektro_stueck: "2",
+        z_keller: "on",
+        z_dachboden: "on",
+        z_garage: "on",
+        z_trageweg: "on",
+        von_etage: "2",
+        von_aufzug: "keiner",
+        z_besenrein: "on",
+        z_boden: "on",
+        z_boden_qm: "10",
+      },
+    });
+    const texte = k.posten.map((p) => p.description);
+    expect(texte).toContain("Sondermüll und Problemstoffe (Farben, Lacke, Chemikalien, Reifen, Öl)");
+    expect(texte).toContain("Elektrogeräte, weiße Ware und Bildschirme");
+    expect(texte).toContain("Zuschlag Keller, Dachboden und Garage");
+    expect(texte).toContain("Zuschlag Trageweg, 2 Stockwerke ohne Aufzug");
+    expect(texte).toContain("Besenreine Übergabe und Endreinigung, Pauschale");
+    expect(texte).toContain("Entfernen von Bodenbelägen und Tapeten, 10 m²");
+    expect(texte[0]).toContain("Räumung & Abtransport");
+    for (const p of k.posten) expect(p.description).not.toMatch(/[–—]/);
+    expect(k.posten.reduce((s, p) => s + Math.round(p.unitRate * 100) * p.quantity, 0)).toBe(Math.round(festpreis * 100));
+  });
+
+  it("Wertanrechnung mindert die Summe und geht nicht unter 0", () => {
+    const klein = kvBausteine({
+      festpreis,
+      ergebnis: basis,
+      anfrage: { ...anfrageRaeumung, z_wertanrechnung: "on", z_wertanrechnung_betrag: "100" },
+    });
+    const gutschrift = klein.posten.find((p) => p.description.startsWith("Wertanrechnung"));
+    expect(gutschrift).toMatchObject({ quantity: 1, unitRate: -100 });
+    expect(klein.summe).toBe(festpreis - 100);
+    expect(klein.posten.reduce((s, p) => s + Math.round(p.unitRate * 100) * p.quantity, 0)).toBe(Math.round(klein.summe * 100));
+
+    const leer = kvBausteine({
+      festpreis,
+      ergebnis: basis,
+      anfrage: { ...anfrageRaeumung, z_wertanrechnung: "on", z_wertanrechnung_betrag: "9000" },
+    });
+    expect(leer.summe).toBe(0);
+    expect(leer.posten.find((p) => p.description.startsWith("Wertanrechnung"))?.unitRate).toBe(-festpreis);
+    expect(leer.posten.reduce((s, p) => s + p.unitRate * p.quantity, 0)).toBeCloseTo(0, 2);
+  });
+
+  it("Umzug ignoriert die Zuschlag-Felder", () => {
+    const k = kvBausteine({
+      festpreis: 2260,
+      ergebnis,
+      anfrage: {
+        ...anfrage,
+        z_sondermuell: "on",
+        z_sondermuell_stueck: "4",
+        z_elektro: "on",
+        z_elektro_stueck: "2",
+        z_keller: "on",
+        z_trageweg: "on",
+        von_etage: "3",
+        von_aufzug: "keiner",
+        z_besenrein: "on",
+        z_boden: "on",
+        z_boden_qm: "20",
+        z_wertanrechnung: "on",
+        z_wertanrechnung_betrag: "80",
+      },
+    });
+    expect(k.posten[0]!.description).toContain("Umzugsteam");
+    expect(k.posten[0]!.description).toContain("Möbelschutz");
+    expect(k.posten.some((p) => /Sondermüll|Elektrogeräte|Zuschlag Keller|Besenreine|Bodenbelägen|Wertanrechnung/.test(p.description))).toBe(false);
+    expect(k.summe).toBe(2260);
+  });
+
   it("mit abgewählter Montage kein Demontage-Posten, die Entsorgung bleibt", () => {
     const k = kvBausteine({ festpreis, ergebnis: basis, anfrage: { ...anfrageRaeumung, hebel_aus: '["kueche","montage"]' } });
     expect(k.posten.some((p) => p.description.startsWith("Demontage"))).toBe(false);

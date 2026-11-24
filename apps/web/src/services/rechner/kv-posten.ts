@@ -9,9 +9,13 @@
  * der Festpreis. Reine Funktionen, kein I/O.
  *
  * Entrümpelung: Räumung und Abtransport ohne Möbelschutz, die Entsorgung als
- * eigene Position mit ihrem Verkaufsbetrag, Demontage ohne Montage. Andere
- * Auftragsarten bleiben bei den Umzugstexten.
+ * eigene Position mit ihrem Verkaufsbetrag, Demontage ohne Montage. Weitere
+ * Hebel (Sondermüll, Elektro, Bereiche, Trageweg, Endreinigung, Boden) werden
+ * nach dem Zusammenklappen aus dem Kern geschnitten. Die Wertanrechnung ist
+ * eine negative Zeile und mindert die Summe, nie unter 0. Andere Auftragsarten
+ * bleiben bei den Umzugstexten und ignorieren diese Felder.
  */
+import { zuschlagPlan, type ZuschlagLinie } from "@/lib/entruempelung-zuschlaege";
 import type { KostenPosten, RechnerErgebnis } from "./client";
 import type { RechnerAnfrage } from "./eingabe";
 
@@ -570,12 +574,13 @@ export function kvBausteine(input: {
   const kernZeile = entsorgung
     ? kern > 0 ? [kernPosten] : []
     : kern > 0 || klappen !== "nie" ? [kernPosten] : [];
-  const posten = [...kernZeile, ...(entsorgung ? [entsorgung] : []), ...hebel.map((k) => k.posten)];
+  const gebaut = [...kernZeile, ...(entsorgung ? [entsorgung] : []), ...hebel.map((k) => k.posten)];
+  const mitZuschlag = istEntruempelung ? zuschlagAnwenden(gebaut, summe, kern, anfrage) : { posten: gebaut, summe, kern };
 
   return {
-    posten,
-    summe,
-    kern,
+    posten: mitZuschlag.posten,
+    summe: mitZuschlag.summe,
+    kern: mitZuschlag.kern,
     hebel: hebel.map((k) => ({ art: k.art, betrag: betrag(k.posten) })),
     abzug,
     entfalleneKosten: Math.round(entfalleneKosten * 100) / 100,
@@ -584,6 +589,67 @@ export function kvBausteine(input: {
     montageMoebel,
     montageDurchUns: montageDabei,
   };
+}
+
+/**
+ * Positive Zuschläge aus der ersten passenden Zeile (der Kern, sonst die erste
+ * Zeile mit Menge 1). Was nicht mehr hineinpasst, wird auf den Rest gekürzt
+ * und die weiteren Zeilen entfallen. Die Gutschrift kommt danach und mindert
+ * die Summe, nie unter 0.
+ */
+function zuschlagAnwenden(
+  posten: KvPosten[],
+  summe: number,
+  kern: number,
+  anfrage: RechnerAnfrage
+): { posten: KvPosten[]; summe: number; kern: number } {
+  const plan = zuschlagPlan(anfrage);
+  if (plan.linien.length === 0 && plan.gutschrift <= 0) return { posten, summe, kern };
+
+  const zeilen = posten.map((p) => ({ ...p }));
+  const kernCent = inCent(kern);
+  const kernIndex = kernCent > 0 ? zeilen.findIndex((p) => p.quantity === 1 && inCent(p.unitRate) === kernCent) : -1;
+  let quelle = kernIndex >= 0 ? kernIndex : zeilen.findIndex((p) => p.quantity === 1 && inCent(p.unitRate) > 0);
+  const neu: KvPosten[] = [];
+
+  if (quelle >= 0) {
+    for (const linie of plan.linien) {
+      const q = zeilen[quelle]!;
+      const platz = inCent(q.unitRate);
+      if (platz <= 0) break;
+      const gebaut = zuschlagZeile(linie, platz);
+      if (!gebaut) break;
+      const genommen = Math.round(inCent(gebaut.unitRate) * gebaut.quantity);
+      q.unitRate = (platz - genommen) / 100;
+      neu.push(gebaut);
+      if (inCent(q.unitRate) <= 0) break;
+    }
+    if (inCent(zeilen[quelle]!.unitRate) <= 0) {
+      zeilen.splice(quelle, 1);
+      if (quelle === kernIndex) kern = 0;
+    } else if (quelle === kernIndex) {
+      kern = zeilen[quelle]!.unitRate;
+    }
+  }
+
+  let summeCent = inCent(summe);
+  const ab = Math.min(Math.max(Math.round(plan.gutschrift * 100), 0), Math.max(summeCent, 0));
+  if (ab > 0) {
+    neu.push({ description: "Wertanrechnung für verwertbare Gegenstände", quantity: 1, unitRate: -ab / 100 });
+    summeCent -= ab;
+  }
+  return { posten: [...zeilen, ...neu], summe: summeCent / 100, kern };
+}
+
+/** Menge und Satz bleiben, wenn beide Cent-Rechnungen denselben Betrag ergeben und er in den Rest passt. Sonst eine Zeile über den Rest. */
+function zuschlagZeile(linie: ZuschlagLinie, maxCent: number): KvPosten | null {
+  const a = Math.round(linie.unitRate * 100) * linie.quantity;
+  const b = Math.round(linie.quantity * linie.unitRate * 100);
+  if (Number.isInteger(a) && a === b && a > 0 && a <= maxCent) {
+    return { description: linie.description, quantity: linie.quantity, unitRate: linie.unitRate };
+  }
+  if (maxCent <= 0) return null;
+  return { description: linie.description, quantity: 1, unitRate: maxCent / 100 };
 }
 
 function parkplatz(gerechnet: boolean, ohne: boolean | undefined, strasse: string | null): { owner: LeistungsTraeger; note?: string } {

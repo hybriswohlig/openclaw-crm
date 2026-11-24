@@ -4,6 +4,7 @@
  * Posten auf den Cent genau den Preis der Wahl ergeben.
  */
 import type { RechnerStunden, StundenAngebot, Tagespreis, VersionsPreise } from "@/lib/angebot-wahl";
+import { anfrageOhneZuschlagFelder, gutschriftEur } from "@/lib/entruempelung-zuschlaege";
 import type { RechnerErgebnis } from "./client";
 import type { RechnerAnfrage } from "./eingabe";
 import { kvBausteine, type HebelArt, type KvPosten } from "./kv-posten";
@@ -28,12 +29,19 @@ function sammeltext(
   const vorlage = kvBausteine({
     festpreis: 1,
     ergebnis,
-    anfrage,
+    anfrage: anfrageOhneZuschlagFelder(anfrage),
     festpreisIstEndpreis: true,
     ...(hebelNur === undefined ? {} : { hebelNur }),
     zusammenklappen: "kern_min",
   });
   return vorlage.posten[0]?.description ?? "";
+}
+
+/** Ziel nach der Gutschrift. Ohne Gutschrift derselbe Cent, damit bestehende Preise stehen bleiben. */
+function zielNachGutschrift(zielCent: number, anfrage: RechnerAnfrage): number {
+  const credit = Math.round(gutschriftEur(anfrage) * 100);
+  if (credit <= 0) return zielCent;
+  return Math.max(0, zielCent - credit);
 }
 
 function postenFuer(input: {
@@ -42,18 +50,22 @@ function postenFuer(input: {
   anfrage: RechnerAnfrage;
   hebelNur: HebelArt[] | undefined;
   einPosten: boolean;
-}): KvPosten[] {
+}): { posten: KvPosten[]; summeCent: number } {
+  const nettoCent = zielNachGutschrift(input.zielCent, input.anfrage);
   if (input.einPosten) {
-    return angleichen(
-      [
-        {
-          description: sammeltext(input.ergebnis, input.anfrage, input.hebelNur),
-          quantity: 1,
-          unitRate: input.zielCent / 100,
-        },
-      ],
-      input.zielCent
-    );
+    return {
+      posten: angleichen(
+        [
+          {
+            description: sammeltext(input.ergebnis, input.anfrage, input.hebelNur),
+            quantity: 1,
+            unitRate: nettoCent / 100,
+          },
+        ],
+        nettoCent
+      ),
+      summeCent: nettoCent,
+    };
   }
   const gebaut = kvBausteine({
     festpreis: input.zielCent / 100,
@@ -64,8 +76,11 @@ function postenFuer(input: {
     zusammenklappen: "nie",
   });
   // Kern ≤ 0 bleibt draussen. Ihn auf einen Hebel zu schieben würde den Hebel verfälschen.
-  if (gebaut.kern <= 0) return gebaut.posten;
-  return angleichen(gebaut.posten, input.zielCent);
+  // Ohne Gutschrift bleibt der Preis der Wahl, auch wenn der Kern nicht positiv ist.
+  if (gebaut.kern <= 0) {
+    return { posten: gebaut.posten, summeCent: gutschriftEur(input.anfrage) > 0 ? inCent(gebaut.summe) : input.zielCent };
+  }
+  return { posten: angleichen(gebaut.posten, nettoCent), summeCent: nettoCent };
 }
 
 function ziel(euro: number | null): number | null {
@@ -85,19 +100,28 @@ export function postenJeWahl(input: {
 }): VersionsPreise {
   const { ergebnis, anfrage, version, paketHebel, einPosten } = input;
   const fuer = (cent: number | null, hebelNur: HebelArt[] | undefined) =>
-    cent === null ? [] : postenFuer({ zielCent: cent, ergebnis, anfrage, hebelNur, einPosten });
-  const paket = <T extends { slug: string; festpreis: number | null }>(p: T): T & { kvItems: KvPosten[] } => ({
-    ...p,
-    kvItems: fuer(ziel(p.festpreis), paketHebel[p.slug] ?? []),
-  });
-  const tag = (t: Tagespreis): Tagespreis => ({
-    ...t,
-    kvItems: fuer(ziel(t.festpreis), undefined),
-    paketpreise: t.paketpreise ? t.paketpreise.map(paket) : t.paketpreise,
-  });
+    cent === null ? null : postenFuer({ zielCent: cent, ergebnis, anfrage, hebelNur, einPosten });
+  const preisGleich = (original: number | null, summeCent: number) =>
+    original === null ? null : inCent(original) === summeCent ? original : summeCent / 100;
+  const paket = <T extends { slug: string; festpreis: number | null }>(p: T): T & { kvItems: KvPosten[] } => {
+    const gebaut = fuer(ziel(p.festpreis), paketHebel[p.slug] ?? []);
+    if (!gebaut) return { ...p, kvItems: [] };
+    return { ...p, festpreis: preisGleich(p.festpreis, gebaut.summeCent), kvItems: gebaut.posten };
+  };
+  const tag = (t: Tagespreis): Tagespreis => {
+    const gebaut = fuer(ziel(t.festpreis), undefined);
+    return {
+      ...t,
+      festpreis: gebaut ? preisGleich(t.festpreis, gebaut.summeCent) : t.festpreis,
+      kvItems: gebaut?.posten ?? [],
+      paketpreise: t.paketpreise ? t.paketpreise.map(paket) : t.paketpreise,
+    };
+  };
+  const haupt = fuer(version.priceCents, undefined);
   return {
     ...version,
-    kvItems: fuer(version.priceCents, undefined),
+    priceCents: haupt && version.priceCents !== null && version.priceCents !== haupt.summeCent ? haupt.summeCent : version.priceCents,
+    kvItems: haupt?.posten ?? [],
     packagePrices: version.packagePrices.map(paket),
     dayPrices: version.dayPrices.map(tag),
   };

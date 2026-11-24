@@ -26,6 +26,15 @@ import type { RechnerAnfrage } from "@/services/rechner/eingabe";
 import { kvBausteine, strasseAus, aufzaehlen, type HebelArt } from "@/services/rechner/kv-posten";
 import { MARGE_HART_MIN_PROZENT, MARGE_MAX_PROZENT, MARGE_MIN_PROZENT, margeWarnung, preisBeiMarge } from "@/services/rechner/marge";
 import { angebotsUebernahme } from "@/services/rechner/uebernahme";
+import {
+  ENTRUEMPELUNG_PREISE,
+  istZuschlagKey,
+  istZuschlagSchalter,
+  rohVorGutschrift,
+  ZUSCHLAG_LABEL,
+  ZUSCHLAG_REQUEST,
+  type ZuschlagKey,
+} from "@/lib/entruempelung-zuschlaege";
 import { postenJeWahl } from "@/services/rechner/wahl-posten";
 import { datumKurz, euroText, tagKurz, uhrzeitKurz, volumenText } from "./anzeige";
 import { umzugsgutZustaendigkeit } from "./umzugsgut-zustaendigkeit";
@@ -524,6 +533,7 @@ const GRUNDLAGE_LABEL: Record<GrundlageKey, string> = {
   "kueche.aufbau": "Küche aufbauen",
   "kueche.hochtragen": "Zum Einbauort hochtragen",
   "kueche.mitnehmen": "Küche mitnehmen",
+  ...ZUSCHLAG_LABEL,
 };
 
 export const LEISTUNG_TEXT: Record<string, string> = {
@@ -610,7 +620,19 @@ function grundlageWertText(key: GrundlageKey, wert: unknown): string {
     case "kueche.hochtragen":
     case "kueche.mitnehmen":
       return wert === true ? "ja" : "nein";
+    default:
+      return istZuschlagKey(key) ? zuschlagWertText(key, wert) : String(wert);
   }
+}
+
+function zuschlagWertText(key: ZuschlagKey, wert: unknown): string {
+  if (istZuschlagSchalter(key)) return wert === true ? "an" : "aus";
+  const n = zahl(wert);
+  if (n === null) return String(wert);
+  if (key.startsWith("preis.") || key === "wertanrechnung.betrag") return euroText(cent(n));
+  if (key.endsWith(".qm")) return `${KOMMA1.format(n)} m²`;
+  if (key === "trageweg.stockwerke") return `${GANZ.format(n)} ${n === 1 ? "Stockwerk" : "Stockwerke"}`;
+  return `${GANZ.format(n)} Stück`;
 }
 
 interface GrundlageKontext {
@@ -716,7 +738,10 @@ function leistungUndKueche(zeilen: GrundlageAnsichtZeile[], k: GrundlageKontext)
     bearbeitet: k.bearbeitet(["leistung"]),
     felder: [feld("leistung", "Leistung", "leistung", k)],
   });
-  if (leistung === "entruempelung") return;
+  if (leistung === "entruempelung") {
+    zeilen.push(zuschlagZeile(k));
+    return;
+  }
 
   const meter = zahl(k.wert("kueche.meter"));
   const oben = zahl(k.wert("kueche.meter_oben"));
@@ -764,6 +789,54 @@ function leistungUndKueche(zeilen: GrundlageAnsichtZeile[], k: GrundlageKontext)
     hv.felder = hv.felder.filter((f) => f.key === "halteverbot.beladen").map((f) => ({ ...f, label: "am Einbauort" }));
   }
   zeilen.splice(1, 0, kuecheZeile);
+}
+
+const PREIS_STANDARD: Partial<Record<ZuschlagKey, number>> = {
+  "preis.sondermuell": ENTRUEMPELUNG_PREISE.sondermuellStueck,
+  "preis.sondermuell_pauschale": ENTRUEMPELUNG_PREISE.sondermuellPauschale,
+  "preis.elektro": ENTRUEMPELUNG_PREISE.elektroStueck,
+  "preis.bereich": ENTRUEMPELUNG_PREISE.bereich,
+  "preis.trageweg": ENTRUEMPELUNG_PREISE.trageweg,
+  "preis.besenrein": ENTRUEMPELUNG_PREISE.besenreinPauschale,
+  "preis.besenrein_qm": ENTRUEMPELUNG_PREISE.besenreinQm,
+  "preis.boden": ENTRUEMPELUNG_PREISE.bodenQm,
+};
+
+function zuschlagTyp(key: ZuschlagKey): GrundlageFeldTyp {
+  if (istZuschlagSchalter(key)) return "ja_nein";
+  if (key === "sondermuell.stueck" || key === "elektro.stueck" || key === "trageweg.stockwerke") return "ganzzahl";
+  return "zahl";
+}
+
+function zuschlagPlatzhalter(key: ZuschlagKey, k: GrundlageKontext): string | undefined {
+  const standard = PREIS_STANDARD[key];
+  if (standard !== undefined) return euroText(cent(standard));
+  if (key === "trageweg.stockwerke") {
+    const etage = zahl(k.wert("beladen.etage"));
+    const aufzug = k.wert("beladen.aufzug");
+    const ohne = typeof aufzug !== "string" || aufzug === "" || aufzug === "keiner";
+    if (etage !== null && etage > 0 && ohne) return `aus Etage: ${Math.ceil(etage - 1e-9)}`;
+    return "0";
+  }
+  if (!istZuschlagSchalter(key)) return "0";
+  return undefined;
+}
+
+function zuschlagZeile(k: GrundlageKontext): GrundlageAnsichtZeile {
+  const keys = Object.keys(ZUSCHLAG_REQUEST) as ZuschlagKey[];
+  const an = keys.filter((key) => istZuschlagSchalter(key) && k.wert(key) === true);
+  return {
+    key: "zuschlaege",
+    label: "Zuschläge",
+    wert: an.length === 0 ? "keine" : an.map((key) => ZUSCHLAG_LABEL[key]).join(", "),
+    herkunft: eindeutig(keys.map((key) => k.herkunft(key))),
+    warum: "Eigene Positionen im Festpreis. Die Wertanrechnung mindert die Summe, nie unter 0.",
+    bearbeitet: k.bearbeitet(keys),
+    felder: keys.map((key) => {
+      const platz = zuschlagPlatzhalter(key, k);
+      return { ...feld(key, ZUSCHLAG_LABEL[key], zuschlagTyp(key), k), ...(platz ? { platzhalter: platz } : {}) };
+    }),
+  };
 }
 
 function grundlageAnsicht(v: VersionsZeile, rest: AnsichtRest): GrundlageAnsicht {
@@ -1487,7 +1560,8 @@ function plan5Ansicht(
   let mitPosten: VersionsPreise | null = gesperrt ? versionsPreiseAusZeile(v) : null;
   if (!gesperrt && modus === "fest" && e && v.rechnerRequest && hauptCent !== null) {
     try {
-      const hauptPosten = schalter.angebotAusKalkulation ? hauptPostenAus(e, v.rechnerRequest, hauptCent / 100, einPosten) : kv?.posten.map((p) => ({ description: p.text, quantity: 1, unitRate: p.betragCent / 100 })) ?? [];
+      const rohCent = Math.round(rohVorGutschrift(hauptCent / 100, v.rechnerRequest, e.preis?.festpreis ?? hauptCent / 100) * 100);
+      const hauptPosten = schalter.angebotAusKalkulation ? hauptPostenAus(e, v.rechnerRequest, rohCent / 100, einPosten) : kv?.posten.map((p) => ({ description: p.text, quantity: 1, unitRate: p.betragCent / 100 })) ?? [];
       const paketHebel: Record<string, HebelArt[]> = {};
       for (const p of packagePrices) paketHebel[p.slug] = rest.paketHebel?.[p.slug] ?? [];
       const gefuellt =
@@ -1495,7 +1569,7 @@ function plan5Ansicht(
           ? postenJeWahl({
               ergebnis: e,
               anfrage: v.rechnerRequest,
-              version: { pricingMode: "fest", priceCents: hauptCent, kvItems: hauptPosten, packagePrices, dayPrices },
+              version: { pricingMode: "fest", priceCents: rohCent, kvItems: hauptPosten, packagePrices, dayPrices },
               paketHebel,
               einPosten,
             })

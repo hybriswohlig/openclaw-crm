@@ -147,6 +147,28 @@ describe("ansichtAus: Grundlage", () => {
     });
   });
 
+  it("Entrümpelung zeigt die Zuschläge, ein Umzug nicht", () => {
+    expect(a.grundlage.zeilen.some((z) => z.key === "zuschlaege")).toBe(false);
+    const u = (felder: Partial<Uebersteuerung>): Uebersteuerung => ({
+      id: "u_leistung",
+      art: "eingabe",
+      key: "leistung",
+      rechnerwert: "umzug",
+      wert: "entruempelung",
+      grund: "Räumung",
+      autor: { userId: DARIO, quelle: "mensch" },
+      zeit: "2026-11-05T14:30:00.000Z",
+      fotoRef: null,
+      ...felder,
+    });
+    const raeumung = ansichtAus(weberVersion({ overrides: [...weberUebersteuerungen(), u({})] }), rest());
+    const zuschlag = zeile(raeumung, "zuschlaege");
+    expect(zuschlag.wert).toBe("keine");
+    expect(zuschlag.felder.some((f) => f.key === "hebel.sondermuell" && f.typ === "ja_nein")).toBe(true);
+    expect(zuschlag.felder.some((f) => f.key === "elektro.stueck" && f.typ === "ganzzahl")).toBe(true);
+    expect(zuschlag.felder.find((f) => f.key === "preis.elektro")?.platzhalter).toContain("25");
+  });
+
   it("Termin: Sa 21.11. vom Kunden, Datumsfeld", () => {
     expect(zeile(a, "termin")).toMatchObject({
       wert: "Sa 21.11.", herkunft: [{ art: "KUNDE", text: "KUNDE" }],
