@@ -7,6 +7,7 @@
  * wird nur gewählt, welcher davon gilt, und wie er heißt.
  */
 import { erwarteterGesamtpreis } from "./annahme-recht";
+import { wertstoffhofGeschlossen } from "./feiertage-bw";
 import { hatTagespreise, pickDefaultDealOption, preisAmTag, tagHatPreis, terminPreise } from "./offer-selection";
 import type {
   AcceptanceRecord,
@@ -29,7 +30,10 @@ export function anzeigeTag(d: DateOffersContext): { tag: DateOfferOption; gewaeh
   if (!hatTagespreise(d.options)) return null;
   const gewaehlt = d.selection ? d.options.find((o) => o.id === d.selection!.dateOfferId) : undefined;
   if (gewaehlt) return { tag: gewaehlt, gewaehlt: true };
-  const tag = d.options.find((o) => o.isRecommended) ?? d.options[0];
+  // Sonntag und Feiertag sind nie der empfohlene Tag, solange ein offener Tag da ist.
+  const offen = d.options.filter((o) => !wertstoffhofGeschlossen(o.date));
+  const pool = offen.length > 0 ? offen : d.options;
+  const tag = pool.find((o) => o.isRecommended && !wertstoffhofGeschlossen(o.date)) ?? pool[0];
   return tag ? { tag, gewaehlt: false } : null;
 }
 

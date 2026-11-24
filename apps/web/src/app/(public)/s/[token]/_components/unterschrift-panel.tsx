@@ -34,7 +34,7 @@ export function UnterschriftPanel({
   const [gerade, setGerade] = useState(false);
   const moeglich = unterschriftMoeglich({ acceptance: ctx.acceptance, signatureEnabled: ctx.features?.signature === true });
   const vertragUrl = ctx.documents.signedContractUrl;
-  const t = (sie: string, du: string) => kundenText(ctx.branding.firmaSlug, sie, du);
+  const t = (sie: string, du: string) => kundenText(ctx.branding, sie, du);
 
   if (!moeglich && !gerade) {
     // Im Festangebot-Brief steht der Vertrag schon an der Annahme-Zeile.
@@ -62,7 +62,7 @@ export function UnterschriftPanel({
     <section className="portal-panel portal-note mt-6">
       <PanelHeading icon={PenLine} title={BUTTON_VERTRAG_UNTERSCHREIBEN}>
         {/* Geöffnet zeigt das Formular den Hinweis selbst. */}
-        {!offen && <p>{unterschriftHinweis(kundenAnrede(ctx.branding.firmaSlug))}</p>}
+        {!offen && <p>{unterschriftHinweis(kundenAnrede(ctx.branding))}</p>}
       </PanelHeading>
       {offen ? (
         <UnterschriftForm

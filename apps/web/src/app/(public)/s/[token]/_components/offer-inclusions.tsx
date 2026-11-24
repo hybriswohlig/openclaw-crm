@@ -71,7 +71,7 @@ export function OfferInclusionsSection({
               Auf Wunsch zubuchbar
             </h3>
             <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-              {kundenText(branding.firmaSlug, "Diese Leistungen sind im aktuellen Angebot nicht enthalten. Sagen Sie kurz Bescheid, wenn Sie etwas davon möchten.", "Diese Leistungen sind im aktuellen Angebot nicht enthalten. Sag kurz Bescheid, wenn du etwas davon möchtest.")}
+              {kundenText(branding, "Diese Leistungen sind im aktuellen Angebot nicht enthalten. Sagen Sie kurz Bescheid, wenn Sie etwas davon möchten.", "Diese Leistungen sind im aktuellen Angebot nicht enthalten. Sag kurz Bescheid, wenn du etwas davon möchtest.")}
             </p>
             <ul className="mt-3 space-y-2">
               {inclusions.optional.map((item) => (

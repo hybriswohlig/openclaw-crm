@@ -69,11 +69,12 @@ import { ADRESSE_CHAT_TEXT, ADRESSE_FEHLT_TEXT } from "@/lib/kalkulation-p15";
 import { eingabeHash, mitEinsatzFeldern, mitPlan5Feldern, rechnerAnfrageAus, type LeadDaten, type RechnerAnfrage } from "@/services/rechner/eingabe";
 import { fahrzeugWahlWeicht, naechsteFahrzeugAnfrage } from "@/services/rechner/entruempelung-fahrzeug";
 import { ergebnisVeraltet, type KalkulationsZeile } from "@/services/rechner/kalkulation";
-import { wertstoffhofSperre } from "@/lib/feiertag-bw";
+import { wertstoffhofGeschlossen, wertstoffhofSperre } from "@/lib/feiertag-bw";
 import { kvGueltigBis, type HebelArt, type KvPosten } from "@/services/rechner/kv-posten";
 import { MARGE_HART_MIN_PROZENT, preisBeiMarge } from "@/services/rechner/marge";
 import { heuteBerlin } from "@/services/rechner/quelle";
 import { angebotsUebernahme } from "@/services/rechner/uebernahme";
+import { kundenstreckeFuerUebernahme } from "@/services/rechner/kundenstrecke";
 import { postenJeWahl, stundenPosten } from "@/services/rechner/wahl-posten";
 
 export { PAKETE_TEXT, STUNDEN_TEXT } from "@/lib/kalkulation-versionen";
@@ -1291,10 +1292,11 @@ export async function sperren(
   // Schätzung aus den Stunden (Entscheidung 7), eine Bestätigung der Obergrenze entfällt.
   const bestaetigtSpanne = body.bestaetigtSpanne === true || modus === "stunden";
   const jetzt = d.jetzt();
+  const abFirmensitz = await kundenstreckeFuerUebernahme(v.rechnerRequest).catch(() => null);
   const u = angebotsUebernahme(
     { result: v.rechnerResult, request: v.rechnerRequest },
     vorhanden ? { notes: vorhanden.notes, isVariable: vorhanden.isVariable, validUntil: vorhanden.validUntil } : null,
-    { bestaetigtSpanne, uebernommenVon: autor.quelle, jetzt }
+    { bestaetigtSpanne, uebernommenVon: autor.quelle, jetzt, abFirmensitz }
   );
   if (!u.ok) {
     const spanne = !!v.rechnerResult.schaetzung && !bestaetigtSpanne;
@@ -1666,7 +1668,12 @@ export function pruefeTageAnbieten(e: unknown, heute: string): TageAnbieten {
     if (gesehen.has(t.datum)) throw new UebersteuerungFehler(`Der ${t.datum} steht doppelt in der Liste.`);
     gesehen.add(t.datum);
     const note = t.note === null || t.note === undefined ? null : typeof t.note === "string" ? t.note.trim().slice(0, 200) || null : null;
-    return { datum: t.datum, slots: pruefeSlots(t.slots ?? [], t.datum), note, empfohlen: t.empfohlen === true };
+    return {
+      datum: t.datum,
+      slots: pruefeSlots(t.slots ?? [], t.datum),
+      note,
+      empfohlen: t.empfohlen === true && !wertstoffhofGeschlossen(t.datum),
+    };
   });
   // Höchstens eine Empfehlung; ohne Empfehlung gilt der erste Tag (`standardWahl`), wie die Tage-Route.
   if (tage.filter((t) => t.empfohlen).length > 1) throw new UebersteuerungFehler("Höchstens ein Tag kann empfohlen sein.");

@@ -81,8 +81,8 @@ export function ConfirmKvaDialog({
   const [fullName, setFullName] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const anrede = kundenAnrede(ctx.branding.firmaSlug);
-  const t = (sie: string, du: string) => kundenText(ctx.branding.firmaSlug, sie, du);
+  const anrede = kundenAnrede(ctx.branding);
+  const t = (sie: string, du: string) => kundenText(ctx.branding, sie, du);
   const haftung = haftungshinweis(anrede);
 
   // The component stays mounted while the dialog is closed (Radix only
@@ -463,13 +463,13 @@ function DoneStep({
           <DialogPrimitive.Title className="portal-display text-xl">Angebot angenommen</DialogPrimitive.Title>
           <DialogPrimitive.Description className="mt-1 text-sm leading-relaxed text-muted-foreground">
             {selectedOptionName
-              ? `${kundenText(ctx.branding.firmaSlug, "Ihre Wahl", "Deine Wahl")}: ${selectedOptionName} · ${formatEurCents(displayTotalCents)}.`
+              ? `${kundenText(ctx.branding, "Ihre Wahl", "Deine Wahl")}: ${selectedOptionName} · ${formatEurCents(displayTotalCents)}.`
               : stunden?.modell === "alt"
               ? `Stundensatz: ${formatEurCents(stunden.satzCents)} je Stunde.`
               : stunden?.modell === "version"
               ? `Voraussichtlich: ${formatEurCents(displayTotalCents)}.`
               : `Gesamtbetrag: ${formatEurCents(displayTotalCents)}.`}{" "}
-            {kundenText(ctx.branding.firmaSlug, "Eine Bestätigung geht Ihnen per WhatsApp oder E-Mail zu.", "Eine Bestätigung geht dir per WhatsApp oder E-Mail zu.")}
+            {kundenText(ctx.branding, "Eine Bestätigung geht Ihnen per WhatsApp oder E-Mail zu.", "Eine Bestätigung geht dir per WhatsApp oder E-Mail zu.")}
           </DialogPrimitive.Description>
         </div>
       </div>
@@ -484,7 +484,7 @@ function DoneStep({
       {hasDeposit ? (
         <>
           <p className="mt-4 text-sm leading-relaxed">
-            {kundenText(ctx.branding.firmaSlug, "Nur noch ein Schritt: Mit Eingang der Anzahlung ist Ihr Termin fest reserviert.", "Nur noch ein Schritt: Mit Eingang der Anzahlung ist dein Termin fest reserviert.")}
+            {kundenText(ctx.branding, "Nur noch ein Schritt: Mit Eingang der Anzahlung ist Ihr Termin fest reserviert.", "Nur noch ein Schritt: Mit Eingang der Anzahlung ist dein Termin fest reserviert.")}
           </p>
           <div className="mt-3">
             <PaymentSection

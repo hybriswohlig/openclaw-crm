@@ -19,7 +19,7 @@ export function StageThreeLive({ token, ctx }: { token: string; ctx: CustomerPor
     { label: "Team vor Ort", at: ctx.timing.onsiteAt },
     { label: w.abgeschlossen, at: ctx.timing.finishedAt },
   ];
-  const t = (sie: string, du: string) => kundenText(ctx.branding.firmaSlug, sie, du);
+  const t = (sie: string, du: string) => kundenText(ctx.branding, sie, du);
   return <div className="portal-stack">
     <section className="portal-panel portal-live-hero">
       <p className="portal-eyebrow">{w.deinNom}</p>

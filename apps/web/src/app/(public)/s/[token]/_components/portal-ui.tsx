@@ -2,6 +2,7 @@
 
 import { CalendarDays, MapPin, Truck, UserRound, ClipboardList, MessageCircle, Phone, Check, UsersRound, Package, Clock3, type LucideIcon } from "lucide-react";
 import { kundenText, stundenAnzeige, stundensatzText, stundenVersionText, type CustomerPortalContext } from "@openclaw-crm/customer-portal-core";
+import { portalEmpfaengerName } from "./brief";
 import { PortalRequestForm } from "./portal-request-form";
 import { WhatsAppContactLink } from "./whatsapp-contact-link";
 import { formatPortalDate, formatPortalMoney, selectedPortalPackage } from "./portal-presentation";
@@ -32,7 +33,7 @@ function AddressAccess({ floor, access }: { floor: number | null; access: string
 export function OrderDetails({ ctx, token, wide = false }: { ctx: CustomerPortalContext; token: string; wide?: boolean }) {
   const { scope } = ctx;
   const pkg = selectedPortalPackage(ctx);
-  const t = (sie: string, du: string) => kundenText(ctx.branding.firmaSlug, sie, du);
+  const t = (sie: string, du: string) => kundenText(ctx.branding, sie, du);
   const w = worte(ctx);
   return <section className={`portal-panel portal-order-details ${wide ? "portal-order-wide" : ""}`}>
     <PanelHeading icon={ClipboardList} title="Auftragsdetails" />
@@ -40,7 +41,7 @@ export function OrderDetails({ ctx, token, wide = false }: { ctx: CustomerPortal
       <DetailItem icon={CalendarDays} label={w.termin}>{formatPortalDate(scope.moveDate) ?? "Termin wird abgestimmt"}{scope.timeStart && <span className="block">{scope.timeEnd ? `${scope.timeStart} bis ${scope.timeEnd} Uhr` : `ab ${scope.timeStart} Uhr`}</span>}</DetailItem>
       {adressZeilen(ctx).map((a) => <DetailItem key={a.key} icon={MapPin} label={a.label}>{a.adresse}<AddressAccess floor={a.etage} access={a.zugang} /></DetailItem>)}
       {(pkg || ctx.kva) && <DetailItem icon={Truck} label={pkg ? "Leistungspaket" : "Angebot"}>{pkg?.displayName ?? (ctx.kva?.isVariable ? "Abrechnung nach Aufwand" : "Individuelles Angebot")}{ctx.kva && <span className="block">{angebotsBetrag(ctx.kva)}</span>}</DetailItem>}
-      {ctx.customerDisplayName && <DetailItem icon={UserRound} label="Auftraggeber">{ctx.customerDisplayName}</DetailItem>}
+      {portalEmpfaengerName(ctx) && <DetailItem icon={UserRound} label="Auftraggeber">{portalEmpfaengerName(ctx)}{ctx.dokumentAnschrift?.zeile && <span className="block">{ctx.dokumentAnschrift.zeile}</span>}</DetailItem>}
       {scope.volumeCbm != null && <DetailItem icon={Package} label={w.volumenLabel}>ca. {scope.volumeCbm} m³</DetailItem>}
       {(scope.specialRequests || scope.inventoryNotes) && <DetailItem icon={ClipboardList} label="Besonderheiten">{[scope.specialRequests, scope.inventoryNotes].filter(Boolean).join("\n")}</DetailItem>}
     </dl>
@@ -57,7 +58,7 @@ function angebotsBetrag(kva: NonNullable<CustomerPortalContext["kva"]>): string 
 }
 
 export function SuccessBanner({ ctx, completed = false }: { ctx: CustomerPortalContext; completed?: boolean }) {
-  const t = (sie: string, du: string) => kundenText(ctx.branding.firmaSlug, sie, du);
+  const t = (sie: string, du: string) => kundenText(ctx.branding, sie, du);
   const w = worte(ctx);
   return <section className="portal-success">
     {ctx.branding.firmaSlug === "kottke" && <div className="portal-success-art" aria-hidden />}
@@ -72,7 +73,7 @@ export function SuccessBanner({ ctx, completed = false }: { ctx: CustomerPortalC
 
 export function ContactPanel({ ctx, token, title = "Fragen zum Auftrag?" }: { ctx: CustomerPortalContext; token: string; title?: string }) {
   const phone = ctx.branding.whatsappNumberE164?.replace(/[^\d]/g, "");
-  const t = (sie: string, du: string) => kundenText(ctx.branding.firmaSlug, sie, du);
+  const t = (sie: string, du: string) => kundenText(ctx.branding, sie, du);
   return <section className="portal-panel portal-contact">
     <PanelHeading icon={MessageCircle} title={title}><p>{t("Bei Fragen zu Ihrem Auftrag sind wir für Sie da.", "Bei Fragen zu deinem Auftrag sind wir für dich da.")}</p></PanelHeading>
     {phone && <div className="portal-contact-buttons"><a className="portal-button portal-button-secondary" href={`tel:+${phone}`}><Phone size={17} aria-hidden />Anrufen</a><WhatsAppContactLink phoneE164={phone} label="WhatsApp" message={`Hallo ${ctx.branding.displayName}, ich habe eine Frage zu meinem Auftrag ${ctx.dealNumber}.`} className="portal-button portal-button-secondary" /></div>}
@@ -82,7 +83,7 @@ export function ContactPanel({ ctx, token, title = "Fragen zum Auftrag?" }: { ct
 
 export function CrewPanel({ ctx }: { ctx: CustomerPortalContext }) {
   if (!ctx.crew.length) return null;
-  return <section className="portal-panel"><PanelHeading icon={UsersRound} title={kundenText(ctx.branding.firmaSlug, `Ihr ${worte(ctx).team}`, `Dein ${worte(ctx).team}`)}><p>{ctx.crew.length} {ctx.crew.length === 1 ? "Mitarbeiter" : "Mitarbeitende"}</p></PanelHeading><ul className="portal-crew">{ctx.crew.map(member => <li key={member.employeeId}>
+  return <section className="portal-panel"><PanelHeading icon={UsersRound} title={kundenText(ctx.branding, `Ihr ${worte(ctx).team}`, `Dein ${worte(ctx).team}`)}><p>{ctx.crew.length} {ctx.crew.length === 1 ? "Mitarbeiter" : "Mitarbeitende"}</p></PanelHeading><ul className="portal-crew">{ctx.crew.map(member => <li key={member.employeeId}>
     {member.photoBase64DataUrl ?
       // eslint-disable-next-line @next/next/no-img-element
       <img src={member.photoBase64DataUrl} alt="" /> : <span className="portal-avatar">{member.name.trim().split(/\s+/).map(n => n[0]).slice(0, 2).join("")}</span>}
@@ -97,7 +98,7 @@ export function CompletionSummary({ ctx }: { ctx: CustomerPortalContext }) {
   const items = selectedPortalPackage(ctx)?.includedItems ?? [];
   if (!ctx.scope.workerCount && !ctx.crew.length && !ctx.scope.transporterName && !items.length && !(duration != null && duration >= 0)) return null;
   return <section className="portal-panel"><PanelHeading icon={ClipboardList} title="Kurz zusammengefasst" /><dl className="portal-summary-grid">
-    {(ctx.scope.workerCount || ctx.crew.length) > 0 && <DetailItem icon={UsersRound} label={kundenText(ctx.branding.firmaSlug, "Ihr Team", "Dein Team")}>{ctx.scope.workerCount ?? ctx.crew.length} Mitarbeitende</DetailItem>}
+    {(ctx.scope.workerCount || ctx.crew.length) > 0 && <DetailItem icon={UsersRound} label={kundenText(ctx.branding, "Ihr Team", "Dein Team")}>{ctx.scope.workerCount ?? ctx.crew.length} Mitarbeitende</DetailItem>}
     {ctx.scope.transporterName && <DetailItem icon={Truck} label="Fahrzeug">{ctx.scope.transporterName}</DetailItem>}
     {items.length > 0 && <DetailItem icon={Package} label="Vereinbarte Leistungen"><ul>{items.map(item => <li key={item}>{item}</li>)}</ul></DetailItem>}
     {duration != null && duration >= 0 && <DetailItem icon={Clock3} label="Erfasste Zeit">{duration.toLocaleString("de-DE", { maximumFractionDigits: 1 })} Stunden</DetailItem>}

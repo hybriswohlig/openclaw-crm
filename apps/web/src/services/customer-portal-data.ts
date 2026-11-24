@@ -35,6 +35,13 @@ import {
 import { quotations, quotationLineItems } from "@/db/schema/quotations";
 import { dealCalculationVersions } from "@/db/schema/deal-calculation-versions";
 import { kundenAnnahmen } from "@/lib/kunden-annahmen";
+import { parseDokumentEmpfaenger, vertretenDurchZeile } from "@/lib/dokument-empfaenger";
+import {
+  istEntruempelung,
+  portalTermine,
+  WERTSTOFFHOF_GESCHLOSSEN,
+  wertstoffhofGeschlossen,
+} from "@/lib/feiertag-bw";
 import { activityEvents } from "@/db/schema/activity";
 import { dealDocuments, payments, dealNumbers } from "@/db/schema/financial";
 import { aktiveRechnung, stornierteRechnungsDokumente } from "./rechnungen";
@@ -395,7 +402,18 @@ export async function loadContextByToken(
   // Per-OC branding + enabled flag come from the DB. The fallback to stamm.ts
   // constants happens inside loadEffectiveBranding for any unconfigured firma.
   const effective = await loadEffectiveBranding(ocId);
-  const branding: FirmaBranding = effective.branding;
+  const dokument = dokumentVomDeal(dealAttrs, dealValues);
+  const branding: FirmaBranding = dokument.anrede
+    ? { ...effective.branding, anrede: dokument.anrede }
+    : effective.branding;
+  const dokumentAnschrift = dokument.auftraggeber?.name
+    ? {
+        name: dokument.auftraggeber.name,
+        zeile: vertretenDurchZeile(dokument.vertretenDurch),
+        adresse: dokument.auftraggeber.adresse,
+        briefanrede: dokument.auftraggeber.anrede ?? ("neutral" as const),
+      }
+    : null;
   const features = portalFeatures(effective);
 
   // Customer display name from associated_people (first only, lightweight)
@@ -612,6 +630,7 @@ export async function loadContextByToken(
     } : null,
     dealNumber,
     customerDisplayName,
+    dokumentAnschrift,
     customerEmailStatus,
     customerEmailMasked,
     branding,
@@ -625,7 +644,7 @@ export async function loadContextByToken(
     annahmeRecht: { ...annahmeRecht, kvStand: kvDokumentStand },
     leistung,
     // Umzugs-Standards (Decken, Kartons …) gehören nicht zu Küche oder Entrümpelung.
-    inclusions: leistungsWorte(leistung, branding.firmaSlug).standardleistungen ? inclusions : { included: [], optional: [] },
+    inclusions: leistungsWorte(leistung, branding).standardleistungen ? inclusions : { included: [], optional: [] },
     fruehereAnnahmeAufgehoben,
     // Nur gesetzt, wenn der Haken erscheint: ohne Schalter bleibt der Kontext wie vor Plan 11.
     ...(bewertungHaken
@@ -1372,6 +1391,12 @@ async function loadValuesForRecord(recordId: string, ex: DbExecutor = db): Promi
   const map = new Map<string, ValueRow>();
   for (const r of rows) map.set(r.attributeId, r);
   return map;
+}
+
+function dokumentVomDeal(dealAttrs: DealAttrIndex, values: Map<string, ValueRow>) {
+  const attr = dealAttrs.bySlug.get("dokument_empfaenger");
+  if (!attr) return parseDokumentEmpfaenger(null);
+  return parseDokumentEmpfaenger(values.get(attr.id)?.jsonValue ?? null);
 }
 
 function projectMoveScope(
@@ -2894,7 +2919,16 @@ async function loadDateOffersContext(
       }
     : null;
 
-  return { options, selection };
+  const [angebot] = await ex
+    .select({ serviceType: quotations.serviceType })
+    .from(quotations)
+    .where(eq(quotations.dealRecordId, dealRecordId))
+    .limit(1);
+
+  return {
+    options: portalTermine(options, { serviceType: angebot?.serviceType, selectedDate: selection?.selectedDate }),
+    selection,
+  };
 }
 
 /**
@@ -2924,6 +2958,15 @@ export class TermineMitPreisError extends Error {
   }
 }
 
+/** Entrümpelung: Sonntag oder Feiertag in BW darf nicht angeboten werden. */
+export class GeschlossenerTagError extends Error {
+  readonly code = "TAG_GESCHLOSSEN";
+  constructor(message: string) {
+    super(message);
+    this.name = "GeschlossenerTagError";
+  }
+}
+
 /**
  * Schreibt die Terminangebote des Deals je Datum (anlegen, aktualisieren,
  * nicht mehr angebotene löschen). Nur in der Transaktion des Aufrufers, der
@@ -2950,6 +2993,21 @@ export async function terminangeboteSchreiben(
     versionLoesen?: boolean;
   }
 ): Promise<number> {
+  const [art] = await tx
+    .select({ serviceType: quotations.serviceType })
+    .from(quotations)
+    .where(eq(quotations.dealRecordId, input.dealRecordId))
+    .limit(1);
+  if (istEntruempelung(art?.serviceType)) {
+    const zu = input.offers.find((o) => wertstoffhofGeschlossen(o.date));
+    if (zu) throw new GeschlossenerTagError(`${zu.date}: ${WERTSTOFFHOF_GESCHLOSSEN}`);
+  }
+  input = {
+    ...input,
+    offers: input.offers.map((o) =>
+      wertstoffhofGeschlossen(o.date) && o.isRecommended ? { ...o, isRecommended: false } : o
+    ),
+  };
   const vonHand = input.calculationVersionId === null;
   const bestand = await tx
     .select({
@@ -3165,6 +3223,15 @@ export async function selectDateOffer(
       )
       .limit(1);
     if (!offer) return { ok: false as const, reason: "offer_not_found" };
+
+    const [art] = await tx
+      .select({ serviceType: quotations.serviceType })
+      .from(quotations)
+      .where(eq(quotations.dealRecordId, link.dealRecordId))
+      .limit(1);
+    if (istEntruempelung(art?.serviceType) && wertstoffhofGeschlossen(offer.offerDate)) {
+      return { ok: false as const, reason: "closed_day" };
+    }
 
     const slots = Array.isArray(offer.slots) ? (offer.slots as DateOfferSlot[]) : [];
     if (body.slotIndex < 0 || body.slotIndex >= slots.length) {

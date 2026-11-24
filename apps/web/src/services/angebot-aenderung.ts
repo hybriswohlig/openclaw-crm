@@ -909,7 +909,12 @@ export async function standardQuellen(): Promise<AenderungsQuellen> {
       const oc = await (await import("./financial")).resolveDealOperatingCompany(ws, deal);
       if (!oc) return { slug: null, name: null };
       const b = (await (await import("./customer-portal-config")).loadEffectiveBranding(oc)).branding;
-      return { slug: b.firmaSlug ?? b.displayName ?? null, name: b.displayName ?? null };
+      const { anredeAmDeal } = await import("./dokument-empfaenger");
+      return {
+        slug: b.firmaSlug ?? b.displayName ?? null,
+        name: b.displayName ?? null,
+        anrede: await anredeAmDeal(deal),
+      };
     },
     entwurfHolen: (ws, deal, autor) => versionen.entwurfHolenOderAnlegen(ws, deal, autor),
     anwenden: (ws, deal, eingaben, autor, entwurfVersion) => versionen.aenderungenAnwenden(ws, deal, eingaben, autor, undefined, entwurfVersion),

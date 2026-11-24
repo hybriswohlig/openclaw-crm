@@ -407,6 +407,16 @@ export const STANDARD_OBJECTS: StandardObject[] = [
           { title: "ceylan", color: "#0ea5e9" },
         ],
       },
+      // Auftraggeber auf KV/AB/RE und der Statusseite, plus Sie/Du. Der Kontakt bleibt die Person.
+      {
+        slug: "dokument_empfaenger",
+        title: "Name auf Dokument",
+        type: "json",
+        isSystem: true,
+        isRequired: false,
+        isUnique: false,
+        isMultiselect: false,
+      },
     ],
   },
   {

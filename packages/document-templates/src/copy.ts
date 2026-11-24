@@ -305,18 +305,30 @@ function cleanCopy(value: string | undefined): string | undefined {
   return trimmed ? trimmed : undefined;
 }
 
+function nachname(name: string): string | null {
+  const teile = name.trim().split(/\s+/).filter(Boolean);
+  if (teile.length === 0) return null;
+  return teile[teile.length - 1] ?? null;
+}
+
 export function documentSalutation(input: {
   addressForm: AddressForm;
   customerName: string;
   givenName?: string | null;
   businessCustomer?: boolean;
+  letterSalutation?: "frau" | "herr" | "neutral" | null;
 }): string {
-  if (input.businessCustomer || looksLikeCompanyName(input.customerName)) {
-    return "Sehr geehrte Damen und Herren,";
-  }
-  if (input.addressForm === "du") {
+  if (input.addressForm === "du" && !input.businessCustomer && !looksLikeCompanyName(input.customerName)) {
     const name = input.givenName?.trim();
     return name ? `Hallo ${name},` : "Hallo,";
+  }
+  if (input.letterSalutation === "frau" || input.letterSalutation === "herr") {
+    const nach = nachname(input.customerName);
+    if (input.letterSalutation === "frau") return nach ? `Sehr geehrte Frau ${nach},` : "Sehr geehrte Frau,";
+    return nach ? `Sehr geehrter Herr ${nach},` : "Sehr geehrter Herr,";
+  }
+  if (input.businessCustomer || looksLikeCompanyName(input.customerName)) {
+    return "Sehr geehrte Damen und Herren,";
   }
   return "Guten Tag,";
 }
@@ -452,6 +464,7 @@ export function composeDocumentCopy(input: {
   customerName: string;
   givenName?: string | null;
   businessCustomer?: boolean;
+  letterSalutation?: "frau" | "herr" | "neutral" | null;
   serviceDate?: string | null;
   dueDate?: string | null;
   firma?: FirmaSlug | null;
@@ -476,6 +489,7 @@ export function composeDocumentCopy(input: {
           customerName: input.customerName,
           givenName: input.givenName,
           businessCustomer: business,
+          letterSalutation: input.letterSalutation,
         }),
         ...(input.copy?.introText === undefined
           ? [defaultIntro(input.kind, addressForm, nouns)]

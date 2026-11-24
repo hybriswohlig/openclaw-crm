@@ -37,7 +37,7 @@ export function CrewRatingSection({
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(() => !!ratedAt);
   const [error, setError] = useState<string | null>(null);
-  const t = (sie: string, du: string) => kundenText(branding.firmaSlug, sie, du);
+  const t = (sie: string, du: string) => kundenText(branding, sie, du);
 
   if (crew.length === 0) return null;
 

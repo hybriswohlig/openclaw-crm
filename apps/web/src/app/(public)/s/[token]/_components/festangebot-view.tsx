@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowRight, Info } from "lucide-react";
 import {
   angezeigterPreis,
+  terminPreisHinweis,
   annahmeKvSperre,
   festangebotStatusStep,
   kundenText,
@@ -18,7 +19,8 @@ import { ConfirmKvaDialog } from "./confirm-kva-dialog";
 import { KvVeraltetHinweis } from "./kv-veraltet-hinweis";
 import { ContactPanel } from "./portal-ui";
 import { AnnahmeZeile, BriefAnrede, BriefGruss, Strecke } from "./brief-teile";
-import { briefAnrede, briefEinleitung, briefZustand, stempel, terminVorbeiHinweis, terminVorbeiNachricht } from "./brief";
+import { briefEinleitung, briefZustand, portalBriefAnrede, stempel, terminVorbeiHinweis, terminVorbeiNachricht } from "./brief";
+import { anfahrtKundenText } from "@/lib/kunden-anfahrt";
 import { adressZeilen, worte } from "./leistung-worte";
 import { QuotationPreview } from "./quotation-preview";
 import { formatPortalDate, formatPortalMoney, postenBetraegeZeigen } from "./portal-presentation";
@@ -99,7 +101,7 @@ export function FestangebotView({
   const standards = kva.showStandardInclusions ? ctx.inclusions : { included: [], optional: [] };
   const showStandards = standards.included.length + standards.optional.length > 0;
   const schedule = scheduleContent(ctx);
-  const t = (sie: string, du: string) => kundenText(ctx.branding.firmaSlug, sie, du);
+  const t = (sie: string, du: string) => kundenText(ctx.branding, sie, du);
   const steps = nextSteps(ctx.branding.firmaSlug, {
     alreadyAccepted,
     offerExpired,
@@ -150,8 +152,8 @@ export function FestangebotView({
         <article className="portal-panel portal-brief portal-fest-offer" aria-label={t("Ihr Angebot", "Dein Angebot")}>
           <BriefAnrede
             branding={ctx.branding}
-            anrede={briefAnrede(ctx.customerDisplayName)}
-            einleitung={briefEinleitung(zustand, schedule.showDate ? schedule.dateLabel : null, angenommenAm, ctx.leistung, ctx.branding.firmaSlug)}
+            anrede={portalBriefAnrede(ctx)}
+            einleitung={briefEinleitung(zustand, schedule.showDate ? schedule.dateLabel : null, angenommenAm, ctx.leistung, ctx.branding)}
           />
 
           <div className="portal-brief-preis">
@@ -290,7 +292,7 @@ export function FestangebotView({
             <div className="leading-tight">
               <div className="portal-fest-kicker">Festpreis</div>
               <div className="portal-fest-bar-price display text-lg font-medium tabular-nums">{formatPortalMoney(displayTotalCents)}</div>
-              {preis.tag && <div className="text-[10px] text-muted-foreground">{preis.tagGewaehlt ? "an diesem Tag" : "am empfohlenen Termin"}</div>}
+              {preis.tag && <div className="text-[10px] text-muted-foreground">{terminPreisHinweis(preis.tag.date, preis.tagGewaehlt)}</div>}
             </div>
             {acceptBlock === "kv_veraltet" ? (
               <p className="max-w-[60%] flex-1 text-right text-xs font-medium leading-snug">{kvVeraltetTitel(ctx.branding.firmaSlug)}</p>
@@ -349,10 +351,10 @@ function AcceptButton({
         {!acceptBlock && <ArrowRight size={17} aria-hidden />}
       </button>
       {acceptBlock === "termin_offen" && (
-        <p>{kundenText(ctx.branding.firmaSlug, "Der Termin wird noch mit Ihnen abgestimmt. Danach können Sie das Angebot hier annehmen.", "Der Termin wird noch mit dir abgestimmt. Danach kannst du das Angebot hier annehmen.")}</p>
+        <p>{kundenText(ctx.branding, "Der Termin wird noch mit Ihnen abgestimmt. Danach können Sie das Angebot hier annehmen.", "Der Termin wird noch mit dir abgestimmt. Danach kannst du das Angebot hier annehmen.")}</p>
       )}
-      {acceptBlock === "date" && <p>{kundenText(ctx.branding.firmaSlug, "Bitte wählen Sie oben einen Termin.", "Bitte wähle oben einen Termin.")}</p>}
-      {!acceptBlock && <p>{kundenText(ctx.branding.firmaSlug, "Im nächsten Schritt bestätigen Sie Ihr Angebot. Anschließend erhalten Sie Ihre Bestätigung.", "Im nächsten Schritt bestätigst du dein Angebot. Anschließend erhältst du deine Bestätigung.")}</p>}
+      {acceptBlock === "date" && <p>{kundenText(ctx.branding, "Bitte wählen Sie oben einen Termin.", "Bitte wähle oben einen Termin.")}</p>}
+      {!acceptBlock && <p>{kundenText(ctx.branding, "Im nächsten Schritt bestätigen Sie Ihr Angebot. Anschließend erhalten Sie Ihre Bestätigung.", "Im nächsten Schritt bestätigst du dein Angebot. Anschließend erhältst du deine Bestätigung.")}</p>}
     </div>
   );
 }
@@ -363,7 +365,7 @@ function ExpiredNotice({ ctx }: { ctx: CustomerPortalContext }) {
   return (
     <div className="portal-fest-expired-note">
       <p>
-        <Info size={16} aria-hidden /> {terminVorbei ? terminVorbeiHinweis(ctx.branding.firmaSlug) : "Dieses Angebot ist abgelaufen."}
+        <Info size={16} aria-hidden /> {terminVorbei ? terminVorbeiHinweis(ctx.branding) : "Dieses Angebot ist abgelaufen."}
       </p>
       <WhatsAppContactLink
         phoneE164={ctx.branding.whatsappNumberE164}
@@ -377,7 +379,7 @@ function ExpiredNotice({ ctx }: { ctx: CustomerPortalContext }) {
                 `Guten Tag ${ctx.branding.displayName}, das Angebot zu meinem Auftrag ${ctx.dealNumber} ist abgelaufen. Kannst du mir bitte ein aktualisiertes Angebot senden?`,
               )
         }
-        fallback={<p>{kundenText(ctx.branding.firmaSlug, "Antworten Sie auf die Nachricht, mit der Sie diesen Link erhalten haben.", "Antworte auf die Nachricht, mit der du diesen Link erhalten hast.")}</p>}
+        fallback={<p>{kundenText(ctx.branding, "Antworten Sie auf die Nachricht, mit der Sie diesen Link erhalten haben.", "Antworte auf die Nachricht, mit der du diesen Link erhalten hast.")}</p>}
       />
     </div>
   );
@@ -423,8 +425,7 @@ function scheduleContent(ctx: CustomerPortalContext) {
       ? `${scope.timeStart} bis ${scope.timeEnd} Uhr`
       : `ab ${scope.timeStart} Uhr`
     : null;
-  const anfahrt = ctx.kva?.calculationAssumptions?.anfahrtMinuten;
-  const anfahrtLabel = anfahrt != null ? `ca. ${anfahrt} Min.` : null;
+  const anfahrtLabel = anfahrtKundenText(ctx.kva?.calculationAssumptions);
   const note = [scope.specialRequests, scope.inventoryNotes].map((part) => part?.trim()).filter(Boolean).join("\n") || null;
   const showFrom = !!scope.fromAddress;
   const showTo = !!scope.toAddress;

@@ -72,7 +72,7 @@ describe.skipIf(!url)("Portal und AB nach F1 (DB)", { timeout: 20_000 }, () => {
     for (const wort of ["Schnellschätzung", "Mietstation", "670 bis 1180", "Obergrenze", "selbstkosten"]) {
       expect(json).not.toContain(wort);
     }
-    expect(c.kva?.calculationAssumptions).toMatchObject({ anfahrtMinuten: 55, etageVon: "3", hinweis: null });
+    expect(c.kva?.calculationAssumptions).toMatchObject({ anfahrtMinuten: null, anfahrtKm: null, etageVon: "3", hinweis: null });
   });
 
   it("Kalkulationsgrundlagen: bleibt nur der Rechner-Hinweis, entfällt der Abschnitt (null im Kontext)", async () => {
@@ -89,7 +89,7 @@ describe.skipIf(!url)("Portal und AB nach F1 (DB)", { timeout: 20_000 }, () => {
     const c = (await portal.loadContextByToken(d.token))!;
     expect(JSON.stringify(c)).not.toContain("Schnellschätzung");
     expect(JSON.stringify(c)).not.toContain("rechnerHinweis");
-    expect(c.kva?.calculationAssumptions).toMatchObject({ anfahrtMinuten: 40 });
+    expect(c.kva?.calculationAssumptions).toBeNull();
   });
 
   it("Stunden-KV aus der Version: die AB aus dem Annahme-Schnappschuss nennt die Schätzung wie der KV (K2)", async () => {

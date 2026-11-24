@@ -4,6 +4,7 @@ import {
   stundenAnzeige,
   stundenZahl,
   tagKurz,
+  terminPreisHinweis,
   type KvaSnapshot,
   type PortalPreis,
   type StundenAnzeige,
@@ -53,7 +54,7 @@ export function PreisZusatz({
   const tagZeile = preis.tag
     ? preis.tagGewaehlt
       ? `Preis an diesem Tag: ${tagKurz(preis.tag.date)}`
-      : `Preis am empfohlenen Termin ${tagKurz(preis.tag.date)}`
+      : `Preis ${terminPreisHinweis(preis.tag.date, false)} ${tagKurz(preis.tag.date)}`
     : null;
   const stundenZeile =
     stunden?.modell === "version"

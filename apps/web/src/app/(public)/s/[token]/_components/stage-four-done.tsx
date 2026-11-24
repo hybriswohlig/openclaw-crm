@@ -11,7 +11,7 @@ import { DocumentsSection } from "./documents-section";
 import { SuccessBanner, OrderDetails, ContactPanel, CrewPanel, CompletionSummary, PanelHeading } from "./portal-ui";
 
 export function StageFourDone({ token, ctx }: { token: string; ctx: CustomerPortalContext }) {
-  const t = (sie: string, du: string) => kundenText(ctx.branding.firmaSlug, sie, du);
+  const t = (sie: string, du: string) => kundenText(ctx.branding, sie, du);
   return <div className="portal-columns">
     <div className="portal-stack">
       <SuccessBanner ctx={ctx} completed />

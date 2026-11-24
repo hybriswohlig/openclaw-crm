@@ -14,7 +14,7 @@ export function StageTwoAb({ ctx, token }: { ctx: CustomerPortalContext; token: 
       <DocumentsSection ctx={ctx} token={token} preview />
       <ContactPanel ctx={ctx} token={token} />
       {worte(ctx).checkliste && <details className="portal-panel"><summary className="cursor-pointer font-semibold">{`Gut vorbereitet für ${worte(ctx).deinAkk}`}</summary><div className="mt-4"><MovingChecklist token={token} /></div></details>}
-      <PortalRequestForm token={token} firmaSlug={ctx.branding.firmaSlug} kind="reschedule" triggerLabel="Terminänderung anfragen" title="Terminänderung anfragen" intro={kundenText(ctx.branding.firmaSlug, "Nennen Sie uns gern bis zu drei Wunschtermine. Wir prüfen die Verfügbarkeit und melden uns.", "Nenne uns gern bis zu drei Wunschtermine. Wir prüfen die Verfügbarkeit und melden uns.")} primaryColor={ctx.branding.primaryColor} />
+      <PortalRequestForm token={token} firmaSlug={ctx.branding.firmaSlug} kind="reschedule" triggerLabel="Terminänderung anfragen" title="Terminänderung anfragen" intro={kundenText(ctx.branding, "Nennen Sie uns gern bis zu drei Wunschtermine. Wir prüfen die Verfügbarkeit und melden uns.", "Nenne uns gern bis zu drei Wunschtermine. Wir prüfen die Verfügbarkeit und melden uns.")} primaryColor={ctx.branding.primaryColor} />
     </div>
     <aside className="portal-stack"><OrderDetails ctx={ctx} token={token} /><CrewPanel ctx={ctx} /></aside>
   </div>;

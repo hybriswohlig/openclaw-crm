@@ -1,11 +1,13 @@
 "use client";
 
 import { FileText, Printer, Download } from "lucide-react";
-import { angezeigterPreis, annahmeKvSperre, kundenText, logoFuer, pickDefaultDealOption, stundenAnzeige, stundensatzText, stundenVersionText, tagKurz, type CustomerPortalContext } from "@openclaw-crm/customer-portal-core";
+import { angezeigterPreis, annahmeKvSperre, kundenText, logoFuer, pickDefaultDealOption, stundenAnzeige, stundensatzText, stundenVersionText, tagKurz, terminPreisHinweis, type CustomerPortalContext } from "@openclaw-crm/customer-portal-core";
 import { EmailDocumentButton } from "./email-document-button";
 import { PanelHeading } from "./portal-ui";
 import { formatPortalDate, formatPortalMoney } from "./portal-presentation";
+import { anfahrtKundenSatz } from "@/lib/kunden-anfahrt";
 import { kundenAnnahmen } from "@/lib/kunden-annahmen";
+import { portalEmpfaengerName } from "./brief";
 import { RestbetragHinweis } from "./restbetrag-hinweis";
 import { adressZeilen, annahmenLabels, worte } from "./leistung-worte";
 
@@ -18,7 +20,7 @@ import { adressZeilen, annahmenLabels, worte } from "./leistung-worte";
  */
 export function QuotationPreview({ ctx, token, variant = "full", emailImBrief = false }: { ctx: CustomerPortalContext; token: string; variant?: "full" | "file"; emailImBrief?: boolean }) {
   if (!ctx.kva) return null;
-  const t = (sie: string, du: string) => kundenText(ctx.branding.firmaSlug, sie, du);
+  const t = (sie: string, du: string) => kundenText(ctx.branding, sie, du);
   const kvVeraltet = !ctx.acceptance && !!annahmeKvSperre(ctx.annahmeRecht.kvStand);
   const pdfFolgt = kvVeraltet ? " Das PDF dazu erstellen wir gerade neu." : "";
   if (ctx.documents.quotationUrl && !kvVeraltet) return <section className="portal-panel" id="portal-quotation-preview">
@@ -54,7 +56,8 @@ export function QuotationPreview({ ctx, token, variant = "full", emailImBrief = 
       </header>
       <h3>Kostenvoranschlag</h3>
       <p>Auftragsnummer: {ctx.dealNumber}</p>
-      {ctx.customerDisplayName && <p>Für: {ctx.customerDisplayName}</p>}
+      {portalEmpfaengerName(ctx) && <p>Für: {portalEmpfaengerName(ctx)}</p>}
+      {ctx.dokumentAnschrift?.zeile && <p>{ctx.dokumentAnschrift.zeile}</p>}
       {ctx.scope.moveDate && <p>{worte(ctx).termin}: {formatPortalDate(ctx.scope.moveDate)}{ctx.scope.timeStart && `, ab ${ctx.scope.timeStart} Uhr`}</p>}
       {adressZeilen(ctx).length > 0 && <div className="my-4 grid gap-3 sm:grid-cols-2">{adressZeilen(ctx).map((a) => <p key={a.key}><strong>{a.label}</strong><br />{a.adresse}{a.etage != null && <span className="block">{a.etage === 0 ? "Erdgeschoss" : `${a.etage}. OG`}</span>}{a.zugang && <span className="block">{a.zugang}</span>}</p>)}</div>}
       {ctx.kva.summary && <p className="mt-4 whitespace-pre-line">{ctx.kva.summary}</p>}
@@ -68,12 +71,12 @@ export function QuotationPreview({ ctx, token, variant = "full", emailImBrief = 
         : <div className="portal-document-total"><span>{ctx.kva.isVariable ? "Voraussichtlicher Gesamtbetrag" : "Gesamtbetrag"}</span><strong className="portal-price">{formatPortalMoney(total)}</strong></div>}
       {stunden?.modell === "version" && <p className="mt-2">{stundenVersionText(stunden.stunden, formatPortalMoney).replace(/^v/, "V")}.</p>}
       {stunden?.modell === "alt" && <p className="mt-2">{stundensatzText(stunden.satzCents, formatPortalMoney)}, abgerechnet nach tatsächlichem Aufwand.</p>}
-      {preis.tag && <p className="mt-2">{preis.tagGewaehlt ? `Preis an diesem Tag: ${tagKurz(preis.tag.date)}` : `Preis am empfohlenen Termin ${tagKurz(preis.tag.date)} Mit der Terminwahl kann er sich ändern.`}</p>}
+      {preis.tag && <p className="mt-2">{preis.tagGewaehlt ? `Preis an diesem Tag: ${tagKurz(preis.tag.date)}` : `Preis ${terminPreisHinweis(preis.tag.date, false)} ${tagKurz(preis.tag.date)} Mit der Terminwahl kann er sich ändern.`}</p>}
       {!!ctx.kva.depositRequiredCents && <p className="mt-3">Vereinbarte Anzahlung: {formatPortalMoney(ctx.kva.depositRequiredCents)}</p>}
       <RestbetragHinweis firmaSlug={ctx.branding.firmaSlug} serviceType={ctx.annahmeRecht.serviceType} className="mt-3" />
       {ctx.kva.validUntil && <p className="mt-3">Gültig bis: {formatPortalDate(ctx.kva.validUntil)}</p>}
       {(ctx.scope.specialRequests || ctx.scope.inventoryNotes) && <p className="mt-4 whitespace-pre-line"><strong>Besonderheiten</strong><br />{[ctx.scope.specialRequests, ctx.scope.inventoryNotes].filter(Boolean).join("\n")}</p>}
-      {grundlagen.length > 0 && <div className="mt-4"><strong>Kalkulationsgrundlagen</strong><ul>{grundlagen.map(([key, value]) => <li key={key}>{annahmenLabels(ctx)[key] ?? key}: {String(value)}</li>)}</ul></div>}
+      {(anfahrtKundenSatz(ctx.kva.calculationAssumptions) || grundlagen.length > 0) && <div className="mt-4"><strong>Kalkulationsgrundlagen</strong><ul>{anfahrtKundenSatz(ctx.kva.calculationAssumptions) && <li>{anfahrtKundenSatz(ctx.kva.calculationAssumptions)}</li>}{grundlagen.map(([key, value]) => <li key={key}>{annahmenLabels(ctx)[key] ?? key}: {String(value)}</li>)}</ul></div>}
       {ctx.branding.agbPdfUrl && <p className="mt-4"><a href={ctx.branding.agbPdfUrl} className="underline">Allgemeine Geschäftsbedingungen</a></p>}
     </article>;
   if (variant === "file") return <section className="portal-panel" id="portal-quotation-preview">

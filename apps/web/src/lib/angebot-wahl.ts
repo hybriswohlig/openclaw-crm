@@ -14,6 +14,7 @@
  */
 
 import type { BuchungsAnteil, KapazitaetTon } from "@/lib/einsatz";
+import { wertstoffhofGeschlossen } from "@/lib/feiertag-bw";
 import type { Uebersteuerung } from "@/lib/kalkulation-versionen";
 import type { HebelArt, KvPosten } from "@/services/rechner/kv-posten";
 import type { KvStandZiel } from "@/lib/kv-editor";
@@ -316,7 +317,9 @@ export function wahlPreis(v: VersionsPreise, w: AngebotsWahl): { priceCents: num
 
 /** Wahl, die Quotation und Versions-Kapsel zeigen: empfohlenes Paket am empfohlenen (sonst ersten) Tag. */
 export function standardWahl(v: Pick<VersionsPreise, "dayPrices">, empfohlenesPaket: string | null): AngebotsWahl {
-  const tag = v.dayPrices.find((t) => t.empfohlen) ?? v.dayPrices[0] ?? null;
+  const offen = v.dayPrices.filter((t) => !wertstoffhofGeschlossen(t.datum));
+  const pool = offen.length > 0 ? offen : v.dayPrices;
+  const tag = pool.find((t) => t.empfohlen && !wertstoffhofGeschlossen(t.datum)) ?? pool[0] ?? null;
   return { paketSlug: empfohlenesPaket, datum: tag?.datum ?? null };
 }
 

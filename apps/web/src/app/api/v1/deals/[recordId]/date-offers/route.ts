@@ -25,7 +25,7 @@ import { getAuthContext, unauthorized, success, badRequest } from "@/lib/api-uti
 import { dealImWorkspace, dealNichtGefunden } from "@/lib/kalkulation-versionen-antwort";
 import { db } from "@/db";
 import { quotationDateOffers, customerDateSelections } from "@/db/schema/customer-portal";
-import { replaceDateOffers, TermineMitPreisError, type DateOfferInput } from "@/services/customer-portal-data";
+import { GeschlossenerTagError, replaceDateOffers, TermineMitPreisError, type DateOfferInput } from "@/services/customer-portal-data";
 
 export const dynamic = "force-dynamic";
 
@@ -36,6 +36,11 @@ const MAX_SLOTS = 6;
 function termineMitPreisAntwort(err: unknown): NextResponse | null {
   if (!(err instanceof TermineMitPreisError)) return null;
   return NextResponse.json({ error: { code: err.code, message: err.message } }, { status: 409 });
+}
+
+function geschlossenerTagAntwort(err: unknown): NextResponse | null {
+  if (!(err instanceof GeschlossenerTagError)) return null;
+  return NextResponse.json({ error: { code: err.code, message: err.message } }, { status: 400 });
 }
 
 export async function GET(
@@ -145,7 +150,7 @@ export async function PUT(
     });
     return success({ count: result.count });
   } catch (err) {
-    const gesperrt = annahmeSperrAntwort(err) ?? termineMitPreisAntwort(err);
+    const gesperrt = annahmeSperrAntwort(err) ?? termineMitPreisAntwort(err) ?? geschlossenerTagAntwort(err);
     if (gesperrt) return gesperrt;
     throw err;
   }

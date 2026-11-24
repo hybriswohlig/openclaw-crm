@@ -116,6 +116,7 @@ export function buildDocumentModel(input: RenderInput): DocumentModel {
     customerName: recipientName,
     givenName: input.deal.givenName,
     businessCustomer: business,
+    letterSalutation: input.deal.letterSalutation,
     serviceDate: input.deal.serviceDate,
     dueDate: input.deal.dueDate,
     firma: input.deal.firma,
@@ -140,9 +141,11 @@ export function buildDocumentModel(input: RenderInput): DocumentModel {
       ? buildChoices({ choices: input.choices, totalCents, addressForm: wording.addressForm })
       : null;
   const summary = withoutPriceSentences(cleanCopy(input.quotation.summary ?? undefined));
-  const recipientLines = [recipientName, input.deal.customerAddress?.trim() || undefined].filter(
-    (line): line is string => Boolean(line)
-  );
+  const recipientLines = [
+    recipientName,
+    input.deal.representedByLine?.trim() || undefined,
+    input.deal.customerAddress?.trim() || undefined,
+  ].filter((line): line is string => Boolean(line));
 
   return {
     templateVersion: TEMPLATE_VERSION,

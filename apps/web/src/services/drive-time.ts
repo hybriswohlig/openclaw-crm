@@ -312,3 +312,28 @@ export async function matrixVonOrten(
   );
   return ergebnisse.flat();
 }
+
+/**
+ * Eine Strecke zwischen zwei Adressen. Ohne API-Schlüssel oder bei einem
+ * Fehler null: der Aufrufer (Angebotsübernahme) darf daran nicht scheitern
+ * und soll kein Netz anfassen, wenn der Schlüssel fehlt.
+ */
+export async function streckeZwischenAdressen(
+  von: string,
+  nach: string
+): Promise<{ km: number; minuten: number } | null> {
+  const apiKey = process.env.GOOGLE_MAPS_API_KEY?.trim();
+  const start = von.trim();
+  const ziel = nach.trim();
+  if (!apiKey || !start || !ziel) return null;
+  try {
+    const { leg, warning } = await fetchLeg(apiKey, start, ziel, "Firmensitz", "Einsatzort");
+    if (warning || leg.meters <= 0) return null;
+    return {
+      km: Math.round((leg.meters / 1000) * 10) / 10,
+      minuten: Math.max(1, Math.round(leg.seconds / 60)),
+    };
+  } catch {
+    return null;
+  }
+}

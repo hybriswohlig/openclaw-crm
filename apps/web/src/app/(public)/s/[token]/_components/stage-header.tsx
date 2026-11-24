@@ -2,6 +2,7 @@
 
 import { Check } from "lucide-react";
 import { festangebotStatusStep, kundenText, logoFuer, type CustomerPortalContext } from "@openclaw-crm/customer-portal-core";
+import { portalEmpfaengerName } from "./brief";
 import { worte } from "./leistung-worte";
 import { portalOfferView } from "./portal-presentation";
 import { stempel, vorgangsSchritte } from "./brief";
@@ -42,13 +43,14 @@ export function StageHeader({ ctx }: { ctx: CustomerPortalContext }) {
       {!fest && (
         <p className="portal-briefkopf-intro">
           {kundenText(
-            ctx.branding.firmaSlug,
-            `${ctx.customerDisplayName ? `${ctx.customerDisplayName}, hier` : "Hier"} sehen Sie alle Details zu ${w.deinDat}, den aktuellen Stand und Ihre Dokumente.`,
-            `${ctx.customerDisplayName ? `${ctx.customerDisplayName}, hier` : "Hier"} siehst du alle Details zu ${w.deinDat}, den aktuellen Stand und deine Dokumente.`,
+            ctx.branding,
+            `${portalEmpfaengerName(ctx) ? `${portalEmpfaengerName(ctx)}, hier` : "Hier"} sehen Sie alle Details zu ${w.deinDat}, den aktuellen Stand und Ihre Dokumente.`,
+            `${portalEmpfaengerName(ctx) ? `${portalEmpfaengerName(ctx)}, hier` : "Hier"} siehst du alle Details zu ${w.deinDat}, den aktuellen Stand und deine Dokumente.`,
           )}
+          {ctx.dokumentAnschrift?.zeile ? <span className="block">{ctx.dokumentAnschrift.zeile}</span> : null}
         </p>
       )}
-      <ol className="portal-progress portal-vorgang" aria-label={kundenText(ctx.branding.firmaSlug, "Fortschritt Ihres Auftrags", "Fortschritt deines Auftrags")}>
+      <ol className="portal-progress portal-vorgang" aria-label={kundenText(ctx.branding, "Fortschritt Ihres Auftrags", "Fortschritt deines Auftrags")}>
         {schritte.map((s) => (
           <li key={s.titel} data-state={s.zustand} aria-current={s.zustand === "aktuell" ? "step" : undefined}>
             <span className="portal-step-title">

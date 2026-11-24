@@ -39,7 +39,7 @@ export function UnterschriftForm({
   onSigned: () => void | Promise<void>;
 }) {
   const [art, setArt] = useState<UnterschriftArt>("gezeichnet");
-  const [name, setName] = useState(ctx.acceptance?.acceptedFullName ?? ctx.customerDisplayName ?? "");
+  const [name, setName] = useState(ctx.acceptance?.acceptedFullName ?? ctx.dokumentAnschrift?.name ?? ctx.customerDisplayName ?? "");
   const [bild, setBild] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -102,7 +102,8 @@ export function UnterschriftForm({
   const acceptance = ctx.acceptance;
   return (
     <div className="space-y-4">
-      <p className="text-sm leading-relaxed">{unterschriftHinweis(kundenAnrede(firma))}</p>
+      <p className="text-sm leading-relaxed">{unterschriftHinweis(kundenAnrede(ctx.branding))}</p>
+      {ctx.dokumentAnschrift?.zeile ? <p className="text-sm">{ctx.dokumentAnschrift.zeile}</p> : null}
       {acceptance && (
         <p className="rounded-lg bg-muted/50 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
           Auftrag {ctx.dealNumber} · {formatPortalMoney(acceptance.confirmedTotalCents)}

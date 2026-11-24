@@ -106,7 +106,7 @@ function DealOptionPicker({
   const [error, setError] = useState<string | null>(null);
 
   const accent = `#${branding.primaryColor}`;
-  const t = (sie: string, du: string) => kundenText(branding.firmaSlug, sie, du);
+  const t = (sie: string, du: string) => kundenText(branding, sie, du);
   const defaulted = pickDefaultDealOption(offers.options, offers.selectedOptionId);
   const currentId = defaulted?.id ?? offers.selectedOptionId;
 
@@ -227,7 +227,7 @@ function CataloguePicker({
   if (packages.available.length === 0) return null;
 
   const accent = `#${branding.primaryColor}`;
-  const t = (sie: string, du: string) => kundenText(branding.firmaSlug, sie, du);
+  const t = (sie: string, du: string) => kundenText(branding, sie, du);
   const currentSlug = packages.selectedSlug;
 
   async function pick(slug: string) {
@@ -348,7 +348,7 @@ function PackageCard({ pkg, branding, isSelected, isPending, disabled, onTap }: 
     <div className="portal-package-price-wrap"><div className="portal-price portal-package-price">{hasPrice ? formatPortalMoney(pkg.priceFromCents!) : "Auf Anfrage"}</div><p className="portal-package-price-label">{hasPrice ? pkg.priceFixedFlag ? "Festpreis" : "Ab-Preis, individuelles Angebot folgt" : "Individuelles Angebot"}</p></div>
     <ul className="portal-package-features">{pkg.includedItems.map((item, i) => <li key={i}><Check aria-hidden /><span>{item}</span></li>)}</ul>
     {pkg.targetSegment && <p className="mb-3 text-xs text-muted-foreground">{pkg.targetSegment}</p>}
-    <div className="portal-package-cta">{hasPrice ? <span className={`portal-button ${isSelected ? "" : "portal-button-secondary"}`}>{isPending ? <Loader2 size={17} className="animate-spin" aria-hidden /> : isSelected ? <Check size={17} aria-hidden /> : <FileText size={17} aria-hidden />}{isPending ? "Wird gespeichert…" : isSelected ? "Aktuell ausgewählt" : "Paket auswählen"}</span> : <WhatsAppContactLink phoneE164={branding.whatsappNumberE164} label="Angebot anfragen" message={`Hallo ${branding.displayName}, ich interessiere mich für das Paket ${pkg.displayName}.`} className="portal-button portal-button-secondary" fallback={<span className="text-xs text-muted-foreground">{kundenText(branding.firmaSlug, "Antworten Sie uns für ein Angebot im bestehenden Chat.", "Antworte uns für ein Angebot im bestehenden Chat.")}</span>} />}</div>
+    <div className="portal-package-cta">{hasPrice ? <span className={`portal-button ${isSelected ? "" : "portal-button-secondary"}`}>{isPending ? <Loader2 size={17} className="animate-spin" aria-hidden /> : isSelected ? <Check size={17} aria-hidden /> : <FileText size={17} aria-hidden />}{isPending ? "Wird gespeichert…" : isSelected ? "Aktuell ausgewählt" : "Paket auswählen"}</span> : <WhatsAppContactLink phoneE164={branding.whatsappNumberE164} label="Angebot anfragen" message={`Hallo ${branding.displayName}, ich interessiere mich für das Paket ${pkg.displayName}.`} className="portal-button portal-button-secondary" fallback={<span className="text-xs text-muted-foreground">{kundenText(branding, "Antworten Sie uns für ein Angebot im bestehenden Chat.", "Antworte uns für ein Angebot im bestehenden Chat.")}</span>} />}</div>
   </>;
   return <li>{hasPrice ? <button type="button" className="portal-package-card" onClick={onTap} disabled={disabled} aria-pressed={isSelected} aria-busy={isPending}>{body}</button> : <div className="portal-package-card">{body}</div>}</li>;
 }

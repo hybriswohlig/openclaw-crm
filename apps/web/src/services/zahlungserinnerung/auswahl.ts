@@ -26,6 +26,7 @@ import { ladeZahlungsregel } from "@/services/company-settings";
 import { ensureCustomerStatusLink, loadContextByToken } from "@/services/customer-portal-data";
 import { istCeylanWhatsApp } from "@/services/nachfass/konstanten";
 import { sperreAusText } from "@/services/nachfass/logik";
+import { anredenAmDeal } from "@/services/dokument-empfaenger";
 
 const ERINNERUNG_STATUS = new Set<ErinnerungStatus>(["entwurf", "gesendet", "verworfen", "gestoppt"]);
 
@@ -196,6 +197,7 @@ export async function ladeKandidaten(ws: string, jetzt: Date): Promise<Erinnerun
     (m) => m.dealRecordId as string
   );
 
+  const anredeGesetzt = await anredenAmDeal(rechnungen.map((r) => r.deal_record_id));
   const heute = berlinTag(jetzt);
   const regeln = new Map<string, FirmenZahlungsregel>();
   const portale = new Map<string, { token: string | null; name: string | null; signatur: string | null }>();
@@ -205,7 +207,7 @@ export async function ladeKandidaten(ws: string, jetzt: Date): Promise<Erinnerun
     const dealId = rechnung.deal_record_id;
     const firmaName = (rechnung.firma_name ?? "").trim();
     const firma = firmaName.toLowerCase().includes("ceylan") ? "ceylan" : "kottke";
-    const anrede = firma === "ceylan" ? "sie" : "du";
+    const anrede = anredeGesetzt.get(dealId) ?? (firma === "ceylan" ? "sie" : "du");
     const bruttoCent = ganzzahl(rechnung.brutto_cent);
     const rechnungstag = tag(rechnung.rechnungstag);
     const faelligAm = tag(rechnung.faellig_am);

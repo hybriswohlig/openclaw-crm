@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Loader2, Plus, X, Calendar, Star } from "lucide-react";
+import { wertstoffhofGeschlossen } from "@/lib/feiertag-bw";
 
 /**
  * Operator-side composer for the multi-date offer.
@@ -101,7 +102,14 @@ export function DateOfferComposer({ dealRecordId }: { dealRecordId: string }) {
   }
 
   function patchOffer(id: string, patch: Partial<OfferInput>) {
-    setOffers((prev) => prev.map((o) => (o.id === id ? { ...o, ...patch } : o)));
+    setOffers((prev) =>
+      prev.map((o) => {
+        if (o.id !== id) return o;
+        const next = { ...o, ...patch };
+        if (wertstoffhofGeschlossen(next.date)) next.isRecommended = false;
+        return next;
+      })
+    );
   }
 
   function removeOffer(id: string) {
@@ -145,9 +153,11 @@ export function DateOfferComposer({ dealRecordId }: { dealRecordId: string }) {
   }
 
   function setRecommended(id: string) {
-    setOffers((prev) =>
-      prev.map((o) => ({ ...o, isRecommended: o.id === id }))
-    );
+    setOffers((prev) => {
+      const ziel = prev.find((o) => o.id === id);
+      if (!ziel || wertstoffhofGeschlossen(ziel.date)) return prev;
+      return prev.map((o) => ({ ...o, isRecommended: o.id === id && !wertstoffhofGeschlossen(o.date) }));
+    });
   }
 
   async function save() {
@@ -167,7 +177,7 @@ export function DateOfferComposer({ dealRecordId }: { dealRecordId: string }) {
               }))
               .filter((s) => s.label),
             note: o.note.trim() || null,
-            isRecommended: o.isRecommended,
+            isRecommended: o.isRecommended && !wertstoffhofGeschlossen(o.date),
           }))
           .filter((o) => o.slots.length > 0),
       };
@@ -250,6 +260,8 @@ export function DateOfferComposer({ dealRecordId }: { dealRecordId: string }) {
               />
               <button
                 type="button"
+                disabled={wertstoffhofGeschlossen(o.date)}
+                title={wertstoffhofGeschlossen(o.date) ? "Sonntag und Feiertag werden nicht empfohlen" : undefined}
                 onClick={() => setRecommended(o.id)}
                 className={
                   "inline-flex h-8 items-center gap-1 rounded-md border px-2 text-[11px] font-medium transition " +

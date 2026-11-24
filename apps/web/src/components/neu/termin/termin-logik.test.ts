@@ -320,10 +320,13 @@ describe("Entrümpelung: keine Sonntage und keine Feiertage", () => {
     expect(montag.auswahl[0]!.empfohlen).toBe(true);
   });
 
-  it("ohne Sperre bleiben Feiertag und Sonntag wählbar (Umzug)", () => {
+  it("ohne Sperre bleiben Feiertag und Sonntag wählbar (Umzug), aber nie empfohlen", () => {
     const weihnacht = tagUmschalten([], "2026-12-25", HEUTE_DEZ);
     expect(weihnacht.fehler).toBeNull();
-    expect(weihnacht.auswahl[0]!.empfohlen).toBe(true);
+    expect(weihnacht.auswahl[0]!.empfohlen).toBe(false);
+    const mitMontag = tagUmschalten(weihnacht.auswahl, "2026-12-28", HEUTE_DEZ);
+    expect(mitMontag.auswahl.find((t) => t.empfohlen)?.datum).toBe("2026-12-28");
+    expect(auswahlPruefen(weihnacht.auswahl, HEUTE_DEZ)).not.toContain("Bitte genau einen Tag empfehlen.");
   });
 
   it("ein schon empfohlener geschlossener Tag wird nicht empfohlen, ein offener rückt nach", () => {

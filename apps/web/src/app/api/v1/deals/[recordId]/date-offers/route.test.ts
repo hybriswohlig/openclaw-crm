@@ -52,6 +52,12 @@ vi.mock("@/services/customer-portal-data", () => ({
       super("Termine mit Preis bitte im Termin-Dialog ändern.");
     }
   },
+  GeschlossenerTagError: class GeschlossenerTagError extends Error {
+    readonly code = "TAG_GESCHLOSSEN";
+    constructor() {
+      super("An diesem Tag ist der Wertstoffhof geschlossen.");
+    }
+  },
 }));
 
 import { DELETE, GET, PUT } from "./route";

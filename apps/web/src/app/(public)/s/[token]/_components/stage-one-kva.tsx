@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import {
   angezeigterPreis,
+  terminPreisHinweis,
   annahmeKvSperre,
   kundenText,
   tagKurz,
@@ -15,6 +16,7 @@ import {
   type PortalPreis,
   type StundenAnzeige,
 } from "@openclaw-crm/customer-portal-core";
+import { anfahrtKundenText } from "@/lib/kunden-anfahrt";
 import { portalOfferView } from "./portal-presentation";
 import { JeStunde, PreisZusatz, preisArt, preisBetragCents, stundenVon } from "./preis-zusatz";
 import { FestangebotView } from "./festangebot-view";
@@ -199,7 +201,7 @@ export function StageOneKva({
                   {formatEurCents(preisBetragCents(displayTotalCents, stunden))}
                   <JeStunde stunden={stunden} />
                 </div>
-                {preis.tag && <div className="text-[10px] text-muted-foreground">{preis.tagGewaehlt ? "an diesem Tag" : "am empfohlenen Termin"}, {tagKurz(preis.tag.date)}</div>}
+                {preis.tag && <div className="text-[10px] text-muted-foreground">{terminPreisHinweis(preis.tag.date, preis.tagGewaehlt)}, {tagKurz(preis.tag.date)}</div>}
               </div>
               <p className="max-w-[60%] flex-1 text-right text-xs font-medium leading-snug">{kvVeraltetTitel(firma)}</p>
             </div>
@@ -213,7 +215,7 @@ export function StageOneKva({
                   {formatEurCents(preisBetragCents(displayTotalCents, stunden))}
                   <JeStunde stunden={stunden} />
                 </div>
-                {preis.tag && <div className="text-[10px] text-muted-foreground">{preis.tagGewaehlt ? "an diesem Tag" : "am empfohlenen Termin"}, {tagKurz(preis.tag.date)}</div>}
+                {preis.tag && <div className="text-[10px] text-muted-foreground">{terminPreisHinweis(preis.tag.date, preis.tagGewaehlt)}, {tagKurz(preis.tag.date)}</div>}
               </div>
               <button
                 type="button"
@@ -285,7 +287,7 @@ export function StageOneKva({
  * this on the next render.
  */
 function ChooseOfferPrompt({ branding }: { branding: { primaryColor: string; firmaSlug: string } }) {
-  const t = (sie: string, du: string) => kundenText(branding.firmaSlug, sie, du);
+  const t = (sie: string, du: string) => kundenText(branding, sie, du);
   return (
     <div className="rounded-2xl border bg-card p-5 text-sm shadow-sm">
       <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
@@ -337,7 +339,7 @@ function PriceCard({
 }) {
   const kva = ctx.kva!;
   const accent = `#${ctx.branding.primaryColor}`;
-  const t = (sie: string, du: string) => kundenText(ctx.branding.firmaSlug, sie, du);
+  const t = (sie: string, du: string) => kundenText(ctx.branding, sie, du);
   return (
     <div className="portal-offer-price-card relative overflow-hidden rounded-2xl border">
       {/* Thin accent rule at the very top — Stripe Checkout style. */}
@@ -550,12 +552,12 @@ function OfferExpiredNotice({ ctx }: { ctx: CustomerPortalContext }) {
   return (
     <div className="rounded-lg bg-muted/50 px-4 py-3 text-xs leading-relaxed text-muted-foreground">
       {terminVorbei ? (
-        <p className="font-medium text-foreground">{terminVorbeiHinweis(ctx.branding.firmaSlug)}</p>
+        <p className="font-medium text-foreground">{terminVorbeiHinweis(ctx.branding)}</p>
       ) : (
         <>
           <p className="font-medium text-foreground">Dieses Angebot ist abgelaufen.</p>
           <p className="mt-1">
-            {kundenText(ctx.branding.firmaSlug, "Schreiben Sie uns kurz, wir prüfen die Verfügbarkeit und senden Ihnen ein aktualisiertes Angebot.", "Schreib uns kurz, wir prüfen die Verfügbarkeit und senden dir ein aktualisiertes Angebot.")}
+            {kundenText(ctx.branding, "Schreiben Sie uns kurz, wir prüfen die Verfügbarkeit und senden Ihnen ein aktualisiertes Angebot.", "Schreib uns kurz, wir prüfen die Verfügbarkeit und senden dir ein aktualisiertes Angebot.")}
           </p>
         </>
       )}
@@ -574,7 +576,7 @@ function OfferExpiredNotice({ ctx }: { ctx: CustomerPortalContext }) {
           }
           fallback={
             <p>
-              {kundenText(ctx.branding.firmaSlug, "Antworten Sie einfach auf die Nachricht, mit der Sie diesen Link erhalten haben.", "Antworte einfach auf die Nachricht, mit der du diesen Link erhalten hast.")}
+              {kundenText(ctx.branding, "Antworten Sie einfach auf die Nachricht, mit der Sie diesen Link erhalten haben.", "Antworte einfach auf die Nachricht, mit der du diesen Link erhalten hast.")}
             </p>
           }
         />
@@ -592,7 +594,7 @@ function TrustLine({
 }) {
   return (
     <div className="px-1 text-center text-[11px] leading-relaxed text-muted-foreground">
-      {isVariable ? "Abrechnung nach dem vereinbarten Aufwand." : kundenText(branding.firmaSlug, "Maßgeblich sind die Leistungen und Angaben in Ihrem Angebot.", "Maßgeblich sind die Leistungen und Angaben in deinem Angebot.")}
+      {isVariable ? "Abrechnung nach dem vereinbarten Aufwand." : kundenText(branding, "Maßgeblich sind die Leistungen und Angaben in Ihrem Angebot.", "Maßgeblich sind die Leistungen und Angaben in deinem Angebot.")}
       <br />
       Persönlicher Ansprechpartner bei {branding.displayName}.
     </div>
@@ -619,12 +621,8 @@ function CalculationAssumptionsCard({
   const label = (key: "etageVon" | "etageBis" | "zugangVon" | "zugangBis", strecke: string) =>
     einOrt ? labels[key] : strecke;
   const rows: Array<[string, string]> = [];
-  if (a.anfahrtMinuten != null) {
-    rows.push([
-      "Anfahrt gesamt",
-      `ca. ${a.anfahrtMinuten} Min.${a.anfahrtQuelle === "manuell" ? " (Annahme)" : ""}`,
-    ]);
-  }
+  const anfahrt = anfahrtKundenText(a);
+  if (anfahrt) rows.push(["Anfahrt", anfahrt]);
   for (const [key, strecke] of [
     ["etageVon", "Etage Beladestelle"],
     ["etageBis", "Etage Entladestelle"],

@@ -34,7 +34,7 @@ export function WiderrufPanel({
 }) {
   const w = ctx.widerruf;
   const [open, setOpen] = useState(false);
-  const t = (sie: string, du: string) => kundenText(ctx.branding.displayName, sie, du);
+  const t = (sie: string, du: string) => kundenText(ctx.branding, sie, du);
 
   if (w.eingegangen) {
     const at = new Date(w.eingegangen.at);
@@ -95,7 +95,7 @@ function WiderrufDialog({
   onWiderrufen: () => void | Promise<void>;
 }) {
   const w = ctx.widerruf;
-  const t = (sie: string, du: string) => kundenText(ctx.branding.displayName, sie, du);
+  const t = (sie: string, du: string) => kundenText(ctx.branding, sie, du);
   const [name, setName] = useState(w.name ?? "");
   const [kanal, setKanal] = useState<WiderrufKanal>(standardKanal(w));
   const [email, setEmail] = useState("");

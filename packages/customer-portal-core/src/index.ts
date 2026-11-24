@@ -7,6 +7,7 @@ export * from "./paypal";
 export * from "./stamm";
 export * from "./annahme-recht";
 export * from "./anrede";
+export * from "./feiertage-bw";
 export * from "./rechtstexte";
 export * from "./widerruf";
 export * from "./unterschrift";

@@ -73,7 +73,7 @@ export async function kvNachrichtWeg(
 ): Promise<KvWeg> {
   const angepasst = opts.art === "angepasst";
   const deal = encodeURIComponent(dealId);
-  const [link, angebot, optionen, tage, kurzNeu, aenderung] = await Promise.all([
+  const [link, angebot, optionen, tage, kurzNeu, aenderung, dokument] = await Promise.all([
     statusLinkHolen(dealId),
     // Nach dem Push entfallen Preis, Pakete, Termine und die Plan-16-Änderung: der Text steht fest.
     angepasst ? null : apiAufruf<KvPreisAngebot | null>(`/api/v1/deals/${deal}/quotation`),
@@ -83,8 +83,10 @@ export async function kvNachrichtWeg(
     kurzVorher ? Promise.resolve(null) : apiAufruf<Kurzfassung>(`/api/v1/deals/${deal}/kurzfassung`),
     // Plan 16: ist das aktuelle Angebot eine geänderte Version, gilt die Änderungsnachricht.
     angepasst ? null : apiAufruf<AenderungsStandFuerKv>(`/api/v1/deals/${deal}/angebot-aenderung`),
+    apiAufruf<{ anrede?: "sie" | "du" | null }>(`/api/v1/deals/${deal}/dokument-empfaenger`),
   ]);
   const kurz = kurzVorher ?? (kurzNeu?.ok ? kurzNeu.data : null);
+  const anrede = dokument.ok ? dokument.data?.anrede ?? null : null;
   if (link.art !== "ok") {
     const m = statusLinkMeldung(link);
     const ziel =
@@ -98,6 +100,7 @@ export async function kvNachrichtWeg(
   const text = angepasst
     ? kvAngepasstNachricht({
         firma: kurz?.kunde.firma ?? null,
+        anrede,
         vorname: vornameAus(kurz?.name),
         url: link.url,
         dealNumber: link.dealNumber,
@@ -107,6 +110,7 @@ export async function kvNachrichtWeg(
         aenderung && aenderung.ok ? aenderung.data : null,
         kvFertigNachricht({
           firma: kurz?.kunde.firma ?? null,
+          anrede,
           vorname: vornameAus(kurz?.name),
           preis: kvPreisAus(
             angebot && angebot.ok ? angebot.data : null,

@@ -85,6 +85,10 @@ describe("Fix-Durchgang Bestätigung", () => {
       "Im Anhang findest du das angenommene Angebot als PDF und unsere AGB",
     );
     expect(bestaetigungsTextWhatsApp(umzug)).toContain("dein Auftrag ist verbindlich erteilt");
+    const sie = bestaetigungsTextWhatsApp({ ...umzug, anrede: "sie" });
+    expect(sie.startsWith("Guten Tag,")).toBe(true);
+    expect(sie).toContain("Ihr Auftrag ist verbindlich erteilt");
+    expect(sie).not.toContain("dein Auftrag");
     const ceylan = bestaetigungsMailText({
       ...umzug,
       firma: "Ceylan Umzüge & Transporte",

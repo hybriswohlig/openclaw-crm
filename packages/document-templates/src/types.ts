@@ -160,6 +160,13 @@ export interface DealFacts {
   /** From the conversation and the deal. Omitted means Sie. Ignored for a company. */
   addressForm?: AddressForm;
   /**
+   * Anrede des Auftraggebers auf dem Dokument, wenn der Name vom Kontakt abweicht.
+   * Frau/Herr nur bei Sie. Du bleibt „Hallo {Vorname},“.
+   */
+  letterSalutation?: "frau" | "herr" | "neutral" | null;
+  /** Zweite Empfängerzeile, z. B. „vertreten durch Elisabeth Bath (gesetzliche Betreuerin)“. */
+  representedByLine?: string | null;
+  /**
    * ISO due date from the deal or the quotation. Never filled with the
    * service date.
    */

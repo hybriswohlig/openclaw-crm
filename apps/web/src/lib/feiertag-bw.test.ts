@@ -4,6 +4,7 @@ import {
   istFeiertagBw,
   istSonntag,
   ostersonntag,
+  portalTermine,
   wertstoffhofGeschlossen,
   wertstoffhofSperre,
 } from "./feiertag-bw";
@@ -49,5 +50,23 @@ describe("Feiertage Baden-Württemberg", () => {
     expect(wertstoffhofSperre("entruempelung", [{ datum: "2026-12-28" }])).toBeNull();
     expect(wertstoffhofSperre("umzug", [{ datum: "2026-12-25" }, { datum: "2026-12-27" }])).toBeNull();
     expect(wertstoffhofSperre("kuechenmontage", [{ datum: "2026-01-01" }])).toBeNull();
+    expect(wertstoffhofSperre("clearance", [{ datum: "2026-12-27" }])).toMatch(/2026-12-27/);
+    expect(wertstoffhofSperre("clearance_move", [{ datum: "2026-12-25" }])).toBeNull();
+  });
+
+  it("Portal: Entrümpelung bietet 25.12. und Sonntag 27.12. nicht an, ein Umzug nie als empfohlen", () => {
+    const tage = [
+      { date: "2026-12-25", isRecommended: true },
+      { date: "2026-12-27", isRecommended: false },
+      { date: "2026-12-28", isRecommended: false },
+    ];
+    expect(portalTermine(tage, { serviceType: "clearance" }).map((t) => t.date)).toEqual(["2026-12-28"]);
+    const umzug = portalTermine(tage, { serviceType: "move" });
+    expect(umzug.map((t) => t.date)).toEqual(["2026-12-25", "2026-12-27", "2026-12-28"]);
+    expect(umzug.find((t) => t.isRecommended)).toBeUndefined();
+    expect(portalTermine(tage, { serviceType: "clearance", selectedDate: "2026-12-25" }).map((t) => t.date)).toEqual([
+      "2026-12-25",
+      "2026-12-28",
+    ]);
   });
 });

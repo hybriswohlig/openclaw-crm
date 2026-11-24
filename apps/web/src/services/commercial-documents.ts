@@ -30,6 +30,7 @@ import {
   quotationPackageOptions,
 } from "@/db/schema/customer-portal";
 import { dealCalculationVersions } from "@/db/schema/deal-calculation-versions";
+import { parseDokumentEmpfaenger, vertretenDurchZeile } from "@/lib/dokument-empfaenger";
 import {
   standardWahl,
   wahlPreis,
@@ -686,11 +687,15 @@ async function ladeModellMitVersion(input: {
     kind === "RE" ? ladeSteuernummer(workspaceId, ocId) : Promise.resolve(null),
   ]);
 
+  const dokument = parseDokumentEmpfaenger(deal.values.dokument_empfaenger);
+  const nameAufDokument = dokument.auftraggeber?.name?.trim() || null;
   const linkedCompany =
     refName(deal.values.company) ?? personContact.companyName ?? null;
   const customerCompany =
-    linkedCompany ??
-    companyFromTitle(typeof deal.values.name === "string" ? deal.values.name : null);
+    nameAufDokument
+      ? null
+      : linkedCompany ??
+        companyFromTitle(typeof deal.values.name === "string" ? deal.values.name : null);
   const companyId = refId(deal.values.company) ?? personContact.companyId;
   let customerAddress = personContact.address;
   if (!customerAddress && companyId) {
@@ -699,6 +704,7 @@ async function ladeModellMitVersion(input: {
   // Wie die VPS-Vorlage (Kottke): ohne eigene Adresse der Person oder Firma ist die
   // Auszugsadresse die Kundenanschrift (KV-Anschrift, Review M3).
   if (!customerAddress) customerAddress = addressLine(deal.values.move_from_address);
+  if (dokument.auftraggeber?.adresse) customerAddress = dokument.auftraggeber.adresse;
   const inventoryNotes =
     typeof deal.values.inventory_notes === "string" ? deal.values.inventory_notes : "";
   const dealTitle = typeof deal.values.name === "string" ? deal.values.name : "";
@@ -725,7 +731,7 @@ async function ladeModellMitVersion(input: {
       kind,
       deal: {
         firma,
-        customerName: customer.fullName,
+        customerName: nameAufDokument ?? customer.fullName,
         customerCompany,
         customerEmail: email ?? undefined,
         customerAddress,
@@ -733,9 +739,13 @@ async function ladeModellMitVersion(input: {
         toAddress: addressLine(deal.values.move_to_address),
         serviceDate: isoDay(deal.values.move_date),
         documentDate: berlinToday(input.now),
-        givenName: customer.vorname,
+        givenName: nameAufDokument ? nameAufDokument.split(/\s+/)[0] : customer.vorname,
         letterhead: letterheadFromValues(letterheadValues),
-        addressForm: customerCompany ? "sie" : addressForm,
+        addressForm: customerCompany ? "sie" : dokument.anrede ?? addressForm,
+        ...(nameAufDokument ? { letterSalutation: dokument.auftraggeber?.anrede ?? "neutral" } : {}),
+        ...(vertretenDurchZeile(dokument.vertretenDurch)
+          ? { representedByLine: vertretenDurchZeile(dokument.vertretenDurch)! }
+          : {}),
         dueDate: documentDueDate(
           deal.values.rechnung_faellig_am,
           quotation.documentDetails?.depositDue

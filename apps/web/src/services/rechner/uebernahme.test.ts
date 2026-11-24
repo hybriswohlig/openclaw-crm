@@ -23,13 +23,30 @@ describe("angebotsUebernahme", () => {
     expect(r.eingabe.lineItems.reduce((s, li) => s + Number(li.unitRate) * li.quantity, 0)).toBe(1490);
     expect(r.eingabe.documentDetails.services?.transport).toMatchObject({ owner: "company" });
     expect(r.eingabe.calculationAssumptions).toMatchObject({
-      anfahrtMinuten: 55, anfahrtQuelle: "berechnet", etageVon: "3", etageBis: "0",
+      anfahrtKm: null, anfahrtMinuten: null, anfahrtQuelle: null, etageVon: "3", etageBis: "0",
       zugangVon: "ohne Aufzug", zugangBis: "kleiner Aufzug", inventarPositionen: 3, inventarVolumenCbm: 18.4,
     });
     expect(r.eingabe.calculationAssumptions?.rechnerHinweis).toContain("SIXT Sindelfingen");
     expect(r.eingabe.calculationAssumptions?.rechnerHinweis).toContain("Tragestrecke");
     // Rechner-Hinweise sind intern: das Kundenfeld bleibt leer (Portal „Kalkulationsgrundlagen“).
     expect(r.eingabe.calculationAssumptions?.hinweis).toBeNull();
+  });
+
+  it("Kunden-Anfahrt nur ab Firmensitz, die Mietstation bleibt intern", () => {
+    const r = angebotsUebernahme(
+      { result: festpreisErgebnis, request: anfrage },
+      null,
+      { abFirmensitz: { km: 15, minuten: 20, quelle: "berechnet" } }
+    );
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.eingabe.calculationAssumptions).toMatchObject({
+      anfahrtKm: 15,
+      anfahrtMinuten: 20,
+      anfahrtQuelle: "berechnet",
+    });
+    expect(r.eingabe.calculationAssumptions?.rechnerHinweis).toContain("SIXT Sindelfingen");
+    expect(JSON.stringify(r.eingabe.calculationAssumptions)).not.toContain("37");
   });
 
   it("nur eine Spanne: ohne Bestätigung abgelehnt, mit Bestätigung die Obergrenze", () => {
@@ -48,9 +65,10 @@ describe("angebotsUebernahme", () => {
       .toEqual({ ok: false, fehler: "Kein Preis kalkulierbar: Keine Arbeit erfasst" });
   });
 
-  it("Fahrzeiten ohne Google gelten als manuell", () => {
+  it("eine angenommene Mietstation ist keine Kunden-Anfahrt", () => {
     const r = angebotsUebernahme({ result: { ...festpreisErgebnis, mietstation: { ...festpreisErgebnis.mietstation!, quelle: "angenommen" } }, request: anfrage }, null, {});
-    expect(r.ok && r.eingabe.calculationAssumptions?.anfahrtQuelle).toBe("manuell");
+    expect(r.ok && r.eingabe.calculationAssumptions?.anfahrtQuelle).toBeNull();
+    expect(r.ok && r.eingabe.calculationAssumptions?.rechnerHinweis).toContain("angenommen");
   });
 });
 

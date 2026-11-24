@@ -13,7 +13,7 @@ export function DocumentsSection({ ctx, token, preview = false }: { ctx: Custome
     { title: "Rechnung", url: ctx.documents.invoiceUrl },
   ].filter((doc): doc is { title: string; url: string } => !!doc.url);
   if (!docs.length && !ctx.acceptance) return null;
-  const t = (sie: string, du: string) => kundenText(ctx.branding.firmaSlug, sie, du);
+  const t = (sie: string, du: string) => kundenText(ctx.branding, sie, du);
   return <section className="portal-panel">
     <PanelHeading icon={FileText} title={preview && docs.length === 1 ? t(`Ihre ${docs[0].title}`, `Deine ${docs[0].title}`) : t("Ihre Dokumente", "Deine Dokumente")}><p>{docs.length ? t("Alle wichtigen Unterlagen zu Ihrem Auftrag.", "Alle wichtigen Unterlagen zu deinem Auftrag.") : t("Ihre Auftragsbestätigung wird vorbereitet und erscheint hier, sobald sie verfügbar ist.", "Deine Auftragsbestätigung wird vorbereitet und erscheint hier, sobald sie verfügbar ist.")}</p></PanelHeading>
     {ctx.acceptance && <p className="mb-4 flex items-center gap-2 text-xs text-muted-foreground"><CheckCircle2 size={17} className="text-[var(--portal-brand)]" aria-hidden />Angebot angenommen am {new Date(ctx.acceptance.signedAt).toLocaleDateString("de-DE", { timeZone: "Europe/Berlin" })}</p>}

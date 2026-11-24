@@ -7,6 +7,7 @@ import type { CalculationAssumptions } from "@/db/schema/quotations";
 
 /** Felder, die der Kunde sehen darf (Portal, Dokumente, E-Mails). Alles andere ist intern. */
 export const KUNDEN_ANNAHMEN_FELDER = [
+  "anfahrtKm",
   "anfahrtMinuten",
   "anfahrtQuelle",
   "etageVon",
@@ -77,6 +78,14 @@ export function kundenAnnahmen(a: CalculationAssumptions | null | undefined): Ca
   const r: Record<string, unknown> = {};
   for (const feld of KUNDEN_ANNAHMEN_FELDER) r[feld] = a[feld];
   if (typeof r.hinweis === "string" && istRechnerHinweis(r.hinweis, a)) r.hinweis = null;
+  // Minuten ohne Kilometer sind die alte Gesamtfahrzeit (oft die Mietstation).
+  // Die zeigt der Kunde nicht: eine Zahl ohne Einheit wäre missverständlich.
+  const km = typeof r.anfahrtKm === "number" && Number.isFinite(r.anfahrtKm) && r.anfahrtKm >= 0 ? r.anfahrtKm : null;
+  if (km === null) {
+    r.anfahrtKm = null;
+    r.anfahrtMinuten = null;
+    r.anfahrtQuelle = null;
+  }
   // Die Quelle der Anfahrt allein ist keine Angabe.
   const sichtbar = KUNDEN_ANNAHMEN_FELDER.some((f) => f !== "anfahrtQuelle" && r[f] != null && r[f] !== "");
   return sichtbar ? (r as CalculationAssumptions) : null;

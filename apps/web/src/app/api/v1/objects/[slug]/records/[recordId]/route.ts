@@ -10,6 +10,8 @@ import { lossReasonUpdateProblem, resolveDealSelectInputs } from "@/services/dea
 import { CRM_UI_CLIENT_HEADER, CRM_UI_CLIENT_VALUE } from "@/lib/deal-source";
 import { DEFAULT_KONTAKTART, KONTAKTART_SLUG } from "@/lib/kontaktart";
 import { applyKontaktart, kontaktartFromPeopleInput, resolvePeopleKontaktartInput } from "@/services/kontaktart";
+import { pruefeDokumentEmpfaenger } from "@/lib/dokument-empfaenger";
+import { sicherstellenDokumentAttribut } from "@/services/dokument-empfaenger";
 
 /**
  * Deals with financial bookings must not be deleted: payments/expenses would
@@ -79,6 +81,12 @@ export async function PATCH(
     });
     if (problem) {
       return NextResponse.json({ error: { code: "LOSS_REASON_REQUIRED", message: problem } }, { status: 400 });
+    }
+    if (Object.prototype.hasOwnProperty.call(values, "dokument_empfaenger")) {
+      const geprueft = pruefeDokumentEmpfaenger(values.dokument_empfaenger);
+      if (!geprueft.ok) return badRequest(geprueft.fehler);
+      await sicherstellenDokumentAttribut(obj.id);
+      values = { ...values, dokument_empfaenger: geprueft.wert };
     }
   }
 

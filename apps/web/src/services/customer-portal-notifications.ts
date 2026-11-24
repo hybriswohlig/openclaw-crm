@@ -18,7 +18,7 @@
  *  - Never throws: callers fire-and-forget from API response paths.
  */
 
-import { kundenText } from "@openclaw-crm/customer-portal-core";
+import { kundenGruss, kundenText } from "@openclaw-crm/customer-portal-core";
 import { vornameFuerAnrede } from "@/lib/personen-name";
 import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
@@ -99,6 +99,7 @@ export async function maybeNotifyPortalEvent(
       portalUrl,
       firmaName: context.branding.displayName,
       googleReviewUrl: rechnungMitGoogleHinweis(modus) ? context.branding.googleReviewUrl : null,
+      anrede: context.branding.anrede,
     });
 
     // 4. WhatsApp first: youngest existing thread of the deal.
@@ -243,12 +244,14 @@ function buildContent(
     portalUrl: string;
     firmaName: string;
     googleReviewUrl: string | null;
+    anrede?: "sie" | "du" | null;
   }
 ): NotificationContent {
-  const greeting = args.firstName ? `Hallo ${args.firstName},` : "Hallo,";
+  const quelle = { firma: args.firmaName, anrede: args.anrede };
+  const greeting = kundenGruss(quelle, args.firstName);
   const sign = `\n\nViele Grüße\n${args.firmaName}`;
   const ref = args.dealNumber ? ` (Auftrag ${args.dealNumber})` : "";
-  const t = (sie: string, du: string) => kundenText(args.firmaName, sie, du);
+  const t = (sie: string, du: string) => kundenText(quelle, sie, du);
 
   switch (kind) {
     case "ab_ready":

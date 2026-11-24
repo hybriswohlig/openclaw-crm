@@ -3,6 +3,7 @@
 import { useId } from "react";
 import type { TagesRasterZelle } from "@/lib/angebot-wahl";
 import { euroText, tagKurz } from "@/lib/anzeige";
+import { wertstoffhofGeschlossen } from "@/lib/feiertag-bw";
 import { Stern } from "./termin-raster";
 import {
   gruendeText,
@@ -90,9 +91,10 @@ function WahlZeile({
   const angepasst = tag.anpassung !== null && wirksam !== null && wirksam !== rechner;
   const gruende = zelle ? gruendeText(zelle.gruende) : "";
   const grundFehlt = tag.anpassung !== null && tag.anpassung.betrag.trim() !== "" && tag.anpassung.grund.trim() === "";
+  const nichtEmpfehlen = wertstoffhofGeschlossen(tag.datum);
 
   return (
-    <li className="termin-wahl" data-empfohlen={tag.empfohlen || undefined}>
+    <li className="termin-wahl" data-empfohlen={(tag.empfohlen && !nichtEmpfehlen) || undefined}>
       <div className="termin-wahl-kopf">
         <b>
           {text}
@@ -107,8 +109,10 @@ function WahlZeile({
 
       <div className="termin-wahl-zeile">
         <label className="termin-empfehlen">
-          <input type="radio" name={gruppe} checked={tag.empfohlen} disabled={gesperrt} onChange={onEmpfehlen} />
-          {tag.empfohlen ? (
+          <input type="radio" name={gruppe} checked={tag.empfohlen && !nichtEmpfehlen} disabled={gesperrt || nichtEmpfehlen} onChange={onEmpfehlen} />
+          {nichtEmpfehlen ? (
+            "nicht empfohlen"
+          ) : tag.empfohlen ? (
             <>
               <Stern /> Empfohlen
             </>

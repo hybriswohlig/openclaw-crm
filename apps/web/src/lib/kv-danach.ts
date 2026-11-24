@@ -4,7 +4,7 @@
  * Kein Netz, keine Datenbank, kein React. Kundentexte: Kottke duzt, alle
  * anderen (Ceylan) siezen, wie im Portal (`kundenText`). Keine Gedankenstriche.
  */
-import { kundenText } from "@openclaw-crm/customer-portal-core";
+import { kundenGruss, kundenText, type AnredeQuelle } from "@openclaw-crm/customer-portal-core";
 import { euroText } from "@/lib/anzeige";
 
 // ─── Statuslink ──────────────────────────────────────────────────────────────
@@ -171,13 +171,16 @@ export function kvPreisAus(
 export function kvFertigNachricht(e: {
   /** Anzeigename der Firma (entscheidet du/Sie und steht im Gruß). */
   firma: string | null;
+  /** Am Deal gesetzt: gewinnt gegen die Firmenregel. */
+  anrede?: "sie" | "du" | null;
   vorname: string | null;
   preis: KvPreis;
   url: string;
   dealNumber?: string | null;
 }): string {
-  const t = (sie: string, du: string) => kundenText(e.firma, sie, du);
-  const anrede = e.vorname ? `Hallo ${e.vorname},` : "Hallo,";
+  const quelle: AnredeQuelle = { firma: e.firma, anrede: e.anrede };
+  const t = (sie: string, du: string) => kundenText(quelle, sie, du);
+  const anrede = kundenGruss(quelle, e.vorname);
   const ref = e.dealNumber ? ` (Auftrag ${e.dealNumber})` : "";
   const saetze = [t(`Ihr Angebot${ref} ist fertig.`, `dein Angebot${ref} ist fertig.`)];
   if (e.preis.art === "fest") {
@@ -252,14 +255,17 @@ export function kvChatAuftragAus(p: URLSearchParams): KvChatAuftrag | null {
 export function kvAngepasstNachricht(e: {
   /** Anzeigename der Firma (entscheidet du/Sie und steht im Gruß). */
   firma: string | null;
+  /** Am Deal gesetzt: gewinnt gegen die Firmenregel. */
+  anrede?: "sie" | "du" | null;
   vorname: string | null;
   url: string;
   dealNumber?: string | null;
   /** Beim Push wurde eine Annahme aufgehoben: der Kunde nimmt neu an. */
   neuAnnehmen: boolean;
 }): string {
-  const t = (sie: string, du: string) => kundenText(e.firma, sie, du);
-  const anrede = e.vorname ? `Hallo ${e.vorname},` : "Hallo,";
+  const quelle: AnredeQuelle = { firma: e.firma, anrede: e.anrede };
+  const t = (sie: string, du: string) => kundenText(quelle, sie, du);
+  const anrede = kundenGruss(quelle, e.vorname);
   const ref = e.dealNumber ? ` (Auftrag ${e.dealNumber})` : "";
   const kopf = t(
     `ich habe Ihr Angebot${ref} noch einmal angepasst. Die neue Fassung finden Sie hier:`,

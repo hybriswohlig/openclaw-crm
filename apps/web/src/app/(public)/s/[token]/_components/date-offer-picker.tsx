@@ -43,7 +43,7 @@ export function DateOfferPicker({
   const [editing, setEditing] = useState(false);
 
   const accent = `#${ctx.branding.primaryColor}`;
-  const t = (sie: string, du: string) => kundenText(ctx.branding.firmaSlug, sie, du);
+  const t = (sie: string, du: string) => kundenText(ctx.branding, sie, du);
   // Plan 5b: Preis je Tag für das gewählte Paket (Tag vor Paket wie der Server).
   const paket = pickDefaultDealOption(ctx.dealPackageOffers.options, ctx.dealPackageOffers.selectedOptionId);
   const preisAm = (opt: DateOfferOption) => terminPreisFuerPaket(opt, paket?.catalogueSlug);

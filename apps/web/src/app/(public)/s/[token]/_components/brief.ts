@@ -1,4 +1,4 @@
-import { kundenText, leistungsWorte, type FirmaBranding, type PortalLeistung } from "@openclaw-crm/customer-portal-core";
+import { kundenAnrede, kundenText, leistungsWorte, type AnredeQuelle, type FirmaBranding, type PortalLeistung } from "@openclaw-crm/customer-portal-core";
 
 /** Das Festangebot als Brief: reine Texte und Daten, ohne React. */
 export type BriefZustand = "offen" | "abgelaufen" | "termin_vorbei" | "angenommen" | "unterschrieben";
@@ -20,7 +20,7 @@ export function briefZustand(i: {
 export const TERMIN_VORBEI_HINWEIS =
   "Der Termin aus diesem Angebot ist schon vorbei. Möchten Sie einen neuen Termin, schreiben Sie uns kurz, dann schicken wir Ihnen ein neues Angebot.";
 
-export function terminVorbeiHinweis(firma: string | null | undefined): string {
+export function terminVorbeiHinweis(firma: AnredeQuelle): string {
   return kundenText(
     firma,
     TERMIN_VORBEI_HINWEIS,
@@ -38,13 +38,53 @@ export function briefAnrede(name: string | null): string {
   return n ? `Guten Tag ${n},` : "Guten Tag,";
 }
 
+function letzterName(name: string): string {
+  const teile = name.trim().split(/\s+/).filter(Boolean);
+  return teile[teile.length - 1] ?? name.trim();
+}
+
+/** Name auf der Statusseite: Auftraggeber, sonst der Kontakt. */
+export function portalEmpfaengerName(ctx: {
+  customerDisplayName: string | null;
+  dokumentAnschrift?: { name: string } | null;
+}): string | null {
+  return ctx.dokumentAnschrift?.name ?? ctx.customerDisplayName;
+}
+
+/**
+ * Begrüßung der Statusseite. Mit Auftraggeber gilt dessen Name.
+ * Ausdrückliches Du: „Hallo {Vorname},“. Frau/Herr nur bei Sie.
+ */
+export function portalBriefAnrede(ctx: {
+  customerDisplayName: string | null;
+  dokumentAnschrift?: { name: string; briefanrede: "frau" | "herr" | "neutral" } | null;
+  branding: { firmaSlug?: string | null; displayName?: string | null; anrede?: "sie" | "du" | null };
+}): string {
+  const form = kundenAnrede(ctx.branding);
+  const auftraggeber = ctx.dokumentAnschrift;
+  if (auftraggeber) {
+    if (form === "du") {
+      const vor = auftraggeber.name.trim().split(/\s+/)[0];
+      return vor ? `Hallo ${vor},` : "Hallo,";
+    }
+    if (auftraggeber.briefanrede === "frau") return `Sehr geehrte Frau ${letzterName(auftraggeber.name)},`;
+    if (auftraggeber.briefanrede === "herr") return `Sehr geehrter Herr ${letzterName(auftraggeber.name)},`;
+    return "Guten Tag,";
+  }
+  if (ctx.branding.anrede === "du") {
+    const vor = ctx.customerDisplayName?.trim().split(/\s+/)[0];
+    return vor ? `Hallo ${vor},` : "Hallo,";
+  }
+  return briefAnrede(ctx.customerDisplayName);
+}
+
 
 export function briefEinleitung(
   z: BriefZustand,
   moveDateLabel: string | null,
   angenommenAmLabel: string | null,
   leistung: PortalLeistung | null = "move",
-  firma?: string | null,
+  firma?: AnredeQuelle,
 ): string {
   const t = (sie: string, du: string) => kundenText(firma, sie, du);
   if (z === "abgelaufen") {
@@ -83,7 +123,7 @@ export function grussZeilen(b: FirmaBranding): { gruss: string; name: string | n
     ? { gruss: "Herzliche Grüße", name: a.name, rolle: a.rolle }
     : {
         gruss: "Herzliche Grüße",
-        name: kundenText(b.firmaSlug, `Ihr Team von ${b.displayName}`, `Dein Team von ${b.displayName}`),
+        name: kundenText(b, `Ihr Team von ${b.displayName}`, `Dein Team von ${b.displayName}`),
         rolle: null,
       };
 }

@@ -2,7 +2,7 @@ import { leistungsWorte, type CustomerPortalContext, type LeistungsWorte } from 
 
 /** Wörter der Leistung dieses Auftrags in der Anrede der Firma. */
 export function worte(ctx: Pick<CustomerPortalContext, "leistung" | "branding">): LeistungsWorte {
-  return leistungsWorte(ctx.leistung, ctx.branding.firmaSlug);
+  return leistungsWorte(ctx.leistung, ctx.branding);
 }
 
 export interface AdressZeile {
@@ -42,8 +42,9 @@ export function adressZeilen(ctx: Pick<CustomerPortalContext, "leistung" | "bran
  */
 export function annahmenLabels(ctx: Pick<CustomerPortalContext, "leistung" | "branding" | "scope">): Record<string, string | null> {
   const basis: Record<string, string | null> = {
-    anfahrtMinuten: "Anfahrt gesamt (Minuten)",
-    anfahrtQuelle: "Grundlage der Anfahrt",
+    anfahrtKm: null,
+    anfahrtMinuten: null,
+    anfahrtQuelle: null,
     inventarPositionen: "Inventarpositionen",
     inventarVolumenCbm: "Inventarvolumen (m³)",
     hinweis: "Hinweis",

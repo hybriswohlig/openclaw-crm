@@ -92,6 +92,7 @@ interface PackagePriceRow {
 
 /** Kalkulationsgrundlagen — gespiegelt zu CalculationAssumptions (Schema). */
 interface AssumptionsDraft {
+  anfahrtKm: string;
   anfahrtMinuten: string;
   anfahrtQuelle: "berechnet" | "manuell" | null;
   etageVon: string;
@@ -199,6 +200,7 @@ export function StatusLinkWizard({
   // Packages path
   const [packageRows, setPackageRows] = useState<PackagePriceRow[]>([]);
   const [assumptions, setAssumptions] = useState<AssumptionsDraft>({
+    anfahrtKm: "",
     anfahrtMinuten: "",
     anfahrtQuelle: null,
     etageVon: "",
@@ -218,21 +220,8 @@ export function StatusLinkWizard({
     setAssumptionsLoaded(true);
     void (async () => {
       try {
-        const [auftragRes, invRes] = await Promise.all([
-          fetch(`/api/v1/deals/${dealRecordId}/auftrag`),
-          fetch(`/api/v1/deals/${dealRecordId}/inventory`),
-        ]);
+        const invRes = await fetch(`/api/v1/deals/${dealRecordId}/inventory`);
         const patch: Partial<AssumptionsDraft> = {};
-        if (auftragRes.ok) {
-          const j = (await auftragRes.json()) as {
-            data?: { auftrag?: { values?: Record<string, unknown> } | null };
-          };
-          const drive = Number(j.data?.auftrag?.values?.drive_minutes_total);
-          if (Number.isFinite(drive) && drive > 0) {
-            patch.anfahrtMinuten = String(Math.round(drive));
-            patch.anfahrtQuelle = "berechnet";
-          }
-        }
         if (invRes.ok) {
           const j = (await invRes.json()) as {
             data?: Array<{ moveFlag: boolean; volumeCbmEstimate: string | null }>;
@@ -1627,9 +1616,11 @@ function DepositBlock({
 /** Draft → jsonb-Payload; null wenn komplett leer (kein Rausch-Speichern). */
 function buildAssumptionsPayload(a: AssumptionsDraft): Record<string, unknown> | null {
   const anfahrt = a.anfahrtMinuten.trim() ? Number(a.anfahrtMinuten) : null;
+  const km = a.anfahrtKm.trim() ? Number(a.anfahrtKm.replace(",", ".")) : null;
   const payload = {
+    anfahrtKm: Number.isFinite(km) ? km : null,
     anfahrtMinuten: Number.isFinite(anfahrt) ? anfahrt : null,
-    anfahrtQuelle: a.anfahrtMinuten.trim() ? (a.anfahrtQuelle ?? "manuell") : null,
+    anfahrtQuelle: a.anfahrtKm.trim() || a.anfahrtMinuten.trim() ? (a.anfahrtQuelle ?? "manuell") : null,
     etageVon: a.etageVon.trim() || null,
     etageBis: a.etageBis.trim() || null,
     zugangVon: a.zugangVon.trim() || null,
@@ -1728,7 +1719,7 @@ function AssumptionsCard({
       ...p,
       [k]: e.target.value,
       // Handeingabe der Anfahrt macht aus "berechnet" eine Operator-Annahme.
-      ...(k === "anfahrtMinuten" ? { anfahrtQuelle: "manuell" as const } : {}),
+      ...(k === "anfahrtMinuten" || k === "anfahrtKm" ? { anfahrtQuelle: "manuell" as const } : {}),
     }));
   const field =
     "h-7 w-full rounded-md border border-input bg-transparent px-2 text-[11px]";
@@ -1744,10 +1735,14 @@ function AssumptionsCard({
       <div className="grid gap-2 sm:grid-cols-2">
         <div>
           <label className="mb-0.5 block text-[10px] text-muted-foreground">
-            Anfahrt gesamt (Minuten){" "}
+            Anfahrt ab Firmensitz (km){" "}
             {draft.anfahrtQuelle === "berechnet" ? "— berechnet" : "— Annahme"}
           </label>
-          <input value={draft.anfahrtMinuten} onChange={set("anfahrtMinuten")} inputMode="numeric" placeholder="z. B. 90" className={field} />
+          <input value={draft.anfahrtKm} onChange={set("anfahrtKm")} inputMode="decimal" placeholder="z. B. 15" className={field} />
+        </div>
+        <div>
+          <label className="mb-0.5 block text-[10px] text-muted-foreground">Anfahrt ab Firmensitz (Minuten)</label>
+          <input value={draft.anfahrtMinuten} onChange={set("anfahrtMinuten")} inputMode="numeric" placeholder="z. B. 20" className={field} />
         </div>
         <div>
           <label className="mb-0.5 block text-[10px] text-muted-foreground">Hinweis (optional)</label>

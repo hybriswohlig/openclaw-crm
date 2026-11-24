@@ -13,6 +13,7 @@ import type { RechnerAnfrage } from "./eingabe";
 import { kvBausteine, kvGueltigBis, type KvOptionen } from "./kv-posten";
 import { MARGE_HART_MIN_PROZENT, MARGE_HART_TEXT, margeErlaubt, preisBeiMarge } from "./marge";
 import { heuteBerlin } from "./quelle";
+import { kundenAnfahrt, type KundenAnfahrt } from "@/lib/kunden-anfahrt";
 
 const AUFZUG_TEXT: Record<string, string> = { keiner: "ohne Aufzug", klein: "kleiner Aufzug", gross: "großer Aufzug" };
 
@@ -113,6 +114,11 @@ export function angebotsUebernahme(
     endpreis?: number | null;
     /** Hebel weglassen (KV-Freigabe "ohne montage" / "ohne halteverbot") */
     optionen?: KvOptionen;
+    /**
+     * Strecke Firmensitz → Einsatzort. Fehlt sie, bleibt die Kunden-Anfahrt leer.
+     * `zeiten.fahrtMin` und die Mietstation sind intern und werden nicht übernommen.
+     */
+    abFirmensitz?: KundenAnfahrt | { km: number; minuten: number; quelle?: "berechnet" | "manuell" } | null;
   }
 ): UebernahmeErgebnis {
   const ergebnis = kalkulation?.result;
@@ -225,8 +231,18 @@ export function angebotsUebernahme(
       isVariable: false,
       notes: vorhandenesAngebot?.notes ?? null,
       calculationAssumptions: {
-        anfahrtMinuten: ergebnis.zeiten?.fahrtMin ?? null,
-        anfahrtQuelle: station?.quelle === "google" ? "berechnet" : "manuell",
+        ...(() => {
+          const anfahrt = kundenAnfahrt({
+            abSitz: opts.abFirmensitz ?? null,
+            mietstation: station,
+            fahrtMinGesamt: ergebnis.zeiten?.fahrtMin ?? null,
+          });
+          return {
+            anfahrtKm: anfahrt?.km ?? null,
+            anfahrtMinuten: anfahrt?.minuten ?? null,
+            anfahrtQuelle: anfahrt?.quelle ?? null,
+          };
+        })(),
         etageVon: text(kalkulation.request, "von_etage"),
         etageBis: text(kalkulation.request, "nach_etage"),
         zugangVon: aufzug("von_aufzug"),

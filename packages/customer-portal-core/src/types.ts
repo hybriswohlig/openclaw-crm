@@ -54,6 +54,11 @@ export interface FirmaBranding {
   agbPdfUrl: string | null;
   /** Persönlicher Absender im Portal (Foto, Gruß). Null: Gruß vom Team. */
   ansprechpartner: Ansprechpartner | null;
+  /**
+   * Anrede am Deal. Gesetzt gewinnt sie gegen die Firmenregel.
+   * Fehlt sie, gilt weiter: Kottke du, sonst Sie.
+   */
+  anrede?: "sie" | "du" | null;
   /** Logo je Leistung (Umzug, Entrümpelung, Küche); fehlt eine, gilt logoUrl. */
   logoJeLeistung: Partial<Record<ServiceArt, string>> | null;
 }
@@ -173,6 +178,8 @@ export interface KvaAnnahmeSnapshot extends KvaSnapshot {
 
 /** Mirror of the quotations.calculation_assumptions jsonb (apps/web). */
 export interface KvaCalculationAssumptions {
+  /** Kilometer ab Firmensitz. Ohne diesen Wert ist eine Minutenangabe keine Kunden-Anfahrt. */
+  anfahrtKm?: number | null;
   anfahrtMinuten?: number | null;
   anfahrtQuelle?: "berechnet" | "manuell" | null;
   etageVon?: string | null;
@@ -471,8 +478,19 @@ export interface CustomerPortalContext {
   paymentStatus?: { receivedCents: number; remainingCents: number | null; paid: boolean } | null;
   /** Always set — used for human reference and Verwendungszweck. */
   dealNumber: string;
-  /** Customer's display name as the operator stored it. */
+  /** Customer's display name as the operator stored it. WhatsApp und Ansprechpartner. */
   customerDisplayName: string | null;
+  /**
+   * Abweichender Empfänger auf Dokumenten und der Statusseite.
+   * Fehlt er, gilt `customerDisplayName`. Der Kontakt bleibt davon unberührt.
+   */
+  dokumentAnschrift?: {
+    name: string;
+    /** z. B. „vertreten durch Elisabeth Bath (gesetzliche Betreuerin)“. */
+    zeile: string | null;
+    adresse: string | null;
+    briefanrede: "frau" | "herr" | "neutral";
+  } | null;
   /**
    * Whether confirmations can land in the customer's inbox. The actual address
    * is intentionally NOT exposed to the public context unless it's already a

@@ -15,6 +15,7 @@ import {
   haftungshinweis,
   keinWiderrufHinweis,
   kundenAnrede,
+  kundenGruss,
   kundenText,
   musterWiderrufsformular,
   vorzeitigerBeginnCheckbox,
@@ -72,6 +73,8 @@ export interface BestaetigungsDaten {
   wahl?: AnnahmeWahlText | null;
   /** Plan 5b: Stunden-KV aus der Version oder von Hand (F11); fehlt beim Festpreis. */
   stunden?: AnnahmeStunden | null;
+  /** Am Deal gesetzt. Fehlt sie, gilt die Firmenregel (Kottke du, sonst Sie). */
+  anrede?: "sie" | "du" | null;
 }
 
 export interface AnnahmeWahlText {
@@ -109,12 +112,16 @@ function firmaFuerAnrede(d: BestaetigungsDaten): string {
   return `${d.kontakt.firma} ${d.firma}`;
 }
 
+function anredeQuelle(d: BestaetigungsDaten) {
+  return { firma: firmaFuerAnrede(d), anrede: d.anrede };
+}
+
 function anredeVon(d: BestaetigungsDaten): KundenAnrede {
-  return kundenAnrede(firmaFuerAnrede(d));
+  return kundenAnrede(anredeQuelle(d));
 }
 
 function text(d: BestaetigungsDaten, sie: string, du: string): string {
-  return kundenText(firmaFuerAnrede(d), sie, du);
+  return kundenText(anredeQuelle(d), sie, du);
 }
 
 function restbetragHinweis(d: BestaetigungsDaten): string | null {
@@ -167,7 +174,7 @@ export function bestaetigungsTextWhatsApp(d: BestaetigungsDaten): string {
   const vorname = d.kunde?.trim().split(/\s+/)[0];
   const h = haftungshinweis(anredeVon(d));
   return [
-    vorname ? `Hallo ${vorname},` : "Hallo,",
+    kundenGruss(anredeQuelle(d), vorname),
     text(
       d,
       `vielen Dank, Ihr Auftrag ist verbindlich erteilt. Hier die Bestätigung von ${d.firma}:`,
@@ -534,6 +541,7 @@ async function kundeBestaetigen(row: KvaRow): Promise<{ kanaele: string[]; pdf: 
     voraussichtlich: snapshot?.isVariable === true,
     wahl,
     stunden,
+    ...(ctx.branding.anrede ? { anrede: ctx.branding.anrede } : {}),
   };
 
   let pdf: { buf: Buffer; filename: string } | null = null;

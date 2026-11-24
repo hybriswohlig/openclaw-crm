@@ -127,6 +127,17 @@ describe("Kurztext nach dem KV", () => {
     );
     expect(kottke).not.toMatch(/\b(Sie|Ihnen|Ihr)\b/);
 
+    const sie = kvFertigNachricht({
+      firma: "Kottke Entrümpelung & Umzüge",
+      anrede: "sie",
+      vorname: "Elisabeth",
+      preis: { art: "fest", cent: 248000 },
+      url: URL_,
+      dealNumber: "2026-003",
+    });
+    expect(sie.startsWith("Guten Tag,\n\nIhr Angebot (Auftrag 2026-003) ist fertig.")).toBe(true);
+    expect(sie).not.toMatch(/\b(du|dein|dir)\b/);
+
     const ceylan = kvFertigNachricht({ firma: "Ceylan Umzüge", vorname: null, preis: { art: "stunden" }, url: URL_ });
     expect(ceylan.startsWith("Hallo,\n\nIhr Angebot ist fertig. Abgerechnet wird nach Aufwand")).toBe(true);
     expect(ceylan).toContain("können Sie das Angebot auch direkt annehmen");

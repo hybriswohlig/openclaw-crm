@@ -10,9 +10,9 @@ describe("kundenAnnahmen", () => {
       margeTatsaechlichProzent: 30, uebernommenVon: "mensch", uebernommenAm: "2026-09-28T10:00:00.000Z",
     });
     expect(Object.keys(r!).sort()).toEqual(
-      ["anfahrtMinuten", "anfahrtQuelle", "etageBis", "etageVon", "hinweis", "inventarPositionen", "inventarVolumenCbm", "zugangBis", "zugangVon"]
+      ["anfahrtKm", "anfahrtMinuten", "anfahrtQuelle", "etageBis", "etageVon", "hinweis", "inventarPositionen", "inventarVolumenCbm", "zugangBis", "zugangVon"]
     );
-    expect(r).toMatchObject({ anfahrtMinuten: 55, hinweis: "x" });
+    expect(r).toMatchObject({ anfahrtMinuten: null, anfahrtKm: null, hinweis: "x" });
   });
   it("Rechner-Hinweise aus einer Übernahme erreichen den Kunden nicht (Anfänge wie im Rechner)", () => {
     const basis = { anfahrtMinuten: 55, etageVon: "3", uebernommenVon: "mensch" as const };
@@ -39,7 +39,7 @@ describe("kundenAnnahmen", () => {
       'Position "Aquarium" ohne Katalogtreffer: 0.5 m³ (Standard der Größenklasse M) und 40 kg (Standard der Größenklasse M) je Stück.',
       "Das gesamte Team fährt im Fahrzeug mit.",
     ]) {
-      expect(kundenAnnahmen({ ...basis, hinweis }), hinweis).toMatchObject({ anfahrtMinuten: 55, hinweis: null });
+      expect(kundenAnnahmen({ ...basis, hinweis }), hinweis).toMatchObject({ anfahrtMinuten: null, hinweis: null });
     }
   });
   it("Hinweise von Hand bleiben nach einer Übernahme, auch mit Betrag oder Spanne (Review N3)", () => {

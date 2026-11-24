@@ -4,7 +4,7 @@
  * Umzug mit Zusatz: serviceType "move" und documentDetails.mitEntruempelung.
  */
 import type { ServiceArt } from "./annahme-recht";
-import { kundenAnrede } from "./anrede";
+import { kundenAnrede, type AnredeQuelle } from "./anrede";
 
 export type PortalLeistung = ServiceArt | "clearance_move";
 
@@ -161,8 +161,8 @@ const VORLAGEN: Record<PortalLeistung, Vorlage> = {
   },
 };
 
-/** Alle Wörter einer Leistung in der Anrede der Firma (Kottke du, sonst Sie). */
-export function leistungsWorte(leistung: PortalLeistung | null | undefined, firma: string | null | undefined): LeistungsWorte {
+/** Alle Wörter einer Leistung in der Anrede der Firma (Kottke du, sonst Sie; Deal-Anrede gewinnt). */
+export function leistungsWorte(leistung: PortalLeistung | null | undefined, firma: AnredeQuelle): LeistungsWorte {
   const v = VORLAGEN[leistung ?? "move"] ?? VORLAGEN.move;
   const i = kundenAnrede(firma) === "du" ? 1 : 0;
   return {

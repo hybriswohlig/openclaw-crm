@@ -11,7 +11,7 @@
  */
 import type { TageAnbieten, TagesRasterZelle, TagesSlot } from "@/lib/angebot-wahl";
 import { tagKurz } from "@/lib/anzeige";
-import { WERTSTOFFHOF_GESCHLOSSEN } from "@/lib/feiertag-bw";
+import { WERTSTOFFHOF_GESCHLOSSEN, wertstoffhofGeschlossen } from "@/lib/feiertag-bw";
 import type { TagAnsicht } from "@/lib/kalkulations-ansicht";
 import { istTag, monatsRaster, tagPlus } from "@/lib/plan-heute";
 
@@ -95,19 +95,22 @@ function sortiert(auswahl: readonly AuswahlTag[]): AuswahlTag[] {
  * Genau eine Empfehlung: die erste markierte bleibt, alle weiteren fallen;
  * ohne markierte wird der früheste Tag empfohlen. Leere Auswahl bleibt leer.
  */
+function darfEmpfohlenWerden(datum: string, grenzen?: TerminGrenzen): boolean {
+  return !wertstoffhofGeschlossen(datum) && !tagGesperrt(datum, grenzen);
+}
+
 export function empfehlungNormalisieren(auswahl: readonly AuswahlTag[], grenzen?: TerminGrenzen): AuswahlTag[] {
   const liste = sortiert(auswahl);
   if (liste.length === 0) return liste;
-  const offen = (t: AuswahlTag) => !tagGesperrt(t.datum, grenzen);
-  const markiert = liste.findIndex((t) => t.empfohlen && offen(t));
-  const ziel = markiert !== -1 ? markiert : liste.findIndex(offen);
+  const markiert = liste.findIndex((t) => t.empfohlen && darfEmpfohlenWerden(t.datum, grenzen));
+  const ziel = markiert !== -1 ? markiert : liste.findIndex((t) => darfEmpfohlenWerden(t.datum, grenzen));
   return liste.map((t, i) => (t.empfohlen === (i === ziel) ? t : { ...t, empfohlen: i === ziel }));
 }
 
 /** Diesen Tag empfehlen (genau einer); unbekannter oder gesperrter Tag ändert nichts. */
 export function alsEmpfohlen(auswahl: readonly AuswahlTag[], datum: string, grenzen?: TerminGrenzen): AuswahlTag[] {
   if (!auswahl.some((t) => t.datum === datum)) return [...auswahl];
-  if (tagGesperrt(datum, grenzen)) return [...auswahl];
+  if (tagGesperrt(datum, grenzen) || wertstoffhofGeschlossen(datum)) return empfehlungNormalisieren(auswahl, grenzen);
   return sortiert(auswahl).map((t) => ({ ...t, empfohlen: t.datum === datum }));
 }
 
@@ -296,8 +299,12 @@ export function auswahlPruefen(auswahl: readonly AuswahlTag[], heute: string, gr
   const fehler: string[] = [];
   if (auswahl.length === 0) fehler.push("Bitte mindestens einen Tag wählen.");
   if (auswahl.length > MAX_TAGE) fehler.push(`Höchstens ${MAX_TAGE} Tage.`);
-  const empfohlen = auswahl.filter((t) => t.empfohlen).length;
-  if (auswahl.length > 0 && empfohlen !== 1) fehler.push("Bitte genau einen Tag empfehlen.");
+  const darf = auswahl.filter((t) => darfEmpfohlenWerden(t.datum, grenzen));
+  const empfohlen = auswahl.filter((t) => t.empfohlen);
+  if (darf.length > 0 && empfohlen.length !== 1) fehler.push("Bitte genau einen Tag empfehlen.");
+  if (empfohlen.some((t) => wertstoffhofGeschlossen(t.datum))) {
+    fehler.push("Sonntage und Feiertage werden nicht empfohlen.");
+  }
   for (const t of sortiert(auswahl)) {
     const tag = tagKurz(t.datum);
     if (istVergangen(t.datum, heute)) fehler.push(`${tag} liegt in der Vergangenheit. Bitte abwählen.`);

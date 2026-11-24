@@ -12,6 +12,7 @@ import type { DealKunde, KundeEingabe } from "@/lib/deal-kunde";
 import { aenderungen, entwurfAus, type KundeEntwurf, type KundeFeld } from "@/lib/kunde-entwurf";
 import { apiAufruf } from "./api";
 import { AusDemChatKnopf, KUNDE_GEAENDERT_EVENT, KundeFelder, LeistungAuswahl, PersonFrage, kundeSpeichern, kundeWert, leistungSpeichern, type LeistungStand, type PersonKandidat } from "./kunde-felder";
+import { DokumentEmpfaengerPanel } from "./dokument-empfaenger";
 
 const LABEL: Record<KundeFeld, string> = {
   name: "Name",
@@ -278,6 +279,7 @@ export function KundeBereich({
           {kunde ? fehler : `Kundendaten konnten nicht geladen werden: ${fehler}`}
         </p>
       ) : null}
+      <DokumentEmpfaengerPanel dealId={dealId} />
     </GlassPanel>
   );
 }

@@ -123,7 +123,7 @@ export function PaymentSection({
             </button>
             {markError && (
               <p className="rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">
-                {kundenText(branding.firmaSlug, "Konnte nicht gesendet werden. Bitte versuchen Sie es erneut.", "Konnte nicht gesendet werden. Bitte versuche es erneut.")}
+                {kundenText(branding, "Konnte nicht gesendet werden. Bitte versuchen Sie es erneut.", "Konnte nicht gesendet werden. Bitte versuche es erneut.")}
               </p>
             )}
           </>
@@ -177,7 +177,7 @@ function PayPalBlock({ url, branding }: { url: string; branding: FirmaBranding }
   return (
     <div className="space-y-3">
       <p className="text-xs text-muted-foreground">
-        {kundenText(branding.firmaSlug, "Tippen Sie auf den Button, um die Zahlung in der PayPal-App zu öffnen.", "Tippe auf den Button, um die Zahlung in der PayPal-App zu öffnen.")}
+        {kundenText(branding, "Tippen Sie auf den Button, um die Zahlung in der PayPal-App zu öffnen.", "Tippe auf den Button, um die Zahlung in der PayPal-App zu öffnen.")}
         Betrag und Empfänger sind vorausgefüllt.
       </p>
       <a

@@ -731,6 +731,12 @@ export function aendertLead(a: Aenderung): boolean {
 export interface KundenFirma {
   slug: string | null;
   name: string | null;
+  /** Am Deal gesetzt. Fehlt sie, gilt die Firmenregel. */
+  anrede?: "sie" | "du" | null;
+}
+
+function firmaQuelle(firma: KundenFirma) {
+  return { firma: firma.slug, anrede: firma.anrede };
 }
 
 const SEITE_KUNDE: Record<Seite, string> = { beladen: "am Auszug", entladen: "am Einzug" };
@@ -744,14 +750,14 @@ const HEBEL_KUNDE: Record<HebelArt, string> = {
 function werKunde(w: Wer, firma: KundenFirma): string {
   if (w === "wir") return "übernehmen wir";
   if (w === "nicht_noetig") return "entfällt";
-  return kundenText(firma.slug, "übernehmen Sie selbst", "übernimmst du selbst");
+  return kundenText(firmaQuelle(firma), "übernehmen Sie selbst", "übernimmst du selbst");
 }
 
 /** Termin-Hinweis (nur notiert, nie umgebucht). */
 export function terminKundenText(a: { datum: string | null; text: string }, firma: KundenFirma): string {
-  if (!a.datum) return kundenText(firma.slug, `Zum Termin haben wir notiert: ${a.text}`, `Zum Termin haben wir notiert: ${a.text}`);
+  if (!a.datum) return kundenText(firmaQuelle(firma), `Zum Termin haben wir notiert: ${a.text}`, `Zum Termin haben wir notiert: ${a.text}`);
   return kundenText(
-    firma.slug,
+    firmaQuelle(firma),
     `Ihren Terminwunsch (${datumText(a.datum)}) haben wir notiert; den Termin bestätigen wir Ihnen gesondert.`,
     `Deinen Terminwunsch (${datumText(a.datum)}) haben wir notiert; den Termin bestätigen wir dir gesondert.`
   );
@@ -822,14 +828,14 @@ export function preisZeilen(p: PreisAngabe, firma: KundenFirma): string[] {
     if (z.length === 0) return [];
     return ["Die neuen Preise:", ...z.map((x) => `• ${x.label}: ${euroText(x.neuCent!)}${bisher(x.altCent, x.neuCent!)}`)];
   }
-  const summe = p.summeCent !== null ? kundenText(firma.slug, `, voraussichtlich etwa ${euroText(p.summeCent)}`, `, voraussichtlich etwa ${euroText(p.summeCent)}`) : "";
+  const summe = p.summeCent !== null ? kundenText(firmaQuelle(firma), `, voraussichtlich etwa ${euroText(p.summeCent)}`, `, voraussichtlich etwa ${euroText(p.summeCent)}`) : "";
   return [`Abgerechnet wird nach Aufwand: ${euroText(p.satzCent)} je Stunde, geschätzt ${K.format(p.stunden)} Stunden${summe}.`];
 }
 
 /** Anrede wie in den Kundentexten: Sie mit vollem Namen, du mit Vornamen. */
 export function kundenAnredeZeile(name: string | null, firma: KundenFirma): string {
   const n = name?.trim() || null;
-  if (kundenAnrede(firma.slug) === "du") {
+  if (kundenAnrede(firmaQuelle(firma)) === "du") {
     const vorname = vornameFuerAnrede(n);
     return vorname ? `Hallo ${vorname},` : "Hallo,";
   }
@@ -849,7 +855,7 @@ export function kundenNachricht(p: {
   neuAnnehmen: boolean;
 }): string {
   const f = p.firma;
-  const t = (sie: string, du: string) => kundenText(f.slug, sie, du);
+  const t = (sie: string, du: string) => kundenText(firmaQuelle(f), sie, du);
   const zeilen = p.aenderungen.map((a) => aenderungKundenText(a, f)).filter((x): x is string => !!x);
   const hinweise = p.aenderungen.flatMap((a) => (a.art === "hinweis" ? [a.text] : a.art === "termin" ? [terminKundenText(a, f)] : []));
   const teile: string[] = [kundenAnredeZeile(p.name, f), ""];

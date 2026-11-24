@@ -147,7 +147,9 @@ export interface QuotationDocumentDetails {
 
 /** Annahmen, auf denen der Angebotspreis beruht (siehe quotations-Spalte). */
 export interface CalculationAssumptions {
-  /** Gesamte Fahrzeit in Minuten (Depot→Beladen→Entladen→Depot). */
+  /** Kilometer ab Firmensitz der Gesellschaft, nie ab der Mietstation. */
+  anfahrtKm?: number | null;
+  /** Fahrzeit dieser Strecke in Minuten. Ohne `anfahrtKm` keine Kunden-Anfahrt. */
   anfahrtMinuten?: number | null;
   /** 'berechnet' = Google-Zeitschätzung, 'manuell' = Operator-Annahme (z. B. Adresse fehlte). */
   anfahrtQuelle?: "berechnet" | "manuell" | null;
