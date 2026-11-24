@@ -596,6 +596,13 @@ export function anfrageMitUebersteuerungen(
   if (leistung && typeof leistung.wert === "string" && leistung.wert !== feldText(a.auftragsart)) {
     leistungUmstellen(a, leistung.wert);
   }
+  // Entrümpelung: Montage und Küche sind standardmäßig aus. Eine Übersteuerung
+  // auf „an“ nimmt sie unten wieder aus der Liste. Umzug und Küchenmontage
+  // bleiben ohne diesen Satz. Mit Paketen fällt hebel_aus am Ende weg.
+  if (feldText(a.auftragsart) === "entruempelung") {
+    hebelAus.add("montage");
+    hebelAus.add("kueche");
+  }
 
   for (const u of wirksame(liste).values()) {
     if (u.art === "zeile") zeilenArt = true;
@@ -744,7 +751,9 @@ export function grundlageAus(lead: LeadDaten, ergebnis: RechnerErgebnis | null, 
   const zn = zugangAusTitel(lead.zugangNach);
   // Küche: Standard aus der (ggf. übersteuerten) Leistung, wie rechnerAnfrageAus/leistungUmstellen.
   const leistungU = wirksamFuer(liste, "eingabe", "leistung");
-  const istKueche = (typeof leistungU?.wert === "string" ? leistungU.wert : lead.auftragsart) === "kuechenmontage";
+  const leistungWert = typeof leistungU?.wert === "string" ? leistungU.wert : lead.auftragsart;
+  const istKueche = leistungWert === "kuechenmontage";
+  const istEntruempelung = leistungWert === "entruempelung";
 
   const basis: Record<GrundlageKey, { wert: string | number | boolean | null; herkunft: Herkunft }> = {
     volumen: { wert: ergebnis?.volumen?.nettoCbm ?? null, herkunft: volumenHerkunft(lead) },
@@ -772,8 +781,8 @@ export function grundlageAus(lead: LeadDaten, ergebnis: RechnerErgebnis | null, 
     "fahrt.strecke_km": { wert: null, herkunft: "STANDARD" },
     "fahrt.rueckfahrt_min": { wert: null, herkunft: "STANDARD" },
     "fahrt.rueckfahrt_km": { wert: null, herkunft: "STANDARD" },
-    "hebel.montage": { wert: true, herkunft: "STANDARD" },
-    "hebel.kueche": { wert: true, herkunft: "STANDARD" },
+    "hebel.montage": { wert: !istEntruempelung, herkunft: "STANDARD" },
+    "hebel.kueche": { wert: !istEntruempelung, herkunft: "STANDARD" },
     team: { wert: team, herkunft: team === null ? "STANDARD" : "REGEL" },
     termin: ausLead(lead.umzugsdatum),
     anfahrt_team: { wert: null, herkunft: "STANDARD" },

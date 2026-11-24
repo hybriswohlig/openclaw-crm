@@ -7,6 +7,10 @@
  * weglassen kann (Montage, Halteverbot, Einpacken, Küche). Verhandelt wird so
  * über den Umfang, nie über einen Rabatt. Die Summe der Posten ist immer genau
  * der Festpreis. Reine Funktionen, kein I/O.
+ *
+ * Entrümpelung: Räumung und Abtransport ohne Möbelschutz, die Entsorgung als
+ * eigene Position mit ihrem Verkaufsbetrag, Demontage ohne Montage. Andere
+ * Auftragsarten bleiben bei den Umzugstexten.
  */
 import type { KostenPosten, RechnerErgebnis } from "./client";
 import type { RechnerAnfrage } from "./eingabe";
@@ -275,15 +279,26 @@ function zerlegteMoebel(e: Pick<RechnerErgebnis, "positionen" | "positionenDetai
  * Inhaber hat den Preis vorgegeben), bleibt der Preis, sonst sinkt er um den Hebel.
  */
 const METER = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 2 });
+const CBM = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 2 });
 
 /**
  * Titel des Küchenpostens: „Küchenmontage: Aufbau (3,2 m Küchenzeile, 1,8 m Oberschränke)“
  * bei Küchenmontage, „Küche: Abbau und Aufbau (…)“ beim Umzug.
+ * Entrümpelung: nur Demontage, auch wenn die Küche stehen bleibt. Kein Aufbau.
  */
 export function kuechenTitel(anfrage: RechnerAnfrage, meter: number | null, meterOben: number | null, istKueche: boolean): string {
   const abbau = an(anfrage, "kueche_demontage");
   const aufbau = an(anfrage, "kueche_montage");
-  const arbeit = abbau && aufbau ? "Abbau und Aufbau" : abbau ? "Abbau" : aufbau ? "Aufbau" : "Abbau und Aufbau";
+  const arbeit =
+    anfrage.auftragsart === "entruempelung"
+      ? "Demontage"
+      : abbau && aufbau
+        ? "Abbau und Aufbau"
+        : abbau
+          ? "Abbau"
+          : aufbau
+            ? "Aufbau"
+            : "Abbau und Aufbau";
   const teile = [
     meter ? `${METER.format(meter)} m Küchenzeile` : null,
     meterOben ? `${METER.format(meterOben)} m Oberschränke` : null,
@@ -307,6 +322,7 @@ export function kvBausteine(input: {
 }): KvBausteine {
   const { ergebnis: e, anfrage } = input;
   const istKueche = anfrage.auftragsart === "kuechenmontage";
+  const istEntruempelung = anfrage.auftragsart === "entruempelung";
   const opt = input.optionen ?? {};
   const listenPosten = e.preis?.posten ?? [];
   const arbeitssatz = zeile(listenPosten, ["verkauf.arbeitsstunden"], (b) => /^Arbeitsstunden/.test(b))?.satz ?? ARBEITSSATZ_STANDARD;
@@ -360,10 +376,16 @@ export function kvBausteine(input: {
     besitzer.explicit && firmaDemontage !== firmaMontage
       ? firmaDemontage ? abbauFirma : aufbauFirma
       : montageMoebel;
-  const montageTitel = firmaDemontage && !firmaMontage ? "Demontage" : firmaMontage && !firmaDemontage ? "Montage" : "Demontage & Montage";
+  let montageTitel = firmaDemontage && !firmaMontage ? "Demontage" : firmaMontage && !firmaDemontage ? "Montage" : "Demontage & Montage";
   // Beide Seiten bei uns, aber nicht für dieselben Möbel: je Seite getrennt nennen (Review 10.11.).
   let montageText = `${montageTitel} (${moebelText(montageNamen)})`;
-  if (besitzer.explicit && firmaDemontage && firmaMontage) {
+  if (istEntruempelung) {
+    // Entrümpelung: nur Demontage. Aufbau gibt es nicht, das Gut wird entsorgt.
+    const namen = (besitzer.explicit ? abbauFirma : montageMoebel);
+    const liste = namen.length > 0 ? namen : montageMoebel;
+    montageTitel = "Demontage";
+    montageText = liste.length > 0 ? `Demontage (${moebelText(liste)})` : "Demontage";
+  } else if (besitzer.explicit && firmaDemontage && firmaMontage) {
     const ab = new Set(abbauFirma.map(schluessel));
     const auf = new Set(aufbauFirma.map(schluessel));
     const beide = montageMoebel.filter((n) => ab.has(schluessel(n)) && auf.has(schluessel(n)));
@@ -459,10 +481,13 @@ export function kvBausteine(input: {
   // ── Kernposten ──
   const option = e.fahrzeugoptionen?.find((o) => o.id === e.empfehlungOptionId) ?? null;
   const team = option?.teamgroesse ?? e.team?.groesse ?? null;
-  const fahrzeug = option && /lkw/i.test(option.name) ? "LKW" : "Transporter";
+  const fahrzeugUmzug = option && /lkw/i.test(option.name) ? "LKW" : "Transporter";
+  const fahrzeug = istEntruempelung ? (option?.name ?? "Fahrzeug") : fahrzeugUmzug;
   const kernText = istKueche
     ? `Montageteam${team ? ` (${team} Monteure)` : ""}, inkl. Anfahrt, Werkzeug und Kleinmaterial${an(anfrage, "kueche_hochtragen") ? ", Tragen zum Einbauort" : ""}`
-    : `Umzugsteam${team ? ` (${team} Personen)` : ""} & ${fahrzeug}, inkl. Anfahrt, aller Kilometer, Möbelschutz und Tragewege`;
+    : istEntruempelung
+      ? `Räumung & Abtransport (${team ? `Team ${team} Personen` : "Team"} & ${fahrzeug}, inkl. Anfahrt und Tragewege)`
+      : `Umzugsteam${team ? ` (${team} Personen)` : ""} & ${fahrzeugUmzug}, inkl. Anfahrt, aller Kilometer, Möbelschutz und Tragewege`;
   let kernPosten: KvPosten = { description: kernText, quantity: 1, unitRate: kern };
   if (klappen !== "nie" && kern < summe * KERN_MIN_ANTEIL) {
     // Hebel zu groß im Verhältnis: ein Posten mit allem, damit kein Teil billiger wirkt als der Rest.
@@ -507,8 +532,45 @@ export function kvBausteine(input: {
     leistungen.materials = { owner: "none" };
   }
 
+  if (istEntruempelung) {
+    leistungen.transport = {
+      owner: "company",
+      note: `Räumung und Abtransport${team ? ` mit ${team} Personen` : ""}, inkl. Anfahrt und Tragewege.`,
+    };
+    leistungen.assembly = { owner: "none" };
+    leistungen.unpacking = { owner: "none" };
+    if (!(Number.isFinite(kartons) && kartons > 0)) {
+      leistungen.packing = { owner: "none" };
+      leistungen.materials = { owner: "none" };
+    }
+  }
+
+  // Entsorgung aus dem Verkaufsposten, nach dem Zusammenklappen, damit der Betrag
+  // sichtbar bleibt. Der Kern sinkt um denselben Betrag, die Summe bleibt der Festpreis.
+  let entsorgung: KvPosten | null = null;
+  if (istEntruempelung) {
+    const z = zeile(listenPosten, ["verkauf.entsorgung"], (b) => b === "Entsorgung" || /^Entsorgung\b/.test(b));
+    if (z && z.betrag > 0) {
+      const menge = typeof z.menge === "number" && z.menge > 0 ? ` ca. ${CBM.format(z.menge)} m³` : "";
+      const satzCent = inCent(cent(z.betrag));
+      const platz = inCent(kernPosten.unitRate);
+      if (platz > satzCent) {
+        kern = (platz - satzCent) / 100;
+        kernPosten = { ...kernPosten, unitRate: kern };
+        entsorgung = { description: `Fachgerechte Entsorgung${menge}`, quantity: 1, unitRate: satzCent / 100 };
+      } else if (platz > 0) {
+        entsorgung = { description: `Fachgerechte Entsorgung${menge}`, quantity: 1, unitRate: platz / 100 };
+        kern = 0;
+        kernPosten = { ...kernPosten, unitRate: 0 };
+      }
+    }
+  }
+
   // Kern ≤ 0 ist kein Posten. Beim bisherigen Zusammenklappen steht er schon als Summe im einen Posten.
-  const posten = kern > 0 || klappen !== "nie" ? [kernPosten, ...hebel.map((k) => k.posten)] : hebel.map((k) => k.posten);
+  const kernZeile = entsorgung
+    ? kern > 0 ? [kernPosten] : []
+    : kern > 0 || klappen !== "nie" ? [kernPosten] : [];
+  const posten = [...kernZeile, ...(entsorgung ? [entsorgung] : []), ...hebel.map((k) => k.posten)];
 
   return {
     posten,

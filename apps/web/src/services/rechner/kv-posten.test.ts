@@ -543,3 +543,66 @@ describe("Paket-KV: Leistungen je Paket (Rest-vier, Punkt 1)", () => {
     expect(k.leistungen).toEqual(leistungenFuerPaket(standard, [], mitPaketen));
   });
 });
+
+describe("kvBausteine Entrümpelung", () => {
+  const festpreis = 1630;
+  const entsorgung = { key: "verkauf.entsorgung", bezeichnung: "Entsorgung", menge: 11.522, einheit: "m³", satz: 65, betrag: 748.93 };
+  const basis = {
+    ...ergebnis,
+    zeiten: { demontage: 108, montage: 0, packen: 0 },
+    team: { groesse: 3 },
+    preis: { festpreis, posten: [entsorgung, { key: "verkauf.arbeitsstunden", bezeichnung: "Arbeitsstunden", menge: 5, einheit: "Std", satz: 35, betrag: 175 }] },
+    fahrzeugoptionen: [{ id: "lang@station", name: "Sprinter lang L3H2", fahrten: 1, km: 80, fahrtMin: 75, teamgroesse: 3 }],
+    empfehlungOptionId: "lang@station",
+  };
+  const anfrageRaeumung = { auftragsart: "entruempelung", von_adresse: "Neuweiler" };
+
+  it("eigene Positionstexte, Entsorgung sichtbar, Summe bleibt der Festpreis", () => {
+    const k = kvBausteine({ festpreis, ergebnis: basis, anfrage: anfrageRaeumung });
+    expect(k.posten.map((p) => p.description)).toEqual([
+      "Räumung & Abtransport (Team 3 Personen & Sprinter lang L3H2, inkl. Anfahrt und Tragewege)",
+      "Fachgerechte Entsorgung ca. 11,52 m³",
+      "Demontage (Boxspringbett, Esstisch und Schreibtisch)",
+    ]);
+    expect(k.posten[1]!.unitRate).toBe(748.93);
+    expect(k.posten[2]!.unitRate).toBe(70);
+    expect(k.posten.reduce((s, p) => s + p.unitRate * p.quantity, 0)).toBeCloseTo(festpreis, 2);
+    expect(k.posten.some((p) => /Möbelschutz|Umzugsteam|Demontage & Montage/.test(p.description))).toBe(false);
+    expect(k.leistungen.transport.note).toContain("Räumung und Abtransport");
+    expect(k.leistungen.transport.note).not.toContain("Möbelschutz");
+    expect(k.leistungen.assembly).toEqual({ owner: "none" });
+    expect(k.leistungen.packing).toEqual({ owner: "none" });
+  });
+
+  it("Umzug behält Umzugsteam und Demontage & Montage, auch wenn eine Entsorgungszeile vorliegt", () => {
+    const k = kvBausteine({ festpreis: 2260, ergebnis: { ...ergebnis, preis: { ...ergebnis.preis, posten: [...ergebnis.preis.posten, entsorgung] } }, anfrage });
+    expect(k.posten[0]!.description).toContain("Umzugsteam");
+    expect(k.posten[0]!.description).toContain("Möbelschutz");
+    expect(k.posten.some((p) => p.description.startsWith("Fachgerechte Entsorgung"))).toBe(false);
+    expect(k.posten.some((p) => p.description.startsWith("Demontage & Montage"))).toBe(true);
+  });
+
+  it("Küche bei Entrümpelung nur als Demontage, ohne Aufbau", () => {
+    const k = kvBausteine({
+      festpreis: 1630,
+      ergebnis: {
+        ...basis,
+        preis: {
+          festpreis: 1630,
+          posten: [{ key: "verkauf.kueche", bezeichnung: "Küche Demontage/Montage", menge: 3, einheit: "m", satz: 40, betrag: 120 }],
+        },
+      },
+      anfrage: { ...anfrageRaeumung, kueche_montage: "on", kueche_demontage: "on" },
+    });
+    const kueche = k.posten.find((p) => p.description.startsWith("Küche"));
+    expect(kueche?.description).toContain("Demontage");
+    expect(kueche?.description).not.toMatch(/Aufbau|Montage \(/);
+  });
+
+  it("mit abgewählter Montage kein Demontage-Posten, die Entsorgung bleibt", () => {
+    const k = kvBausteine({ festpreis, ergebnis: basis, anfrage: { ...anfrageRaeumung, hebel_aus: '["kueche","montage"]' } });
+    expect(k.posten.some((p) => p.description.startsWith("Demontage"))).toBe(false);
+    expect(k.posten.some((p) => p.description.startsWith("Fachgerechte Entsorgung"))).toBe(true);
+    expect(k.posten.reduce((s, p) => s + p.unitRate * p.quantity, 0)).toBeCloseTo(festpreis, 2);
+  });
+});

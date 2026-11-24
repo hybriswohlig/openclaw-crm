@@ -19,6 +19,7 @@ import { usePortalZiel } from "@/components/neu/portal-ziel";
 import type { TagesRaster, TagesRasterZelle } from "@/lib/angebot-wahl";
 import { euroText, tagKurz } from "@/lib/anzeige";
 import { berlinDateString } from "@/lib/berlin-date";
+import { wertstoffhofGeschlossen } from "@/lib/feiertag-bw";
 import type { KalkulationsAnsicht } from "@/lib/kalkulations-ansicht";
 import {
   ansichtLaden,
@@ -48,6 +49,7 @@ import {
   TERMIN_DIALOG_EVENT,
   type AuswahlTag,
   type TerminDialogEvent,
+  type TerminGrenzen,
 } from "./termin-logik";
 import { TerminRaster, type MonatsStand } from "./termin-raster";
 
@@ -163,6 +165,13 @@ type Schritt =
   /** F2 (M5): Rückfrage wie auf der Kalkulationsseite, bevor ein Stunden-KV Festpreis wird. */
   | { art: "moduswechsel"; ansicht: KalkulationsAnsicht; texte: KvTexte; meldung: string };
 
+/** Entrümpelung: Sonntag und Feiertag in Baden-Württemberg nicht anbieten. */
+function entruempelungGrenzen(a: KalkulationsAnsicht): TerminGrenzen | undefined {
+  const zeile = a.grundlage.zeilen.find((z) => z.key === "leistung");
+  const roh = zeile?.felder.some((f) => f.wert === "entruempelung") || zeile?.wert === "Entrümpelung";
+  return roh ? { gesperrt: wertstoffhofGeschlossen } : undefined;
+}
+
 /** Darf der Dialog nach dem Speichern sperren bzw. den KV erstellen? */
 function sperrSchritt(a: KalkulationsAnsicht): boolean {
   return a.version.status === "entwurf" ? a.version.sperrbar : a.version.kvErstellbar;
@@ -185,7 +194,8 @@ function TerminDialogNeu({
   // Mit Paketen gelten Preis und Anpassung dem empfohlenen Paket am Tag (wie das Raster).
   const paket = empfohlenesPaketAus(start.pakete);
   const paketName = paket ? start.pakete.find((p) => p.slug === paket)?.name ?? paket : null;
-  const [auswahl, setAuswahl] = useState<AuswahlTag[]>(() => auswahlAusTagen(start.tage, heute, paket));
+  const grenzen: TerminGrenzen | undefined = entruempelungGrenzen(start);
+  const [auswahl, setAuswahl] = useState<AuswahlTag[]>(() => auswahlAusTagen(start.tage, heute, paket, grenzen));
   const [monat, setMonat] = useState(() => startMonat(auswahl, null, heute));
   const [zellen, setZellen] = useState<Record<string, TagesRasterZelle>>({});
   const [staende, setStaende] = useState<Record<string, MonatsStand>>({});
@@ -249,13 +259,13 @@ function TerminDialogNeu({
   const beschaeftigt = laeuft || schritt.art !== "waehlen";
 
   function tagKlick(datum: string) {
-    const r = tagUmschalten(auswahl, datum, heute);
+    const r = tagUmschalten(auswahl, datum, heute, grenzen);
     setAuswahl(r.auswahl);
     setKlickFehler(r.fehler);
   }
 
   async function anbieten() {
-    const fehler = auswahlPruefen(auswahl, heute);
+    const fehler = auswahlPruefen(auswahl, heute, grenzen);
     setPruefFehler(fehler);
     if (fehler.length > 0) return;
     setLaeuft(true);
@@ -402,9 +412,9 @@ function TerminDialogNeu({
                   zellen={zellen}
                   gesperrt={beschaeftigt}
                   onAendern={(datum, f) => setAuswahl((a) => tagAendern(a, datum, f))}
-                  onEmpfehlen={(datum) => setAuswahl((a) => alsEmpfohlen(a, datum))}
+                  onEmpfehlen={(datum) => setAuswahl((a) => alsEmpfohlen(a, datum, grenzen))}
                   onEntfernen={(datum) => {
-                    setAuswahl((a) => empfehlungNormalisieren(a.filter((t) => t.datum !== datum)));
+                    setAuswahl((a) => empfehlungNormalisieren(a.filter((t) => t.datum !== datum), grenzen));
                     setKlickFehler(null);
                   }}
                 />

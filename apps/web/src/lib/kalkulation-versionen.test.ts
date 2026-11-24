@@ -230,6 +230,19 @@ describe("anfrageMitUebersteuerungen", () => {
     expect(aus.paket_hebel).toBe(JSON.stringify({ komfort: ["montage", "halteverbot"] }));
   });
 
+  it("Entrümpelung schaltet Montage und Küche standardmäßig aus, Umzug nicht", () => {
+    const aus = anfrageMitUebersteuerungen({ auftragsart: "entruempelung" }, [], ref);
+    expect(JSON.parse(String(aus.hebel_aus))).toEqual(["kueche", "montage"]);
+    const wiederAn = anfrageMitUebersteuerungen({ auftragsart: "entruempelung" }, [ue("eingabe", "hebel.montage", true)], ref);
+    expect(JSON.parse(String(wiederAn.hebel_aus))).toEqual(["kueche"]);
+    expect(anfrageMitUebersteuerungen({ auftragsart: "umzug" }, [], ref)).not.toHaveProperty("hebel_aus");
+    const zeilen = grundlageAus(lead({ auftragsart: "entruempelung" }), null, []);
+    expect(zeilen.find((z) => z.key === "hebel.montage")).toMatchObject({ wert: false, herkunft: "STANDARD" });
+    expect(zeilen.find((z) => z.key === "hebel.kueche")).toMatchObject({ wert: false, herkunft: "STANDARD" });
+    expect(grundlageAus(lead({ auftragsart: "umzug" }), null, []).find((z) => z.key === "hebel.montage")?.wert).toBe(true);
+    expect(grundlageAus(lead(), null, []).find((z) => z.key === "hebel.kueche")?.wert).toBe(true);
+  });
+
   it("verändert die Basis nicht", () => {
     const basis: RechnerAnfrage = { von_etage: "2", heute: "2026-11-01", von_halteverbot: "on", positionen_freitext: [{ name: "Sofa", menge: 1 }] };
     const kopie = structuredClone(basis);
